@@ -164,6 +164,13 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					"remove telnet: apt purge telnet / dnf remove telnet")
 			}},
 
+		{ID: "2.2.5", Framework: cisBenchCIS, Level: 1, Section: cisCatServices,
+			Description: "Ensure LDAP client is not installed",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkServiceNotInstalled(ruleByID("2.2.5"), ldapClientBinPaths,
+					"remove LDAP client: apt purge ldap-utils / dnf remove openldap-clients")
+			}},
+
 		// ── 2.3 Server Daemons Not Installed ─────────────────────────────────
 		// These daemons are not needed on a general-purpose server and increase
 		// attack surface. Binary presence → service is installed → FAIL.
@@ -257,6 +264,92 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				return checkServiceNotInstalled(ruleByID("2.3.13"), snmpBinPaths,
 					"remove SNMP: apt purge snmpd / dnf remove net-snmp")
+			}},
+
+		{ID: "2.3.14", Framework: cisBenchCIS, Level: 1, Section: cisCatServices,
+			Description: "Ensure MTA is configured for local-only mode",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("2.3.14")
+				mtaFound := false
+				for _, p := range mtaBinPaths {
+					if _, err := os.Stat(p); err == nil {
+						mtaFound = true
+						break
+					}
+				}
+				if !mtaFound {
+					return skipr(r, "no MTA (postfix/sendmail) installed")
+				}
+				data, err := os.ReadFile(postfixMainCfPath) // #nosec G304 -- package-level var
+				if err != nil {
+					return skipr(r, "postfix main.cf not readable — cannot verify inet_interfaces")
+				}
+				for line := range strings.SplitSeq(string(data), "\n") {
+					trimmed := strings.TrimSpace(line)
+					if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+						continue
+					}
+					rest, ok := strings.CutPrefix(trimmed, "inet_interfaces")
+					if !ok {
+						continue
+					}
+					rest = strings.TrimSpace(rest)
+					rest, ok = strings.CutPrefix(rest, "=")
+					if !ok {
+						continue
+					}
+					val := strings.ToLower(strings.TrimSpace(rest))
+					if val == "loopback-only" || val == "localhost" {
+						return pass(r)
+					}
+					return failr(r,
+						fmt.Sprintf("inet_interfaces = %q — MTA accepts external connections", val),
+						"set inet_interfaces = loopback-only in /etc/postfix/main.cf and run: postfix reload")
+				}
+				return failr(r, "inet_interfaces not set in /etc/postfix/main.cf",
+					"add inet_interfaces = loopback-only to /etc/postfix/main.cf and run: postfix reload")
+			}},
+
+		{ID: "2.3.15", Framework: cisBenchCIS, Level: 1, Section: cisCatServices,
+			Description: "Ensure rsync service is not enabled",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("2.3.15")
+				rsyncPresent := false
+				for _, p := range rsyncBinPaths {
+					if _, err := os.Stat(p); err == nil {
+						rsyncPresent = true
+						break
+					}
+				}
+				if !rsyncPresent {
+					return skipr(r, "rsync not installed")
+				}
+				for _, p := range rsyncWantsPaths {
+					if _, err := os.Stat(p); err == nil {
+						return failr(r, "rsync daemon is enabled via systemd",
+							"systemctl disable rsync && systemctl stop rsync")
+					}
+				}
+				data, err := os.ReadFile(rsyncDefaultPath) // #nosec G304 -- package-level var
+				if err == nil {
+					for line := range strings.SplitSeq(string(data), "\n") {
+						trimmed := strings.TrimSpace(line)
+						if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+							continue
+						}
+						rest, ok := strings.CutPrefix(trimmed, "RSYNC_ENABLE=")
+						if !ok {
+							continue
+						}
+						val := strings.Trim(rest, "\"'")
+						if strings.EqualFold(val, "true") || val == "1" {
+							return failr(r,
+								"RSYNC_ENABLE=true in /etc/default/rsync — rsync daemon is enabled",
+								"set RSYNC_ENABLE=false in /etc/default/rsync")
+						}
+					}
+				}
+				return pass(r)
 			}},
 
 		// ── 5.2 SSH Server Configuration ─────────────────────────────────────
@@ -1202,6 +1295,100 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				return failr(r,
 					"ufw service is not enabled",
 					"ufw enable && systemctl enable ufw")
+			}},
+
+		{ID: "3.5.1.4", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure ufw loopback traffic is configured",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.5.1.4")
+				data, err := os.ReadFile(ufwBeforeRulesPath) // #nosec G304 -- package-level var
+				if err != nil {
+					return skipr(r, "ufw not configured — /etc/ufw/before.rules not found")
+				}
+				content := strings.ToLower(string(data))
+				hasInput := strings.Contains(content, "-i lo -j accept")
+				hasOutput := strings.Contains(content, "-o lo -j accept")
+				hasDeny127 := strings.Contains(content, "127.0.0.0/8") &&
+					(strings.Contains(content, "-j drop") || strings.Contains(content, "-j deny"))
+				if !hasInput || !hasOutput || !hasDeny127 {
+					var missing []string
+					if !hasInput {
+						missing = append(missing, "loopback input ACCEPT rule")
+					}
+					if !hasOutput {
+						missing = append(missing, "loopback output ACCEPT rule")
+					}
+					if !hasDeny127 {
+						missing = append(missing, "127.0.0.0/8 deny rule")
+					}
+					return failr(r,
+						fmt.Sprintf("missing loopback rules in before.rules: %s", strings.Join(missing, ", ")),
+						"restore default loopback rules in /etc/ufw/before.rules or reinstall ufw")
+				}
+				data6, err := os.ReadFile(ufwBefore6RulesPath) // #nosec G304 -- package-level var
+				if err == nil {
+					c6 := strings.ToLower(string(data6))
+					hasIn6 := strings.Contains(c6, "-i lo -j accept")
+					hasOut6 := strings.Contains(c6, "-o lo -j accept")
+					hasDeny6 := strings.Contains(c6, "::1") &&
+						(strings.Contains(c6, "-j drop") || strings.Contains(c6, "-j deny"))
+					if !hasIn6 || !hasOut6 || !hasDeny6 {
+						var missing []string
+						if !hasIn6 {
+							missing = append(missing, "IPv6 loopback input ACCEPT")
+						}
+						if !hasOut6 {
+							missing = append(missing, "IPv6 loopback output ACCEPT")
+						}
+						if !hasDeny6 {
+							missing = append(missing, "::1 deny rule")
+						}
+						return failr(r,
+							fmt.Sprintf("missing IPv6 loopback rules in before6.rules: %s", strings.Join(missing, ", ")),
+							"restore default IPv6 loopback rules in /etc/ufw/before6.rules")
+					}
+				}
+				return pass(r)
+			}},
+
+		{ID: "3.5.1.5", Framework: cisBenchCIS, Level: 2, Section: cisCatNetwork,
+			Description: "Ensure ufw outbound connections are configured",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.5.1.5")
+				data, err := os.ReadFile(ufwDefaultPath) // #nosec G304 -- package-level var
+				if err != nil {
+					return skipr(r, "ufw not configured — /etc/default/ufw not found")
+				}
+				for line := range strings.SplitSeq(string(data), "\n") {
+					trimmed := strings.TrimSpace(line)
+					if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+						continue
+					}
+					rest, ok := strings.CutPrefix(trimmed, "DEFAULT_OUTPUT_POLICY=")
+					if !ok {
+						continue
+					}
+					val := strings.Trim(rest, "\"'")
+					if strings.EqualFold(val, "ALLOW") {
+						return pass(r)
+					}
+					break
+				}
+				data2, err := os.ReadFile(ufwUserRulesPath) // #nosec G304 -- package-level var
+				if err != nil {
+					return failr(r,
+						"ufw output policy is not ALLOW and user.rules is unreadable",
+						"configure outbound rules: set DEFAULT_OUTPUT_POLICY=ALLOW in /etc/default/ufw")
+				}
+				content := strings.ToLower(string(data2))
+				if strings.Contains(content, "-a ufw-user-output -j accept") ||
+					strings.Contains(content, "-a ufw-user-output -j return") ||
+					strings.Contains(content, "allow out") {
+					return pass(r)
+				}
+				return failr(r,
+					"ufw DEFAULT_OUTPUT_POLICY is not ALLOW and no explicit allow-out rules found",
+					"set DEFAULT_OUTPUT_POLICY=ALLOW in /etc/default/ufw or add explicit allow-out rules")
 			}},
 
 		{ID: "3.5.1.7", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
@@ -2995,8 +3182,44 @@ var ufwWantsPaths = []string{
 	"/run/systemd/generator.late/multi-user.target.wants/ufw.service",
 }
 
-// ufwDefaultPath: ufw default policy config (3.5.1.7).
+// ufwDefaultPath: ufw default policy config (3.5.1.7, 3.5.1.5).
 var ufwDefaultPath = "/etc/default/ufw"
+
+// ufwBeforeRulesPath and ufwBefore6RulesPath for UFW loopback check (3.5.1.4).
+var ufwBeforeRulesPath = "/etc/ufw/before.rules"
+var ufwBefore6RulesPath = "/etc/ufw/before6.rules"
+
+// ufwUserRulesPath for UFW outbound connections check (3.5.1.5).
+var ufwUserRulesPath = "/etc/ufw/user.rules"
+
+// ldapClientBinPaths for LDAP client check (2.2.5).
+var ldapClientBinPaths = []string{
+	"/usr/bin/ldapsearch",
+	"/usr/bin/ldapadd",
+	"/usr/bin/ldapmodify",
+}
+
+// mtaBinPaths for MTA local-only mode check (2.3.14).
+var mtaBinPaths = []string{
+	"/usr/sbin/postfix",
+	"/usr/lib/postfix/sbin/master",
+	"/usr/sbin/sendmail",
+}
+
+// postfixMainCfPath for MTA local-only mode check (2.3.14).
+var postfixMainCfPath = "/etc/postfix/main.cf"
+
+// rsyncBinPaths for rsync service check (2.3.15).
+var rsyncBinPaths = []string{"/usr/bin/rsync"}
+
+// rsyncWantsPaths: systemd wants-directory symlinks for rsync daemon (2.3.15).
+var rsyncWantsPaths = []string{
+	"/etc/systemd/system/multi-user.target.wants/rsync.service",
+	"/run/systemd/generator.late/multi-user.target.wants/rsync.service",
+}
+
+// rsyncDefaultPath: Debian/Ubuntu rsync daemon init default file (2.3.15).
+var rsyncDefaultPath = "/etc/default/rsync"
 
 // logrotateConfPath and logrotateConfDPath for logrotate config check (4.3.1).
 var logrotateConfPath = "/etc/logrotate.conf"
