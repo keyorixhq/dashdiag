@@ -275,7 +275,6 @@ func FuzzParseFileNr(f *testing.F) {
 // and fdlimits.go:225.16,227.3 — when sysctl fails, collectDarwin returns an empty
 // FDInfo with no error (graceful degrade).
 func TestFDLimitsCollector_CollectDarwin_SysctlError(t *testing.T) {
-	t.Parallel()
 	b := source.NewBundle()
 	b.PutCmd("sysctl", []string{"-n", "kern.maxfiles"}, "", 1) // non-zero exit → error
 	prev := SetSource(source.NewReplay(b))
@@ -297,7 +296,6 @@ func TestFDLimitsCollector_CollectDarwin_SysctlError(t *testing.T) {
 // and fdlimits.go:229.16,231.3 — when sysctl returns non-numeric output, ParseUint
 // fails and collectDarwin returns an empty FDInfo with no error.
 func TestFDLimitsCollector_CollectDarwin_ParseError(t *testing.T) {
-	t.Parallel()
 	b := source.NewBundle()
 	b.PutCmd("sysctl", []string{"-n", "kern.maxfiles"}, "not-a-number\n", 0)
 	prev := SetSource(source.NewReplay(b))
@@ -318,7 +316,6 @@ func TestFDLimitsCollector_CollectDarwin_ParseError(t *testing.T) {
 // TestFDLimitsCollector_CollectDarwin_Success covers fdlimits.go:232.2,232.43 —
 // the happy path where sysctl returns a valid integer and MaxCount is populated.
 func TestFDLimitsCollector_CollectDarwin_Success(t *testing.T) {
-	t.Parallel()
 	b := source.NewBundle()
 	b.PutCmd("sysctl", []string{"-n", "kern.maxfiles"}, "65536\n", 0)
 	prev := SetSource(source.NewReplay(b))
