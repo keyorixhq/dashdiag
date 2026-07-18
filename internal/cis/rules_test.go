@@ -5891,3 +5891,249 @@ func TestRule5_5_2_SuWheelRestriction(t *testing.T) {
 		}
 	})
 }
+
+// TestRule5_4_9_PwqualityMinlen verifies rule 5.4.9.
+// No t.Parallel() — mutates pwqualityConfPath.
+func TestRule5_4_9_PwqualityMinlen(t *testing.T) {
+	rule := ruleByID("5.4.9")
+	dir := t.TempDir()
+
+	origPath := pwqualityConfPath
+	t.Cleanup(func() { pwqualityConfPath = origPath })
+
+	t.Run("pwquality.conf missing → SKIP", func(t *testing.T) {
+		pwqualityConfPath = filepath.Join(dir, "no_pwquality.conf")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("minlen = 14 → PASS", func(t *testing.T) {
+		f := filepath.Join(dir, "pwquality_14.conf")
+		if err := os.WriteFile(f, []byte("# pwquality config\nminlen = 14\ndigit = -1\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		pwqualityConfPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("minlen=14: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("minlen = 8 (below 14) → FAIL", func(t *testing.T) {
+		f := filepath.Join(dir, "pwquality_8.conf")
+		if err := os.WriteFile(f, []byte("minlen = 8\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		pwqualityConfPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("minlen=8: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("minlen not set → FAIL", func(t *testing.T) {
+		f := filepath.Join(dir, "pwquality_none.conf")
+		if err := os.WriteFile(f, []byte("# only comments\ndcredit = -1\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		pwqualityConfPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("no minlen: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// TestRule5_4_10_PamFaillock verifies rule 5.4.10.
+// No t.Parallel() — mutates faillockConfPath and pamCommonAuthPath.
+func TestRule5_4_10_PamFaillock(t *testing.T) {
+	rule := ruleByID("5.4.10")
+	dir := t.TempDir()
+
+	origFaillock := faillockConfPath
+	origCommonAuth := pamCommonAuthPath
+	t.Cleanup(func() {
+		faillockConfPath = origFaillock
+		pamCommonAuthPath = origCommonAuth
+	})
+
+	t.Run("faillock.conf deny=5 → PASS", func(t *testing.T) {
+		f := filepath.Join(dir, "faillock_5.conf")
+		if err := os.WriteFile(f, []byte("deny = 5\nunlock_time = 900\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		faillockConfPath = f
+		pamCommonAuthPath = filepath.Join(dir, "no_common_auth")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("deny=5: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("faillock.conf deny=10 (too high) → FAIL", func(t *testing.T) {
+		f := filepath.Join(dir, "faillock_10.conf")
+		if err := os.WriteFile(f, []byte("deny = 10\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		faillockConfPath = f
+		pamCommonAuthPath = filepath.Join(dir, "no_common_auth2")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("deny=10: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("pam_faillock.so in common-auth (fallback) → PASS", func(t *testing.T) {
+		faillockConfPath = filepath.Join(dir, "no_faillock.conf")
+		f := filepath.Join(dir, "common_auth_faillock")
+		content := "#%PAM-1.0\nauth required pam_faillock.so preauth\nauth include system-auth\n"
+		if err := os.WriteFile(f, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		pamCommonAuthPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("pam_faillock.so fallback: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("no lockout configured → FAIL", func(t *testing.T) {
+		faillockConfPath = filepath.Join(dir, "no_faillock2.conf")
+		f := filepath.Join(dir, "common_auth_plain")
+		content := "#%PAM-1.0\nauth include system-auth\n"
+		if err := os.WriteFile(f, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		pamCommonAuthPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("no lockout: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// TestRule5_4_11_PasswordHashing verifies rule 5.4.11.
+// No t.Parallel() — mutates loginDefsPath and pamCommonPasswordPath.
+func TestRule5_4_11_PasswordHashing(t *testing.T) {
+	rule := ruleByID("5.4.11")
+	dir := t.TempDir()
+
+	origLoginDefs := loginDefsPath
+	origCommonPw := pamCommonPasswordPath
+	t.Cleanup(func() {
+		loginDefsPath = origLoginDefs
+		pamCommonPasswordPath = origCommonPw
+	})
+
+	t.Run("ENCRYPT_METHOD SHA512 in login.defs → PASS", func(t *testing.T) {
+		f := filepath.Join(dir, "login_sha512.defs")
+		if err := os.WriteFile(f, []byte("PASS_MAX_DAYS 90\nENCRYPT_METHOD SHA512\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		loginDefsPath = f
+		pamCommonPasswordPath = filepath.Join(dir, "no_common_pw")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("SHA512: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("ENCRYPT_METHOD yescrypt in login.defs → PASS", func(t *testing.T) {
+		f := filepath.Join(dir, "login_yescrypt.defs")
+		if err := os.WriteFile(f, []byte("ENCRYPT_METHOD yescrypt\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		loginDefsPath = f
+		pamCommonPasswordPath = filepath.Join(dir, "no_common_pw2")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("yescrypt: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("ENCRYPT_METHOD MD5 → FAIL", func(t *testing.T) {
+		f := filepath.Join(dir, "login_md5.defs")
+		if err := os.WriteFile(f, []byte("ENCRYPT_METHOD MD5\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		loginDefsPath = f
+		pamCommonPasswordPath = filepath.Join(dir, "no_common_pw3")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("MD5: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("pam_unix.so sha512 in common-password (fallback) → PASS", func(t *testing.T) {
+		loginDefsPath = filepath.Join(dir, "no_login.defs")
+		f := filepath.Join(dir, "common_pw_sha512")
+		content := "#%PAM-1.0\npassword [success=1 default=ignore] pam_unix.so obscure sha512\n"
+		if err := os.WriteFile(f, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		pamCommonPasswordPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("pam_unix sha512 fallback: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// TestRule5_4_12_PasswordReuse verifies rule 5.4.12.
+// No t.Parallel() — mutates pamCommonPasswordPath.
+func TestRule5_4_12_PasswordReuse(t *testing.T) {
+	rule := ruleByID("5.4.12")
+	dir := t.TempDir()
+
+	origPath := pamCommonPasswordPath
+	t.Cleanup(func() { pamCommonPasswordPath = origPath })
+
+	t.Run("common-password unreadable → SKIP", func(t *testing.T) {
+		pamCommonPasswordPath = filepath.Join(dir, "no_common_pw_reuse")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("pam_unix.so remember=5 → PASS", func(t *testing.T) {
+		f := filepath.Join(dir, "common_pw_remember5")
+		content := "#%PAM-1.0\npassword required pam_unix.so sha512 remember=5\n"
+		if err := os.WriteFile(f, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		pamCommonPasswordPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("remember=5: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("pam_unix.so remember=3 (below 5) → FAIL", func(t *testing.T) {
+		f := filepath.Join(dir, "common_pw_remember3")
+		content := "#%PAM-1.0\npassword required pam_unix.so sha512 remember=3\n"
+		if err := os.WriteFile(f, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		pamCommonPasswordPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("remember=3: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("no remember= in common-password → FAIL", func(t *testing.T) {
+		f := filepath.Join(dir, "common_pw_no_remember")
+		content := "#%PAM-1.0\npassword required pam_unix.so sha512\n"
+		if err := os.WriteFile(f, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		pamCommonPasswordPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("no remember: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}

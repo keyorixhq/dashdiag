@@ -2356,6 +2356,154 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				return pass(r)
 			}},
 
+		{ID: "5.4.9", Framework: cisBenchCIS, Level: 1, Section: cisCatAuth,
+			Description: "Ensure password creation requirements are configured",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.4.9")
+				data, err := os.ReadFile(pwqualityConfPath) // #nosec G304 -- package-level var
+				if err != nil {
+					return skipr(r, "/etc/security/pwquality.conf not found (pam_pwquality not installed)")
+				}
+				minlen, found := -1, false
+				for line := range strings.SplitSeq(string(data), "\n") {
+					line = strings.TrimSpace(line)
+					if line == "" || strings.HasPrefix(line, "#") {
+						continue
+					}
+					parts := strings.SplitN(line, "=", 2)
+					if len(parts) == 2 && strings.TrimSpace(parts[0]) == "minlen" {
+						if n, parseErr := strconv.Atoi(strings.TrimSpace(parts[1])); parseErr == nil {
+							minlen, found = n, true
+						}
+					}
+				}
+				if !found {
+					return failr(r, "minlen not set in /etc/security/pwquality.conf",
+						"add 'minlen = 14' to /etc/security/pwquality.conf")
+				}
+				if minlen < 14 {
+					return failr(r, fmt.Sprintf("minlen = %d is below the CIS minimum of 14", minlen),
+						"set 'minlen = 14' in /etc/security/pwquality.conf")
+				}
+				return pass(r)
+			}},
+
+		{ID: "5.4.10", Framework: cisBenchCIS, Level: 1, Section: cisCatAuth,
+			Description: "Ensure lockout for failed password attempts is configured",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.4.10")
+				// Preferred: faillock.conf with deny ≤ 5
+				if data, err := os.ReadFile(faillockConfPath); err == nil { // #nosec G304 -- package-level var
+					for line := range strings.SplitSeq(string(data), "\n") {
+						line = strings.TrimSpace(line)
+						if line == "" || strings.HasPrefix(line, "#") {
+							continue
+						}
+						parts := strings.SplitN(line, "=", 2)
+						if len(parts) == 2 && strings.TrimSpace(parts[0]) == "deny" {
+							n, parseErr := strconv.Atoi(strings.TrimSpace(parts[1]))
+							if parseErr == nil && n > 0 && n <= 5 {
+								return pass(r)
+							}
+							if parseErr == nil {
+								return failr(r, fmt.Sprintf("faillock deny = %d exceeds CIS maximum of 5", n),
+									"set 'deny = 5' in /etc/security/faillock.conf")
+							}
+						}
+					}
+				}
+				// Fallback: pam_faillock.so or pam_tally2.so in common-auth
+				if data, err := os.ReadFile(pamCommonAuthPath); err == nil { // #nosec G304 -- package-level var
+					for line := range strings.SplitSeq(string(data), "\n") {
+						line = strings.TrimSpace(line)
+						if strings.HasPrefix(line, "#") {
+							continue
+						}
+						if strings.Contains(line, "pam_faillock.so") || strings.Contains(line, "pam_tally2.so") {
+							return pass(r)
+						}
+					}
+				}
+				return failr(r, "account lockout (pam_faillock or pam_tally2) not configured",
+					"add 'deny = 5' to /etc/security/faillock.conf or configure pam_faillock.so in /etc/pam.d/common-auth")
+			}},
+
+		{ID: "5.4.11", Framework: cisBenchCIS, Level: 1, Section: cisCatAuth,
+			Description: "Ensure password hashing algorithm is up to date",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.4.11")
+				strong := map[string]bool{"sha512": true, "yescrypt": true}
+				// Primary: ENCRYPT_METHOD in /etc/login.defs
+				if data, err := os.ReadFile(loginDefsPath); err == nil { //nolint:gosec // package-level var
+					for line := range strings.SplitSeq(string(data), "\n") {
+						line = strings.TrimSpace(line)
+						if line == "" || strings.HasPrefix(line, "#") {
+							continue
+						}
+						fields := strings.Fields(line)
+						if len(fields) == 2 && strings.EqualFold(fields[0], "ENCRYPT_METHOD") {
+							method := strings.ToLower(fields[1])
+							if strong[method] {
+								return pass(r)
+							}
+							return failr(r, fmt.Sprintf("ENCRYPT_METHOD = %s is not SHA-512 or yescrypt", fields[1]),
+								"set 'ENCRYPT_METHOD SHA512' in /etc/login.defs")
+						}
+					}
+				}
+				// Fallback: pam_unix.so sha512/yescrypt in common-password
+				if data, err := os.ReadFile(pamCommonPasswordPath); err == nil { // #nosec G304 -- package-level var
+					for line := range strings.SplitSeq(string(data), "\n") {
+						line = strings.TrimSpace(line)
+						if strings.HasPrefix(line, "#") || !strings.Contains(line, "pam_unix.so") {
+							continue
+						}
+						lower := strings.ToLower(line)
+						if strings.Contains(lower, "sha512") || strings.Contains(lower, "yescrypt") {
+							return pass(r)
+						}
+					}
+				}
+				return failr(r, "password hashing algorithm not explicitly set to SHA-512 or yescrypt",
+					"set 'ENCRYPT_METHOD SHA512' in /etc/login.defs")
+			}},
+
+		{ID: "5.4.12", Framework: cisBenchCIS, Level: 1, Section: cisCatAuth,
+			Description: "Ensure password reuse is limited",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.4.12")
+				data, err := os.ReadFile(pamCommonPasswordPath) // #nosec G304 -- package-level var
+				if err != nil {
+					return skipr(r, "/etc/pam.d/common-password not readable")
+				}
+				for line := range strings.SplitSeq(string(data), "\n") {
+					line = strings.TrimSpace(line)
+					if strings.HasPrefix(line, "#") {
+						continue
+					}
+					if !strings.Contains(line, "pam_unix.so") && !strings.Contains(line, "pam_pwhistory.so") {
+						continue
+					}
+					for field := range strings.FieldsSeq(line) {
+						rest, ok := strings.CutPrefix(field, "remember=")
+						if !ok {
+							continue
+						}
+						n, parseErr := strconv.Atoi(rest)
+						if parseErr != nil {
+							continue
+						}
+						if n < 5 {
+							return failr(r, fmt.Sprintf("password remember = %d is below CIS minimum of 5", n),
+								"add 'remember=5' to pam_unix.so in /etc/pam.d/common-password")
+						}
+						return pass(r)
+					}
+				}
+				return failr(r, "password reuse limit (remember=) not configured in /etc/pam.d/common-password",
+					"add 'remember=5' to pam_unix.so or pam_pwhistory.so in /etc/pam.d/common-password")
+			}},
+
 		{ID: "5.3.5", Framework: cisBenchCIS, Level: 1, Section: cisCatAuth,
 			Description: "Ensure sudo authentication timeout is 15 minutes or less",
 			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
@@ -3478,6 +3626,18 @@ var securettyPath = "/etc/securetty"
 
 // pamSuPath for su-command restriction check (5.5.2).
 var pamSuPath = "/etc/pam.d/su"
+
+// pwqualityConfPath for pam_pwquality password complexity check (5.4.9).
+var pwqualityConfPath = "/etc/security/pwquality.conf"
+
+// faillockConfPath for pam_faillock account lockout check (5.4.10).
+var faillockConfPath = "/etc/security/faillock.conf"
+
+// pamCommonAuthPath for PAM account lockout fallback check (5.4.10).
+var pamCommonAuthPath = "/etc/pam.d/common-auth"
+
+// pamCommonPasswordPath for password hashing (5.4.11) and reuse (5.4.12) checks.
+var pamCommonPasswordPath = "/etc/pam.d/common-password"
 
 // rsyslogConfPath and rsyslogConfDPath for rsyslog remote-logging check (4.2.3).
 var rsyslogConfPath = "/etc/rsyslog.conf"
