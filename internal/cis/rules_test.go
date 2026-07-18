@@ -2878,19 +2878,74 @@ func TestRule1_1_15_HomeNosuid(t *testing.T) {
 
 // ── 1.5.3 ASLR enabled ────────────────────────────────────────────────────────
 
-func TestRule1_5_3_ASLR(t *testing.T) {
-	t.Parallel()
+// TestRule1_5_3_ApportDisabled verifies rule 1.5.3 (automatic error reporting).
+// No t.Parallel() — mutates apportBinPaths and apportDefaultPath.
+func TestRule1_5_3_ApportDisabled(t *testing.T) {
 	rule := ruleByID("1.5.3")
+	dir := t.TempDir()
 
-	// On macOS /proc/sys/... doesn't exist — rule returns SKIP. Accept that.
-	got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
-	if got.Status == models.CISSkipped {
-		t.Skip("not a Linux system — ASLR sysctl not available")
-	}
-	// On Linux we expect a definite answer. Just verify no panic.
-	if got.Status != models.CISPass && got.Status != models.CISFail {
-		t.Errorf("unexpected status %s", got.Status)
-	}
+	origBins := apportBinPaths
+	origCfg := apportDefaultPath
+	t.Cleanup(func() {
+		apportBinPaths = origBins
+		apportDefaultPath = origCfg
+	})
+
+	t.Run("apport not installed → PASS", func(t *testing.T) {
+		apportBinPaths = []string{filepath.Join(dir, "no_apport")}
+		apportDefaultPath = filepath.Join(dir, "no_default_apport")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("not installed: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("apport installed but enabled=0 → PASS", func(t *testing.T) {
+		bin := filepath.Join(dir, "apport")
+		if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		apportBinPaths = []string{bin}
+		cfg := filepath.Join(dir, "default_apport_disabled")
+		if err := os.WriteFile(cfg, []byte("enabled=0\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		apportDefaultPath = cfg
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("enabled=0: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("apport installed and enabled=1 → FAIL", func(t *testing.T) {
+		bin := filepath.Join(dir, "apport2")
+		if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		apportBinPaths = []string{bin}
+		cfg := filepath.Join(dir, "default_apport_enabled")
+		if err := os.WriteFile(cfg, []byte("enabled=1\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		apportDefaultPath = cfg
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("enabled=1: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("apport installed but /etc/default/apport missing → FAIL", func(t *testing.T) {
+		bin := filepath.Join(dir, "apport3")
+		if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		apportBinPaths = []string{bin}
+		apportDefaultPath = filepath.Join(dir, "no_default_apport_2")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("missing config: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
 }
 
 // ── 4.1.x audit rule checks ───────────────────────────────────────────────────

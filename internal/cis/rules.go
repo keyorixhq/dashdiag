@@ -1062,12 +1062,32 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			}},
 
 		{ID: "1.5.3", Framework: cisBenchCIS, Level: 1, Section: "Kernel",
-			Description: "Ensure address space layout randomization (ASLR) is enabled",
+			Description: "Ensure automatic error reporting (apport) is not enabled",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("1.5.3")
-				return checkSysctl(r, "/proc/sys/kernel/randomize_va_space", "2",
-					"ASLR is disabled (randomize_va_space != 2)",
-					"sysctl -w kernel.randomize_va_space=2 && echo 'kernel.randomize_va_space=2' >> /etc/sysctl.d/99-cis.conf")
+				installed := false
+				for _, p := range apportBinPaths {
+					if _, err := os.Stat(p); err == nil { //nolint:gosec // package-level var
+						installed = true
+						break
+					}
+				}
+				if !installed {
+					return pass(r)
+				}
+				data, err := os.ReadFile(apportDefaultPath) //nolint:gosec // package-level var
+				if err != nil {
+					return failr(r, "apport installed but /etc/default/apport unreadable or missing",
+						"echo 'enabled=0' > /etc/default/apport")
+				}
+				for line := range strings.SplitSeq(string(data), "\n") {
+					line = strings.TrimSpace(line)
+					if line == "enabled=0" {
+						return pass(r)
+					}
+				}
+				return failr(r, "apport is installed and not disabled (enabled=0 not found in /etc/default/apport)",
+					"echo 'enabled=0' > /etc/default/apport")
 			}},
 
 		// ── 1.6 Mandatory Access Control (AppArmor) ──────────────────────────
@@ -3791,6 +3811,12 @@ var etcGroupPath = "/etc/group"
 
 // prelinkBinPaths for rule 1.5.2 (prelink not installed).
 var prelinkBinPaths = []string{"/usr/sbin/prelink"}
+
+// apport paths for rule 1.5.3 (automatic error reporting disabled).
+var apportBinPaths = []string{"/usr/share/apport/apport", "/usr/bin/apport-cli"}
+
+// apportDefaultPath is the apport enabled/disabled flag file.
+var apportDefaultPath = "/etc/default/apport"
 
 // Service daemons that must not be installed (2.3.6-2.3.13).
 var nfsBinPaths = []string{"/usr/sbin/nfsd", "/usr/sbin/rpc.nfsd"}
