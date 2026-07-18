@@ -2183,18 +2183,18 @@ var squidBinPaths = []string{"/usr/sbin/squid", "/usr/sbin/squid3"}
 var snmpBinPaths = []string{"/usr/sbin/snmpd"}
 
 // auditRulesDPath and auditRulesFilePath for audit rule checks (4.1.3–4.1.17).
-var auditRulesDPath    = "/etc/audit/rules.d"
+var auditRulesDPath = "/etc/audit/rules.d"
 var auditRulesFilePath = "/etc/audit/audit.rules"
 
 // sshHostKeyDir for SSH host key permission checks (5.2.3, 5.2.4).
 var sshHostKeyDir = "/etc/ssh"
 
 // journaldConfPath and journaldConfDPath for journald config checks (4.2.2).
-var journaldConfPath  = "/etc/systemd/journald.conf"
+var journaldConfPath = "/etc/systemd/journald.conf"
 var journaldConfDPath = "/etc/systemd/journald.conf.d"
 
 // rsyslogConfPath and rsyslogConfDPath for rsyslog remote-logging check (4.2.3).
-var rsyslogConfPath  = "/etc/rsyslog.conf"
+var rsyslogConfPath = "/etc/rsyslog.conf"
 var rsyslogConfDPath = "/etc/rsyslog.d"
 
 // checkLoginDefsField reads path (normally /etc/login.defs) for the first
