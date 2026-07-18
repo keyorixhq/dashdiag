@@ -1,0 +1,5 @@
+title = "DashDiag Gitleaks Configuration"
+
+[[allowlists]]
+description = "Commit 71b6ae0 introduced a stub '-----BEGIN OPENSSH PRIVATE KEY-----' string as a test fixture for rule 5.2.4 (SSH host key permission checks). The fixture was corrected to 'stub-ssh-host-key-content' in a subsequent commit. Allow the originating commit so history scanning does not flag it."
+commits = ["71b6ae02c5df2bd92e07aca8aedcf08ffa7bd518"]

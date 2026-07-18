@@ -4045,3 +4045,183 @@ func TestRule6_2_15_NoNetrcFiles(t *testing.T) {
 		}
 	})
 }
+
+// TestRule6_2_16_NoRhostsFiles verifies rule 6.2.16.
+// No t.Parallel(): mutates package-level etcPasswdPath.
+func TestRule6_2_16_NoRhostsFiles(t *testing.T) {
+	dir := t.TempDir()
+	origPasswd := etcPasswdPath
+	t.Cleanup(func() { etcPasswdPath = origPasswd })
+
+	rule := ruleByID("6.2.16")
+
+	t.Run("no passwd → SKIP", func(t *testing.T) {
+		etcPasswdPath = filepath.Join(dir, "no_passwd_6216")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("no .rhosts file → PASS", func(t *testing.T) {
+		homeDir := filepath.Join(dir, "home_6216_pass")
+		if err := os.MkdirAll(homeDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		p := filepath.Join(dir, "passwd_6216_pass")
+		content := fmt.Sprintf("testuser:x:1001:1001::%s:/bin/bash\n", homeDir)
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		etcPasswdPath = p
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("no .rhosts: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run(".rhosts file exists → FAIL", func(t *testing.T) {
+		homeDir := filepath.Join(dir, "home_6216_fail")
+		if err := os.MkdirAll(homeDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(homeDir, ".rhosts"), []byte("remotehost remoteuser\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		p := filepath.Join(dir, "passwd_6216_fail")
+		content := fmt.Sprintf("testuser:x:1001:1001::%s:/bin/bash\n", homeDir)
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		etcPasswdPath = p
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf(".rhosts exists: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// TestRule6_2_17_AllGroupsExistInGroup verifies rule 6.2.17.
+// No t.Parallel(): mutates package-level etcPasswdPath and etcGroupPath.
+func TestRule6_2_17_AllGroupsExistInGroup(t *testing.T) {
+	dir := t.TempDir()
+	origPasswd := etcPasswdPath
+	origGroup := etcGroupPath
+	t.Cleanup(func() {
+		etcPasswdPath = origPasswd
+		etcGroupPath = origGroup
+	})
+
+	rule := ruleByID("6.2.17")
+
+	t.Run("no group file → SKIP", func(t *testing.T) {
+		etcGroupPath = filepath.Join(dir, "no_group_6217")
+		etcPasswdPath = origPasswd
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("no passwd file → SKIP", func(t *testing.T) {
+		g := filepath.Join(dir, "group_6217_nopasswd")
+		if err := os.WriteFile(g, []byte("testgroup:x:1001:\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		etcGroupPath = g
+		etcPasswdPath = filepath.Join(dir, "no_passwd_6217")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("all GIDs known → PASS", func(t *testing.T) {
+		g := filepath.Join(dir, "group_6217_pass")
+		if err := os.WriteFile(g, []byte("testgroup:x:1001:\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		p := filepath.Join(dir, "passwd_6217_pass")
+		if err := os.WriteFile(p, []byte("testuser:x:1001:1001::/home/testuser:/bin/bash\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		etcGroupPath = g
+		etcPasswdPath = p
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("all GIDs present: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("passwd references undefined GID → FAIL", func(t *testing.T) {
+		g := filepath.Join(dir, "group_6217_fail")
+		if err := os.WriteFile(g, []byte("testgroup:x:1001:\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		p := filepath.Join(dir, "passwd_6217_fail")
+		// GID 9999 not in /etc/group
+		if err := os.WriteFile(p, []byte("testuser:x:1001:9999::/home/testuser:/bin/bash\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		etcGroupPath = g
+		etcPasswdPath = p
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("undefined GID: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// TestRule6_2_18_ShadowGroupEmpty verifies rule 6.2.18.
+// No t.Parallel(): mutates package-level etcGroupPath.
+func TestRule6_2_18_ShadowGroupEmpty(t *testing.T) {
+	dir := t.TempDir()
+	origGroup := etcGroupPath
+	t.Cleanup(func() { etcGroupPath = origGroup })
+
+	rule := ruleByID("6.2.18")
+
+	t.Run("no group file → SKIP", func(t *testing.T) {
+		etcGroupPath = filepath.Join(dir, "no_group_6218")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("shadow group absent → PASS", func(t *testing.T) {
+		g := filepath.Join(dir, "group_6218_absent")
+		if err := os.WriteFile(g, []byte("nogroup:x:65534:\nusers:x:100:\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		etcGroupPath = g
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("shadow absent: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("shadow group empty → PASS", func(t *testing.T) {
+		g := filepath.Join(dir, "group_6218_empty")
+		if err := os.WriteFile(g, []byte("shadow:x:42:\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		etcGroupPath = g
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("shadow empty: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("shadow group has members → FAIL", func(t *testing.T) {
+		g := filepath.Join(dir, "group_6218_members")
+		if err := os.WriteFile(g, []byte("shadow:x:42:syslog,testuser\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		etcGroupPath = g
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("shadow has members: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}

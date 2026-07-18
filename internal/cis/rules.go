@@ -2341,6 +2341,133 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				return pass(r)
 			}},
 
+		{ID: "6.2.16", Framework: cisBenchCIS, Level: 1, Section: "Users",
+			Description: "Ensure no users have .rhosts files",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("6.2.16")
+				data, err := os.ReadFile(etcPasswdPath) // #nosec G304 -- hardcoded system path
+				if err != nil {
+					return skipr(r, "could not read /etc/passwd")
+				}
+				var found []string
+				for line := range strings.SplitSeq(string(data), "\n") {
+					line = strings.TrimSpace(line)
+					if line == "" || strings.HasPrefix(line, "#") {
+						continue
+					}
+					fields := strings.SplitN(line, ":", 7)
+					if len(fields) < 6 {
+						continue
+					}
+					uid, atoiErr := strconv.Atoi(fields[2])
+					if atoiErr != nil || uid < 1000 || uid >= 65534 {
+						continue
+					}
+					homeDir := fields[5]
+					if homeDir == "" || homeDir == "/nonexistent" || homeDir == "/dev/null" {
+						continue
+					}
+					rhosts := filepath.Join(homeDir, ".rhosts")
+					if _, statErr := os.Stat(rhosts); statErr == nil { // #nosec G304
+						found = append(found, fmt.Sprintf("%s (%s)", fields[0], rhosts))
+					}
+				}
+				if len(found) > 0 {
+					shown := found[:min(3, len(found))]
+					return failr(r,
+						fmt.Sprintf("%d user(s) have .rhosts files: %s", len(found), strings.Join(shown, "; ")),
+						"rm ~/.rhosts for each affected user — .rhosts enables passwordless rsh/rlogin (insecure legacy protocol)")
+				}
+				return pass(r)
+			}},
+
+		{ID: "6.2.17", Framework: cisBenchCIS, Level: 1, Section: "Users",
+			Description: "Ensure all groups in /etc/passwd exist in /etc/group",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("6.2.17")
+				grpData, err := os.ReadFile(etcGroupPath) // #nosec G304 -- hardcoded system path
+				if err != nil {
+					return skipr(r, "could not read /etc/group")
+				}
+				knownGIDs := make(map[int]bool)
+				for line := range strings.SplitSeq(string(grpData), "\n") {
+					line = strings.TrimSpace(line)
+					if line == "" || strings.HasPrefix(line, "#") {
+						continue
+					}
+					fields := strings.SplitN(line, ":", 4)
+					if len(fields) < 3 {
+						continue
+					}
+					gid, atoiErr := strconv.Atoi(fields[2])
+					if atoiErr == nil {
+						knownGIDs[gid] = true
+					}
+				}
+				pwData, err := os.ReadFile(etcPasswdPath) // #nosec G304 -- hardcoded system path
+				if err != nil {
+					return skipr(r, "could not read /etc/passwd")
+				}
+				var missing []string
+				for line := range strings.SplitSeq(string(pwData), "\n") {
+					line = strings.TrimSpace(line)
+					if line == "" || strings.HasPrefix(line, "#") {
+						continue
+					}
+					fields := strings.SplitN(line, ":", 7)
+					if len(fields) < 4 {
+						continue
+					}
+					gid, atoiErr := strconv.Atoi(fields[3])
+					if atoiErr != nil {
+						continue
+					}
+					if !knownGIDs[gid] {
+						missing = append(missing, fmt.Sprintf("%s (GID %d)", fields[0], gid))
+					}
+				}
+				if len(missing) > 0 {
+					shown := missing[:min(3, len(missing))]
+					return failr(r,
+						fmt.Sprintf("%d user(s) reference undefined GID(s): %s", len(missing), strings.Join(shown, "; ")),
+						"add the missing group to /etc/group or assign users to an existing group")
+				}
+				return pass(r)
+			}},
+
+		{ID: "6.2.18", Framework: cisBenchCIS, Level: 1, Section: "Users",
+			Description: "Ensure the shadow group is empty",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("6.2.18")
+				data, err := os.ReadFile(etcGroupPath) // #nosec G304 -- hardcoded system path
+				if err != nil {
+					return skipr(r, "could not read /etc/group")
+				}
+				for line := range strings.SplitSeq(string(data), "\n") {
+					line = strings.TrimSpace(line)
+					if line == "" || strings.HasPrefix(line, "#") {
+						continue
+					}
+					fields := strings.SplitN(line, ":", 4)
+					if len(fields) < 4 || fields[0] != "shadow" {
+						continue
+					}
+					members := strings.TrimSpace(fields[3])
+					if members == "" {
+						return pass(r)
+					}
+					parts := strings.Split(members, ",")
+					shown := members
+					if len(parts) > 3 {
+						shown = strings.Join(parts[:3], ",") + "…"
+					}
+					return failr(r,
+						fmt.Sprintf("shadow group has members: %s", shown),
+						"remove all users from the shadow group in /etc/group — membership grants read access to /etc/shadow")
+				}
+				return pass(r) // shadow group absent — acceptable
+			}},
+
 		// ── STIG-only rules (no direct CIS equivalent) ────────────────────────
 
 		// V-238213: Approved ciphers — STIG mandates only FIPS-approved ciphers
