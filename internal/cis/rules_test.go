@@ -8086,3 +8086,124 @@ func TestRule3_5_1_6_UFWOpenPorts(t *testing.T) {
 		}
 	})
 }
+
+// ── 5.1.16-5.1.23 cron/at allow-deny file permissions + ownership ─────────────
+
+// TestRule5_1_16_to_23_CronAtFilePerms covers 5.1.16 (cron.allow), 5.1.18
+// (cron.deny), 5.1.20 (at.allow), 5.1.22 (at.deny).
+// No t.Parallel(): mutates package-level cronAllowPath/cronDenyPath/atAllowPath/atDenyPath.
+func TestRule5_1_16_to_23_CronAtFilePerms(t *testing.T) {
+	dir := t.TempDir()
+	origCronAllow := cronAllowPath
+	origCronDeny := cronDenyPath
+	origAtAllow := atAllowPath
+	origAtDeny := atDenyPath
+	t.Cleanup(func() {
+		cronAllowPath = origCronAllow
+		cronDenyPath = origCronDeny
+		atAllowPath = origAtAllow
+		atDenyPath = origAtDeny
+	})
+
+	testPerm := func(t *testing.T, id string, set func(string)) {
+		t.Helper()
+		rule := ruleByID(id)
+
+		set(filepath.Join(dir, id+"_absent"))
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("%s absent: want SKIP, got %s (%s)", id, got.Status, got.Finding)
+		}
+
+		p600 := filepath.Join(dir, id+"_600")
+		if err := os.WriteFile(p600, []byte("alice\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		set(p600)
+		got = rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("%s mode 0600: want PASS, got %s (%s)", id, got.Status, got.Finding)
+		}
+
+		p644 := filepath.Join(dir, id+"_644")
+		if err := os.WriteFile(p644, []byte("alice\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(p644, 0o644); err != nil {
+			t.Fatal(err)
+		}
+		set(p644)
+		got = rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("%s mode 0644: want FAIL, got %s (%s)", id, got.Status, got.Finding)
+		}
+	}
+
+	t.Run("5.1.16_cronAllow", func(t *testing.T) {
+		testPerm(t, "5.1.16", func(p string) { cronAllowPath = p })
+	})
+	t.Run("5.1.18_cronDeny", func(t *testing.T) {
+		testPerm(t, "5.1.18", func(p string) { cronDenyPath = p })
+	})
+	t.Run("5.1.20_atAllow", func(t *testing.T) {
+		testPerm(t, "5.1.20", func(p string) { atAllowPath = p })
+	})
+	t.Run("5.1.22_atDeny", func(t *testing.T) {
+		testPerm(t, "5.1.22", func(p string) { atDenyPath = p })
+	})
+}
+
+// TestRule5_1_17_to_23_CronAtFileOwnership covers 5.1.17 (cron.allow), 5.1.19
+// (cron.deny), 5.1.21 (at.allow), 5.1.23 (at.deny).
+// No t.Parallel(): mutates package-level path vars.
+func TestRule5_1_17_to_23_CronAtFileOwnership(t *testing.T) {
+	dir := t.TempDir()
+	origCronAllow := cronAllowPath
+	origCronDeny := cronDenyPath
+	origAtAllow := atAllowPath
+	origAtDeny := atDenyPath
+	t.Cleanup(func() {
+		cronAllowPath = origCronAllow
+		cronDenyPath = origCronDeny
+		atAllowPath = origAtAllow
+		atDenyPath = origAtDeny
+	})
+
+	testOwner := func(t *testing.T, id string, set func(string)) {
+		t.Helper()
+		rule := ruleByID(id)
+
+		set(filepath.Join(dir, id+"_absent"))
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("%s absent: want SKIP, got %s (%s)", id, got.Status, got.Finding)
+		}
+
+		if os.Getuid() == 0 {
+			t.Log(id + ": skipping FAIL check — running as root; temp files are root-owned")
+			return
+		}
+		p := filepath.Join(dir, id+"_nonroot")
+		if err := os.WriteFile(p, []byte("alice\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		set(p)
+		got = rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("%s non-root owner: want FAIL, got %s (%s)", id, got.Status, got.Finding)
+		}
+	}
+
+	t.Run("5.1.17_cronAllow", func(t *testing.T) {
+		testOwner(t, "5.1.17", func(p string) { cronAllowPath = p })
+	})
+	t.Run("5.1.19_cronDeny", func(t *testing.T) {
+		testOwner(t, "5.1.19", func(p string) { cronDenyPath = p })
+	})
+	t.Run("5.1.21_atAllow", func(t *testing.T) {
+		testOwner(t, "5.1.21", func(p string) { atAllowPath = p })
+	})
+	t.Run("5.1.23_atDeny", func(t *testing.T) {
+		testOwner(t, "5.1.23", func(p string) { atDenyPath = p })
+	})
+}

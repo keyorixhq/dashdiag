@@ -3545,6 +3545,51 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				return checkFileOwnerRootRoot(ruleByID("5.1.15"), "/etc/cron.d", "chown root:root /etc/cron.d")
 			}},
 
+		// ── 5.1.16-5.1.23 cron/at allow-deny file permissions + ownership ──────
+		// These files are optional: if absent the rule SKIPs (checkFilePerm and
+		// checkFileOwnerRootRoot both return SKIP when os.Stat fails).
+
+		{ID: "5.1.16", Framework: cisBenchCIS, Level: 1, Section: "Cron",
+			Description: "Ensure /etc/cron.allow permissions are configured (0600)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkFilePerm(ruleByID("5.1.16"), cronAllowPath, 0o600, "chmod 600 /etc/cron.allow")
+			}},
+		{ID: "5.1.17", Framework: cisBenchCIS, Level: 1, Section: "Cron",
+			Description: "Ensure /etc/cron.allow is owned by root:root",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkFileOwnerRootRoot(ruleByID("5.1.17"), cronAllowPath, "chown root:root /etc/cron.allow")
+			}},
+		{ID: "5.1.18", Framework: cisBenchCIS, Level: 1, Section: "Cron",
+			Description: "Ensure /etc/cron.deny permissions are configured (0600)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkFilePerm(ruleByID("5.1.18"), cronDenyPath, 0o600, "chmod 600 /etc/cron.deny")
+			}},
+		{ID: "5.1.19", Framework: cisBenchCIS, Level: 1, Section: "Cron",
+			Description: "Ensure /etc/cron.deny is owned by root:root",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkFileOwnerRootRoot(ruleByID("5.1.19"), cronDenyPath, "chown root:root /etc/cron.deny")
+			}},
+		{ID: "5.1.20", Framework: cisBenchCIS, Level: 1, Section: "Cron",
+			Description: "Ensure /etc/at.allow permissions are configured (0600)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkFilePerm(ruleByID("5.1.20"), atAllowPath, 0o600, "chmod 600 /etc/at.allow")
+			}},
+		{ID: "5.1.21", Framework: cisBenchCIS, Level: 1, Section: "Cron",
+			Description: "Ensure /etc/at.allow is owned by root:root",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkFileOwnerRootRoot(ruleByID("5.1.21"), atAllowPath, "chown root:root /etc/at.allow")
+			}},
+		{ID: "5.1.22", Framework: cisBenchCIS, Level: 1, Section: "Cron",
+			Description: "Ensure /etc/at.deny permissions are configured (0600)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkFilePerm(ruleByID("5.1.22"), atDenyPath, 0o600, "chmod 600 /etc/at.deny")
+			}},
+		{ID: "5.1.23", Framework: cisBenchCIS, Level: 1, Section: "Cron",
+			Description: "Ensure /etc/at.deny is owned by root:root",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkFileOwnerRootRoot(ruleByID("5.1.23"), atDenyPath, "chown root:root /etc/at.deny")
+			}},
+
 		{ID: "1.1.19", Framework: cisBenchCIS, Level: 1, Section: "Filesystem",
 			Description: "Ensure nosuid option is set on removable media partitions",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
