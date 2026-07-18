@@ -7491,3 +7491,77 @@ func TestRule6_1_23_25_HostsPerms(t *testing.T) {
 		})
 	}
 }
+
+// TestRule5_2_20_PasswordAuth verifies 5.2.20 (PasswordAuthentication disabled).
+func TestRule5_2_20_PasswordAuth(t *testing.T) {
+	t.Parallel()
+	t.Run("registered", func(t *testing.T) {
+		t.Parallel()
+		r := ruleByID("5.2.20")
+		if r.ID != "5.2.20" {
+			t.Errorf("unexpected ID %s", r.ID)
+		}
+		if !strings.Contains(r.Description, "PasswordAuthentication") {
+			t.Errorf("description missing 'PasswordAuthentication': %s", r.Description)
+		}
+	})
+	t.Run("disabled_→_PASS", func(t *testing.T) {
+		t.Parallel()
+		r := ruleByID("5.2.20")
+		got := r.Check(models.SecurityInfo{SSHPasswordAuth: false}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("want CISPass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+	t.Run("enabled_→_FAIL", func(t *testing.T) {
+		t.Parallel()
+		r := ruleByID("5.2.20")
+		got := r.Check(models.SecurityInfo{SSHPasswordAuth: true}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("want CISFail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+	t.Run("config_unreadable_→_SKIP", func(t *testing.T) {
+		t.Parallel()
+		r := ruleByID("5.2.20")
+		got := r.Check(models.SecurityInfo{SSHConfigUnreadable: true}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("want CISSkipped, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// TestRule6_1_26_28_HostsOwnership verifies 6.1.26-6.1.28 (/etc/hosts* ownership).
+func TestRule6_1_26_28_HostsOwnership(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		id   string
+		desc string
+	}{
+		{"6.1.26", "hosts"},
+		{"6.1.27", "hosts.allow"},
+		{"6.1.28", "hosts.deny"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.id+"_registered", func(t *testing.T) {
+			t.Parallel()
+			r := ruleByID(tc.id)
+			if r.ID != tc.id {
+				t.Errorf("ruleByID(%q) returned ID %q", tc.id, r.ID)
+			}
+			if !strings.Contains(r.Description, tc.desc) {
+				t.Errorf("description missing %q: %s", tc.desc, r.Description)
+			}
+		})
+		t.Run(tc.id+"_valid_status", func(t *testing.T) {
+			t.Parallel()
+			r := ruleByID(tc.id)
+			got := r.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+			switch got.Status {
+			case models.CISPass, models.CISFail, models.CISSkipped:
+			default:
+				t.Errorf("unexpected status %q for rule %s", got.Status, tc.id)
+			}
+		})
+	}
+}

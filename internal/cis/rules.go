@@ -775,6 +775,19 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				}
 				return pass(r)
 			}},
+		{ID: "5.2.20", Framework: cisBenchCIS, Level: 1, Section: cisCatSSH,
+			Description: "Ensure SSH PasswordAuthentication is disabled",
+			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.2.20")
+				if sec.SSHConfigUnreadable {
+					return skipr(r, "sshd_config unreadable")
+				}
+				if sec.SSHPasswordAuth {
+					return failr(r, "PasswordAuthentication yes — password logins permitted over SSH",
+						"set PasswordAuthentication no in /etc/ssh/sshd_config")
+				}
+				return pass(r)
+			}},
 
 		// ── 3.x Network ───────────────────────────────────────────────────────
 
@@ -3508,6 +3521,21 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("6.1.25")
 				return checkFilePerm(r, "/etc/hosts.deny", 0o644, "chmod 644 /etc/hosts.deny")
+			}},
+		{ID: "6.1.26", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
+			Description: "Ensure /etc/hosts is owned by root:root",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkFileOwnerRootRoot(ruleByID("6.1.26"), "/etc/hosts", "chown root:root /etc/hosts")
+			}},
+		{ID: "6.1.27", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
+			Description: "Ensure /etc/hosts.allow is owned by root:root",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkFileOwnerRootRoot(ruleByID("6.1.27"), "/etc/hosts.allow", "chown root:root /etc/hosts.allow")
+			}},
+		{ID: "6.1.28", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
+			Description: "Ensure /etc/hosts.deny is owned by root:root",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkFileOwnerRootRoot(ruleByID("6.1.28"), "/etc/hosts.deny", "chown root:root /etc/hosts.deny")
 			}},
 
 		{ID: "6.2.1", StigID: "V-238408", Framework: cisBenchBOTH, Level: 1, Section: "Users",
