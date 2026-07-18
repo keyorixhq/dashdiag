@@ -3051,3 +3051,293 @@ func TestRule6_2_9_RootOnlyUID0(t *testing.T) {
 		}
 	})
 }
+
+// ── 1.1.17 USB storage disabled, 1.1.18 automounting disabled ────────────────
+
+// TestRule1_1_17_USBStorage and TestRule1_1_18_Automounting both use
+// checkModuleDisabled — covered by the same helper already tested via
+// TestCheckModuleDisabled_Rule1_1_1_1. Just verify rule IDs exist and run.
+func TestRule1_1_17_18_ModuleChecks(t *testing.T) {
+	t.Parallel()
+	for _, id := range []string{"1.1.17", "1.1.18"} {
+		t.Run(id, func(t *testing.T) {
+			t.Parallel()
+			rule := ruleByID(id)
+			if rule.Check == nil {
+				t.Fatalf("rule %s not found", id)
+			}
+			// On macOS /proc/modules is absent → SKIP is the expected result.
+			got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+			if got.Status == "" {
+				t.Errorf("rule %s returned empty status", id)
+			}
+		})
+	}
+}
+
+// ── 5.2.3 SSH public host key permissions ─────────────────────────────────────
+
+// TestRule5_2_3_SSHPublicKeyPerms verifies rule 5.2.3.
+// No t.Parallel(): mutates package-level sshHostKeyDir.
+func TestRule5_2_3_SSHPublicKeyPerms(t *testing.T) {
+	dir := t.TempDir()
+	orig := sshHostKeyDir
+	t.Cleanup(func() { sshHostKeyDir = orig })
+
+	rule := ruleByID("5.2.3")
+
+	t.Run("dir unreadable → SKIP", func(t *testing.T) {
+		sshHostKeyDir = filepath.Join(dir, "no_ssh")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("no host key pub files → SKIP", func(t *testing.T) {
+		d := filepath.Join(dir, "ssh_empty")
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(d, "sshd_config"), []byte("# config\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		sshHostKeyDir = d
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("no pub keys: want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("pub key with 0644 → PASS", func(t *testing.T) {
+		d := filepath.Join(dir, "ssh_ok")
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(d, "ssh_host_ed25519_key.pub"), []byte("ssh-ed25519 AAAA\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		sshHostKeyDir = d
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("0644 pub key: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("pub key with 0664 (group write) → FAIL", func(t *testing.T) {
+		d := filepath.Join(dir, "ssh_bad_pub")
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		p := filepath.Join(d, "ssh_host_rsa_key.pub")
+		if err := os.WriteFile(p, []byte("ssh-rsa AAAA\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		// chmod explicitly to bypass umask
+		if err := os.Chmod(p, 0o664); err != nil {
+			t.Fatal(err)
+		}
+		sshHostKeyDir = d
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("0664 pub key: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// ── 5.2.4 SSH private host key permissions ────────────────────────────────────
+
+// TestRule5_2_4_SSHPrivateKeyPerms verifies rule 5.2.4.
+// No t.Parallel(): mutates package-level sshHostKeyDir.
+func TestRule5_2_4_SSHPrivateKeyPerms(t *testing.T) {
+	dir := t.TempDir()
+	orig := sshHostKeyDir
+	t.Cleanup(func() { sshHostKeyDir = orig })
+
+	rule := ruleByID("5.2.4")
+
+	t.Run("no private host key files → SKIP", func(t *testing.T) {
+		d := filepath.Join(dir, "ssh_only_pub")
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(d, "ssh_host_ed25519_key.pub"), []byte("ssh-ed25519 AAAA\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		sshHostKeyDir = d
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("no private keys: want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("private key with 0600 → PASS", func(t *testing.T) {
+		d := filepath.Join(dir, "ssh_priv_ok")
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(d, "ssh_host_ed25519_key"), []byte("-----BEGIN OPENSSH PRIVATE KEY-----\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		sshHostKeyDir = d
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("0600 private key: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("private key with 0640 (group-readable) → FAIL", func(t *testing.T) {
+		d := filepath.Join(dir, "ssh_priv_bad")
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		p := filepath.Join(d, "ssh_host_rsa_key")
+		if err := os.WriteFile(p, []byte("-----BEGIN OPENSSH PRIVATE KEY-----\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		// chmod explicitly to bypass umask
+		if err := os.Chmod(p, 0o640); err != nil {
+			t.Fatal(err)
+		}
+		sshHostKeyDir = d
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("0640 private key: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// ── 4.2.2 journald ForwardToSyslog ────────────────────────────────────────────
+
+// TestRule4_2_2_JournaldForwardToSyslog verifies rule 4.2.2.
+// No t.Parallel(): mutates package-level journaldConfPath and journaldConfDPath.
+func TestRule4_2_2_JournaldForwardToSyslog(t *testing.T) {
+	dir := t.TempDir()
+	origConf := journaldConfPath
+	origDir := journaldConfDPath
+	t.Cleanup(func() {
+		journaldConfPath = origConf
+		journaldConfDPath = origDir
+	})
+
+	rule := ruleByID("4.2.2")
+
+	t.Run("no journald config → SKIP", func(t *testing.T) {
+		journaldConfPath = filepath.Join(dir, "no_journald.conf")
+		journaldConfDPath = filepath.Join(dir, "no_journald.conf.d")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("ForwardToSyslog=yes in main conf → PASS", func(t *testing.T) {
+		p := filepath.Join(dir, "journald.conf")
+		if err := os.WriteFile(p, []byte("[Journal]\nForwardToSyslog=yes\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		journaldConfPath = p
+		journaldConfDPath = filepath.Join(dir, "no_confd")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("ForwardToSyslog=yes: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("ForwardToSyslog not set → FAIL", func(t *testing.T) {
+		p := filepath.Join(dir, "journald_no_fwd.conf")
+		if err := os.WriteFile(p, []byte("[Journal]\nStorage=persistent\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		journaldConfPath = p
+		journaldConfDPath = filepath.Join(dir, "no_confd2")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("no ForwardToSyslog: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("ForwardToSyslog=yes in drop-in → PASS", func(t *testing.T) {
+		journaldConfPath = filepath.Join(dir, "no_main_journald.conf")
+		d := filepath.Join(dir, "journald_dropin")
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(d, "50-forward.conf"), []byte("[Journal]\nForwardToSyslog=yes\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		journaldConfDPath = d
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("drop-in ForwardToSyslog=yes: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// ── 4.2.3 rsyslog remote logging ─────────────────────────────────────────────
+
+// TestRule4_2_3_RsyslogRemote verifies rule 4.2.3.
+// No t.Parallel(): mutates package-level rsyslogConfPath and rsyslogConfDPath.
+func TestRule4_2_3_RsyslogRemote(t *testing.T) {
+	dir := t.TempDir()
+	origConf := rsyslogConfPath
+	origDir := rsyslogConfDPath
+	t.Cleanup(func() {
+		rsyslogConfPath = origConf
+		rsyslogConfDPath = origDir
+	})
+
+	rule := ruleByID("4.2.3")
+
+	t.Run("no rsyslog config → SKIP", func(t *testing.T) {
+		rsyslogConfPath = filepath.Join(dir, "no_rsyslog.conf")
+		rsyslogConfDPath = filepath.Join(dir, "no_rsyslog.d")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("TCP forwarding (@@) in rsyslog.conf → PASS", func(t *testing.T) {
+		p := filepath.Join(dir, "rsyslog_tcp.conf")
+		if err := os.WriteFile(p, []byte("*.* @@loghost.example.com:514\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		rsyslogConfPath = p
+		rsyslogConfDPath = filepath.Join(dir, "no_d")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("TCP forwarding: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("no remote forwarding → FAIL", func(t *testing.T) {
+		p := filepath.Join(dir, "rsyslog_local.conf")
+		if err := os.WriteFile(p, []byte("auth,authpriv.* /var/log/auth.log\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		rsyslogConfPath = p
+		rsyslogConfDPath = filepath.Join(dir, "no_d2")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("no remote: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("omfwd action in drop-in → PASS", func(t *testing.T) {
+		rsyslogConfPath = filepath.Join(dir, "no_rsyslog2.conf")
+		d := filepath.Join(dir, "rsyslog_dropin")
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		content := `action(type="omfwd" target="loghost.example.com" port="514" protocol="tcp")`
+		if err := os.WriteFile(filepath.Join(d, "50-remote.conf"), []byte(content+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		rsyslogConfDPath = d
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("omfwd action: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}

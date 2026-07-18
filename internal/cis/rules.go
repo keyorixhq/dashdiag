@@ -277,6 +277,77 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				return pass(r)
 			}},
 
+		{ID: "5.2.3", Framework: cisBenchCIS, Level: 1, Section: cisCatSSH,
+			Description: "Ensure permissions on SSH public host key files are configured (max 0644)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.2.3")
+				entries, err := os.ReadDir(sshHostKeyDir) //nolint:gosec // package-level var
+				if err != nil {
+					return skipr(r, "could not read /etc/ssh")
+				}
+				var bad []string
+				found := false
+				for _, e := range entries {
+					name := e.Name()
+					if !strings.HasPrefix(name, "ssh_host_") || !strings.HasSuffix(name, "_key.pub") {
+						continue
+					}
+					found = true
+					fi, err := e.Info()
+					if err != nil {
+						continue
+					}
+					if fi.Mode().Perm()&^0o644 != 0 {
+						bad = append(bad, fmt.Sprintf("%s (%o)", name, fi.Mode().Perm()))
+					}
+				}
+				if !found {
+					return skipr(r, "no SSH public host key files found")
+				}
+				if len(bad) > 0 {
+					return failr(r, fmt.Sprintf("SSH public host key files with excessive permissions: %s", strings.Join(bad, ", ")),
+						"chmod 644 /etc/ssh/ssh_host_*_key.pub")
+				}
+				return pass(r)
+			}},
+
+		{ID: "5.2.4", Framework: cisBenchCIS, Level: 1, Section: cisCatSSH,
+			Description: "Ensure permissions on SSH private host key files are configured (max 0600)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.2.4")
+				entries, err := os.ReadDir(sshHostKeyDir) //nolint:gosec // package-level var
+				if err != nil {
+					return skipr(r, "could not read /etc/ssh")
+				}
+				var bad []string
+				found := false
+				for _, e := range entries {
+					name := e.Name()
+					if !strings.HasPrefix(name, "ssh_host_") || strings.HasSuffix(name, ".pub") {
+						continue
+					}
+					if !strings.HasSuffix(name, "_key") {
+						continue
+					}
+					found = true
+					fi, err := e.Info()
+					if err != nil {
+						continue
+					}
+					if fi.Mode().Perm()&^0o600 != 0 {
+						bad = append(bad, fmt.Sprintf("%s (%o)", name, fi.Mode().Perm()))
+					}
+				}
+				if !found {
+					return skipr(r, "no SSH private host key files found")
+				}
+				if len(bad) > 0 {
+					return failr(r, fmt.Sprintf("SSH private host key files with excessive permissions: %s", strings.Join(bad, ", ")),
+						"chmod 600 /etc/ssh/ssh_host_*_key")
+				}
+				return pass(r)
+			}},
+
 		{ID: "5.2.2", StigID: "V-238202", Framework: cisBenchBOTH, Level: 1, Section: cisCatSSH,
 			Description: "Ensure SSH access is limited (AllowUsers or AllowGroups set)",
 			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
@@ -778,6 +849,20 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					"add 'noexec' to /home mount options in /etc/fstab")
 			}},
 
+		{ID: "1.1.17", Framework: cisBenchCIS, Level: 2, Section: "Filesystem",
+			Description: "Ensure USB storage is disabled",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkModuleDisabled(ruleByID("1.1.17"), "usb-storage",
+					"echo 'install usb-storage /bin/true' > /etc/modprobe.d/usb-storage.conf && echo 'blacklist usb-storage' >> /etc/modprobe.d/usb-storage.conf")
+			}},
+
+		{ID: "1.1.18", Framework: cisBenchCIS, Level: 2, Section: "Filesystem",
+			Description: "Ensure automounting is disabled",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkModuleDisabled(ruleByID("1.1.18"), "autofs",
+					"echo 'install autofs /bin/true' > /etc/modprobe.d/autofs.conf && echo 'blacklist autofs' >> /etc/modprobe.d/autofs.conf")
+			}},
+
 		// ── 1.5.2 Prelink ─────────────────────────────────────────────────────────
 
 		{ID: "1.5.2", Framework: cisBenchCIS, Level: 1, Section: "Kernel",
@@ -1142,6 +1227,88 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				}
 				return failr(r, "no syslog daemon found (rsyslogd or syslog-ng)",
 					"install rsyslog (see remediation)")
+			}},
+
+		{ID: "4.2.2", Framework: cisBenchCIS, Level: 1, Section: "Audit",
+			Description: "Ensure journald is configured to send logs to rsyslog",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("4.2.2")
+				var lines []string
+				if data, err := os.ReadFile(journaldConfPath); err == nil { //nolint:gosec // package-level var
+					for line := range strings.SplitSeq(string(data), "\n") {
+						lines = append(lines, line)
+					}
+				}
+				if entries, err := os.ReadDir(journaldConfDPath); err == nil { //nolint:gosec // package-level var
+					for _, e := range entries {
+						if e.IsDir() || !strings.HasSuffix(e.Name(), ".conf") {
+							continue
+						}
+						data, err := os.ReadFile(filepath.Join(journaldConfDPath, e.Name())) //nolint:gosec
+						if err != nil {
+							continue
+						}
+						for line := range strings.SplitSeq(string(data), "\n") {
+							lines = append(lines, line)
+						}
+					}
+				}
+				if len(lines) == 0 {
+					return skipr(r, "journald config not found (systemd not installed)")
+				}
+				for _, line := range lines {
+					line = strings.TrimSpace(line)
+					if strings.HasPrefix(line, "#") || line == "" {
+						continue
+					}
+					if strings.EqualFold(line, "ForwardToSyslog=yes") {
+						return pass(r)
+					}
+				}
+				return failr(r, "ForwardToSyslog=yes not set in journald configuration",
+					"add 'ForwardToSyslog=yes' to /etc/systemd/journald.conf")
+			}},
+
+		{ID: "4.2.3", Framework: cisBenchCIS, Level: 2, Section: "Audit",
+			Description: "Ensure rsyslog is configured to send logs to a remote log host",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("4.2.3")
+				var lines []string
+				if data, err := os.ReadFile(rsyslogConfPath); err == nil { //nolint:gosec // package-level var
+					for line := range strings.SplitSeq(string(data), "\n") {
+						lines = append(lines, line)
+					}
+				}
+				if entries, err := os.ReadDir(rsyslogConfDPath); err == nil { //nolint:gosec // package-level var
+					for _, e := range entries {
+						if e.IsDir() || !strings.HasSuffix(e.Name(), ".conf") {
+							continue
+						}
+						data, err := os.ReadFile(filepath.Join(rsyslogConfDPath, e.Name())) //nolint:gosec
+						if err != nil {
+							continue
+						}
+						for line := range strings.SplitSeq(string(data), "\n") {
+							lines = append(lines, line)
+						}
+					}
+				}
+				if len(lines) == 0 {
+					return skipr(r, "rsyslog config not readable")
+				}
+				for _, line := range lines {
+					line = strings.TrimSpace(line)
+					if strings.HasPrefix(line, "#") || line == "" {
+						continue
+					}
+					// Match @@host (TCP) or @host (UDP) forwarding, or modern omfwd action
+					if strings.HasPrefix(line, "@@") || strings.HasPrefix(line, "*.* @@") ||
+						strings.HasPrefix(line, "*.* @") || strings.Contains(line, `action(type="omfwd"`) {
+						return pass(r)
+					}
+				}
+				return failr(r, "no remote log host configured in rsyslog",
+					"add '*.* @@loghost.example.com' or equivalent to /etc/rsyslog.d/50-remote.conf")
 			}},
 
 		// ── 5.3/5.4 Auth ──────────────────────────────────────────────────────
@@ -2018,6 +2185,17 @@ var snmpBinPaths = []string{"/usr/sbin/snmpd"}
 // auditRulesDPath and auditRulesFilePath for audit rule checks (4.1.3–4.1.17).
 var auditRulesDPath    = "/etc/audit/rules.d"
 var auditRulesFilePath = "/etc/audit/audit.rules"
+
+// sshHostKeyDir for SSH host key permission checks (5.2.3, 5.2.4).
+var sshHostKeyDir = "/etc/ssh"
+
+// journaldConfPath and journaldConfDPath for journald config checks (4.2.2).
+var journaldConfPath  = "/etc/systemd/journald.conf"
+var journaldConfDPath = "/etc/systemd/journald.conf.d"
+
+// rsyslogConfPath and rsyslogConfDPath for rsyslog remote-logging check (4.2.3).
+var rsyslogConfPath  = "/etc/rsyslog.conf"
+var rsyslogConfDPath = "/etc/rsyslog.d"
 
 // checkLoginDefsField reads path (normally /etc/login.defs) for the first
 // uncommented "field value..." line and applies fails(days) to decide PASS/FAIL.
