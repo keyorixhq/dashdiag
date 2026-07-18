@@ -151,6 +151,14 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					"vm.mmap_min_addr < 65536 — processes can mmap near null address (null-pointer deref exploits easier)",
 					"sysctl -w vm.mmap_min_addr=65536 && echo 'vm.mmap_min_addr=65536' >> /etc/sysctl.d/99-cis.conf")
 			}},
+		{ID: "1.5.13", Framework: cisBenchCIS, Level: 1, Section: "Kernel",
+			Description: "Ensure SUID core dumps are restricted (fs.suid_dumpable = 0)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("1.5.13")
+				return checkSysctl(r, suidDumpablePath, "0",
+					"fs.suid_dumpable is not 0 — SUID programs can produce core dumps that may expose sensitive memory",
+					"sysctl -w fs.suid_dumpable=0 && echo 'fs.suid_dumpable=0' >> /etc/sysctl.d/99-cis.conf")
+			}},
 
 		// ── 2.1 Time Synchronization ──────────────────────────────────────────
 
@@ -1433,6 +1441,30 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				return checkSysctl(r, "/proc/sys/net/ipv6/conf/default/accept_redirects", "0",
 					"net.ipv6.conf.default.accept_redirects is not 0 — new interfaces will accept IPv6 ICMP redirects",
 					"sysctl -w net.ipv6.conf.default.accept_redirects=0 && echo 'net.ipv6.conf.default.accept_redirects=0' >> /etc/sysctl.d/99-cis.conf")
+			}},
+		{ID: "3.2.19", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure SYN cookie protection is enabled (net.ipv4.tcp_syncookies = 1)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.2.19")
+				return checkSysctl(r, "/proc/sys/net/ipv4/tcp_syncookies", "1",
+					"net.ipv4.tcp_syncookies is not 1 — host is vulnerable to SYN flood half-open connection attacks",
+					"sysctl -w net.ipv4.tcp_syncookies=1 && echo 'net.ipv4.tcp_syncookies=1' >> /etc/sysctl.d/99-cis.conf")
+			}},
+		{ID: "3.2.20", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure broadcast ICMP requests are ignored (net.ipv4.icmp_echo_ignore_broadcasts = 1)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.2.20")
+				return checkSysctl(r, "/proc/sys/net/ipv4/icmp_echo_ignore_broadcasts", "1",
+					"net.ipv4.icmp_echo_ignore_broadcasts is not 1 — host responds to directed broadcast pings (Smurf amplification risk)",
+					"sysctl -w net.ipv4.icmp_echo_ignore_broadcasts=1 && echo 'net.ipv4.icmp_echo_ignore_broadcasts=1' >> /etc/sysctl.d/99-cis.conf")
+			}},
+		{ID: "3.2.21", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure bogus ICMP responses are ignored (net.ipv4.icmp_ignore_bogus_error_responses = 1)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.2.21")
+				return checkSysctl(r, "/proc/sys/net/ipv4/icmp_ignore_bogus_error_responses", "1",
+					"net.ipv4.icmp_ignore_bogus_error_responses is not 1 — malformed ICMP responses logged, potential log flood via spoofed packets",
+					"sysctl -w net.ipv4.icmp_ignore_bogus_error_responses=1 && echo 'net.ipv4.icmp_ignore_bogus_error_responses=1' >> /etc/sysctl.d/99-cis.conf")
 			}},
 
 		// ── 3.4 Uncommon Network Protocols ───────────────────────────────────────
@@ -4191,7 +4223,8 @@ var yamaPtraceScopePath = "/proc/sys/kernel/yama/ptrace_scope"
 var bpfJitHardenPath = "/proc/sys/net/core/bpf_jit_harden"
 var mmapMinAddrPath = "/proc/sys/vm/mmap_min_addr"
 
-// (useraddDefaultPath already declared above; also used for 5.4.13 inactive lock.)
+// sysctl path for SUID core dump restriction (1.5.13).
+var suidDumpablePath = "/proc/sys/fs/suid_dumpable"
 
 // apparmorParserPaths: candidates for the apparmor_parser binary (1.6.1).
 var apparmorParserPaths = []string{"/usr/sbin/apparmor_parser", "/sbin/apparmor_parser"}
