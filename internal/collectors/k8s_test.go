@@ -3,6 +3,7 @@ package collectors
 import (
 	"context"
 	"os"
+	"strings"
 	"testing"
 	"time"
 
@@ -291,5 +292,168 @@ func TestPodAge(t *testing.T) {
 		if got := podAge(ts); got != c.want {
 			t.Errorf("podAge(%s ago) = %q, want %q", c.ago, got, c.want)
 		}
+	}
+}
+
+// TestCollectK8sPods_InvalidJSON covers k8s.go:256.54,258.3 — the
+// json.Unmarshal error early-return when kubectl returns non-JSON output.
+func TestCollectK8sPods_InvalidJSON(t *testing.T) {
+	prev := SetSource(mockExec(func(name string, args []string) (source.Result, error) {
+		if name == "kubectl" {
+			return source.Result{Stdout: []byte("not valid json"), ExitCode: 0}, nil
+		}
+		return source.Result{ExitCode: 1}, nil
+	}))
+	defer SetSource(prev)
+
+	info := &models.K8sInfo{}
+	collectK8sPods(context.Background(), "kubectl", info)
+	if info.APIReachable {
+		t.Error("APIReachable must remain false when JSON unmarshal fails")
+	}
+}
+
+// TestCollectK8sPods_WaitingStatusOverride covers k8s.go:281.27,283.4 — the
+// statusOverride branch when a container has a non-empty Waiting.Reason.
+func TestCollectK8sPods_WaitingStatusOverride(t *testing.T) {
+	const podsJSON = `{"items":[
+		{"metadata":{"name":"app-0","namespace":"default",
+			"creationTimestamp":"2026-01-01T00:00:00Z"},
+		 "spec":{"containers":[{"image":"myapp:1.0"}]},
+		 "status":{"phase":"Running","containerStatuses":[{
+			 "ready":false,"restartCount":0,
+			 "state":{"waiting":{"reason":"ImagePullBackOff"}}
+		 }]}}
+	]}`
+	prev := SetSource(mockExec(func(name string, args []string) (source.Result, error) {
+		if name == "kubectl" && len(args) > 0 && args[0] == "get" {
+			return source.Result{Stdout: []byte(podsJSON), ExitCode: 0}, nil
+		}
+		return source.Result{ExitCode: 1}, nil
+	}))
+	defer SetSource(prev)
+
+	info := &models.K8sInfo{}
+	collectK8sPods(context.Background(), "kubectl", info)
+	if len(info.Pods) != 1 {
+		t.Fatalf("expected 1 pod, got %d", len(info.Pods))
+	}
+	if info.Pods[0].Status != "ImagePullBackOff" {
+		t.Errorf("pod status = %q, want ImagePullBackOff (statusOverride)", info.Pods[0].Status)
+	}
+}
+
+// TestParseK8sWarningEvents_NameWithoutSlash covers k8s.go:437.9,439.4 —
+// the else branch where fields[4] has no "/" separator, so ev.Name = fields[4].
+func TestParseK8sWarningEvents_NameWithoutSlash(t *testing.T) {
+	t.Parallel()
+	// Five fields minimum; fields[4] = "mypod" has no "/" → else branch.
+	out := "default  5m  1  Warning  mypod  Back-off pulling image\n"
+	evs := parseK8sWarningEvents(out)
+	if len(evs) != 1 {
+		t.Fatalf("expected 1 event, got %d", len(evs))
+	}
+	if evs[0].Name != "mypod" {
+		t.Errorf("Name = %q, want %q", evs[0].Name, "mypod")
+	}
+}
+
+// TestCollectK8sOSLayer_KubeletErrorsTruncated covers k8s.go:708.35,710.4 —
+// the KubeletErrors[:5] cap when journalctl returns more than 5 error lines.
+func TestCollectK8sOSLayer_KubeletErrorsTruncated(t *testing.T) {
+	sixErrors := strings.Join([]string{
+		"Jan 01 00:00:01 host k3s: error syncing pod 0",
+		"Jan 01 00:00:02 host k3s: failed to pull image 1",
+		"Jan 01 00:00:03 host k3s: error listing pods 2",
+		"Jan 01 00:00:04 host k3s: failed to schedule pod 3",
+		"Jan 01 00:00:05 host k3s: error updating lease 4",
+		"Jan 01 00:00:06 host k3s: failed to connect apiserver 5",
+	}, "\n") + "\n"
+
+	prev := SetSource(mockExec(func(name string, args []string) (source.Result, error) {
+		if name == "systemctl" && len(args) >= 2 && args[0] == "is-active" && args[1] == "kubelet" {
+			return source.Result{Stdout: []byte("active\n"), ExitCode: 0}, nil
+		}
+		if name == "journalctl" {
+			return source.Result{Stdout: []byte(sixErrors), ExitCode: 0}, nil
+		}
+		return source.Result{ExitCode: 1}, nil
+	}))
+	defer SetSource(prev)
+
+	layer := collectK8sOSLayer(context.Background(), "kubectl", "k3s")
+	if len(layer.KubeletErrors) != 5 {
+		t.Errorf("KubeletErrors = %d, want 5 (truncated from 6)", len(layer.KubeletErrors))
+	}
+}
+
+// TestCheckCertExpiry_ReadFileFails covers k8s.go:782.17,783.12 — the
+// err != nil continue when glob finds a cert path that readFile cannot open.
+func TestCheckCertExpiry_ReadFileFails(t *testing.T) {
+	b := source.NewBundle()
+	b.PutGlob("/certs/*.crt", []string{"/certs/apiserver.crt"})
+	// /certs/apiserver.crt is intentionally NOT seeded → ReadFile returns ErrNotRecorded.
+	prev := SetSource(source.NewReplay(b))
+	defer SetSource(prev)
+
+	var layer models.K8sOSLayer
+	checkCertExpiry("/certs", &layer)
+	if layer.CertExpirySoon || len(layer.CertExpiredNames) != 0 {
+		t.Errorf("expected no cert findings when readFile fails, got CertExpirySoon=%v CertExpiredNames=%v",
+			layer.CertExpirySoon, layer.CertExpiredNames)
+	}
+}
+
+// TestPodAge_SecondsCase covers k8s.go:193.23,194.46 — the "%ds" branch
+// when a pod's age is under one minute.
+func TestPodAge_SecondsCase(t *testing.T) {
+	t.Parallel()
+	now := NowViaSource()
+	ts := now.Add(-45 * time.Second).Format(time.RFC3339)
+	if got := podAge(ts); got != "45s" {
+		t.Errorf("podAge(45s ago) = %q, want %q", got, "45s")
+	}
+}
+
+// TestCollectK8sWorkloads_ReadyFieldNoSlash covers k8s.go:495.28,496.13 —
+// the continue when the READY column has no "/" separator (malformed output).
+func TestCollectK8sWorkloads_ReadyFieldNoSlash(t *testing.T) {
+	// The READY column "1" has no "/" — readyParts len=1 != 2 → continue.
+	const workloadsOut = "default  myapp  1  1  1  3d\n"
+	prev := SetSource(mockExec(func(name string, args []string) (source.Result, error) {
+		if name == "kubectl" && len(args) >= 2 && args[0] == "get" {
+			return source.Result{Stdout: []byte(workloadsOut), ExitCode: 0}, nil
+		}
+		return source.Result{ExitCode: 1}, nil
+	}))
+	defer SetSource(prev)
+
+	info := &models.K8sInfo{}
+	collectK8sWorkloads(context.Background(), "kubectl", info)
+	if len(info.Workloads) != 0 {
+		t.Errorf("workloads with malformed READY field must be skipped, got %d entries", len(info.Workloads))
+	}
+}
+
+// TestK8sCollector_DeepBranchPopulatesOSLayer covers k8s.go:77.12,79.3 —
+// the `if c.Deep { info.OSLayer = collectK8sOSLayer(...) }` branch.
+func TestK8sCollector_DeepBranchPopulatesOSLayer(t *testing.T) {
+	// Seed the RKE2 kubectl binary so k8sDetectBin returns non-empty.
+	b := source.NewBundle()
+	b.PutStat("/var/lib/rancher/rke2/bin/kubectl", source.FileMeta{})
+	prev := SetSource(source.NewReplay(b))
+	defer SetSource(prev)
+
+	c := &K8sCollector{Deep: true}
+	result, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect returned error: %v", err)
+	}
+	info, ok := result.(*models.K8sInfo)
+	if !ok {
+		t.Fatal("result is not *models.K8sInfo")
+	}
+	if info.OSLayer == nil {
+		t.Error("OSLayer must be non-nil when Deep=true and a k8s binary is detected")
 	}
 }

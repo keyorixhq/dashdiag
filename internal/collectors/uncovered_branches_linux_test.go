@@ -875,3 +875,35 @@ func TestParseSupportconfig_StatFileError(t *testing.T) {
 		t.Errorf("SupportconfigArchive = %q, want empty (stat failed → match skipped)", info.SupportconfigArchive)
 	}
 }
+
+// ── security_linux.go:526 — buildInodeProcMap short glob path ────────────────
+
+// TestBuildInodeProcMap_ShortGlobPath covers security_linux.go:526.21,527.12 —
+// the `if len(parts) < 3 { continue }` guard when the glob returns a path with
+// fewer than three "/" separators (malformed / injected entry).
+func TestBuildInodeProcMap_ShortGlobPath(t *testing.T) {
+	// Not parallel: swaps global source state via withFixtureSource.
+	withFixtureSource(t, func(b *source.Bundle) {
+		// "a/b" splits on "/" into ["a", "b"] — len=2 < 3 → continue.
+		b.PutGlob("/proc/[0-9]*/fd", []string{"a/b"})
+	})
+	result, hasRoot := buildInodeProcMap()
+	if hasRoot {
+		t.Error("hasRoot must be false when every glob entry is skipped (short path)")
+	}
+	if len(result) != 0 {
+		t.Errorf("expected empty inode map, got %v", result)
+	}
+}
+
+// ── security_linux.go:2222 — lastPart empty-sep edge case ────────────────────
+
+// TestLastPart_EmptySep covers the `if len(parts) == 0 { return s }` guard in
+// lastPart: strings.Split("", "") returns an empty slice (per Go spec), so the
+// function must fall back to returning the original string unchanged.
+func TestLastPart_EmptySep(t *testing.T) {
+	t.Parallel()
+	if got := lastPart("", ""); got != "" {
+		t.Errorf(`lastPart("", "") = %q, want ""`, got)
+	}
+}
