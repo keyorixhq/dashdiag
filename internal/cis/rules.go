@@ -44,7 +44,7 @@ func parseMaxStartups(v string) (start, full int, ok bool) {
 }
 
 // CISRules is the full benchmark rule set: CIS Ubuntu 22.04 LTS L1+L2
-// covering filesystem (1.x), kernel hardening (1.5.x), services (2.x), SSH (5.2.x), network (3.x), audit (4.x), auth (5.x), files (6.x).
+// covering filesystem (1.x), kernel hardening (1.5.x), services (2.x), SSH (5.2.x), cron (5.1.x), network (3.x), audit (4.x), auth (5.x), files (6.x).
 var CISRules []Rule
 
 func init() {
@@ -625,6 +625,50 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				return failr(r,
 					fmt.Sprintf("accounts without password expiry: %s", strings.Join(sec.StalePasswordAccounts, ", ")),
 					"set expiry: chage --maxdays 365 <user>")
+			}},
+
+		// ── 5.1 Cron Daemon Configuration ────────────────────────────────────
+
+		{ID: "5.1.2", Framework: cisBenchCIS, Level: 1, Section: "Cron",
+			Description: "Ensure permissions on /etc/crontab are configured (0600)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.1.2")
+				return checkFilePerm(r, "/etc/crontab", 0o600, "chown root:root /etc/crontab && chmod og-rwx /etc/crontab")
+			}},
+
+		{ID: "5.1.3", Framework: cisBenchCIS, Level: 1, Section: "Cron",
+			Description: "Ensure permissions on /etc/cron.hourly are configured (0700)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.1.3")
+				return checkFilePerm(r, "/etc/cron.hourly", 0o700, "chmod og-rwx /etc/cron.hourly")
+			}},
+
+		{ID: "5.1.4", Framework: cisBenchCIS, Level: 1, Section: "Cron",
+			Description: "Ensure permissions on /etc/cron.daily are configured (0700)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.1.4")
+				return checkFilePerm(r, "/etc/cron.daily", 0o700, "chmod og-rwx /etc/cron.daily")
+			}},
+
+		{ID: "5.1.5", Framework: cisBenchCIS, Level: 1, Section: "Cron",
+			Description: "Ensure permissions on /etc/cron.weekly are configured (0700)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.1.5")
+				return checkFilePerm(r, "/etc/cron.weekly", 0o700, "chmod og-rwx /etc/cron.weekly")
+			}},
+
+		{ID: "5.1.6", Framework: cisBenchCIS, Level: 1, Section: "Cron",
+			Description: "Ensure permissions on /etc/cron.monthly are configured (0700)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.1.6")
+				return checkFilePerm(r, "/etc/cron.monthly", 0o700, "chmod og-rwx /etc/cron.monthly")
+			}},
+
+		{ID: "5.1.7", Framework: cisBenchCIS, Level: 1, Section: "Cron",
+			Description: "Ensure permissions on /etc/cron.d are configured (0700)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.1.7")
+				return checkFilePerm(r, "/etc/cron.d", 0o700, "chmod og-rwx /etc/cron.d")
 			}},
 
 		// ── 1.1 Filesystem ────────────────────────────────────────────────────
