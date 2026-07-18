@@ -573,9 +573,12 @@ func isExpectedPort(port int) bool {
 	return expected[port]
 }
 
+// sudoersPath is the primary sudoers file, referenced by parseSudoers and parseSudoersFile.
+var sudoersPath = "/etc/sudoers"
+
 // parseSudoers scans /etc/sudoers and /etc/sudoers.d/ for NOPASSWD entries.
 func parseSudoers(info *models.SecurityInfo) {
-	paths := []string{"/etc/sudoers"}
+	paths := []string{sudoersPath}
 	if entries, err := glob("/etc/sudoers.d/*"); err == nil {
 		paths = append(paths, entries...)
 	}
@@ -587,10 +590,10 @@ func parseSudoers(info *models.SecurityInfo) {
 func parseSudoersFile(path string, info *models.SecurityInfo) {
 	f, err := openFile(filepath.Clean(path))
 	if err != nil {
-		if path == "/etc/sudoers" {
+		if path == sudoersPath {
 			// Primary sudoers file exists but is unreadable — signal to CIS rules
 			// that we can't distinguish "no NOPASSWD" from "couldn't check".
-			if _, statErr := statFile("/etc/sudoers"); statErr == nil {
+			if _, statErr := statFile(sudoersPath); statErr == nil {
 				info.SudoersUnreadable = true
 			}
 		}

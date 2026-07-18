@@ -1325,21 +1325,21 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Description: "Ensure /etc/passwd permissions are 644 or stricter",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("6.1.1")
-				return checkFilePerm(r, "/etc/passwd", 0o644, "chmod 644 /etc/passwd")
+				return checkFilePerm(r, etcPasswdPath, 0o644, "chmod 644 /etc/passwd")
 			}},
 
 		{ID: "6.1.2", StigID: "V-238402", Framework: cisBenchBOTH, Level: 1, Section: cisCatFiles,
 			Description: "Ensure /etc/shadow permissions are 000 or 640",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("6.1.2")
-				return checkFilePerm(r, "/etc/shadow", 0o640, "chmod 000 /etc/shadow")
+				return checkFilePerm(r, etcShadowPath, 0o640, "chmod 000 /etc/shadow")
 			}},
 
 		{ID: "6.1.3", StigID: "V-238403", Framework: cisBenchBOTH, Level: 1, Section: cisCatFiles,
 			Description: "Ensure /etc/group permissions are 644 or stricter",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("6.1.3")
-				return checkFilePerm(r, "/etc/group", 0o644, "chmod 644 /etc/group")
+				return checkFilePerm(r, etcGroupPath, 0o644, "chmod 644 /etc/group")
 			}},
 
 		{ID: "6.1.4", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
@@ -1382,19 +1382,19 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 		{ID: "6.1.9", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
 			Description: "Ensure /etc/passwd is owned by root:root",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
-				return checkFileOwnerRootRoot(ruleByID("6.1.9"), "/etc/passwd", "chown root:root /etc/passwd")
+				return checkFileOwnerRootRoot(ruleByID("6.1.9"), etcPasswdPath, "chown root:root /etc/passwd")
 			}},
 
 		{ID: "6.1.10", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
 			Description: "Ensure /etc/shadow is owned by root:root or root:shadow",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
-				return checkFileOwnerRootRootOrShadow(ruleByID("6.1.10"), "/etc/shadow", "chown root:shadow /etc/shadow")
+				return checkFileOwnerRootRootOrShadow(ruleByID("6.1.10"), etcShadowPath, "chown root:shadow /etc/shadow")
 			}},
 
 		{ID: "6.1.11", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
 			Description: "Ensure /etc/group is owned by root:root",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
-				return checkFileOwnerRootRoot(ruleByID("6.1.11"), "/etc/group", "chown root:root /etc/group")
+				return checkFileOwnerRootRoot(ruleByID("6.1.11"), etcGroupPath, "chown root:root /etc/group")
 			}},
 
 		{ID: "6.1.12", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
@@ -1737,7 +1737,7 @@ var sshdConfigPath = "/etc/ssh/sshd_config"
 
 // legacyNISPaths is the list of files scanned by rule 6.2.2 for legacy '+' NIS
 // entries. Package-level var so tests can supply in-memory fixture paths.
-var legacyNISPaths = []string{"/etc/passwd", "/etc/shadow", "/etc/group"}
+var legacyNISPaths = []string{etcPasswdPath, etcShadowPath, etcGroupPath}
 
 // chronyCfgPaths is the ordered list of chrony config file locations checked by
 // rules 2.1.1 and 2.1.2. RHEL/Rocky put the file at /etc/chrony.conf;
@@ -1806,23 +1806,25 @@ var modprobeDPath = "/etc/modprobe.d"
 // procMountsPath is /proc/mounts — checked by filesystem mount-option rules (1.1.x).
 var procMountsPath = "/proc/mounts"
 
-// etcPasswdPath and etcGroupPath are the user and group databases read by rules
-// 5.4.8 (system account shells) and 6.2.5-6.2.8 (duplicate UID/GID/name checks).
+// etcPasswdPath, etcShadowPath, and etcGroupPath are the user/group databases
+// and shadow file, referenced by permission/ownership rules (6.1.x), legacy NIS
+// scan (6.2.2), and account-audit rules (5.4.8, 6.2.5–6.2.8).
 var etcPasswdPath = "/etc/passwd"
-var etcGroupPath  = "/etc/group"
+var etcShadowPath = "/etc/shadow"
+var etcGroupPath = "/etc/group"
 
 // prelinkBinPaths for rule 1.5.2 (prelink not installed).
 var prelinkBinPaths = []string{"/usr/sbin/prelink"}
 
 // Service daemons that must not be installed (2.3.6-2.3.13).
-var nfsBinPaths   = []string{"/usr/sbin/nfsd", "/usr/sbin/rpc.nfsd"}
+var nfsBinPaths = []string{"/usr/sbin/nfsd", "/usr/sbin/rpc.nfsd"}
 var namedBinPaths = []string{"/usr/sbin/named", "/usr/bin/named"}
-var ftpBinPaths   = []string{"/usr/sbin/vsftpd", "/usr/sbin/proftpd", "/usr/sbin/pure-ftpd"}
-var httpBinPaths  = []string{"/usr/sbin/apache2", "/usr/sbin/httpd", "/usr/sbin/nginx"}
-var imapBinPaths  = []string{"/usr/sbin/dovecot"}
+var ftpBinPaths = []string{"/usr/sbin/vsftpd", "/usr/sbin/proftpd", "/usr/sbin/pure-ftpd"}
+var httpBinPaths = []string{"/usr/sbin/apache2", "/usr/sbin/httpd", "/usr/sbin/nginx"}
+var imapBinPaths = []string{"/usr/sbin/dovecot"}
 var sambaBinPaths = []string{"/usr/sbin/smbd"}
 var squidBinPaths = []string{"/usr/sbin/squid", "/usr/sbin/squid3"}
-var snmpBinPaths  = []string{"/usr/sbin/snmpd"}
+var snmpBinPaths = []string{"/usr/sbin/snmpd"}
 
 // checkLoginDefsField reads path (normally /etc/login.defs) for the first
 // uncommented "field value..." line and applies fails(days) to decide PASS/FAIL.
