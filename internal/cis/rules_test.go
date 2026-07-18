@@ -7945,3 +7945,123 @@ func TestRule6_1_37_38_LoginDefsPerms(t *testing.T) {
 		})
 	}
 }
+
+// TestRule3_5_1_6_UFWOpenPorts verifies rule 3.5.1.6 (ufw rules for all open ports).
+// No t.Parallel(): mutates package-level ufwBinPaths and ufwUserRulesPath.
+func TestRule3_5_1_6_UFWOpenPorts(t *testing.T) {
+	dir := t.TempDir()
+	origBins := ufwBinPaths
+	origUserRules := ufwUserRulesPath
+	t.Cleanup(func() {
+		ufwBinPaths = origBins
+		ufwUserRulesPath = origUserRules
+	})
+
+	rule := ruleByID("3.5.1.6")
+
+	t.Run("registered", func(t *testing.T) {
+		if rule.ID != "3.5.1.6" {
+			t.Fatalf("ruleByID returned %q", rule.ID)
+		}
+	})
+
+	t.Run("ufw_not_installed", func(t *testing.T) {
+		ufwBinPaths = []string{filepath.Join(dir, "no_ufw")}
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("want CISSkipped, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	fakeBin := filepath.Join(dir, "ufw")
+	if err := os.WriteFile(fakeBin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	ufwBinPaths = []string{fakeBin}
+
+	t.Run("user_rules_unreadable", func(t *testing.T) {
+		ufwUserRulesPath = filepath.Join(dir, "no_user_rules")
+		sec := models.SecurityInfo{ListeningPorts: []models.PortEntry{{Port: 22, Protocol: "tcp"}}}
+		got := rule.Check(sec, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("want CISSkipped, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("no_listening_ports", func(t *testing.T) {
+		p := filepath.Join(dir, "user_rules_empty.rules")
+		if err := os.WriteFile(p, []byte("# empty\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		ufwUserRulesPath = p
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("want CISPass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("port_covered_by_dport", func(t *testing.T) {
+		p := filepath.Join(dir, "user_rules_ssh.rules")
+		content := "-A ufw-user-input -p tcp -m tcp --dport 22 -j ACCEPT\n"
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		ufwUserRulesPath = p
+		sec := models.SecurityInfo{ListeningPorts: []models.PortEntry{{Port: 22, Protocol: "tcp", Process: "sshd"}}}
+		got := rule.Check(sec, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("want CISPass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("port_covered_by_multiport", func(t *testing.T) {
+		p := filepath.Join(dir, "user_rules_multi.rules")
+		content := "-A ufw-user-input -p tcp -m multiport --dports 80,443 -j ACCEPT\n"
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		ufwUserRulesPath = p
+		sec := models.SecurityInfo{ListeningPorts: []models.PortEntry{
+			{Port: 80, Protocol: "tcp", Process: "nginx"},
+			{Port: 443, Protocol: "tcp", Process: "nginx"},
+		}}
+		got := rule.Check(sec, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("want CISPass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("port_covered_by_range", func(t *testing.T) {
+		p := filepath.Join(dir, "user_rules_range.rules")
+		content := "-A ufw-user-input -p tcp -m tcp --dport 8080:8090 -j ACCEPT\n"
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		ufwUserRulesPath = p
+		sec := models.SecurityInfo{ListeningPorts: []models.PortEntry{{Port: 8085, Protocol: "tcp", Process: "app"}}}
+		got := rule.Check(sec, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("range rule: want CISPass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("uncovered_port_FAIL", func(t *testing.T) {
+		p := filepath.Join(dir, "user_rules_ssh_only.rules")
+		content := "-A ufw-user-input -p tcp -m tcp --dport 22 -j ACCEPT\n"
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		ufwUserRulesPath = p
+		sec := models.SecurityInfo{ListeningPorts: []models.PortEntry{
+			{Port: 22, Protocol: "tcp", Process: "sshd"},
+			{Port: 3306, Protocol: "tcp", Process: "mysqld"},
+		}}
+		got := rule.Check(sec, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("want CISFail, got %s (%s)", got.Status, got.Finding)
+		}
+		if !strings.Contains(got.Finding, "3306") {
+			t.Errorf("finding should mention port 3306, got: %s", got.Finding)
+		}
+	})
+}

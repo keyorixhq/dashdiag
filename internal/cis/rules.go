@@ -2020,6 +2020,75 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					"set DEFAULT_OUTPUT_POLICY=ALLOW in /etc/default/ufw or add explicit allow-out rules")
 			}},
 
+		{ID: "3.5.1.6", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure ufw firewall rules exist for all open ports",
+			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.5.1.6")
+				ufwPresent := false
+				for _, p := range ufwBinPaths {
+					if _, err := os.Stat(p); err == nil {
+						ufwPresent = true
+						break
+					}
+				}
+				if !ufwPresent {
+					return skipr(r, "ufw not installed")
+				}
+				data, err := os.ReadFile(ufwUserRulesPath) //nolint:gosec // package-level var
+				if err != nil {
+					return skipr(r, "ufw user.rules not readable (run as root for full coverage)")
+				}
+				// Parse inbound ACCEPT ports from the ufw-user-input chain.
+				allowedPorts := make(map[int]bool)
+				hasRangeRule := false
+				for line := range strings.SplitSeq(string(data), "\n") {
+					line = strings.TrimSpace(line)
+					if !strings.Contains(line, "ufw-user-input") || !strings.HasSuffix(line, "-j ACCEPT") {
+						continue
+					}
+					// --dports N,M,P (multiport)
+					if _, after, ok2 := strings.Cut(line, "--dports "); ok2 {
+						portSpec, _, _ := strings.Cut(after, " ")
+						for p := range strings.SplitSeq(portSpec, ",") {
+							if n, err2 := strconv.Atoi(strings.TrimSpace(p)); err2 == nil {
+								allowedPorts[n] = true
+							}
+						}
+						continue
+					}
+					// --dport N or --dport N:M (range)
+					if _, after, ok2 := strings.Cut(line, "--dport "); ok2 {
+						portSpec, _, _ := strings.Cut(after, " ")
+						if strings.Contains(portSpec, ":") {
+							hasRangeRule = true
+						} else if n, err2 := strconv.Atoi(strings.TrimSpace(portSpec)); err2 == nil {
+							allowedPorts[n] = true
+						}
+					}
+				}
+				if len(sec.ListeningPorts) == 0 {
+					return pass(r)
+				}
+				var uncovered []string
+				for _, pe := range sec.ListeningPorts {
+					if pe.Port <= 0 {
+						continue
+					}
+					if allowedPorts[pe.Port] || hasRangeRule {
+						continue
+					}
+					uncovered = append(uncovered,
+						fmt.Sprintf("%d/%s(%s)", pe.Port, pe.Protocol, pe.Process))
+				}
+				if len(uncovered) == 0 {
+					return pass(r)
+				}
+				return failr(r,
+					fmt.Sprintf("listening ports with no explicit ufw allow rule: %s",
+						strings.Join(uncovered, ", ")),
+					"add ufw rules: ufw allow <port>/<proto> for each service")
+			}},
+
 		{ID: "3.5.1.7", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
 			Description: "Ensure ufw default deny firewall policy",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
