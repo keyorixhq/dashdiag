@@ -5512,3 +5512,382 @@ func TestRule4_1_1_3_AuditDiskFull(t *testing.T) {
 		}
 	})
 }
+
+// TestRule4_1_1_4_AuditBacklogLimit verifies rule 4.1.1.4.
+// No t.Parallel() — mutates procCmdlinePath and auditRulesAvailable.
+func TestRule4_1_1_4_AuditBacklogLimit(t *testing.T) {
+	rule := ruleByID("4.1.1.4")
+	dir := t.TempDir()
+	available := models.SecurityInfo{AuditRules: 5}
+	unavailable := models.SecurityInfo{AuditRules: -1}
+
+	origPath := procCmdlinePath
+	t.Cleanup(func() { procCmdlinePath = origPath })
+
+	t.Run("auditd not available → SKIP", func(t *testing.T) {
+		procCmdlinePath = "/proc/cmdline" // irrelevant — gated early
+		got := rule.Check(unavailable, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("/proc/cmdline unreadable → SKIP", func(t *testing.T) {
+		procCmdlinePath = filepath.Join(dir, "nonexistent_cmdline")
+		got := rule.Check(available, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("audit_backlog_limit=8192 → PASS", func(t *testing.T) {
+		f := filepath.Join(dir, "cmdline_pass.txt")
+		if err := os.WriteFile(f, []byte("quiet splash audit=1 audit_backlog_limit=8192\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		procCmdlinePath = f
+		got := rule.Check(available, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("8192: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("audit_backlog_limit=256 (below 8192) → FAIL", func(t *testing.T) {
+		f := filepath.Join(dir, "cmdline_low.txt")
+		if err := os.WriteFile(f, []byte("quiet audit_backlog_limit=256\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		procCmdlinePath = f
+		got := rule.Check(available, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("256: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("audit_backlog_limit absent → FAIL", func(t *testing.T) {
+		f := filepath.Join(dir, "cmdline_nobacklog.txt")
+		if err := os.WriteFile(f, []byte("quiet splash audit=1\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		procCmdlinePath = f
+		got := rule.Check(available, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("absent: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// TestRule4_2_6_RsyslogRemoteLogging verifies rule 4.2.6.
+// No t.Parallel() — mutates rsyslogBinPaths, rsyslogConfPath, rsyslogConfDPath.
+func TestRule4_2_6_RsyslogRemoteLogging(t *testing.T) {
+	rule := ruleByID("4.2.6")
+	dir := t.TempDir()
+
+	origBins := rsyslogBinPaths
+	origConf := rsyslogConfPath
+	origConfD := rsyslogConfDPath
+	t.Cleanup(func() {
+		rsyslogBinPaths = origBins
+		rsyslogConfPath = origConf
+		rsyslogConfDPath = origConfD
+	})
+
+	fakeBin := filepath.Join(dir, "rsyslogd")
+	if err := os.WriteFile(fakeBin, []byte("#!/bin/sh"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Run("rsyslog not installed → SKIP", func(t *testing.T) {
+		rsyslogBinPaths = []string{filepath.Join(dir, "no_such_binary")}
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("TCP forwarding via @@ in rsyslog.conf → PASS", func(t *testing.T) {
+		rsyslogBinPaths = []string{fakeBin}
+		cf := filepath.Join(dir, "rsyslog_tcp.conf")
+		if err := os.WriteFile(cf, []byte("*.* @@loghost.example.com:514\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		rsyslogConfPath = cf
+		rsyslogConfDPath = filepath.Join(dir, "rsyslog_empty_d")
+		if err := os.Mkdir(rsyslogConfDPath, 0o755); err != nil && !os.IsExist(err) {
+			t.Fatal(err)
+		}
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("TCP @@: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("omfwd action in drop-in → PASS", func(t *testing.T) {
+		rsyslogBinPaths = []string{fakeBin}
+		cf := filepath.Join(dir, "rsyslog_plain.conf")
+		if err := os.WriteFile(cf, []byte("# no remote here\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		rsyslogConfPath = cf
+		dDir := filepath.Join(dir, "rsyslog_d_omfwd")
+		if err := os.Mkdir(dDir, 0o755); err != nil && !os.IsExist(err) {
+			t.Fatal(err)
+		}
+		dropIn := filepath.Join(dDir, "50-remote.conf")
+		if err := os.WriteFile(dropIn, []byte(`action(type="omfwd" target="loghost" port="514" protocol="tcp")`+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		rsyslogConfDPath = dDir
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("omfwd drop-in: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("no remote forwarding configured → FAIL", func(t *testing.T) {
+		rsyslogBinPaths = []string{fakeBin}
+		cf := filepath.Join(dir, "rsyslog_local_only.conf")
+		if err := os.WriteFile(cf, []byte("*.* /var/log/syslog\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		rsyslogConfPath = cf
+		dDir := filepath.Join(dir, "rsyslog_d_local")
+		if err := os.Mkdir(dDir, 0o755); err != nil && !os.IsExist(err) {
+			t.Fatal(err)
+		}
+		rsyslogConfDPath = dDir
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("local only: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// TestRule4_2_2_2_JournaldCompress verifies rule 4.2.2.2.
+// No t.Parallel() — mutates journaldConfPath and journaldConfDPath.
+func TestRule4_2_2_2_JournaldCompress(t *testing.T) {
+	rule := ruleByID("4.2.2.2")
+	dir := t.TempDir()
+
+	origConf := journaldConfPath
+	origConfD := journaldConfDPath
+	t.Cleanup(func() {
+		journaldConfPath = origConf
+		journaldConfDPath = origConfD
+	})
+
+	t.Run("journald config missing → SKIP", func(t *testing.T) {
+		journaldConfPath = filepath.Join(dir, "no_journald.conf")
+		journaldConfDPath = filepath.Join(dir, "no_journald_d")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("Compress=yes in journald.conf → PASS", func(t *testing.T) {
+		cf := filepath.Join(dir, "jconf_compress.conf")
+		if err := os.WriteFile(cf, []byte("[Journal]\nCompress=yes\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		journaldConfPath = cf
+		journaldConfDPath = filepath.Join(dir, "jconfd_empty1")
+		if err := os.Mkdir(journaldConfDPath, 0o755); err != nil && !os.IsExist(err) {
+			t.Fatal(err)
+		}
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("Compress=yes: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("Compress=yes in drop-in → PASS", func(t *testing.T) {
+		cf := filepath.Join(dir, "jconf_no_compress.conf")
+		if err := os.WriteFile(cf, []byte("[Journal]\nStorage=persistent\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		journaldConfPath = cf
+		dDir := filepath.Join(dir, "jconfd_compress")
+		if err := os.Mkdir(dDir, 0o755); err != nil && !os.IsExist(err) {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dDir, "50-compress.conf"), []byte("Compress=yes\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		journaldConfDPath = dDir
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("drop-in Compress=yes: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("Compress not set → FAIL", func(t *testing.T) {
+		cf := filepath.Join(dir, "jconf_nocompress.conf")
+		if err := os.WriteFile(cf, []byte("[Journal]\nStorage=persistent\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		journaldConfPath = cf
+		journaldConfDPath = filepath.Join(dir, "jconfd_empty2")
+		if err := os.Mkdir(journaldConfDPath, 0o755); err != nil && !os.IsExist(err) {
+			t.Fatal(err)
+		}
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("no Compress: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// TestRule4_2_2_3_JournaldStorage verifies rule 4.2.2.3.
+// No t.Parallel() — mutates journaldConfPath and journaldConfDPath.
+func TestRule4_2_2_3_JournaldStorage(t *testing.T) {
+	rule := ruleByID("4.2.2.3")
+	dir := t.TempDir()
+
+	origConf := journaldConfPath
+	origConfD := journaldConfDPath
+	t.Cleanup(func() {
+		journaldConfPath = origConf
+		journaldConfDPath = origConfD
+	})
+
+	t.Run("journald config missing → SKIP", func(t *testing.T) {
+		journaldConfPath = filepath.Join(dir, "no_journald2.conf")
+		journaldConfDPath = filepath.Join(dir, "no_journald_d2")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("Storage=persistent in journald.conf → PASS", func(t *testing.T) {
+		cf := filepath.Join(dir, "jconf_persistent.conf")
+		if err := os.WriteFile(cf, []byte("[Journal]\nStorage=persistent\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		journaldConfPath = cf
+		journaldConfDPath = filepath.Join(dir, "jconfd_empty3")
+		if err := os.Mkdir(journaldConfDPath, 0o755); err != nil && !os.IsExist(err) {
+			t.Fatal(err)
+		}
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("Storage=persistent: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("Storage=auto (not persistent) → FAIL", func(t *testing.T) {
+		cf := filepath.Join(dir, "jconf_auto.conf")
+		if err := os.WriteFile(cf, []byte("[Journal]\nStorage=auto\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		journaldConfPath = cf
+		journaldConfDPath = filepath.Join(dir, "jconfd_empty4")
+		if err := os.Mkdir(journaldConfDPath, 0o755); err != nil && !os.IsExist(err) {
+			t.Fatal(err)
+		}
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("Storage=auto: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// TestRule5_5_1_RootLoginConsole verifies rule 5.5.1.
+// No t.Parallel() — mutates securettyPath.
+func TestRule5_5_1_RootLoginConsole(t *testing.T) {
+	rule := ruleByID("5.5.1")
+	dir := t.TempDir()
+
+	origPath := securettyPath
+	t.Cleanup(func() { securettyPath = origPath })
+
+	t.Run("securetty missing → FAIL", func(t *testing.T) {
+		securettyPath = filepath.Join(dir, "no_securetty")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("missing: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("securetty empty → FAIL", func(t *testing.T) {
+		f := filepath.Join(dir, "securetty_empty")
+		if err := os.WriteFile(f, []byte("# comment only\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		securettyPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("empty: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("securetty has tty1 → PASS", func(t *testing.T) {
+		f := filepath.Join(dir, "securetty_tty1")
+		if err := os.WriteFile(f, []byte("# only tty1 is allowed\ntty1\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		securettyPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("tty1: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// TestRule5_5_2_SuWheelRestriction verifies rule 5.5.2.
+// No t.Parallel() — mutates pamSuPath.
+func TestRule5_5_2_SuWheelRestriction(t *testing.T) {
+	rule := ruleByID("5.5.2")
+	dir := t.TempDir()
+
+	origPath := pamSuPath
+	t.Cleanup(func() { pamSuPath = origPath })
+
+	t.Run("/etc/pam.d/su unreadable → SKIP", func(t *testing.T) {
+		pamSuPath = filepath.Join(dir, "no_pam_su")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("pam_wheel.so use_uid present → PASS", func(t *testing.T) {
+		f := filepath.Join(dir, "pam_su_wheel")
+		content := "#%PAM-1.0\nauth required pam_wheel.so use_uid\nauth include system-auth\n"
+		if err := os.WriteFile(f, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		pamSuPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("wheel: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("pam_wheel.so commented out → FAIL", func(t *testing.T) {
+		f := filepath.Join(dir, "pam_su_commented")
+		content := "#%PAM-1.0\n# auth required pam_wheel.so use_uid\nauth include system-auth\n"
+		if err := os.WriteFile(f, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		pamSuPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("commented: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("pam_wheel.so without use_uid → FAIL", func(t *testing.T) {
+		f := filepath.Join(dir, "pam_su_no_uid")
+		content := "#%PAM-1.0\nauth required pam_wheel.so\nauth include system-auth\n"
+		if err := os.WriteFile(f, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		pamSuPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("no use_uid: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}

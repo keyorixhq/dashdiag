@@ -1839,6 +1839,86 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					"add 'ForwardToSyslog=yes' to /etc/systemd/journald.conf")
 			}},
 
+		{ID: "4.2.2.2", Framework: cisBenchCIS, Level: 1, Section: "Audit",
+			Description: "Ensure journald is configured to compress large log files",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("4.2.2.2")
+				hasCompress, anyConfig := false, false
+				checkLines := func(data []byte) {
+					for line := range strings.SplitSeq(string(data), "\n") {
+						line = strings.TrimSpace(line)
+						if line == "" || strings.HasPrefix(line, "#") {
+							continue
+						}
+						anyConfig = true
+						if strings.EqualFold(line, "Compress=yes") {
+							hasCompress = true
+						}
+					}
+				}
+				if data, err := os.ReadFile(journaldConfPath); err == nil { //nolint:gosec // package-level var
+					checkLines(data)
+				}
+				if entries, err := os.ReadDir(journaldConfDPath); err == nil { //nolint:gosec // package-level var
+					for _, e := range entries {
+						if e.IsDir() || !strings.HasSuffix(e.Name(), ".conf") {
+							continue
+						}
+						if data, err := os.ReadFile(filepath.Join(journaldConfDPath, e.Name())); err == nil { //nolint:gosec
+							checkLines(data)
+						}
+					}
+				}
+				if !anyConfig {
+					return skipr(r, "journald config not found (systemd not installed)")
+				}
+				if !hasCompress {
+					return failr(r, "Compress=yes not set in journald configuration",
+						"add 'Compress=yes' to /etc/systemd/journald.conf")
+				}
+				return pass(r)
+			}},
+
+		{ID: "4.2.2.3", Framework: cisBenchCIS, Level: 1, Section: "Audit",
+			Description: "Ensure journald is configured to write logfiles to persistent disk",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("4.2.2.3")
+				hasPersistent, anyConfig := false, false
+				checkLines := func(data []byte) {
+					for line := range strings.SplitSeq(string(data), "\n") {
+						line = strings.TrimSpace(line)
+						if line == "" || strings.HasPrefix(line, "#") {
+							continue
+						}
+						anyConfig = true
+						if strings.EqualFold(line, "Storage=persistent") {
+							hasPersistent = true
+						}
+					}
+				}
+				if data, err := os.ReadFile(journaldConfPath); err == nil { //nolint:gosec // package-level var
+					checkLines(data)
+				}
+				if entries, err := os.ReadDir(journaldConfDPath); err == nil { //nolint:gosec // package-level var
+					for _, e := range entries {
+						if e.IsDir() || !strings.HasSuffix(e.Name(), ".conf") {
+							continue
+						}
+						if data, err := os.ReadFile(filepath.Join(journaldConfDPath, e.Name())); err == nil { //nolint:gosec
+							checkLines(data)
+						}
+					}
+				}
+				if !anyConfig {
+					return skipr(r, "journald config not found (systemd not installed)")
+				}
+				if !hasPersistent {
+					return failr(r, "Storage=persistent not set in journald configuration",
+						"add 'Storage=persistent' to /etc/systemd/journald.conf")
+				}
+				return pass(r)
+			}},
+
 		{ID: "4.2.3", Framework: cisBenchCIS, Level: 2, Section: "Audit",
 			Description: "Ensure rsyslog is configured to send logs to a remote log host",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
@@ -2293,6 +2373,48 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 						"set 'Defaults timestamp_timeout=15' in /etc/sudoers")
 				}
 				return pass(r)
+			}},
+
+		// ── 5.5 User Accounts and Environment ───────────────────────────────
+
+		{ID: "5.5.1", Framework: cisBenchCIS, Level: 1, Section: cisCatAuth,
+			Description: "Ensure root login is restricted to system console",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.5.1")
+				data, err := os.ReadFile(securettyPath) // #nosec G304 -- package-level var
+				if err != nil {
+					return failr(r, "/etc/securetty missing — root can login from any terminal",
+						"create /etc/securetty listing only required console devices (e.g. tty1)")
+				}
+				for line := range strings.SplitSeq(string(data), "\n") {
+					line = strings.TrimSpace(line)
+					if line != "" && !strings.HasPrefix(line, "#") {
+						return pass(r)
+					}
+				}
+				return failr(r, "/etc/securetty is empty — no terminals restricted",
+					"add allowed console ttys to /etc/securetty (e.g. tty1)")
+			}},
+
+		{ID: "5.5.2", Framework: cisBenchCIS, Level: 1, Section: cisCatAuth,
+			Description: "Ensure access to the su command is restricted",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.5.2")
+				data, err := os.ReadFile(pamSuPath) // #nosec G304 -- package-level var
+				if err != nil {
+					return skipr(r, "/etc/pam.d/su not readable")
+				}
+				for line := range strings.SplitSeq(string(data), "\n") {
+					line = strings.TrimSpace(line)
+					if strings.HasPrefix(line, "#") || line == "" {
+						continue
+					}
+					if strings.Contains(line, "pam_wheel.so") && strings.Contains(line, "use_uid") {
+						return pass(r)
+					}
+				}
+				return failr(r, "pam_wheel.so use_uid not found in /etc/pam.d/su",
+					"add 'auth required pam_wheel.so use_uid' to /etc/pam.d/su to restrict su to wheel group")
 			}},
 
 		// ── 5.1 Cron Daemon Configuration ────────────────────────────────────
@@ -3347,9 +3469,15 @@ var nisServerBinPaths = []string{"/usr/sbin/ypserv", "/usr/lib/yp/ypserv"}
 // sshHostKeyDir for SSH host key permission checks (5.2.3, 5.2.4).
 var sshHostKeyDir = "/etc/ssh"
 
-// journaldConfPath and journaldConfDPath for journald config checks (4.2.2).
+// journaldConfPath and journaldConfDPath for journald config checks (4.2.2–4.2.2.3).
 var journaldConfPath = "/etc/systemd/journald.conf"
 var journaldConfDPath = "/etc/systemd/journald.conf.d"
+
+// securettyPath for root-login restriction check (5.5.1).
+var securettyPath = "/etc/securetty"
+
+// pamSuPath for su-command restriction check (5.5.2).
+var pamSuPath = "/etc/pam.d/su"
 
 // rsyslogConfPath and rsyslogConfDPath for rsyslog remote-logging check (4.2.3).
 var rsyslogConfPath = "/etc/rsyslog.conf"
