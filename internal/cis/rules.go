@@ -901,6 +901,93 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				return pass(r)
 			}},
 
+		// ── 5.2.28-5.2.30 SSH file ownership ─────────────────────────────────
+
+		{ID: "5.2.28", Framework: cisBenchCIS, Level: 1, Section: cisCatSSH,
+			Description: "Ensure /etc/ssh/sshd_config is owned by root:root",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkFileOwnerRootRoot(ruleByID("5.2.28"), sshdConfigPath, "chown root:root /etc/ssh/sshd_config")
+			}},
+
+		{ID: "5.2.29", Framework: cisBenchCIS, Level: 1, Section: cisCatSSH,
+			Description: "Ensure SSH public host key files are owned by root:root",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.2.29")
+				entries, err := os.ReadDir(sshHostKeyDir) //nolint:gosec // package-level var
+				if err != nil {
+					return skipr(r, "could not read /etc/ssh")
+				}
+				var bad []string
+				found := false
+				for _, e := range entries {
+					name := e.Name()
+					if !strings.HasPrefix(name, "ssh_host_") || !strings.HasSuffix(name, "_key.pub") {
+						continue
+					}
+					found = true
+					fi, err := e.Info()
+					if err != nil {
+						continue
+					}
+					stat, ok := fi.Sys().(*syscall.Stat_t)
+					if !ok {
+						continue // cannot check ownership on this OS; skip file
+					}
+					if stat.Uid != 0 || stat.Gid != 0 {
+						bad = append(bad, fmt.Sprintf("%s (uid=%d gid=%d)", name, stat.Uid, stat.Gid))
+					}
+				}
+				if !found {
+					return skipr(r, "no SSH public host key files found")
+				}
+				if len(bad) > 0 {
+					return failr(r, fmt.Sprintf("SSH public host key files not owned by root:root: %s", strings.Join(bad, ", ")),
+						"chown root:root /etc/ssh/ssh_host_*_key.pub")
+				}
+				return pass(r)
+			}},
+
+		{ID: "5.2.30", Framework: cisBenchCIS, Level: 1, Section: cisCatSSH,
+			Description: "Ensure SSH private host key files are owned by root:root",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.2.30")
+				entries, err := os.ReadDir(sshHostKeyDir) //nolint:gosec // package-level var
+				if err != nil {
+					return skipr(r, "could not read /etc/ssh")
+				}
+				var bad []string
+				found := false
+				for _, e := range entries {
+					name := e.Name()
+					if !strings.HasPrefix(name, "ssh_host_") || strings.HasSuffix(name, ".pub") {
+						continue
+					}
+					if !strings.HasSuffix(name, "_key") {
+						continue
+					}
+					found = true
+					fi, err := e.Info()
+					if err != nil {
+						continue
+					}
+					stat, ok := fi.Sys().(*syscall.Stat_t)
+					if !ok {
+						continue // cannot check ownership on this OS; skip file
+					}
+					if stat.Uid != 0 || stat.Gid != 0 {
+						bad = append(bad, fmt.Sprintf("%s (uid=%d gid=%d)", name, stat.Uid, stat.Gid))
+					}
+				}
+				if !found {
+					return skipr(r, "no SSH private host key files found")
+				}
+				if len(bad) > 0 {
+					return failr(r, fmt.Sprintf("SSH private host key files not owned by root:root: %s", strings.Join(bad, ", ")),
+						"chown root:root /etc/ssh/ssh_host_*_key")
+				}
+				return pass(r)
+			}},
+
 		// ── 3.x Network ───────────────────────────────────────────────────────
 
 		{ID: "3.1.1", StigID: "V-238327",

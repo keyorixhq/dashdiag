@@ -8207,3 +8207,135 @@ func TestRule5_1_17_to_23_CronAtFileOwnership(t *testing.T) {
 		testOwner(t, "5.1.23", func(p string) { atDenyPath = p })
 	})
 }
+
+// ── 5.2.28-5.2.30 SSH file ownership ─────────────────────────────────────────
+
+// TestRule5_2_28_SSHConfigOwnership verifies that /etc/ssh/sshd_config must be
+// owned by root:root.
+// No t.Parallel(): mutates package-level sshdConfigPath.
+func TestRule5_2_28_SSHConfigOwnership(t *testing.T) {
+	dir := t.TempDir()
+	orig := sshdConfigPath
+	t.Cleanup(func() { sshdConfigPath = orig })
+
+	rule := ruleByID("5.2.28")
+
+	t.Run("file absent → SKIP", func(t *testing.T) {
+		sshdConfigPath = filepath.Join(dir, "missing_sshd_config")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("absent: want SKIP, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("file present non-root owner → FAIL", func(t *testing.T) {
+		if os.Getuid() == 0 {
+			t.Skip("running as root — temp files are root-owned; cannot test FAIL path")
+		}
+		p := filepath.Join(dir, "sshd_config_nonroot")
+		if err := os.WriteFile(p, []byte("# stub\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		sshdConfigPath = p
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("non-root owner: want FAIL, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// TestRule5_2_29_SSHPubKeyOwnership verifies that SSH public host key files
+// must be owned by root:root.
+// No t.Parallel(): mutates package-level sshHostKeyDir.
+func TestRule5_2_29_SSHPubKeyOwnership(t *testing.T) {
+	dir := t.TempDir()
+	orig := sshHostKeyDir
+	t.Cleanup(func() { sshHostKeyDir = orig })
+
+	rule := ruleByID("5.2.29")
+
+	t.Run("dir missing → SKIP", func(t *testing.T) {
+		sshHostKeyDir = filepath.Join(dir, "no_ssh")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("missing dir: want SKIP, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("no pub key files → SKIP", func(t *testing.T) {
+		d := filepath.Join(dir, "ssh_no_pub")
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(d, "sshd_config"), []byte("# config\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		sshHostKeyDir = d
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("no pub keys: want SKIP, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("pub key file non-root owner → FAIL", func(t *testing.T) {
+		if os.Getuid() == 0 {
+			t.Skip("running as root — temp files are root-owned; cannot test FAIL path")
+		}
+		d := filepath.Join(dir, "ssh_pub_nonroot")
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(d, "ssh_host_ed25519_key.pub"), []byte("ssh-ed25519 AAAA\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		sshHostKeyDir = d
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("non-root owner: want FAIL, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// TestRule5_2_30_SSHPrivKeyOwnership verifies that SSH private host key files
+// must be owned by root:root.
+// No t.Parallel(): mutates package-level sshHostKeyDir.
+func TestRule5_2_30_SSHPrivKeyOwnership(t *testing.T) {
+	dir := t.TempDir()
+	orig := sshHostKeyDir
+	t.Cleanup(func() { sshHostKeyDir = orig })
+
+	rule := ruleByID("5.2.30")
+
+	t.Run("no private key files → SKIP", func(t *testing.T) {
+		d := filepath.Join(dir, "ssh_only_pub2")
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(d, "ssh_host_ed25519_key.pub"), []byte("ssh-ed25519 AAAA\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		sshHostKeyDir = d
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("no private keys: want SKIP, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("private key file non-root owner → FAIL", func(t *testing.T) {
+		if os.Getuid() == 0 {
+			t.Skip("running as root — temp files are root-owned; cannot test FAIL path")
+		}
+		d := filepath.Join(dir, "ssh_priv_nonroot")
+		if err := os.MkdirAll(d, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(d, "ssh_host_ed25519_key"), []byte("stub-priv-key\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		sshHostKeyDir = d
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("non-root owner: want FAIL, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
