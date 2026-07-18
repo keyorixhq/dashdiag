@@ -373,6 +373,15 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					"sysctl -w net.ipv4.ip_forward=0 && add to /etc/sysctl.d/99-cis.conf")
 			}},
 
+		{ID: "3.1.2", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure packet redirect sending is disabled",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.1.2")
+				return checkSysctl(r, "/proc/sys/net/ipv4/conf/all/send_redirects", "0",
+					"send_redirects is 1 — host can send ICMP redirects (man-in-the-middle risk)",
+					"sysctl -w net.ipv4.conf.all.send_redirects=0 && sysctl -w net.ipv4.conf.default.send_redirects=0")
+			}},
+
 		{ID: "3.2.1", StigID: "V-238328",
 			StigDescription: "Source routing must be disabled", Framework: cisBenchBOTH, Level: 1, Section: cisCatNetwork,
 			Description: "Ensure source routed packets are not accepted",
@@ -391,6 +400,15 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				return checkSysctl(r, "/proc/sys/net/ipv4/conf/all/accept_redirects", "0",
 					"accept_redirects is 1 — ICMP redirects accepted",
 					"sysctl -w net.ipv4.conf.all.accept_redirects=0")
+			}},
+
+		{ID: "3.2.3", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure secure ICMP redirects are not accepted",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.2.3")
+				return checkSysctl(r, "/proc/sys/net/ipv4/conf/all/secure_redirects", "0",
+					"secure_redirects is 1 — ICMP redirects from gateways accepted without validation",
+					"sysctl -w net.ipv4.conf.all.secure_redirects=0 && echo 'net.ipv4.conf.all.secure_redirects=0' >> /etc/sysctl.d/99-cis.conf")
 			}},
 
 		{ID: "3.2.4", StigID: "V-238331",
@@ -455,6 +473,15 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				return checkSysctl(r, "/proc/sys/net/ipv4/icmp_ignore_bogus_error_responses", "1",
 					"icmp_ignore_bogus_error_responses is 0 — bogus ICMP error messages accepted",
 					"sysctl -w net.ipv4.icmp_ignore_bogus_error_responses=1 && echo 'net.ipv4.icmp_ignore_bogus_error_responses=1' >> /etc/sysctl.d/99-cis.conf")
+			}},
+
+		{ID: "3.2.7", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure Reverse Path Filtering is enabled (anti-spoofing)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.2.7")
+				return checkSysctl(r, "/proc/sys/net/ipv4/conf/all/rp_filter", "1",
+					"rp_filter is 0 — reverse path filtering disabled (IP spoofing possible)",
+					"sysctl -w net.ipv4.conf.all.rp_filter=1 && sysctl -w net.ipv4.conf.default.rp_filter=1")
 			}},
 
 		// ── 3.3.x / 3.5.x MAC + Firewall ────────────────────────────────────
