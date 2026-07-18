@@ -432,6 +432,23 @@ func TestStructDrivenRules(t *testing.T) {
 		// V-238226 StrictModes (STIG)
 		{"V-238226 disabled fails", "V-238226", models.SecurityInfo{}, models.CISFail},
 		{"V-238226 enabled passes", "V-238226", models.SecurityInfo{SSHStrictModes: true}, models.CISPass},
+
+		// 1.3.1 AIDE installed
+		{"1.3.1 not installed fails", "1.3.1", models.SecurityInfo{AIDEInstalled: false}, models.CISFail},
+		{"1.3.1 installed passes", "1.3.1", models.SecurityInfo{AIDEInstalled: true}, models.CISPass},
+
+		// 1.3.2 AIDE check ran recently
+		{"1.3.2 aide absent skips", "1.3.2", models.SecurityInfo{AIDEInstalled: false}, models.CISSkipped},
+		{"1.3.2 no db fails", "1.3.2", models.SecurityInfo{AIDEInstalled: true, AIDEDBExists: false}, models.CISFail},
+		{"1.3.2 never run fails", "1.3.2", models.SecurityInfo{AIDEInstalled: true, AIDEDBExists: true, AIDELastRunDays: -1}, models.CISFail},
+		{"1.3.2 stale 8 days fails", "1.3.2", models.SecurityInfo{AIDEInstalled: true, AIDEDBExists: true, AIDELastRunDays: 8}, models.CISFail},
+		{"1.3.2 within 7 days passes", "1.3.2", models.SecurityInfo{AIDEInstalled: true, AIDEDBExists: true, AIDELastRunDays: 3}, models.CISPass},
+		{"1.3.2 exactly 7 days passes", "1.3.2", models.SecurityInfo{AIDEInstalled: true, AIDEDBExists: true, AIDELastRunDays: 7}, models.CISPass},
+
+		// 5.4.2 stale password accounts
+		{"5.4.2 shadow unreadable skips", "5.4.2", models.SecurityInfo{ShadowUnreadable: true}, models.CISSkipped},
+		{"5.4.2 no stale passes", "5.4.2", models.SecurityInfo{}, models.CISPass},
+		{"5.4.2 stale account fails", "5.4.2", models.SecurityInfo{StalePasswordAccounts: []string{"alice"}}, models.CISFail},
 	}
 
 	for _, tc := range cases {

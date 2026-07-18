@@ -10,6 +10,23 @@ import "github.com/keyorixhq/dashdiag/internal/models"
 // on RHEL/SUSE/Arch. TestRulesHaveNoHardcodedDistroHints enforces that rules.go
 // carries no such literal — new package-install hints must come through here.
 
+// aideInstallCmd returns the package-manager-appropriate command to install AIDE
+// (Advanced Intrusion Detection Environment). CIS 1.3.1 requires AIDE; the install
+// command differs by distro: the package is "aide" on Debian/Ubuntu, "aide" on
+// RHEL/SUSE, but requires initialization after install.
+func aideInstallCmd(pkgMgr string) string {
+	switch pkgMgr {
+	case "dnf", "yum", "tdnf":
+		return "dnf install aide && aide --init && mv /var/lib/aide/aide.db.new /var/lib/aide/aide.db"
+	case "zypper":
+		return "zypper install aide && aide --init && mv /var/lib/aide/aide.db.new /var/lib/aide/aide.db"
+	case "pacman":
+		return "pacman -S aide && aide --init && mv /var/lib/aide/aide.db.new /var/lib/aide/aide.db"
+	default: // apt and unknown
+		return "apt install aide && aide --init && mv /var/lib/aide/aide.db.new /var/lib/aide/aide.db"
+	}
+}
+
 // auditInstallCmd returns the package-manager-appropriate command to install the
 // audit daemon. The CIS rule set is authored Ubuntu-first, but `dsd cis` runs on
 // any distro — an apt command is wrong (and absent) on RHEL/SUSE/Arch hosts.
@@ -94,6 +111,8 @@ func adaptRemediation(res models.CISResult, pkgMgr string) models.CISResult {
 		return res
 	}
 	switch res.ID {
+	case "1.3.1":
+		res.Remediation = aideInstallCmd(pkgMgr)
 	case "2.1.1":
 		res.Remediation = timeSyncInstallCmd(pkgMgr)
 	case "3.3.1":
