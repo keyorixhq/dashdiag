@@ -71,8 +71,8 @@ func TestAuditRemediation_AllPackageManagers(t *testing.T) {
 	}
 }
 
-// adaptRemediation must only touch FAILed auditd results — never a pass/skip, and
-// never a non-auditd rule.
+// adaptRemediation must only touch FAILed auditd/timesync results — never a
+// pass/skip, and never an unrecognised rule.
 func TestAdaptRemediation_OnlyRewritesFailedAuditRules(t *testing.T) {
 	pass := models.CISResult{ID: "4.1.1", Status: models.CISPass, Remediation: "keep"}
 	if got := adaptRemediation(pass, "dnf"); got.Remediation != "keep" {
@@ -80,6 +80,46 @@ func TestAdaptRemediation_OnlyRewritesFailedAuditRules(t *testing.T) {
 	}
 	other := models.CISResult{ID: "5.2.1", Status: models.CISFail, Remediation: "chmod 600 /etc/ssh/sshd_config"}
 	if got := adaptRemediation(other, "dnf"); got.Remediation != "chmod 600 /etc/ssh/sshd_config" {
-		t.Errorf("a non-auditd rule was rewritten: %q", got.Remediation)
+		t.Errorf("a non-install rule was rewritten: %q", got.Remediation)
+	}
+}
+
+// TestTimeSyncInstallCmd exercises timeSyncInstallCmd across all supported
+// package-manager families.
+func TestTimeSyncInstallCmd(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		pkgMgr  string
+		wantSub string
+	}{
+		{"dnf", "dnf install chrony"},
+		{"yum", "dnf install chrony"},
+		{"tdnf", "dnf install chrony"},
+		{"zypper", "zypper install chrony"},
+		{"pacman", "pacman -S chrony"},
+		{"apt", "apt install chrony"},
+		{"", "apt install chrony"}, // unknown → Debian default
+	}
+	for _, c := range cases {
+		if got := timeSyncInstallCmd(c.pkgMgr); !strings.Contains(got, c.wantSub) {
+			t.Errorf("timeSyncInstallCmd(%q) = %q, want substring %q", c.pkgMgr, got, c.wantSub)
+		}
+	}
+}
+
+// TestAdaptRemediation_2_1_1 verifies that rule 2.1.1 FAILs get their
+// remediation rewritten per package manager, while non-FAIL results are untouched.
+func TestAdaptRemediation_2_1_1(t *testing.T) {
+	t.Parallel()
+	failing := models.CISResult{ID: "2.1.1", Status: models.CISFail, Remediation: "install a time sync daemon"}
+	if got := adaptRemediation(failing, "dnf"); !strings.Contains(got.Remediation, "dnf install chrony") {
+		t.Errorf("2.1.1 FAIL with dnf: got %q, want 'dnf install chrony'", got.Remediation)
+	}
+	if got := adaptRemediation(failing, "apt"); !strings.Contains(got.Remediation, "apt install chrony") {
+		t.Errorf("2.1.1 FAIL with apt: got %q, want 'apt install chrony'", got.Remediation)
+	}
+	passing := models.CISResult{ID: "2.1.1", Status: models.CISPass, Remediation: "keep"}
+	if got := adaptRemediation(passing, "dnf"); got.Remediation != "keep" {
+		t.Errorf("2.1.1 PASS was rewritten: %q", got.Remediation)
 	}
 }

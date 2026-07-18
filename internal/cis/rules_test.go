@@ -825,3 +825,292 @@ func TestEvaluate_AuditUnreadableNotFailed(t *testing.T) {
 		t.Errorf("4.1.1 with AuditRulesUnreadable=false: status = %v, want Fail", r2.Status)
 	}
 }
+
+// ── 2.1.1 Time Sync Daemon Installed ─────────────────────────────────────────
+
+func TestRule2_1_1_NoDaemonInstalled(t *testing.T) {
+	// No t.Parallel(): mutates chronyCfgPaths, ntpCfgPath, timesyncdCfgPath.
+	dir := t.TempDir()
+	savedChrony := chronyCfgPaths
+	savedNtp := ntpCfgPath
+	savedTimesyncd := timesyncdCfgPath
+	t.Cleanup(func() {
+		chronyCfgPaths = savedChrony
+		ntpCfgPath = savedNtp
+		timesyncdCfgPath = savedTimesyncd
+	})
+	chronyCfgPaths = []string{filepath.Join(dir, "chrony.conf")}
+	ntpCfgPath = filepath.Join(dir, "ntp.conf")
+	timesyncdCfgPath = filepath.Join(dir, "timesyncd.conf")
+
+	rule := ruleByID("2.1.1")
+	got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+	if got.Status != models.CISFail {
+		t.Errorf("no daemon config: want Fail, got %s (%s)", got.Status, got.Finding)
+	}
+}
+
+func TestRule2_1_1_ChronyInstalled(t *testing.T) {
+	// No t.Parallel(): mutates chronyCfgPaths.
+	dir := t.TempDir()
+	p := filepath.Join(dir, "chrony.conf")
+	if err := os.WriteFile(p, []byte("# chrony fixture\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	savedChrony := chronyCfgPaths
+	savedNtp := ntpCfgPath
+	savedTimesyncd := timesyncdCfgPath
+	t.Cleanup(func() {
+		chronyCfgPaths = savedChrony
+		ntpCfgPath = savedNtp
+		timesyncdCfgPath = savedTimesyncd
+	})
+	chronyCfgPaths = []string{p}
+	ntpCfgPath = filepath.Join(dir, "ntp.conf")             // absent
+	timesyncdCfgPath = filepath.Join(dir, "timesyncd.conf") // absent
+
+	rule := ruleByID("2.1.1")
+	got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+	if got.Status != models.CISPass {
+		t.Errorf("chrony.conf present: want Pass, got %s (%s)", got.Status, got.Finding)
+	}
+}
+
+func TestRule2_1_1_NtpInstalled(t *testing.T) {
+	// No t.Parallel(): mutates ntpCfgPath, chronyCfgPaths (to force ntp path).
+	dir := t.TempDir()
+	p := filepath.Join(dir, "ntp.conf")
+	if err := os.WriteFile(p, []byte("server 0.pool.ntp.org\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	savedChrony := chronyCfgPaths
+	savedNtp := ntpCfgPath
+	savedTimesyncd := timesyncdCfgPath
+	t.Cleanup(func() {
+		chronyCfgPaths = savedChrony
+		ntpCfgPath = savedNtp
+		timesyncdCfgPath = savedTimesyncd
+	})
+	chronyCfgPaths = []string{filepath.Join(dir, "chrony.conf")} // absent
+	ntpCfgPath = p
+	timesyncdCfgPath = filepath.Join(dir, "timesyncd.conf") // absent
+
+	rule := ruleByID("2.1.1")
+	got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+	if got.Status != models.CISPass {
+		t.Errorf("ntp.conf present: want Pass, got %s (%s)", got.Status, got.Finding)
+	}
+}
+
+func TestRule2_1_1_TimesyncdInstalled(t *testing.T) {
+	// No t.Parallel(): mutates timesyncdCfgPath, chronyCfgPaths, ntpCfgPath.
+	dir := t.TempDir()
+	p := filepath.Join(dir, "timesyncd.conf")
+	if err := os.WriteFile(p, []byte("[Time]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	savedChrony := chronyCfgPaths
+	savedNtp := ntpCfgPath
+	savedTimesyncd := timesyncdCfgPath
+	t.Cleanup(func() {
+		chronyCfgPaths = savedChrony
+		ntpCfgPath = savedNtp
+		timesyncdCfgPath = savedTimesyncd
+	})
+	chronyCfgPaths = []string{filepath.Join(dir, "chrony.conf")} // absent
+	ntpCfgPath = filepath.Join(dir, "ntp.conf")                  // absent
+	timesyncdCfgPath = p
+
+	rule := ruleByID("2.1.1")
+	got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+	if got.Status != models.CISPass {
+		t.Errorf("timesyncd.conf present: want Pass, got %s (%s)", got.Status, got.Finding)
+	}
+}
+
+// ── 2.1.2 Time Sync Daemon Configured ────────────────────────────────────────
+
+func TestRule2_1_2_NoDaemon(t *testing.T) {
+	// No t.Parallel(): mutates package-level path vars.
+	dir := t.TempDir()
+	savedChrony := chronyCfgPaths
+	savedNtp := ntpCfgPath
+	savedTimesyncd := timesyncdCfgPath
+	t.Cleanup(func() {
+		chronyCfgPaths = savedChrony
+		ntpCfgPath = savedNtp
+		timesyncdCfgPath = savedTimesyncd
+	})
+	chronyCfgPaths = []string{filepath.Join(dir, "chrony.conf")}
+	ntpCfgPath = filepath.Join(dir, "ntp.conf")
+	timesyncdCfgPath = filepath.Join(dir, "timesyncd.conf")
+
+	rule := ruleByID("2.1.2")
+	got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+	if got.Status != models.CISSkipped {
+		t.Errorf("no config: want Skipped, got %s (%s)", got.Status, got.Finding)
+	}
+}
+
+func TestRule2_1_2_ChronyWithPool(t *testing.T) {
+	// No t.Parallel(): mutates chronyCfgPaths.
+	dir := t.TempDir()
+	p := filepath.Join(dir, "chrony.conf")
+	if err := os.WriteFile(p, []byte("pool pool.ntp.org iburst\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	savedChrony := chronyCfgPaths
+	savedNtp := ntpCfgPath
+	savedTimesyncd := timesyncdCfgPath
+	t.Cleanup(func() {
+		chronyCfgPaths = savedChrony
+		ntpCfgPath = savedNtp
+		timesyncdCfgPath = savedTimesyncd
+	})
+	chronyCfgPaths = []string{p}
+	ntpCfgPath = filepath.Join(dir, "ntp.conf")             // absent
+	timesyncdCfgPath = filepath.Join(dir, "timesyncd.conf") // absent
+
+	rule := ruleByID("2.1.2")
+	got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+	if got.Status != models.CISPass {
+		t.Errorf("chrony with pool: want Pass, got %s (%s)", got.Status, got.Finding)
+	}
+}
+
+func TestRule2_1_2_ChronyWithServer(t *testing.T) {
+	// No t.Parallel(): mutates chronyCfgPaths.
+	dir := t.TempDir()
+	p := filepath.Join(dir, "chrony.conf")
+	if err := os.WriteFile(p, []byte("server 0.debian.pool.ntp.org iburst\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	savedChrony := chronyCfgPaths
+	savedNtp := ntpCfgPath
+	savedTimesyncd := timesyncdCfgPath
+	t.Cleanup(func() {
+		chronyCfgPaths = savedChrony
+		ntpCfgPath = savedNtp
+		timesyncdCfgPath = savedTimesyncd
+	})
+	chronyCfgPaths = []string{p}
+	ntpCfgPath = filepath.Join(dir, "ntp.conf")             // absent
+	timesyncdCfgPath = filepath.Join(dir, "timesyncd.conf") // absent
+
+	rule := ruleByID("2.1.2")
+	got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+	if got.Status != models.CISPass {
+		t.Errorf("chrony with server: want Pass, got %s (%s)", got.Status, got.Finding)
+	}
+}
+
+func TestRule2_1_2_ChronyNoServers(t *testing.T) {
+	// No t.Parallel(): mutates chronyCfgPaths.
+	dir := t.TempDir()
+	p := filepath.Join(dir, "chrony.conf")
+	if err := os.WriteFile(p, []byte("# chrony.conf — no server or pool set\nmaxdistance 1.5\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	savedChrony := chronyCfgPaths
+	savedNtp := ntpCfgPath
+	savedTimesyncd := timesyncdCfgPath
+	t.Cleanup(func() {
+		chronyCfgPaths = savedChrony
+		ntpCfgPath = savedNtp
+		timesyncdCfgPath = savedTimesyncd
+	})
+	chronyCfgPaths = []string{p}
+	ntpCfgPath = filepath.Join(dir, "ntp.conf")             // absent
+	timesyncdCfgPath = filepath.Join(dir, "timesyncd.conf") // absent
+
+	rule := ruleByID("2.1.2")
+	got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+	if got.Status != models.CISFail {
+		t.Errorf("chrony no server/pool: want Fail, got %s (%s)", got.Status, got.Finding)
+	}
+}
+
+func TestRule2_1_2_NtpWithServer(t *testing.T) {
+	// No t.Parallel(): mutates ntpCfgPath and chronyCfgPaths (to skip chrony).
+	dir := t.TempDir()
+	p := filepath.Join(dir, "ntp.conf")
+	if err := os.WriteFile(p, []byte("server 0.pool.ntp.org iburst\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	savedChrony := chronyCfgPaths
+	savedNtp := ntpCfgPath
+	savedTimesyncd := timesyncdCfgPath
+	t.Cleanup(func() {
+		chronyCfgPaths = savedChrony
+		ntpCfgPath = savedNtp
+		timesyncdCfgPath = savedTimesyncd
+	})
+	chronyCfgPaths = []string{filepath.Join(dir, "chrony.conf")} // absent
+	ntpCfgPath = p
+	timesyncdCfgPath = filepath.Join(dir, "timesyncd.conf") // absent
+
+	rule := ruleByID("2.1.2")
+	got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+	if got.Status != models.CISPass {
+		t.Errorf("ntp with server: want Pass, got %s (%s)", got.Status, got.Finding)
+	}
+}
+
+func TestRule2_1_2_TimesyncdPresent(t *testing.T) {
+	// No t.Parallel(): mutates package-level path vars.
+	dir := t.TempDir()
+	p := filepath.Join(dir, "timesyncd.conf")
+	if err := os.WriteFile(p, []byte("[Time]\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	savedChrony := chronyCfgPaths
+	savedNtp := ntpCfgPath
+	savedTimesyncd := timesyncdCfgPath
+	t.Cleanup(func() {
+		chronyCfgPaths = savedChrony
+		ntpCfgPath = savedNtp
+		timesyncdCfgPath = savedTimesyncd
+	})
+	chronyCfgPaths = []string{filepath.Join(dir, "chrony.conf")} // absent
+	ntpCfgPath = filepath.Join(dir, "ntp.conf")                  // absent
+	timesyncdCfgPath = p
+
+	rule := ruleByID("2.1.2")
+	got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+	if got.Status != models.CISPass {
+		t.Errorf("timesyncd present: want Pass, got %s (%s)", got.Status, got.Finding)
+	}
+}
+
+// ── 5.3.4 Sudo Requires Password ─────────────────────────────────────────────
+
+func TestRule5_3_4_NoNopasswd(t *testing.T) {
+	t.Parallel()
+	rule := ruleByID("5.3.4")
+	got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+	if got.Status != models.CISPass {
+		t.Errorf("empty SudoNopasswd: want Pass, got %s (%s)", got.Status, got.Finding)
+	}
+}
+
+func TestRule5_3_4_SudoersUnreadable(t *testing.T) {
+	t.Parallel()
+	rule := ruleByID("5.3.4")
+	got := rule.Check(models.SecurityInfo{SudoersUnreadable: true}, models.KernelSecurityInfo{})
+	if got.Status != models.CISSkipped {
+		t.Errorf("SudoersUnreadable=true: want Skipped, got %s (%s)", got.Status, got.Finding)
+	}
+}
+
+func TestRule5_3_4_NopasswdEntries(t *testing.T) {
+	t.Parallel()
+	rule := ruleByID("5.3.4")
+	sec := models.SecurityInfo{SudoNopasswd: []string{"alice", "bob"}}
+	got := rule.Check(sec, models.KernelSecurityInfo{})
+	if got.Status != models.CISFail {
+		t.Errorf("SudoNopasswd=[alice,bob]: want Fail, got %s (%s)", got.Status, got.Finding)
+	}
+	if !strings.Contains(got.Finding, "alice") || !strings.Contains(got.Finding, "bob") {
+		t.Errorf("finding should list users, got %q", got.Finding)
+	}
+}
