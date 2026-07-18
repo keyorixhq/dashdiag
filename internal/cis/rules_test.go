@@ -395,9 +395,24 @@ func TestStructDrivenRules(t *testing.T) {
 		{"4.1.2 zero rules fails", "4.1.2", models.SecurityInfo{AuditRules: 0}, models.CISFail},
 		{"4.1.2 rules loaded passes", "4.1.2", models.SecurityInfo{AuditRules: 5}, models.CISPass},
 
+		// 5.2.16 SSH idle timeout (ClientAliveInterval)
+		{"5.2.16 not set fails", "5.2.16", models.SecurityInfo{SSHClientAliveInterval: 0}, models.CISFail},
+		{"5.2.16 900s passes", "5.2.16", models.SecurityInfo{SSHClientAliveInterval: 900}, models.CISPass},
+		{"5.2.16 300s passes", "5.2.16", models.SecurityInfo{SSHClientAliveInterval: 300}, models.CISPass},
+		{"5.2.16 1800s fails", "5.2.16", models.SecurityInfo{SSHClientAliveInterval: 1800}, models.CISFail},
+
+		// 1.1.22 sticky bit on world-writable dirs
+		{"1.1.22 no bad dirs passes", "1.1.22", models.SecurityInfo{}, models.CISPass},
+		{"1.1.22 missing sticky fails", "1.1.22", models.SecurityInfo{WorldWritableDirs: []string{"/tmp"}}, models.CISFail},
+
 		// 6.2.3 only root is UID 0
 		{"6.2.3 extra uid0 fails", "6.2.3", models.SecurityInfo{UID0Users: []string{"toor"}}, models.CISFail},
 		{"6.2.3 none passes", "6.2.3", models.SecurityInfo{}, models.CISPass},
+
+		// 6.2.4 no empty passwords
+		{"6.2.4 no empty passes", "6.2.4", models.SecurityInfo{}, models.CISPass},
+		{"6.2.4 empty account fails", "6.2.4", models.SecurityInfo{EmptyPasswordAccounts: []string{"ghost"}}, models.CISFail},
+		{"6.2.4 shadow unreadable skips", "6.2.4", models.SecurityInfo{ShadowUnreadable: true}, models.CISSkipped},
 
 		// V-238213 ciphers (STIG)
 		{"V-238213 unset fails", "V-238213", models.SecurityInfo{}, models.CISFail},
