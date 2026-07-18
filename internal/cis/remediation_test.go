@@ -123,3 +123,36 @@ func TestAdaptRemediation_2_1_1(t *testing.T) {
 		t.Errorf("2.1.1 PASS was rewritten: %q", got.Remediation)
 	}
 }
+
+// TestAIDEInstallCmd verifies every package manager gets a distinct, valid install command.
+func TestAIDEInstallCmd(t *testing.T) {
+	cases := []struct {
+		pkgMgr string
+		want   string // required substring
+	}{
+		{"dnf", "dnf install aide"},
+		{"yum", "dnf install aide"},
+		{"tdnf", "dnf install aide"},
+		{"zypper", "zypper install aide"},
+		{"pacman", "pacman -S aide"},
+		{"apt", "apt install aide"},
+		{"", "apt install aide"}, // unknown → Debian default
+	}
+	for _, c := range cases {
+		if got := aideInstallCmd(c.pkgMgr); !strings.Contains(got, c.want) {
+			t.Errorf("aideInstallCmd(%q) = %q, want substring %q", c.pkgMgr, got, c.want)
+		}
+	}
+}
+
+// TestAdaptRemediation_1_3_1 checks that a failed 1.3.1 result is rewritten per package manager.
+func TestAdaptRemediation_1_3_1(t *testing.T) {
+	fail := models.CISResult{ID: "1.3.1", Status: models.CISFail, Remediation: "apt install aide"}
+	if got := adaptRemediation(fail, "dnf"); !strings.Contains(got.Remediation, "dnf install") {
+		t.Errorf("1.3.1 dnf: remediation not rewritten: %q", got.Remediation)
+	}
+	pass := models.CISResult{ID: "1.3.1", Status: models.CISPass, Remediation: "keep"}
+	if got := adaptRemediation(pass, "dnf"); got.Remediation != "keep" {
+		t.Errorf("passing 1.3.1 was rewritten: %q", got.Remediation)
+	}
+}

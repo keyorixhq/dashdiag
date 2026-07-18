@@ -383,6 +383,42 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					"sysctl -w net.ipv4.conf.all.log_martians=1")
 			}},
 
+		// ── 1.3 Filesystem Integrity ─────────────────────────────────────────
+
+		{ID: "1.3.1", Framework: cisBenchCIS, Level: 1, Section: "Filesystem",
+			Description: "Ensure AIDE is installed",
+			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("1.3.1")
+				if !sec.AIDEInstalled {
+					// remediation is rewritten per package manager in Evaluate
+					return failr(r, "AIDE (Advanced Intrusion Detection Environment) is not installed",
+						aideInstallCmd("apt"))
+				}
+				return pass(r)
+			}},
+
+		{ID: "1.3.2", Framework: cisBenchCIS, Level: 1, Section: "Filesystem",
+			Description: "Ensure filesystem integrity is regularly checked",
+			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("1.3.2")
+				if !sec.AIDEInstalled {
+					return skipr(r, "AIDE not installed — install first (rule 1.3.1)")
+				}
+				if !sec.AIDEDBExists {
+					return failr(r, "AIDE database not initialized",
+						"run: aide --init && mv /var/lib/aide/aide.db.new /var/lib/aide/aide.db")
+				}
+				if sec.AIDELastRunDays == -1 {
+					return failr(r, "AIDE has never been run",
+						"schedule: 0 5 * * * root /usr/bin/aide --check")
+				}
+				if sec.AIDELastRunDays > 7 {
+					return failr(r, fmt.Sprintf("AIDE last ran %d days ago (threshold: 7 days)", sec.AIDELastRunDays),
+						"schedule: 0 5 * * * root /usr/bin/aide --check")
+				}
+				return pass(r)
+			}},
+
 		// ── 3.3.x / 3.5.x MAC + Firewall ────────────────────────────────────
 		//
 		// These rules are cross-distro: MAC checks prefer SELinux when present
@@ -509,6 +545,21 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				return failr(r,
 					fmt.Sprintf("NOPASSWD entries in sudoers: %s", strings.Join(sec.SudoNopasswd, ", ")),
 					"remove NOPASSWD from /etc/sudoers and /etc/sudoers.d/")
+			}},
+
+		{ID: "5.4.2", Framework: cisBenchCIS, Level: 1, Section: cisCatAuth,
+			Description: "Ensure all active user accounts have password expiry configured",
+			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.4.2")
+				if sec.ShadowUnreadable {
+					return skipr(r, "/etc/shadow not readable — run as root for full coverage")
+				}
+				if len(sec.StalePasswordAccounts) == 0 {
+					return pass(r)
+				}
+				return failr(r,
+					fmt.Sprintf("accounts without password expiry: %s", strings.Join(sec.StalePasswordAccounts, ", ")),
+					"set expiry: chage --maxdays 365 <user>")
 			}},
 
 		// ── 1.1 Filesystem ────────────────────────────────────────────────────
