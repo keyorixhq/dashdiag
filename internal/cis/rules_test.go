@@ -6703,3 +6703,141 @@ func TestRule1_5_7_DmesgRestrict(t *testing.T) {
 		}
 	})
 }
+
+// TestRule1_5_8_9_10_KernelHardeningGE verifies rules 1.5.8-1.5.10 (checkSysctlGE).
+// No t.Parallel(): mutates package-level sysctl path vars.
+func TestRule1_5_8_9_10_KernelHardeningGE(t *testing.T) {
+	cases := []struct {
+		id      string
+		pathVar *string
+		keyword string
+	}{
+		{"1.5.8", &perfEventParanoidPath, "perf"},
+		{"1.5.9", &kptrRestrictPath, "kptr"},
+		{"1.5.10", &yamaPtraceScopePath, "ptrace"},
+	}
+	dir := t.TempDir()
+	for _, tc := range cases {
+		rule := ruleByID(tc.id)
+		origPath := *tc.pathVar
+		t.Cleanup(func() { *tc.pathVar = origPath })
+
+		t.Run(tc.id+"_registered", func(t *testing.T) {
+			if rule.ID != tc.id {
+				t.Errorf("want ID %s, got %s", tc.id, rule.ID)
+			}
+			if !strings.Contains(rule.Description, tc.keyword) {
+				t.Errorf("description missing %q: %s", tc.keyword, rule.Description)
+			}
+		})
+
+		t.Run(tc.id+"_missing_file_→_SKIP", func(t *testing.T) {
+			*tc.pathVar = filepath.Join(dir, "nosuchfile_"+tc.id)
+			got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+			if got.Status != models.CISSkipped {
+				t.Errorf("%s missing file: want Skip, got %s (%s)", tc.id, got.Status, got.Finding)
+			}
+		})
+
+		t.Run(tc.id+"_value_0_→_FAIL", func(t *testing.T) {
+			f := filepath.Join(dir, tc.id+"_val0")
+			if err := os.WriteFile(f, []byte("0\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			*tc.pathVar = f
+			got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+			if got.Status != models.CISFail {
+				t.Errorf("%s value=0: want Fail, got %s (%s)", tc.id, got.Status, got.Finding)
+			}
+		})
+
+		t.Run(tc.id+"_value_1_→_PASS", func(t *testing.T) {
+			f := filepath.Join(dir, tc.id+"_val1")
+			if err := os.WriteFile(f, []byte("1\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			*tc.pathVar = f
+			got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+			if got.Status != models.CISPass {
+				t.Errorf("%s value=1: want Pass, got %s (%s)", tc.id, got.Status, got.Finding)
+			}
+		})
+
+		t.Run(tc.id+"_value_2_→_PASS_GE", func(t *testing.T) {
+			f := filepath.Join(dir, tc.id+"_val2")
+			if err := os.WriteFile(f, []byte("2\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			*tc.pathVar = f
+			got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+			if got.Status != models.CISPass {
+				t.Errorf("%s value=2: want Pass (GE), got %s (%s)", tc.id, got.Status, got.Finding)
+			}
+		})
+	}
+}
+
+// TestRule1_1_26_27_28_VarLogMountOptions verifies rules 1.1.26-1.1.28 (/var/log mount options).
+// No t.Parallel(): mutates package-level procMountsPath.
+func TestRule1_1_26_27_28_VarLogMountOptions(t *testing.T) {
+	cases := []struct {
+		id     string
+		option string
+	}{
+		{"1.1.26", "nodev"},
+		{"1.1.27", "nosuid"},
+		{"1.1.28", "noexec"},
+	}
+	dir := t.TempDir()
+	origMounts := procMountsPath
+	t.Cleanup(func() { procMountsPath = origMounts })
+
+	for _, tc := range cases {
+		rule := ruleByID(tc.id)
+
+		t.Run(tc.id+"_registered", func(t *testing.T) {
+			if rule.ID != tc.id {
+				t.Errorf("want ID %s, got %s", tc.id, rule.ID)
+			}
+			if !strings.Contains(rule.Description, tc.option) {
+				t.Errorf("description missing %q: %s", tc.option, rule.Description)
+			}
+		})
+
+		t.Run(tc.id+"_not_separate_mount_→_SKIP", func(t *testing.T) {
+			f := filepath.Join(dir, tc.id+"_no_varlog")
+			if err := os.WriteFile(f, []byte("/dev/sda1 / ext4 rw 0 0\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			procMountsPath = f
+			got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+			if got.Status != models.CISSkipped {
+				t.Errorf("%s /var/log absent: want Skip, got %s (%s)", tc.id, got.Status, got.Finding)
+			}
+		})
+
+		t.Run(tc.id+"_option_missing_→_FAIL", func(t *testing.T) {
+			f := filepath.Join(dir, tc.id+"_no_opt")
+			if err := os.WriteFile(f, []byte("/dev/sda2 /var/log ext4 rw 0 0\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			procMountsPath = f
+			got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+			if got.Status != models.CISFail {
+				t.Errorf("%s option absent: want Fail, got %s (%s)", tc.id, got.Status, got.Finding)
+			}
+		})
+
+		t.Run(tc.id+"_option_present_→_PASS", func(t *testing.T) {
+			f := filepath.Join(dir, tc.id+"_with_opt")
+			if err := os.WriteFile(f, []byte("/dev/sda2 /var/log ext4 rw,nosuid,nodev,noexec 0 0\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			procMountsPath = f
+			got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+			if got.Status != models.CISPass {
+				t.Errorf("%s option present: want Pass, got %s (%s)", tc.id, got.Status, got.Finding)
+			}
+		})
+	}
+}

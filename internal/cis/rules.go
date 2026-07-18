@@ -107,6 +107,33 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					"sysctl -w kernel.dmesg_restrict=1 && echo 'kernel.dmesg_restrict=1' >> /etc/sysctl.d/99-cis.conf")
 			}},
 
+		{ID: "1.5.8", Framework: cisBenchCIS, Level: 1, Section: "Kernel",
+			Description: "Ensure perf event access is restricted (kernel.perf_event_paranoid >= 1)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("1.5.8")
+				return checkSysctlGE(r, perfEventParanoidPath, 1,
+					"kernel.perf_event_paranoid < 1 — unprivileged users can profile the kernel",
+					"sysctl -w kernel.perf_event_paranoid=2 && echo 'kernel.perf_event_paranoid=2' >> /etc/sysctl.d/99-cis.conf")
+			}},
+
+		{ID: "1.5.9", Framework: cisBenchCIS, Level: 1, Section: "Kernel",
+			Description: "Ensure kernel pointer addresses are restricted (kernel.kptr_restrict >= 1)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("1.5.9")
+				return checkSysctlGE(r, kptrRestrictPath, 1,
+					"kernel.kptr_restrict < 1 — kernel symbol addresses exposed via /proc/kallsyms",
+					"sysctl -w kernel.kptr_restrict=2 && echo 'kernel.kptr_restrict=2' >> /etc/sysctl.d/99-cis.conf")
+			}},
+
+		{ID: "1.5.10", Framework: cisBenchCIS, Level: 1, Section: "Kernel",
+			Description: "Ensure ptrace is restricted to parent process (kernel.yama.ptrace_scope >= 1)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("1.5.10")
+				return checkSysctlGE(r, yamaPtraceScopePath, 1,
+					"kernel.yama.ptrace_scope < 1 — any process can ptrace any other process it owns",
+					"sysctl -w kernel.yama.ptrace_scope=1 && echo 'kernel.yama.ptrace_scope=1' >> /etc/sysctl.d/99-cis.conf")
+			}},
+
 		// ── 2.1 Time Synchronization ──────────────────────────────────────────
 
 		{ID: "2.1.1", Framework: cisBenchCIS, Level: 1, Section: cisCatServices,
@@ -3047,6 +3074,27 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					"create a separate /home partition and add to /etc/fstab")
 			}},
 
+		{ID: "1.1.26", Framework: cisBenchCIS, Level: 2, Section: "Filesystem",
+			Description: "Ensure nodev option set on /var/log partition",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkMountOption(ruleByID("1.1.26"), "/var/log", "nodev",
+					"add 'nodev' to /var/log mount options in /etc/fstab")
+			}},
+
+		{ID: "1.1.27", Framework: cisBenchCIS, Level: 2, Section: "Filesystem",
+			Description: "Ensure nosuid option set on /var/log partition",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkMountOption(ruleByID("1.1.27"), "/var/log", "nosuid",
+					"add 'nosuid' to /var/log mount options in /etc/fstab")
+			}},
+
+		{ID: "1.1.28", Framework: cisBenchCIS, Level: 2, Section: "Filesystem",
+			Description: "Ensure noexec option set on /var/log partition",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkMountOption(ruleByID("1.1.28"), "/var/log", "noexec",
+					"add 'noexec' to /var/log mount options in /etc/fstab")
+			}},
+
 		// ── 6.x System Maintenance ────────────────────────────────────────────
 
 		{ID: "6.1.1", StigID: "V-238401", Framework: cisBenchBOTH, Level: 1, Section: cisCatFiles,
@@ -4023,6 +4071,11 @@ var rsyslogConfDPath = "/etc/rsyslog.d"
 // varLogPath for log file permissions check (4.2.7).
 var varLogPath = "/var/log"
 
+// sysctl paths for kernel hardening GE checks (1.5.8-1.5.10).
+var perfEventParanoidPath = "/proc/sys/kernel/perf_event_paranoid"
+var kptrRestrictPath = "/proc/sys/kernel/kptr_restrict"
+var yamaPtraceScopePath = "/proc/sys/kernel/yama/ptrace_scope"
+
 // apparmorParserPaths: candidates for the apparmor_parser binary (1.6.1).
 var apparmorParserPaths = []string{"/usr/sbin/apparmor_parser", "/sbin/apparmor_parser"}
 
@@ -4159,6 +4212,24 @@ func checkSysctl(r Rule, path, wantVal, finding, fix string) models.CISResult {
 		return skipr(r, fmt.Sprintf("could not read %s", path))
 	}
 	if strings.TrimSpace(string(data)) != wantVal {
+		return failr(r, finding, fix)
+	}
+	return pass(r)
+}
+
+// checkSysctlGE reads a /proc/sys file and verifies the integer value is >= minVal.
+// Returns SKIP when the file is missing or non-integer, PASS when the value is
+// sufficient, FAIL when the value is below the minimum.
+func checkSysctlGE(r Rule, path string, minVal int, finding, fix string) models.CISResult {
+	data, err := os.ReadFile(path) // #nosec G304 -- hardcoded /proc paths
+	if err != nil {
+		return skipr(r, fmt.Sprintf("could not read %s", path))
+	}
+	v, convErr := strconv.Atoi(strings.TrimSpace(string(data)))
+	if convErr != nil {
+		return skipr(r, fmt.Sprintf("%s: non-integer value %q", path, strings.TrimSpace(string(data))))
+	}
+	if v < minVal {
 		return failr(r, finding, fix)
 	}
 	return pass(r)
