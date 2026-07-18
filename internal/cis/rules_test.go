@@ -6841,3 +6841,41 @@ func TestRule1_1_26_27_28_VarLogMountOptions(t *testing.T) {
 		})
 	}
 }
+
+// TestRule3_2_11_18_DefaultInterfaceSysctls verifies rules 3.2.11-3.2.18
+// (default/ interface companions to the all/ sysctl checks).
+func TestRule3_2_11_18_DefaultInterfaceSysctls(t *testing.T) {
+	cases := []struct {
+		id      string
+		keyword string
+	}{
+		{"3.2.11", "default"},
+		{"3.2.12", "default"},
+		{"3.2.13", "default"},
+		{"3.2.14", "default"},
+		{"3.2.15", "default"},
+		{"3.2.16", "default"},
+		{"3.2.17", "default"},
+		{"3.2.18", "default"},
+	}
+	valid := map[models.CISStatus]bool{
+		models.CISPass: true, models.CISFail: true, models.CISSkipped: true,
+	}
+	for _, tc := range cases {
+		rule := ruleByID(tc.id)
+		t.Run(tc.id+"_registered", func(t *testing.T) {
+			if rule.ID != tc.id {
+				t.Errorf("want ID %s, got %s", tc.id, rule.ID)
+			}
+			if !strings.Contains(rule.Description, tc.keyword) {
+				t.Errorf("description missing %q: %s", tc.keyword, rule.Description)
+			}
+		})
+		t.Run(tc.id+"_returns_valid_status", func(t *testing.T) {
+			got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+			if !valid[got.Status] {
+				t.Errorf("%s: unexpected status %q", tc.id, got.Status)
+			}
+		})
+	}
+}

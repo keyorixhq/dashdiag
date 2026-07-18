@@ -1342,6 +1342,81 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					"sysctl -w net.ipv6.conf.all.accept_redirects=0 && sysctl -w net.ipv6.conf.default.accept_redirects=0")
 			}},
 
+		// ── 3.2.11-3.2.18 default/ interface sysctl companions ───────────────────
+		// Each mirrors its all/ counterpart: new interfaces inherit default/ settings.
+
+		{ID: "3.2.11", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure packet redirect sending is disabled on default interface",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.2.11")
+				return checkSysctl(r, "/proc/sys/net/ipv4/conf/default/send_redirects", "0",
+					"net.ipv4.conf.default.send_redirects is 1 — new interfaces will send ICMP redirects",
+					"sysctl -w net.ipv4.conf.default.send_redirects=0 && echo 'net.ipv4.conf.default.send_redirects=0' >> /etc/sysctl.d/99-cis.conf")
+			}},
+
+		{ID: "3.2.12", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure source routed packets are not accepted on default interface",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.2.12")
+				return checkSysctl(r, "/proc/sys/net/ipv4/conf/default/accept_source_route", "0",
+					"net.ipv4.conf.default.accept_source_route is 1 — new interfaces will accept source-routed packets",
+					"sysctl -w net.ipv4.conf.default.accept_source_route=0 && echo 'net.ipv4.conf.default.accept_source_route=0' >> /etc/sysctl.d/99-cis.conf")
+			}},
+
+		{ID: "3.2.13", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure ICMP redirects are not accepted on default interface",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.2.13")
+				return checkSysctl(r, "/proc/sys/net/ipv4/conf/default/accept_redirects", "0",
+					"net.ipv4.conf.default.accept_redirects is 1 — new interfaces will accept ICMP redirects",
+					"sysctl -w net.ipv4.conf.default.accept_redirects=0 && echo 'net.ipv4.conf.default.accept_redirects=0' >> /etc/sysctl.d/99-cis.conf")
+			}},
+
+		{ID: "3.2.14", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure secure ICMP redirects are not accepted on default interface",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.2.14")
+				return checkSysctl(r, "/proc/sys/net/ipv4/conf/default/secure_redirects", "0",
+					"net.ipv4.conf.default.secure_redirects is 1 — new interfaces accept gateway ICMP redirects",
+					"sysctl -w net.ipv4.conf.default.secure_redirects=0 && echo 'net.ipv4.conf.default.secure_redirects=0' >> /etc/sysctl.d/99-cis.conf")
+			}},
+
+		{ID: "3.2.15", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure suspicious packets are logged on default interface (log_martians)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.2.15")
+				return checkSysctl(r, "/proc/sys/net/ipv4/conf/default/log_martians", "1",
+					"net.ipv4.conf.default.log_martians is 0 — new interfaces will not log martian packets",
+					"sysctl -w net.ipv4.conf.default.log_martians=1 && echo 'net.ipv4.conf.default.log_martians=1' >> /etc/sysctl.d/99-cis.conf")
+			}},
+
+		{ID: "3.2.16", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure Reverse Path Filtering is enabled on default interface",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.2.16")
+				return checkSysctl(r, "/proc/sys/net/ipv4/conf/default/rp_filter", "1",
+					"net.ipv4.conf.default.rp_filter is 0 — new interfaces will not enforce reverse path filtering",
+					"sysctl -w net.ipv4.conf.default.rp_filter=1 && echo 'net.ipv4.conf.default.rp_filter=1' >> /etc/sysctl.d/99-cis.conf")
+			}},
+
+		{ID: "3.2.17", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure IPv6 router advertisements are not accepted on default interface",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.2.17")
+				return checkSysctl(r, "/proc/sys/net/ipv6/conf/default/accept_ra", "0",
+					"net.ipv6.conf.default.accept_ra is not 0 — new interfaces will accept IPv6 router advertisements",
+					"sysctl -w net.ipv6.conf.default.accept_ra=0 && echo 'net.ipv6.conf.default.accept_ra=0' >> /etc/sysctl.d/99-cis.conf")
+			}},
+
+		{ID: "3.2.18", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure IPv6 redirects are not accepted on default interface",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.2.18")
+				return checkSysctl(r, "/proc/sys/net/ipv6/conf/default/accept_redirects", "0",
+					"net.ipv6.conf.default.accept_redirects is not 0 — new interfaces will accept IPv6 ICMP redirects",
+					"sysctl -w net.ipv6.conf.default.accept_redirects=0 && echo 'net.ipv6.conf.default.accept_redirects=0' >> /etc/sysctl.d/99-cis.conf")
+			}},
+
 		// ── 3.4 Uncommon Network Protocols ───────────────────────────────────────
 		// These kernel modules implement uncommon network protocols rarely needed
 		// on servers. Disabling prevents them from being loaded on demand.
