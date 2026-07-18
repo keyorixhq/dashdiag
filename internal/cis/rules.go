@@ -881,6 +881,93 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					"sysctl -w kernel.randomize_va_space=2 && echo 'kernel.randomize_va_space=2' >> /etc/sysctl.d/99-cis.conf")
 			}},
 
+		// ── 1.6 Mandatory Access Control (AppArmor) ──────────────────────────
+
+		{ID: "1.6.1", Framework: cisBenchCIS, Level: 1, Section: "AppArmor",
+			Description: "Ensure AppArmor is installed",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("1.6.1")
+				for _, p := range apparmorParserPaths {
+					if _, err := os.Stat(p); err == nil { // #nosec G304 -- hardcoded system paths
+						return pass(r)
+					}
+				}
+				return failr(r, "apparmor_parser not found — AppArmor may not be installed",
+					apparmorInstallCmd("apt"))
+			}},
+
+		{ID: "1.6.2", Framework: cisBenchCIS, Level: 1, Section: "AppArmor",
+			Description: "Ensure AppArmor is enabled in the bootloader configuration",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("1.6.2")
+				data, err := os.ReadFile(grubDefaultPath) // #nosec G304 -- hardcoded system path
+				if err != nil {
+					return skipr(r, "could not read /etc/default/grub")
+				}
+				for line := range strings.SplitSeq(string(data), "\n") {
+					line = strings.TrimSpace(line)
+					if strings.HasPrefix(line, "#") || !strings.HasPrefix(line, "GRUB_CMDLINE_LINUX=") {
+						continue
+					}
+					if strings.Contains(line, "apparmor=1") && strings.Contains(line, "security=apparmor") {
+						return pass(r)
+					}
+					return failr(r,
+						"GRUB_CMDLINE_LINUX does not contain 'apparmor=1 security=apparmor'",
+						"add 'apparmor=1 security=apparmor' to GRUB_CMDLINE_LINUX in /etc/default/grub, then run update-grub")
+				}
+				return skipr(r, "GRUB_CMDLINE_LINUX not found in /etc/default/grub")
+			}},
+
+		{ID: "1.6.3", Framework: cisBenchCIS, Level: 1, Section: "AppArmor",
+			Description: "Ensure all AppArmor Profiles are in enforce or complain mode",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("1.6.3")
+				data, err := os.ReadFile(apparmorProfilesPath) // #nosec G304 -- hardcoded securityfs path
+				if err != nil {
+					return skipr(r, "could not read AppArmor profiles — AppArmor kernel support may be absent")
+				}
+				count := 0
+				for line := range strings.SplitSeq(string(data), "\n") {
+					if strings.TrimSpace(line) != "" {
+						count++
+					}
+				}
+				if count == 0 {
+					return failr(r, "no AppArmor profiles are loaded",
+						"load profiles: apparmor_parser -r /etc/apparmor.d/*")
+				}
+				return pass(r)
+			}},
+
+		{ID: "1.6.4", Framework: cisBenchCIS, Level: 2, Section: "AppArmor",
+			Description: "Ensure all AppArmor Profiles are enforcing",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("1.6.4")
+				data, err := os.ReadFile(apparmorProfilesPath) // #nosec G304 -- hardcoded securityfs path
+				if err != nil {
+					return skipr(r, "could not read AppArmor profiles")
+				}
+				var complain []string
+				for line := range strings.SplitSeq(string(data), "\n") {
+					line = strings.TrimSpace(line)
+					if line == "" {
+						continue
+					}
+					if strings.HasSuffix(line, "(complain)") {
+						name := strings.TrimSuffix(line, " (complain)")
+						complain = append(complain, strings.TrimSpace(name))
+					}
+				}
+				if len(complain) > 0 {
+					shown := complain[:min(3, len(complain))]
+					return failr(r,
+						fmt.Sprintf("%d profile(s) in complain mode: %s", len(complain), strings.Join(shown, ", ")),
+						"set all profiles to enforce: aa-enforce /etc/apparmor.d/*")
+				}
+				return pass(r)
+			}},
+
 		// ── 1.7 Warning Banners ───────────────────────────────────────────────
 
 		{ID: "1.7.1", Framework: cisBenchCIS, Level: 1, Section: "Banners",
@@ -1965,6 +2052,131 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				return pass(r)
 			}},
 
+		{ID: "6.2.10", Framework: cisBenchCIS, Level: 1, Section: "Users",
+			Description: "Ensure root PATH integrity",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("6.2.10")
+				data, err := os.ReadFile(etcEnvironmentPath) // #nosec G304 -- hardcoded system path
+				if err != nil {
+					return skipr(r, "could not read /etc/environment — cannot verify root PATH")
+				}
+				var rootPath string
+				for line := range strings.SplitSeq(string(data), "\n") {
+					line = strings.TrimSpace(line)
+					if rest, ok := strings.CutPrefix(line, "PATH="); ok {
+						rootPath = strings.Trim(rest, `"'`)
+						break
+					}
+				}
+				if rootPath == "" {
+					return skipr(r, "PATH not set in /etc/environment — cannot verify root PATH")
+				}
+				for component := range strings.SplitSeq(rootPath, ":") {
+					if component == "." || component == "" {
+						return failr(r, "root PATH contains '.' or empty component — allows command hijacking",
+							"remove '.' and empty PATH components from /etc/environment")
+					}
+					if fi, statErr := os.Stat(component); statErr == nil && fi.Mode()&0002 != 0 { // #nosec G304
+						return failr(r,
+							fmt.Sprintf("world-writable directory %q in root PATH", component),
+							"remove world-writable directories from PATH in /etc/environment")
+					}
+				}
+				return pass(r)
+			}},
+
+		{ID: "6.2.11", Framework: cisBenchCIS, Level: 1, Section: "Users",
+			Description: "Ensure users own their home directories",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("6.2.11")
+				data, err := os.ReadFile(etcPasswdPath) // #nosec G304 -- hardcoded system path
+				if err != nil {
+					return skipr(r, "could not read /etc/passwd")
+				}
+				var violations []string
+				for line := range strings.SplitSeq(string(data), "\n") {
+					line = strings.TrimSpace(line)
+					if line == "" || strings.HasPrefix(line, "#") {
+						continue
+					}
+					fields := strings.SplitN(line, ":", 7)
+					if len(fields) < 6 {
+						continue
+					}
+					uid, atoiErr := strconv.Atoi(fields[2])
+					if atoiErr != nil || uid < 1000 || uid >= 65534 {
+						continue
+					}
+					homeDir := fields[5]
+					if homeDir == "" || homeDir == "/nonexistent" || homeDir == "/dev/null" {
+						continue
+					}
+					fi, statErr := os.Lstat(homeDir) // #nosec G304 -- from /etc/passwd, not user input
+					if statErr != nil {
+						continue
+					}
+					st, ok := fi.Sys().(*syscall.Stat_t)
+					if !ok {
+						continue
+					}
+					if st.Uid != uint32(uid) {
+						violations = append(violations,
+							fmt.Sprintf("%s (home=%s, owner uid=%d, expected=%d)", fields[0], homeDir, st.Uid, uid))
+					}
+				}
+				if len(violations) > 0 {
+					shown := violations[:min(3, len(violations))]
+					return failr(r,
+						fmt.Sprintf("%d home dir(s) not owned by user: %s", len(violations), strings.Join(shown, "; ")),
+						"chown <user>:<user> <home> for each affected account")
+				}
+				return pass(r)
+			}},
+
+		{ID: "6.2.12", Framework: cisBenchCIS, Level: 1, Section: "Users",
+			Description: "Ensure users' home directories permissions are 750 or more restrictive",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("6.2.12")
+				data, err := os.ReadFile(etcPasswdPath) // #nosec G304 -- hardcoded system path
+				if err != nil {
+					return skipr(r, "could not read /etc/passwd")
+				}
+				var violations []string
+				for line := range strings.SplitSeq(string(data), "\n") {
+					line = strings.TrimSpace(line)
+					if line == "" || strings.HasPrefix(line, "#") {
+						continue
+					}
+					fields := strings.SplitN(line, ":", 7)
+					if len(fields) < 6 {
+						continue
+					}
+					uid, atoiErr := strconv.Atoi(fields[2])
+					if atoiErr != nil || uid < 1000 || uid >= 65534 {
+						continue
+					}
+					homeDir := fields[5]
+					if homeDir == "" || homeDir == "/nonexistent" || homeDir == "/dev/null" {
+						continue
+					}
+					fi, statErr := os.Lstat(homeDir) // #nosec G304 -- from /etc/passwd, not user input
+					if statErr != nil {
+						continue
+					}
+					if perm := fi.Mode().Perm(); perm&0022 != 0 {
+						violations = append(violations,
+							fmt.Sprintf("%s (home=%s, mode=%04o)", fields[0], homeDir, perm))
+					}
+				}
+				if len(violations) > 0 {
+					shown := violations[:min(3, len(violations))]
+					return failr(r,
+						fmt.Sprintf("%d home dir(s) are group/world writable: %s", len(violations), strings.Join(shown, "; ")),
+						"chmod g-w,o-w <home> for each affected account")
+				}
+				return pass(r)
+			}},
+
 		// ── STIG-only rules (no direct CIS equivalent) ────────────────────────
 
 		// V-238213: Approved ciphers — STIG mandates only FIPS-approved ciphers
@@ -2196,6 +2408,18 @@ var journaldConfDPath = "/etc/systemd/journald.conf.d"
 // rsyslogConfPath and rsyslogConfDPath for rsyslog remote-logging check (4.2.3).
 var rsyslogConfPath = "/etc/rsyslog.conf"
 var rsyslogConfDPath = "/etc/rsyslog.d"
+
+// apparmorParserPaths: candidates for the apparmor_parser binary (1.6.1).
+var apparmorParserPaths = []string{"/usr/sbin/apparmor_parser", "/sbin/apparmor_parser"}
+
+// grubDefaultPath: GRUB default configuration for bootloader checks (1.6.2).
+var grubDefaultPath = "/etc/default/grub"
+
+// apparmorProfilesPath: AppArmor loaded-profile list in the security filesystem (1.6.3, 1.6.4).
+var apparmorProfilesPath = "/sys/kernel/security/apparmor/profiles"
+
+// etcEnvironmentPath: system-wide environment file checked for root PATH integrity (6.2.10).
+var etcEnvironmentPath = "/etc/environment"
 
 // checkLoginDefsField reads path (normally /etc/login.defs) for the first
 // uncommented "field value..." line and applies fails(days) to decide PASS/FAIL.

@@ -72,6 +72,21 @@ func timeSyncInstallCmd(pkgMgr string) string {
 	}
 }
 
+// apparmorInstallCmd returns the package-manager-appropriate command to install
+// AppArmor and its utilities (rule 1.6.1, CIS Ubuntu-specific).
+func apparmorInstallCmd(pkgMgr string) string {
+	switch pkgMgr {
+	case "dnf", "yum", "tdnf":
+		return "dnf install apparmor apparmor-utils && systemctl enable --now apparmor"
+	case "zypper":
+		return "zypper install apparmor-parser apparmor-utils && systemctl enable --now apparmor"
+	case "pacman":
+		return "pacman -S apparmor && systemctl enable --now apparmor"
+	default: // apt
+		return "apt install apparmor apparmor-utils && systemctl enable --now apparmor"
+	}
+}
+
 // macInstallCmd returns the package-manager-appropriate command to install a MAC
 // framework. RHEL/Rocky/Fedora use SELinux; Debian/Ubuntu/SLES/Arch use AppArmor.
 func macInstallCmd(pkgMgr string) string {
@@ -159,6 +174,8 @@ func adaptRemediation(res models.CISResult, pkgMgr string) models.CISResult {
 		res.Remediation = sudoInstallCmd(pkgMgr)
 	case "4.2.1":
 		res.Remediation = rsyslogInstallCmd(pkgMgr)
+	case "1.6.1":
+		res.Remediation = apparmorInstallCmd(pkgMgr)
 	}
 	return res
 }
