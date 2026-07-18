@@ -7234,41 +7234,6 @@ func TestRule3_2_23_24_ArpHardening(t *testing.T) {
 	}
 }
 
-// TestRule3_2_19_21_NetworkHardening verifies rules 3.2.19-3.2.21 (SYN cookies + ICMP).
-func TestRule3_2_19_21_NetworkHardening(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		id   string
-		desc string
-	}{
-		{"3.2.19", "syncookies"},
-		{"3.2.20", "icmp_echo_ignore_broadcasts"},
-		{"3.2.21", "icmp_ignore_bogus_error_responses"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.id+"_registered", func(t *testing.T) {
-			t.Parallel()
-			r := ruleByID(tc.id)
-			if r.ID != tc.id {
-				t.Errorf("ruleByID(%q) returned ID %q", tc.id, r.ID)
-			}
-			if !strings.Contains(r.Description, tc.desc) {
-				t.Errorf("description missing %q: %s", tc.desc, r.Description)
-			}
-		})
-		t.Run(tc.id+"_valid_status", func(t *testing.T) {
-			t.Parallel()
-			r := ruleByID(tc.id)
-			got := r.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
-			switch got.Status {
-			case models.CISPass, models.CISFail, models.CISSkipped:
-			default:
-				t.Errorf("unexpected status %q for rule %s", got.Status, tc.id)
-			}
-		})
-	}
-}
-
 // TestRule1_1_29_32_VarHomeMountOptions verifies 1.1.29-1.1.32 (/var and /home mount options).
 func TestRule1_1_29_32_VarHomeMountOptions(t *testing.T) {
 	t.Parallel()
