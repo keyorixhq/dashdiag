@@ -151,14 +151,6 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					"vm.mmap_min_addr < 65536 — processes can mmap near null address (null-pointer deref exploits easier)",
 					"sysctl -w vm.mmap_min_addr=65536 && echo 'vm.mmap_min_addr=65536' >> /etc/sysctl.d/99-cis.conf")
 			}},
-		{ID: "1.5.13", Framework: cisBenchCIS, Level: 1, Section: "Kernel",
-			Description: "Ensure SUID core dumps are restricted (fs.suid_dumpable = 0)",
-			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
-				r := ruleByID("1.5.13")
-				return checkSysctl(r, suidDumpablePath, "0",
-					"fs.suid_dumpable is not 0 — SUID programs can produce core dumps that may expose sensitive memory",
-					"sysctl -w fs.suid_dumpable=0 && echo 'fs.suid_dumpable=0' >> /etc/sysctl.d/99-cis.conf")
-			}},
 		{ID: "1.5.14", Framework: cisBenchCIS, Level: 1, Section: "Kernel",
 			Description: "Ensure SysRq key is disabled (kernel.sysrq = 0)",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
@@ -3463,6 +3455,34 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				return checkFileOwnerRootRootOrShadow(ruleByID("6.1.17"), "/etc/gshadow-", "chown root:shadow /etc/gshadow-")
 			}},
+		{ID: "6.1.18", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
+			Description: "Ensure /etc/sudoers permissions are 440 or stricter",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("6.1.18")
+				return checkFilePerm(r, "/etc/sudoers", 0o440, "chmod 440 /etc/sudoers")
+			}},
+		{ID: "6.1.19", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
+			Description: "Ensure /etc/sudoers is owned by root:root",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkFileOwnerRootRoot(ruleByID("6.1.19"), "/etc/sudoers", "chown root:root /etc/sudoers")
+			}},
+		{ID: "6.1.20", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
+			Description: "Ensure /etc/sudoers.d permissions are 750 or stricter",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("6.1.20")
+				return checkFilePerm(r, "/etc/sudoers.d", 0o750, "chmod 750 /etc/sudoers.d")
+			}},
+		{ID: "6.1.21", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
+			Description: "Ensure /etc/audit/auditd.conf permissions are 640 or stricter",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("6.1.21")
+				return checkFilePerm(r, "/etc/audit/auditd.conf", 0o640, "chmod 640 /etc/audit/auditd.conf")
+			}},
+		{ID: "6.1.22", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
+			Description: "Ensure /etc/audit/auditd.conf is owned by root:root",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkFileOwnerRootRoot(ruleByID("6.1.22"), "/etc/audit/auditd.conf", "chown root:root /etc/audit/auditd.conf")
+			}},
 
 		{ID: "6.2.1", StigID: "V-238408", Framework: cisBenchBOTH, Level: 1, Section: "Users",
 			Description: "Ensure no accounts have empty password fields",
@@ -4358,9 +4378,6 @@ var yamaPtraceScopePath = "/proc/sys/kernel/yama/ptrace_scope"
 // sysctl paths for BPF JIT + mmap checks (1.5.11-1.5.12).
 var bpfJitHardenPath = "/proc/sys/net/core/bpf_jit_harden"
 var mmapMinAddrPath = "/proc/sys/vm/mmap_min_addr"
-
-// sysctl path for SUID core dump restriction (1.5.13).
-var suidDumpablePath = "/proc/sys/fs/suid_dumpable"
 
 // sysctl paths for SysRq and core dump PID (1.5.14-1.5.15).
 var sysrqPath = "/proc/sys/kernel/sysrq"

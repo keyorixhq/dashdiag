@@ -6978,53 +6978,6 @@ func TestRule1_5_12_MmapMinAddr(t *testing.T) {
 	})
 }
 
-// TestRule1_5_13_SuidDumpable verifies rule 1.5.13 (fs.suid_dumpable = 0).
-// No t.Parallel(): mutates package-level suidDumpablePath.
-func TestRule1_5_13_SuidDumpable(t *testing.T) {
-	dir := t.TempDir()
-	orig := suidDumpablePath
-	t.Cleanup(func() { suidDumpablePath = orig })
-	rule := ruleByID("1.5.13")
-
-	t.Run("registered", func(t *testing.T) {
-		if rule.ID != "1.5.13" {
-			t.Errorf("unexpected ID %s", rule.ID)
-		}
-		if !strings.Contains(rule.Description, "suid_dumpable") {
-			t.Errorf("description missing 'suid_dumpable': %s", rule.Description)
-		}
-	})
-	t.Run("missing_→_SKIP", func(t *testing.T) {
-		suidDumpablePath = filepath.Join(dir, "nosuchfile")
-		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
-		if got.Status != models.CISSkipped {
-			t.Errorf("missing: want Skip, got %s (%s)", got.Status, got.Finding)
-		}
-	})
-	t.Run("value_1_→_FAIL", func(t *testing.T) {
-		f := filepath.Join(dir, "suid1")
-		if err := os.WriteFile(f, []byte("1\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		suidDumpablePath = f
-		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
-		if got.Status != models.CISFail {
-			t.Errorf("value=1: want Fail, got %s (%s)", got.Status, got.Finding)
-		}
-	})
-	t.Run("value_0_→_PASS", func(t *testing.T) {
-		f := filepath.Join(dir, "suid0")
-		if err := os.WriteFile(f, []byte("0\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		suidDumpablePath = f
-		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
-		if got.Status != models.CISPass {
-			t.Errorf("value=0: want Pass, got %s (%s)", got.Status, got.Finding)
-		}
-	})
-}
-
 // TestRule1_5_14_SysRq verifies rule 1.5.14 (kernel.sysrq = 0).
 // No t.Parallel(): mutates package-level sysrqPath.
 func TestRule1_5_14_SysRq(t *testing.T) {
@@ -7404,6 +7357,43 @@ func TestRule6_1_15_16_17_GshadowOwnership(t *testing.T) {
 			got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
 			if !valid[got.Status] {
 				t.Errorf("%s: unexpected status %q", tc.id, got.Status)
+			}
+		})
+	}
+}
+
+// TestRule6_1_18_22_SudoersAuditd verifies 6.1.18-6.1.22 (sudoers + auditd.conf perms/ownership).
+func TestRule6_1_18_22_SudoersAuditd(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		id   string
+		desc string
+	}{
+		{"6.1.18", "sudoers"},
+		{"6.1.19", "sudoers"},
+		{"6.1.20", "sudoers.d"},
+		{"6.1.21", "auditd.conf"},
+		{"6.1.22", "auditd.conf"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.id+"_registered", func(t *testing.T) {
+			t.Parallel()
+			r := ruleByID(tc.id)
+			if r.ID != tc.id {
+				t.Errorf("ruleByID(%q) returned ID %q", tc.id, r.ID)
+			}
+			if !strings.Contains(r.Description, tc.desc) {
+				t.Errorf("description missing %q: %s", tc.desc, r.Description)
+			}
+		})
+		t.Run(tc.id+"_valid_status", func(t *testing.T) {
+			t.Parallel()
+			r := ruleByID(tc.id)
+			got := r.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+			switch got.Status {
+			case models.CISPass, models.CISFail, models.CISSkipped:
+			default:
+				t.Errorf("unexpected status %q for rule %s", got.Status, tc.id)
 			}
 		})
 	}
