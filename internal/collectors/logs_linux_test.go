@@ -563,3 +563,41 @@ func TestCollectCrashFiles_SkipsDirectoryEntries(t *testing.T) {
 			info.CoreDumpCount, info.CrashFiles)
 	}
 }
+
+// TestHasCorruptArchived_NonCorruptSubdirContinues covers logs_linux.go:534.4,534.12 —
+// the `continue` after recursing into a subdirectory that contains no corrupt
+// archives. The prior gapfill covered the "corrupt → return true" recursion path;
+// this covers the "clean subdir → continue" path.
+func TestHasCorruptArchived_NonCorruptSubdirContinues(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	sub := filepath.Join(dir, "abc123-machine-id")
+	if err := os.MkdirAll(sub, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// sub has only an active *.journal file — no *.journal~ archives to verify.
+	// hasCorruptArchived(sub) returns false → outer loop hits `continue` at line 534.
+	if err := os.WriteFile(filepath.Join(sub, "active.journal"), []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if got := hasCorruptArchived(dir); got {
+		t.Error("expected false: a clean (archive-free) subdirectory must not flag corruption")
+	}
+}
+
+// TestCollectVarLogErrorsFrom_ReadFileError covers logs_linux.go:1111.16,1113.3 —
+// the early return when readFile fails after statFile succeeds. The stat is seeded
+// so path selection picks the candidate, but no file content is seeded so the
+// replay source returns ErrNotRecorded and the function returns before writing info.
+func TestCollectVarLogErrorsFrom_ReadFileError(t *testing.T) {
+	// No t.Parallel(): withFixtureSource swaps the package-global source.
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutStat("/var/log/syslog", source.FileMeta{Size: 100})
+		// readFile for /var/log/syslog not seeded → replay returns ErrNotRecorded
+	})
+	info := &models.LogsInfo{}
+	collectVarLogErrorsFrom(info, []string{"/var/log/syslog"})
+	if info.LogSource != "" {
+		t.Errorf("LogSource = %q, want empty: readFile error must cause early return", info.LogSource)
+	}
+}
