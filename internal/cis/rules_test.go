@@ -5041,3 +5041,258 @@ func TestRule3_5_1_5_UFWOutbound(t *testing.T) {
 		}
 	})
 }
+
+// ── 1.2.1 Package manager repos ──────────────────────────────────────────────
+
+// TestRule1_2_1_PackageReposConfigured verifies rule 1.2.1.
+// No t.Parallel(): mutates package-level debianVersionPath, aptSourcesListPath,
+// aptSourcesListDPath.
+func TestRule1_2_1_PackageReposConfigured(t *testing.T) {
+	dir := t.TempDir()
+	origDebian := debianVersionPath
+	origList := aptSourcesListPath
+	origListD := aptSourcesListDPath
+	t.Cleanup(func() {
+		debianVersionPath = origDebian
+		aptSourcesListPath = origList
+		aptSourcesListDPath = origListD
+	})
+
+	rule := ruleByID("1.2.1")
+
+	t.Run("non-Debian system → SKIP", func(t *testing.T) {
+		debianVersionPath = filepath.Join(dir, "no_debian_version")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("non-debian: want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("Debian, sources.list has active line → PASS", func(t *testing.T) {
+		dv := filepath.Join(dir, "debian_version")
+		if err := os.WriteFile(dv, []byte("12\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		debianVersionPath = dv
+		sl := filepath.Join(dir, "sources.list")
+		if err := os.WriteFile(sl, []byte("# comment\ndeb http://archive.ubuntu.com/ubuntu jammy main\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		aptSourcesListPath = sl
+		aptSourcesListDPath = filepath.Join(dir, "no_sources.list.d")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("sources.list has active line: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("Debian, empty sources.list, .list file in sources.list.d → PASS", func(t *testing.T) {
+		dv := filepath.Join(dir, "debian_version2")
+		if err := os.WriteFile(dv, []byte("12\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		debianVersionPath = dv
+		sl := filepath.Join(dir, "sources_empty.list")
+		if err := os.WriteFile(sl, []byte("# only comments\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		aptSourcesListPath = sl
+		listD := filepath.Join(dir, "sources_list_d")
+		if err := os.MkdirAll(listD, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(listD, "ubuntu.list"), []byte("deb http://...\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		aptSourcesListDPath = listD
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("sources.list.d has .list file: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("Debian, no sources configured anywhere → FAIL", func(t *testing.T) {
+		dv := filepath.Join(dir, "debian_version3")
+		if err := os.WriteFile(dv, []byte("12\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		debianVersionPath = dv
+		aptSourcesListPath = filepath.Join(dir, "no_sources.list")
+		aptSourcesListDPath = filepath.Join(dir, "no_sources.list.d")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("no sources: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// ── 1.2.2 GPG keys ───────────────────────────────────────────────────────────
+
+// TestRule1_2_2_GPGKeysConfigured verifies rule 1.2.2.
+// No t.Parallel(): mutates package-level debianVersionPath, aptTrustedGpgPath,
+// aptTrustedGpgDPath, aptKeyringsPath.
+func TestRule1_2_2_GPGKeysConfigured(t *testing.T) {
+	dir := t.TempDir()
+	origDebian := debianVersionPath
+	origGpg := aptTrustedGpgPath
+	origGpgD := aptTrustedGpgDPath
+	origKeyrings := aptKeyringsPath
+	t.Cleanup(func() {
+		debianVersionPath = origDebian
+		aptTrustedGpgPath = origGpg
+		aptTrustedGpgDPath = origGpgD
+		aptKeyringsPath = origKeyrings
+	})
+
+	rule := ruleByID("1.2.2")
+
+	t.Run("non-Debian system → SKIP", func(t *testing.T) {
+		debianVersionPath = filepath.Join(dir, "no_debian_version")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("non-debian: want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("Debian, legacy trusted.gpg exists → PASS", func(t *testing.T) {
+		dv := filepath.Join(dir, "debian_version")
+		if err := os.WriteFile(dv, []byte("12\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		debianVersionPath = dv
+		gpg := filepath.Join(dir, "trusted.gpg")
+		if err := os.WriteFile(gpg, []byte("keydata"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		aptTrustedGpgPath = gpg
+		aptTrustedGpgDPath = filepath.Join(dir, "no_gpg.d")
+		aptKeyringsPath = filepath.Join(dir, "no_keyrings")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("trusted.gpg exists: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("Debian, key in trusted.gpg.d → PASS", func(t *testing.T) {
+		dv := filepath.Join(dir, "debian_version2")
+		if err := os.WriteFile(dv, []byte("12\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		debianVersionPath = dv
+		aptTrustedGpgPath = filepath.Join(dir, "no_trusted.gpg")
+		gpgD := filepath.Join(dir, "trusted.gpg.d")
+		if err := os.MkdirAll(gpgD, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(gpgD, "ubuntu-keyring.gpg"), []byte("key"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		aptTrustedGpgDPath = gpgD
+		aptKeyringsPath = filepath.Join(dir, "no_keyrings2")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("trusted.gpg.d has key: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("Debian, key in keyrings → PASS", func(t *testing.T) {
+		dv := filepath.Join(dir, "debian_version3")
+		if err := os.WriteFile(dv, []byte("12\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		debianVersionPath = dv
+		aptTrustedGpgPath = filepath.Join(dir, "no_trusted3.gpg")
+		aptTrustedGpgDPath = filepath.Join(dir, "no_gpg3.d")
+		keyrings := filepath.Join(dir, "keyrings")
+		if err := os.MkdirAll(keyrings, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(keyrings, "docker.gpg"), []byte("key"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		aptKeyringsPath = keyrings
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("keyrings has key: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("Debian, no keys anywhere → FAIL", func(t *testing.T) {
+		dv := filepath.Join(dir, "debian_version4")
+		if err := os.WriteFile(dv, []byte("12\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		debianVersionPath = dv
+		aptTrustedGpgPath = filepath.Join(dir, "no_trusted4.gpg")
+		aptTrustedGpgDPath = filepath.Join(dir, "no_gpg4.d")
+		aptKeyringsPath = filepath.Join(dir, "no_keyrings4")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("no keys: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// ── 3.6.1 Wireless interfaces ────────────────────────────────────────────────
+
+// TestRule3_6_1_WirelessDisabled verifies rule 3.6.1.
+// No t.Parallel(): mutates package-level sysClassNetPath.
+func TestRule3_6_1_WirelessDisabled(t *testing.T) {
+	dir := t.TempDir()
+	orig := sysClassNetPath
+	t.Cleanup(func() { sysClassNetPath = orig })
+
+	rule := ruleByID("3.6.1")
+
+	t.Run("/sys/class/net unreadable → SKIP", func(t *testing.T) {
+		sysClassNetPath = filepath.Join(dir, "no_sys_class_net")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("no sysfs: want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("no wireless interfaces → PASS", func(t *testing.T) {
+		netDir := filepath.Join(dir, "net_no_wireless")
+		if err := os.MkdirAll(filepath.Join(netDir, "eth0"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		sysClassNetPath = netDir
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("no wireless: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("wireless interface present but down (flags=0x1002) → PASS", func(t *testing.T) {
+		netDir := filepath.Join(dir, "net_wlan_down")
+		wlanDir := filepath.Join(netDir, "wlan0")
+		if err := os.MkdirAll(filepath.Join(wlanDir, "wireless"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(wlanDir, "flags"), []byte("0x1002\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		sysClassNetPath = netDir
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("wlan0 down: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("wireless interface UP (flags=0x1003) → FAIL", func(t *testing.T) {
+		netDir := filepath.Join(dir, "net_wlan_up")
+		wlanDir := filepath.Join(netDir, "wlan0")
+		if err := os.MkdirAll(filepath.Join(wlanDir, "wireless"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(wlanDir, "flags"), []byte("0x1003\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		sysClassNetPath = netDir
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("wlan0 up: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}

@@ -717,6 +717,61 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					"sysctl -w net.ipv4.conf.all.log_martians=1")
 			}},
 
+		// ── 1.2 Software Updates ─────────────────────────────────────────────
+		// These rules are Debian/Ubuntu-specific: RHEL/SUSE/Arch use different
+		// repository and keyring paths. Gate on /etc/debian_version to SKIP gracefully.
+
+		{ID: "1.2.1", Framework: cisBenchCIS, Level: 1, Section: "Filesystem",
+			Description: "Ensure package manager repositories are configured",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("1.2.1")
+				if _, err := os.Stat(debianVersionPath); err != nil {
+					return skipr(r, "rule applies to Debian/Ubuntu systems only")
+				}
+				data, err := os.ReadFile(aptSourcesListPath) // #nosec G304 -- package-level var
+				if err == nil {
+					for line := range strings.SplitSeq(string(data), "\n") {
+						trimmed := strings.TrimSpace(line)
+						if trimmed != "" && !strings.HasPrefix(trimmed, "#") {
+							return pass(r)
+						}
+					}
+				}
+				entries, err := os.ReadDir(aptSourcesListDPath) //nolint:gosec // package-level var
+				if err == nil {
+					for _, e := range entries {
+						name := e.Name()
+						if strings.HasSuffix(name, ".list") || strings.HasSuffix(name, ".sources") {
+							return pass(r)
+						}
+					}
+				}
+				return failr(r, "no apt repositories configured",
+					"configure apt repositories in /etc/apt/sources.list or /etc/apt/sources.list.d/")
+			}},
+
+		{ID: "1.2.2", Framework: cisBenchCIS, Level: 1, Section: "Filesystem",
+			Description: "Ensure GPG keys are configured",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("1.2.2")
+				if _, err := os.Stat(debianVersionPath); err != nil {
+					return skipr(r, "rule applies to Debian/Ubuntu systems only")
+				}
+				if _, err := os.Stat(aptTrustedGpgPath); err == nil {
+					return pass(r)
+				}
+				entries, err := os.ReadDir(aptTrustedGpgDPath) //nolint:gosec // package-level var
+				if err == nil && len(entries) > 0 {
+					return pass(r)
+				}
+				entries2, err := os.ReadDir(aptKeyringsPath) //nolint:gosec // package-level var
+				if err == nil && len(entries2) > 0 {
+					return pass(r)
+				}
+				return failr(r, "no GPG keys found for apt repositories",
+					"verify apt GPG keys: apt-key list or inspect /etc/apt/trusted.gpg.d/ and /etc/apt/keyrings/")
+			}},
+
 		// ── 1.3 Filesystem Integrity ─────────────────────────────────────────
 
 		{ID: "1.3.1", Framework: cisBenchCIS, Level: 1, Section: "Filesystem",
@@ -1424,6 +1479,42 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					return failr(r,
 						fmt.Sprintf("DEFAULT_FORWARD_POLICY is %q — forwarding allowed by default", forwardPolicy),
 						"set DEFAULT_FORWARD_POLICY=\"DROP\" in /etc/default/ufw and run: ufw reload")
+				}
+				return pass(r)
+			}},
+
+		// ── 3.6 Wireless Interfaces ──────────────────────────────────────────
+
+		{ID: "3.6.1", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure wireless interfaces are disabled",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.6.1")
+				entries, err := os.ReadDir(sysClassNetPath) //nolint:gosec // package-level var
+				if err != nil {
+					return skipr(r, "/sys/class/net not readable")
+				}
+				var up []string
+				for _, e := range entries {
+					wirelessDir := filepath.Join(sysClassNetPath, e.Name(), "wireless")
+					if _, err := os.Stat(wirelessDir); err != nil {
+						continue
+					}
+					flagsPath := filepath.Join(sysClassNetPath, e.Name(), "flags")
+					flagsData, err := os.ReadFile(flagsPath) // #nosec G304 -- sysfs path from ReadDir
+					if err != nil {
+						up = append(up, e.Name())
+						continue
+					}
+					flagStr := strings.TrimSpace(string(flagsData))
+					flags, err := strconv.ParseInt(strings.TrimPrefix(flagStr, "0x"), 16, 64)
+					if err != nil || flags&0x1 != 0 {
+						up = append(up, e.Name())
+					}
+				}
+				if len(up) > 0 {
+					return failr(r,
+						fmt.Sprintf("wireless interface(s) are active: %s", strings.Join(up, ", ")),
+						"disable wireless: ip link set <iface> down && rfkill block all")
 				}
 				return pass(r)
 			}},
@@ -3188,6 +3279,18 @@ var ufwDefaultPath = "/etc/default/ufw"
 // ufwBeforeRulesPath and ufwBefore6RulesPath for UFW loopback check (3.5.1.4).
 var ufwBeforeRulesPath = "/etc/ufw/before.rules"
 var ufwBefore6RulesPath = "/etc/ufw/before6.rules"
+
+// aptSourcesListPath and aptSourcesListDPath for package repo check (1.2.1).
+var aptSourcesListPath = "/etc/apt/sources.list"
+var aptSourcesListDPath = "/etc/apt/sources.list.d"
+
+// aptTrustedGpgPath, aptTrustedGpgDPath, aptKeyringsPath for GPG key check (1.2.2).
+var aptTrustedGpgPath = "/etc/apt/trusted.gpg"
+var aptTrustedGpgDPath = "/etc/apt/trusted.gpg.d"
+var aptKeyringsPath = "/etc/apt/keyrings"
+
+// sysClassNetPath for wireless interface check (3.6.1).
+var sysClassNetPath = "/sys/class/net"
 
 // ufwUserRulesPath for UFW outbound connections check (3.5.1.5).
 var ufwUserRulesPath = "/etc/ufw/user.rules"
