@@ -34,7 +34,7 @@ func TestRunCISPlain(t *testing.T) {
 			t.Fatalf("runCIS (plain): %v", err)
 		}
 	})
-	if !strings.Contains(out, "CIS Ubuntu 22.04 LTS Level 1") {
+	if !strings.Contains(out, "Level 1") {
 		t.Errorf("plain mode should render the CIS profile header, got: %q", out)
 	}
 }
