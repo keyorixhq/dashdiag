@@ -134,6 +134,24 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					"sysctl -w kernel.yama.ptrace_scope=1 && echo 'kernel.yama.ptrace_scope=1' >> /etc/sysctl.d/99-cis.conf")
 			}},
 
+		{ID: "1.5.11", Framework: cisBenchCIS, Level: 1, Section: "Kernel",
+			Description: "Ensure BPF JIT hardening is enabled (net.core.bpf_jit_harden=2)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("1.5.11")
+				return checkSysctl(r, bpfJitHardenPath, "2",
+					"net.core.bpf_jit_harden != 2 — BPF JIT not fully hardened (JIT spraying possible)",
+					"sysctl -w net.core.bpf_jit_harden=2 && echo 'net.core.bpf_jit_harden=2' >> /etc/sysctl.d/99-cis.conf")
+			}},
+
+		{ID: "1.5.12", Framework: cisBenchCIS, Level: 1, Section: "Kernel",
+			Description: "Ensure minimum mmap address is restricted (vm.mmap_min_addr >= 65536)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("1.5.12")
+				return checkSysctlGE(r, mmapMinAddrPath, 65536,
+					"vm.mmap_min_addr < 65536 — processes can mmap near null address (null-pointer deref exploits easier)",
+					"sysctl -w vm.mmap_min_addr=65536 && echo 'vm.mmap_min_addr=65536' >> /etc/sysctl.d/99-cis.conf")
+			}},
+
 		// ── 2.1 Time Synchronization ──────────────────────────────────────────
 
 		{ID: "2.1.1", Framework: cisBenchCIS, Level: 1, Section: cisCatServices,
@@ -2804,6 +2822,42 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					"add 'remember=5' to pam_unix.so or pam_pwhistory.so in /etc/pam.d/common-password")
 			}},
 
+		{ID: "5.4.13", Framework: cisBenchCIS, Level: 1, Section: cisCatAuth,
+			Description: "Ensure inactive password lock is configured (INACTIVE=1-30 in /etc/default/useradd)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.4.13")
+				data, err := os.ReadFile(useraddDefaultPath) //nolint:gosec // package-level var
+				if err != nil {
+					return skipr(r, "could not read /etc/default/useradd")
+				}
+				for line := range strings.SplitSeq(string(data), "\n") {
+					line = strings.TrimSpace(line)
+					if strings.HasPrefix(line, "#") {
+						continue
+					}
+					rest, ok := strings.CutPrefix(line, "INACTIVE=")
+					if !ok {
+						continue
+					}
+					val, convErr := strconv.Atoi(strings.TrimSpace(rest))
+					if convErr != nil {
+						return failr(r, fmt.Sprintf("INACTIVE value %q is not an integer", rest),
+							"set INACTIVE=30 in /etc/default/useradd")
+					}
+					if val <= 0 {
+						return failr(r, fmt.Sprintf("INACTIVE=%d — inactive account lock is disabled", val),
+							"set INACTIVE=30 in /etc/default/useradd")
+					}
+					if val > 30 {
+						return failr(r, fmt.Sprintf("INACTIVE=%d — lock period exceeds CIS 30-day maximum", val),
+							"set INACTIVE=30 in /etc/default/useradd")
+					}
+					return pass(r)
+				}
+				return failr(r, "INACTIVE not set in /etc/default/useradd",
+					"set INACTIVE=30 in /etc/default/useradd")
+			}},
+
 		{ID: "5.3.5", Framework: cisBenchCIS, Level: 1, Section: cisCatAuth,
 			Description: "Ensure sudo authentication timeout is 15 minutes or less",
 			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
@@ -3258,6 +3312,24 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Description: "Ensure /etc/shadow- is owned by root:root or root:shadow",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				return checkFileOwnerRootRootOrShadow(ruleByID("6.1.13"), "/etc/shadow-", "chown root:shadow /etc/shadow-")
+			}},
+
+		{ID: "6.1.15", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
+			Description: "Ensure /etc/group- is owned by root:root",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkFileOwnerRootRoot(ruleByID("6.1.15"), "/etc/group-", "chown root:root /etc/group-")
+			}},
+
+		{ID: "6.1.16", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
+			Description: "Ensure /etc/gshadow is owned by root:root or root:shadow",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkFileOwnerRootRootOrShadow(ruleByID("6.1.16"), "/etc/gshadow", "chown root:shadow /etc/gshadow")
+			}},
+
+		{ID: "6.1.17", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
+			Description: "Ensure /etc/gshadow- is owned by root:root or root:shadow",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkFileOwnerRootRootOrShadow(ruleByID("6.1.17"), "/etc/gshadow-", "chown root:shadow /etc/gshadow-")
 			}},
 
 		{ID: "6.2.1", StigID: "V-238408", Framework: cisBenchBOTH, Level: 1, Section: "Users",
@@ -4150,6 +4222,12 @@ var varLogPath = "/var/log"
 var perfEventParanoidPath = "/proc/sys/kernel/perf_event_paranoid"
 var kptrRestrictPath = "/proc/sys/kernel/kptr_restrict"
 var yamaPtraceScopePath = "/proc/sys/kernel/yama/ptrace_scope"
+
+// sysctl paths for BPF JIT + mmap checks (1.5.11-1.5.12).
+var bpfJitHardenPath = "/proc/sys/net/core/bpf_jit_harden"
+var mmapMinAddrPath = "/proc/sys/vm/mmap_min_addr"
+
+// (useraddDefaultPath already declared above; also used for 5.4.13 inactive lock.)
 
 // apparmorParserPaths: candidates for the apparmor_parser binary (1.6.1).
 var apparmorParserPaths = []string{"/usr/sbin/apparmor_parser", "/sbin/apparmor_parser"}

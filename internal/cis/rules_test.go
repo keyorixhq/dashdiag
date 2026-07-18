@@ -6879,3 +6879,202 @@ func TestRule3_2_11_18_DefaultInterfaceSysctls(t *testing.T) {
 		})
 	}
 }
+
+// TestRule1_5_11_BpfJitHarden verifies rule 1.5.11 (BPF JIT hardening).
+// No t.Parallel(): mutates package-level bpfJitHardenPath.
+func TestRule1_5_11_BpfJitHarden(t *testing.T) {
+	dir := t.TempDir()
+	orig := bpfJitHardenPath
+	t.Cleanup(func() { bpfJitHardenPath = orig })
+	rule := ruleByID("1.5.11")
+
+	t.Run("registered", func(t *testing.T) {
+		if rule.ID != "1.5.11" {
+			t.Errorf("unexpected ID %s", rule.ID)
+		}
+		if !strings.Contains(rule.Description, "BPF") {
+			t.Errorf("description missing 'BPF': %s", rule.Description)
+		}
+	})
+	t.Run("missing_file_→_SKIP", func(t *testing.T) {
+		bpfJitHardenPath = filepath.Join(dir, "nosuchfile")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+	t.Run("value_0_→_FAIL", func(t *testing.T) {
+		f := filepath.Join(dir, "bpf0")
+		if err := os.WriteFile(f, []byte("0\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		bpfJitHardenPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("value=0: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+	t.Run("value_2_→_PASS", func(t *testing.T) {
+		f := filepath.Join(dir, "bpf2")
+		if err := os.WriteFile(f, []byte("2\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		bpfJitHardenPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("value=2: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// TestRule1_5_12_MmapMinAddr verifies rule 1.5.12 (vm.mmap_min_addr >= 65536).
+// No t.Parallel(): mutates package-level mmapMinAddrPath.
+func TestRule1_5_12_MmapMinAddr(t *testing.T) {
+	dir := t.TempDir()
+	orig := mmapMinAddrPath
+	t.Cleanup(func() { mmapMinAddrPath = orig })
+	rule := ruleByID("1.5.12")
+
+	t.Run("registered", func(t *testing.T) {
+		if rule.ID != "1.5.12" {
+			t.Errorf("unexpected ID %s", rule.ID)
+		}
+		if !strings.Contains(rule.Description, "mmap") {
+			t.Errorf("description missing 'mmap': %s", rule.Description)
+		}
+	})
+	t.Run("value_4096_→_FAIL", func(t *testing.T) {
+		f := filepath.Join(dir, "mmap4096")
+		if err := os.WriteFile(f, []byte("4096\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		mmapMinAddrPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("value=4096: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+	t.Run("value_65536_→_PASS", func(t *testing.T) {
+		f := filepath.Join(dir, "mmap65536")
+		if err := os.WriteFile(f, []byte("65536\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		mmapMinAddrPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("value=65536: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+	t.Run("value_131072_→_PASS_GE", func(t *testing.T) {
+		f := filepath.Join(dir, "mmap131072")
+		if err := os.WriteFile(f, []byte("131072\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		mmapMinAddrPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("value=131072: want Pass (GE), got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// TestRule5_4_13_InactiveLock verifies rule 5.4.13 (useradd INACTIVE setting).
+// No t.Parallel(): mutates package-level useraddDefaultPath.
+func TestRule5_4_13_InactiveLock(t *testing.T) {
+	dir := t.TempDir()
+	orig := useraddDefaultPath
+	t.Cleanup(func() { useraddDefaultPath = orig })
+	rule := ruleByID("5.4.13")
+
+	t.Run("registered", func(t *testing.T) {
+		if rule.ID != "5.4.13" {
+			t.Errorf("unexpected ID %s", rule.ID)
+		}
+		if !strings.Contains(rule.Description, "INACTIVE") {
+			t.Errorf("description missing 'INACTIVE': %s", rule.Description)
+		}
+	})
+	t.Run("missing_file_→_SKIP", func(t *testing.T) {
+		useraddDefaultPath = filepath.Join(dir, "nosuchfile")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+	t.Run("INACTIVE_not_set_→_FAIL", func(t *testing.T) {
+		f := filepath.Join(dir, "useradd_no_inactive")
+		if err := os.WriteFile(f, []byte("SHELL=/bin/sh\nHOME=/home\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		useraddDefaultPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("no INACTIVE: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+	t.Run("INACTIVE_0_→_FAIL", func(t *testing.T) {
+		f := filepath.Join(dir, "useradd_inactive0")
+		if err := os.WriteFile(f, []byte("INACTIVE=0\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		useraddDefaultPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("INACTIVE=0: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+	t.Run("INACTIVE_60_→_FAIL_exceeds_30", func(t *testing.T) {
+		f := filepath.Join(dir, "useradd_inactive60")
+		if err := os.WriteFile(f, []byte("INACTIVE=60\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		useraddDefaultPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("INACTIVE=60: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+	t.Run("INACTIVE_30_→_PASS", func(t *testing.T) {
+		f := filepath.Join(dir, "useradd_inactive30")
+		if err := os.WriteFile(f, []byte("# default\nINACTIVE=30\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		useraddDefaultPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("INACTIVE=30: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// TestRule6_1_15_16_17_GshadowOwnership verifies rules 6.1.15-6.1.17 (file ownership).
+func TestRule6_1_15_16_17_GshadowOwnership(t *testing.T) {
+	cases := []struct {
+		id      string
+		keyword string
+	}{
+		{"6.1.15", "/etc/group-"},
+		{"6.1.16", "/etc/gshadow"},
+		{"6.1.17", "/etc/gshadow-"},
+	}
+	valid := map[models.CISStatus]bool{
+		models.CISPass: true, models.CISFail: true, models.CISSkipped: true,
+	}
+	for _, tc := range cases {
+		rule := ruleByID(tc.id)
+		t.Run(tc.id+"_registered", func(t *testing.T) {
+			if rule.ID != tc.id {
+				t.Errorf("want ID %s, got %s", tc.id, rule.ID)
+			}
+			if !strings.Contains(rule.Description, tc.keyword) {
+				t.Errorf("description missing %q: %s", tc.keyword, rule.Description)
+			}
+		})
+		t.Run(tc.id+"_returns_valid_status", func(t *testing.T) {
+			got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+			if !valid[got.Status] {
+				t.Errorf("%s: unexpected status %q", tc.id, got.Status)
+			}
+		})
+	}
+}
