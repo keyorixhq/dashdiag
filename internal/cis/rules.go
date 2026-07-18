@@ -779,6 +779,40 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					"verify apt GPG keys: apt-key list or inspect /etc/apt/trusted.gpg.d/ and /etc/apt/keyrings/")
 			}},
 
+		{ID: "1.2.3", Framework: cisBenchCIS, Level: 1, Section: "Filesystem",
+			Description: "Ensure package manager is not configured to allow unauthenticated packages",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("1.2.3")
+				if _, err := os.Stat(debianVersionPath); err != nil {
+					return skipr(r, "rule applies to Debian/Ubuntu systems only")
+				}
+				entries, err := os.ReadDir(aptConfDPath) //nolint:gosec // package-level var
+				if err != nil {
+					return pass(r) // no apt.conf.d = default (authenticated)
+				}
+				for _, e := range entries {
+					if e.IsDir() || !strings.HasSuffix(e.Name(), ".conf") {
+						continue
+					}
+					data, rdErr := os.ReadFile(filepath.Join(aptConfDPath, e.Name())) //nolint:gosec
+					if rdErr != nil {
+						continue
+					}
+					for line := range strings.SplitSeq(string(data), "\n") {
+						line = strings.TrimSpace(line)
+						if strings.HasPrefix(line, "//") || strings.HasPrefix(line, "#") {
+							continue
+						}
+						lower := strings.ToLower(line)
+						if strings.Contains(lower, "allowunauthenticated") && strings.Contains(lower, "true") {
+							return failr(r, fmt.Sprintf("AllowUnauthenticated = true found in %s", e.Name()),
+								"remove or set AllowUnauthenticated \"false\" in /etc/apt/apt.conf.d/")
+						}
+					}
+				}
+				return pass(r)
+			}},
+
 		// ── 1.3 Filesystem Integrity ─────────────────────────────────────────
 
 		{ID: "1.3.1", Framework: cisBenchCIS, Level: 1, Section: "Filesystem",
@@ -1198,6 +1232,24 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				return checkSysctl(r, "/proc/sys/net/ipv4/tcp_syncookies", "1",
 					"tcp_syncookies is 0 — SYN flood protection disabled",
 					"sysctl -w net.ipv4.tcp_syncookies=1 && echo 'net.ipv4.tcp_syncookies=1' >> /etc/sysctl.d/99-cis.conf")
+			}},
+
+		{ID: "3.2.9", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure IPv6 router advertisements are not accepted",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.2.9")
+				return checkSysctl(r, "/proc/sys/net/ipv6/conf/all/accept_ra", "0",
+					"net.ipv6.conf.all.accept_ra is not 0 — IPv6 router advertisements accepted",
+					"sysctl -w net.ipv6.conf.all.accept_ra=0 && sysctl -w net.ipv6.conf.default.accept_ra=0")
+			}},
+
+		{ID: "3.2.10", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure IPv6 redirects are not accepted",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.2.10")
+				return checkSysctl(r, "/proc/sys/net/ipv6/conf/all/accept_redirects", "0",
+					"net.ipv6.conf.all.accept_redirects is not 0 — IPv6 ICMP redirects accepted",
+					"sysctl -w net.ipv6.conf.all.accept_redirects=0 && sysctl -w net.ipv6.conf.default.accept_redirects=0")
 			}},
 
 		// ── 3.4 Uncommon Network Protocols ───────────────────────────────────────
@@ -3760,6 +3812,7 @@ var auditdConfPath = "/etc/audit/auditd.conf"
 // nisServerBinPaths for NIS server check (2.3.16).
 var nisServerBinPaths = []string{"/usr/sbin/ypserv", "/usr/lib/yp/ypserv"}
 
+
 // sshHostKeyDir for SSH host key permission checks (5.2.3, 5.2.4).
 var sshHostKeyDir = "/etc/ssh"
 
@@ -3814,6 +3867,9 @@ var cronWantsPaths = []string{
 
 // debianVersionPath is the Debian/Ubuntu family indicator; gates Debian-specific rules.
 var debianVersionPath = "/etc/debian_version"
+
+// aptConfDPath for APT configuration directory (unauthenticated package check 1.2.3).
+var aptConfDPath = "/etc/apt/apt.conf.d"
 
 // ufwBinPaths for ufw binary presence checks (3.5.1.1, 3.5.1.3).
 var ufwBinPaths = []string{"/usr/sbin/ufw", "/sbin/ufw"}
