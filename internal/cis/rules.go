@@ -1546,6 +1546,38 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					"net.ipv4.tcp_rfc1337 is not 1 — RST packets from TIME_WAIT connections can abort established sessions",
 					"sysctl -w net.ipv4.tcp_rfc1337=1 && echo 'net.ipv4.tcp_rfc1337=1' >> /etc/sysctl.d/99-cis.conf")
 			}},
+		{ID: "3.2.28", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure loopback routing is disabled on all interfaces (net.ipv4.conf.all.route_localnet = 0)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.2.28")
+				return checkSysctl(r, "/proc/sys/net/ipv4/conf/all/route_localnet", "0",
+					"net.ipv4.conf.all.route_localnet is not 0 — loopback addresses can be routed via non-loopback interfaces (SSRF risk)",
+					"sysctl -w net.ipv4.conf.all.route_localnet=0 && echo 'net.ipv4.conf.all.route_localnet=0' >> /etc/sysctl.d/99-cis.conf")
+			}},
+		{ID: "3.2.29", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure loopback routing is disabled on default interface (net.ipv4.conf.default.route_localnet = 0)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.2.29")
+				return checkSysctl(r, "/proc/sys/net/ipv4/conf/default/route_localnet", "0",
+					"net.ipv4.conf.default.route_localnet is not 0 — new interfaces will route loopback addresses",
+					"sysctl -w net.ipv4.conf.default.route_localnet=0 && echo 'net.ipv4.conf.default.route_localnet=0' >> /etc/sysctl.d/99-cis.conf")
+			}},
+		{ID: "3.2.30", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure proxy ARP is disabled on all interfaces (net.ipv4.conf.all.proxy_arp = 0)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.2.30")
+				return checkSysctl(r, "/proc/sys/net/ipv4/conf/all/proxy_arp", "0",
+					"net.ipv4.conf.all.proxy_arp is not 0 — host answers ARP requests on behalf of other hosts (ARP poisoning risk)",
+					"sysctl -w net.ipv4.conf.all.proxy_arp=0 && echo 'net.ipv4.conf.all.proxy_arp=0' >> /etc/sysctl.d/99-cis.conf")
+			}},
+		{ID: "3.2.31", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure proxy ARP is disabled on default interface (net.ipv4.conf.default.proxy_arp = 0)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.2.31")
+				return checkSysctl(r, "/proc/sys/net/ipv4/conf/default/proxy_arp", "0",
+					"net.ipv4.conf.default.proxy_arp is not 0 — new interfaces will answer ARP on behalf of other hosts",
+					"sysctl -w net.ipv4.conf.default.proxy_arp=0 && echo 'net.ipv4.conf.default.proxy_arp=0' >> /etc/sysctl.d/99-cis.conf")
+			}},
 
 		// ── 3.4 Uncommon Network Protocols ───────────────────────────────────────
 		// These kernel modules implement uncommon network protocols rarely needed

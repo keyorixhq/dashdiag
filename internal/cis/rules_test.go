@@ -7211,6 +7211,42 @@ func TestRule3_2_25_27_ArpDefaultRfc(t *testing.T) {
 	}
 }
 
+// TestRule3_2_28_31_RouteLocalnetProxyArp verifies 3.2.28-3.2.31 (route_localnet + proxy_arp).
+func TestRule3_2_28_31_RouteLocalnetProxyArp(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		id   string
+		desc string
+	}{
+		{"3.2.28", "route_localnet"},
+		{"3.2.29", "route_localnet"},
+		{"3.2.30", "proxy_arp"},
+		{"3.2.31", "proxy_arp"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.id+"_registered", func(t *testing.T) {
+			t.Parallel()
+			r := ruleByID(tc.id)
+			if r.ID != tc.id {
+				t.Errorf("ruleByID(%q) returned ID %q", tc.id, r.ID)
+			}
+			if !strings.Contains(r.Description, tc.desc) {
+				t.Errorf("description missing %q: %s", tc.desc, r.Description)
+			}
+		})
+		t.Run(tc.id+"_valid_status", func(t *testing.T) {
+			t.Parallel()
+			r := ruleByID(tc.id)
+			got := r.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+			switch got.Status {
+			case models.CISPass, models.CISFail, models.CISSkipped:
+			default:
+				t.Errorf("unexpected status %q for rule %s", got.Status, tc.id)
+			}
+		})
+	}
+}
+
 // TestRule3_2_23_24_ArpHardening verifies rules 3.2.23-3.2.24 (ARP hardening).
 func TestRule3_2_23_24_ArpHardening(t *testing.T) {
 	t.Parallel()
