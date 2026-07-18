@@ -743,11 +743,39 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					"add 'noexec' to /var/tmp mount options in /etc/fstab")
 			}},
 
+		{ID: "1.1.12", Framework: cisBenchCIS, Level: 2, Section: "Filesystem",
+			Description: "Ensure /var/log directory is on its own filesystem",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkSeparateMountPoint(ruleByID("1.1.12"), "/var/log",
+					"create a separate /var/log partition and add to /etc/fstab")
+			}},
+
+		{ID: "1.1.13", Framework: cisBenchCIS, Level: 2, Section: "Filesystem",
+			Description: "Ensure /var/log/audit directory is on its own filesystem",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkSeparateMountPoint(ruleByID("1.1.13"), "/var/log/audit",
+					"create a separate /var/log/audit partition and add to /etc/fstab")
+			}},
+
 		{ID: "1.1.14", Framework: cisBenchCIS, Level: 1, Section: "Filesystem",
 			Description: "Ensure nodev option set on /home partition",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				return checkMountOption(ruleByID("1.1.14"), "/home", "nodev",
 					"add 'nodev' to /home mount options in /etc/fstab")
+			}},
+
+		{ID: "1.1.15", Framework: cisBenchCIS, Level: 2, Section: "Filesystem",
+			Description: "Ensure nosuid option set on /home partition",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkMountOption(ruleByID("1.1.15"), "/home", "nosuid",
+					"add 'nosuid' to /home mount options in /etc/fstab")
+			}},
+
+		{ID: "1.1.16", Framework: cisBenchCIS, Level: 2, Section: "Filesystem",
+			Description: "Ensure noexec option set on /home partition",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkMountOption(ruleByID("1.1.16"), "/home", "noexec",
+					"add 'noexec' to /home mount options in /etc/fstab")
 			}},
 
 		// ── 1.5.2 Prelink ─────────────────────────────────────────────────────────
@@ -757,6 +785,15 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				return checkServiceNotInstalled(ruleByID("1.5.2"), prelinkBinPaths,
 					"apt purge prelink / dnf remove prelink")
+			}},
+
+		{ID: "1.5.3", Framework: cisBenchCIS, Level: 1, Section: "Kernel",
+			Description: "Ensure address space layout randomization (ASLR) is enabled",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("1.5.3")
+				return checkSysctl(r, "/proc/sys/kernel/randomize_va_space", "2",
+					"ASLR is disabled (randomize_va_space != 2)",
+					"sysctl -w kernel.randomize_va_space=2 && echo 'kernel.randomize_va_space=2' >> /etc/sysctl.d/99-cis.conf")
 			}},
 
 		// ── 1.7 Warning Banners ───────────────────────────────────────────────
@@ -968,6 +1005,128 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 						auditRulesCmd("apt"))
 				}
 				return pass(r)
+			}},
+
+		// ── 4.1.3-4.1.17 Audit event collection ──────────────────────────────────
+
+		{ID: "4.1.3", Framework: cisBenchCIS, Level: 2, Section: "Audit",
+			Description: "Ensure events that modify date and time information are collected",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkAuditRule(ruleByID("4.1.3"),
+					[]string{"adjtimex", "clock_settime", "settimeofday"},
+					"add '-a always,exit -F arch=b64 -S adjtimex,settimeofday,clock_settime -k time-change' to /etc/audit/rules.d/50-time-change.rules")
+			}},
+
+		{ID: "4.1.4", Framework: cisBenchCIS, Level: 2, Section: "Audit",
+			Description: "Ensure events that modify user/group information are collected",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkAuditRule(ruleByID("4.1.4"),
+					[]string{"-w /etc/passwd", "-w /etc/group", "-w /etc/shadow"},
+					"add '-w /etc/passwd -p wa -k identity' to /etc/audit/rules.d/50-identity.rules")
+			}},
+
+		{ID: "4.1.5", Framework: cisBenchCIS, Level: 2, Section: "Audit",
+			Description: "Ensure events that modify the network environment are collected",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkAuditRule(ruleByID("4.1.5"),
+					[]string{"sethostname", "setdomainname", "-w /etc/hosts"},
+					"add '-a always,exit -F arch=b64 -S sethostname,setdomainname -k system-locale' to /etc/audit/rules.d/50-system-locale.rules")
+			}},
+
+		{ID: "4.1.6", Framework: cisBenchCIS, Level: 2, Section: "Audit",
+			Description: "Ensure events that modify the system's Mandatory Access Controls are collected",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkAuditRule(ruleByID("4.1.6"),
+					[]string{"-w /etc/apparmor", "-w /etc/selinux"},
+					"add '-w /etc/apparmor/ -p wa -k MAC-policy' to /etc/audit/rules.d/50-MAC-policy.rules")
+			}},
+
+		{ID: "4.1.7", Framework: cisBenchCIS, Level: 2, Section: "Audit",
+			Description: "Ensure login and logout events are collected",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkAuditRule(ruleByID("4.1.7"),
+					[]string{"-w /var/log/wtmp", "-w /var/log/faillog", "-w /var/log/btmp"},
+					"add '-w /var/log/faillog -p wa -k logins' to /etc/audit/rules.d/50-login.rules")
+			}},
+
+		{ID: "4.1.8", Framework: cisBenchCIS, Level: 2, Section: "Audit",
+			Description: "Ensure session initiation information is collected",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkAuditRule(ruleByID("4.1.8"),
+					[]string{"-w /var/run/utmp", "-w /run/utmp"},
+					"add '-w /var/run/utmp -p wa -k session' to /etc/audit/rules.d/50-session.rules")
+			}},
+
+		{ID: "4.1.9", Framework: cisBenchCIS, Level: 2, Section: "Audit",
+			Description: "Ensure discretionary access control permission modification events are collected",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkAuditRule(ruleByID("4.1.9"),
+					[]string{"chmod", "fchmod", "chown", "fchown"},
+					"add '-a always,exit -F arch=b64 -S chmod,fchmod,chown,fchown,fchownat,fchmodat -k perm_mod' to /etc/audit/rules.d/50-perm-mod.rules")
+			}},
+
+		{ID: "4.1.10", Framework: cisBenchCIS, Level: 2, Section: "Audit",
+			Description: "Ensure unsuccessful unauthorized file access attempts are collected",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkAuditRule(ruleByID("4.1.10"),
+					[]string{"EACCES", "EPERM"},
+					"add '-a always,exit -F arch=b64 -S creat,open,openat -F exit=-EACCES -k access' to /etc/audit/rules.d/50-access.rules")
+			}},
+
+		{ID: "4.1.11", Framework: cisBenchCIS, Level: 2, Section: "Audit",
+			Description: "Ensure use of privileged commands is collected",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkAuditRule(ruleByID("4.1.11"),
+					[]string{"-F perm=x -F auid>=", "-F path=/usr/bin/sudo"},
+					"run: find / -xdev -perm -4000 -o -perm -2000 | awk '{print \"-a always,exit -F path=\"$1\" -F perm=x -F auid>=1000 -k privileged\"}' >> /etc/audit/rules.d/50-privileged.rules")
+			}},
+
+		{ID: "4.1.12", Framework: cisBenchCIS, Level: 2, Section: "Audit",
+			Description: "Ensure successful file system mounts are collected",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkAuditRule(ruleByID("4.1.12"),
+					[]string{"-S mount"},
+					"add '-a always,exit -F arch=b64 -S mount -k mounts' to /etc/audit/rules.d/50-mounts.rules")
+			}},
+
+		{ID: "4.1.13", Framework: cisBenchCIS, Level: 2, Section: "Audit",
+			Description: "Ensure use of file deletion events by users is collected",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkAuditRule(ruleByID("4.1.13"),
+					[]string{"unlinkat", "rmdir", "unlink", "rename"},
+					"add '-a always,exit -F arch=b64 -S unlinkat,rmdir,rename,renameat -k delete' to /etc/audit/rules.d/50-deletion.rules")
+			}},
+
+		{ID: "4.1.14", Framework: cisBenchCIS, Level: 2, Section: "Audit",
+			Description: "Ensure changes to system administration scope (sudoers) are collected",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkAuditRule(ruleByID("4.1.14"),
+					[]string{"-w /etc/sudoers"},
+					"add '-w /etc/sudoers -p wa -k scope' to /etc/audit/rules.d/50-scope.rules")
+			}},
+
+		{ID: "4.1.15", Framework: cisBenchCIS, Level: 2, Section: "Audit",
+			Description: "Ensure system administrator actions (sudolog) are collected",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkAuditRule(ruleByID("4.1.15"),
+					[]string{"-w /var/log/sudo.log", "-w /var/log/auth.log"},
+					"add '-w /var/log/sudo.log -p wa -k actions' to /etc/audit/rules.d/50-actions.rules")
+			}},
+
+		{ID: "4.1.16", Framework: cisBenchCIS, Level: 2, Section: "Audit",
+			Description: "Ensure kernel module loading and unloading is collected",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkAuditRule(ruleByID("4.1.16"),
+					[]string{"init_module", "finit_module", "delete_module"},
+					"add '-a always,exit -F arch=b64 -S init_module,finit_module,delete_module -k modules' to /etc/audit/rules.d/50-modules.rules")
+			}},
+
+		{ID: "4.1.17", Framework: cisBenchCIS, Level: 2, Section: "Audit",
+			Description: "Ensure the audit configuration is immutable",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkAuditRule(ruleByID("4.1.17"),
+					[]string{"-e 2"},
+					"add '-e 2' as the last line of /etc/audit/rules.d/99-finalize.rules")
 			}},
 
 		// ── 4.2 Rsyslog ──────────────────────────────────────────────────────
@@ -1609,6 +1768,36 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				return pass(r)
 			}},
 
+		{ID: "6.2.9", Framework: cisBenchCIS, Level: 1, Section: "Users",
+			Description: "Ensure root is the only UID 0 account",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("6.2.9")
+				data, err := os.ReadFile(etcPasswdPath)
+				if err != nil {
+					return skipr(r, "could not read /etc/passwd")
+				}
+				var nonRoot []string
+				for line := range strings.SplitSeq(string(data), "\n") {
+					line = strings.TrimSpace(line)
+					if line == "" || strings.HasPrefix(line, "#") {
+						continue
+					}
+					fields := strings.SplitN(line, ":", 4)
+					if len(fields) < 3 {
+						continue
+					}
+					if fields[2] == "0" && fields[0] != "root" {
+						nonRoot = append(nonRoot, fields[0])
+					}
+				}
+				if len(nonRoot) > 0 {
+					return failr(r,
+						fmt.Sprintf("non-root accounts with UID 0: %s", strings.Join(nonRoot, ", ")),
+						"remove or reassign UID for non-root accounts with uid=0")
+				}
+				return pass(r)
+			}},
+
 		// ── STIG-only rules (no direct CIS equivalent) ────────────────────────
 
 		// V-238213: Approved ciphers — STIG mandates only FIPS-approved ciphers
@@ -1826,6 +2015,10 @@ var sambaBinPaths = []string{"/usr/sbin/smbd"}
 var squidBinPaths = []string{"/usr/sbin/squid", "/usr/sbin/squid3"}
 var snmpBinPaths = []string{"/usr/sbin/snmpd"}
 
+// auditRulesDPath and auditRulesFilePath for audit rule checks (4.1.3–4.1.17).
+var auditRulesDPath    = "/etc/audit/rules.d"
+var auditRulesFilePath = "/etc/audit/audit.rules"
+
 // checkLoginDefsField reads path (normally /etc/login.defs) for the first
 // uncommented "field value..." line and applies fails(days) to decide PASS/FAIL.
 // notSetFinding/notSetFix are used when the field is entirely absent from the
@@ -2037,6 +2230,52 @@ func checkSeparateMountPoint(r Rule, mountPoint, fix string) models.CISResult {
 		}
 	}
 	return failr(r, fmt.Sprintf("%s is not on a separate partition", mountPoint), fix)
+}
+
+// checkAuditRule verifies that audit configuration files contain at least one
+// line matching any of patterns. It reads all *.rules files in auditRulesDPath
+// and auditRulesFilePath. Returns SKIP when no audit rule files are readable
+// (auditd not installed / non-Linux).
+func checkAuditRule(r Rule, patterns []string, fix string) models.CISResult {
+	var lines []string
+
+	if data, err := os.ReadFile(auditRulesFilePath); err == nil { //nolint:gosec // package-level var
+		for line := range strings.SplitSeq(string(data), "\n") {
+			lines = append(lines, line)
+		}
+	}
+
+	if entries, err := os.ReadDir(auditRulesDPath); err == nil { //nolint:gosec // package-level var
+		for _, e := range entries {
+			if e.IsDir() || !strings.HasSuffix(e.Name(), ".rules") {
+				continue
+			}
+			data, err := os.ReadFile(filepath.Join(auditRulesDPath, e.Name())) //nolint:gosec
+			if err != nil {
+				continue
+			}
+			for line := range strings.SplitSeq(string(data), "\n") {
+				lines = append(lines, line)
+			}
+		}
+	}
+
+	if len(lines) == 0 {
+		return skipr(r, "no audit rule files found (auditd not configured)")
+	}
+
+	for _, pattern := range patterns {
+		for _, line := range lines {
+			line = strings.TrimSpace(line)
+			if strings.HasPrefix(line, "#") || line == "" {
+				continue
+			}
+			if strings.Contains(line, pattern) {
+				return pass(r)
+			}
+		}
+	}
+	return failr(r, fmt.Sprintf("required audit rule pattern not found: %s", patterns[0]), fix)
 }
 
 // ruleByID returns the Rule struct for the given ID by scanning CISRules.
