@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 func TestSudoGrantsAllCommands(t *testing.T) {
@@ -396,5 +397,35 @@ func TestParseLogTimestamp_TooShort(t *testing.T) {
 	t.Parallel()
 	if _, err := parseLogTimestamp("short"); err == nil {
 		t.Error("expected error for a line under 15 characters")
+	}
+}
+
+// permissionSource is a minimal source.Source that returns os.ErrPermission for
+// every ReadFile call — used to exercise "present but not readable" collector
+// branches without touching the real filesystem.
+type permissionSource struct {
+	source.Source // other methods left nil — a call would panic and flag unexpected access
+}
+
+func (p permissionSource) ReadFile(path string) ([]byte, error) {
+	return nil, &os.PathError{Op: "open", Path: path, Err: os.ErrPermission}
+}
+
+// TestParseSSHFile_PermissionError covers security_linux.go:151-153 — the
+// SSHConfigUnreadable flag that is set when openFile returns a permission error.
+// The file is "present" but unreadable, so parseSSHFile must return false AND
+// mark info.SSHConfigUnreadable = true rather than silently treating it as absent.
+func TestParseSSHFile_PermissionError(t *testing.T) {
+	// No t.Parallel(): SetSource swaps the package-global source.
+	prev := SetSource(permissionSource{})
+	defer SetSource(prev)
+
+	info := &models.SecurityInfo{}
+	ok := parseSSHFile("/etc/ssh/sshd_config", info)
+	if ok {
+		t.Error("parseSSHFile must return false when ReadFile returns ErrPermission")
+	}
+	if !info.SSHConfigUnreadable {
+		t.Error("SSHConfigUnreadable must be set to true when the config is present but not readable")
 	}
 }

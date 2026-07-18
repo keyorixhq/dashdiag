@@ -157,3 +157,37 @@ Committed_AS:   10240000 kB
 		t.Errorf("UsedPct: got %v, want %v (from injected meminfo, not gopsutil)", result.UsedPct, want)
 	}
 }
+
+// TestMemoryCollector_Collect_NoMemAvailable covers memory.go:75-79 — the
+// pre-3.14 kernel fallback when MemAvailable is absent from /proc/meminfo.
+// avail is approximated as MemFree + Buffers + Cached + SReclaimable.
+func TestMemoryCollector_Collect_NoMemAvailable(t *testing.T) {
+	t.Parallel()
+
+	content := "MemTotal:  8192000 kB\nMemFree:   2048000 kB\nBuffers:    512000 kB\nCached:    1024000 kB\n"
+	f, err := os.CreateTemp(t.TempDir(), "meminfo-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(content); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+
+	c := &MemoryCollector{meminfoPath: f.Name(), ContainerCtx: platform.ContainerContext{}}
+	out, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect error: %v", err)
+	}
+	result := out.(*models.MemoryInfo) //nolint:errcheck
+	// avail = MemFree + Buffers + Cached + SReclaimable = 2048000+512000+1024000+0 = 3584000 kB
+	const eps = 0.01
+	wantFree := 3584000.0 / (1024 * 1024)
+	if abs(result.FreeGB-wantFree) > eps {
+		t.Errorf("FreeGB = %v, want %v (MemAvailable-absent path: approximated from MemFree+Buffers+Cached+SReclaimable)", result.FreeGB, wantFree)
+	}
+	wantUsed := float64(8192000-3584000) / 8192000 * 100
+	if abs(result.UsedPct-wantUsed) > eps {
+		t.Errorf("UsedPct = %v, want %v", result.UsedPct, wantUsed)
+	}
+}

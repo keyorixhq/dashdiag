@@ -593,6 +593,26 @@ func TestLogDiskUsage_Unreadable(t *testing.T) {
 	}
 }
 
+// TestLogDiskUsage_ZeroBlocks covers logs_linux.go:621-623 — the early return
+// when statFs succeeds but reports Blocks==0 (thin-provisioned or virtual FS).
+// Division-by-zero is guarded; the function must return ("", 0) without panicking.
+func TestLogDiskUsage_ZeroBlocks(t *testing.T) {
+	// No t.Parallel(): SetSource swaps the package-global source.
+	b := source.NewBundle()
+	b.PutStat(journalVarPath, source.FileMeta{IsDir: true})
+	prev := SetSource(fakeStatfsOverrideSource{
+		Replay: source.NewReplay(b),
+		path:   journalVarPath,
+		info:   source.StatfsInfo{Blocks: 0},
+	})
+	t.Cleanup(func() { SetSource(prev) })
+
+	mount, pct := logDiskUsage()
+	if mount != "" || pct != 0 {
+		t.Errorf("zero-block statfs must return (\"\", 0), got mount=%q pct=%v", mount, pct)
+	}
+}
+
 // ── checkJournalHealth (end-to-end) ──────────────────────────────────────────
 
 func TestCheckJournalHealth_NoSystemd(t *testing.T) {
