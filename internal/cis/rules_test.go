@@ -449,6 +449,10 @@ func TestStructDrivenRules(t *testing.T) {
 		{"5.4.2 shadow unreadable skips", "5.4.2", models.SecurityInfo{ShadowUnreadable: true}, models.CISSkipped},
 		{"5.4.2 no stale passes", "5.4.2", models.SecurityInfo{}, models.CISPass},
 		{"5.4.2 stale account fails", "5.4.2", models.SecurityInfo{StalePasswordAccounts: []string{"alice"}}, models.CISFail},
+
+		// 6.1.14 SUID executables
+		{"6.1.14 no unexpected SUIDs passes", "6.1.14", models.SecurityInfo{}, models.CISPass},
+		{"6.1.14 unexpected SUID fails", "6.1.14", models.SecurityInfo{SUIDBinaries: []string{"/usr/bin/weird"}}, models.CISFail},
 	}
 
 	for _, tc := range cases {

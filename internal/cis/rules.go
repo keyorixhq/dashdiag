@@ -629,6 +629,18 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				return pass(r)
 			}},
 
+		{ID: "6.1.14", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
+			Description: "Audit SUID executables — ensure no unexpected SUID binaries exist",
+			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("6.1.14")
+				if len(sec.SUIDBinaries) == 0 {
+					return pass(r)
+				}
+				return failr(r,
+					fmt.Sprintf("unexpected SUID binaries: %s", strings.Join(sec.SUIDBinaries, ", ")),
+					"review each binary; remove SUID if not needed: chmod u-s <path>")
+			}},
+
 		{ID: "6.2.4", Framework: cisBenchCIS, Level: 1, Section: "Users",
 			Description: "Ensure no accounts have empty passwords",
 			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
