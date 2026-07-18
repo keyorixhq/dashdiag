@@ -248,3 +248,23 @@ func TestUniqueAVCPaths(t *testing.T) {
 		t.Errorf("uniqueAVCPaths() = %v, want %v", got, want)
 	}
 }
+
+// TestParseSELinuxContextIssues_MatchpathconEmpty covers security_linux.go:951-952 —
+// the `continue` when matchpathconContext returns "" (the command is not seeded,
+// so runCmd returns ErrNotRecorded → matchpathconContext returns ""). The
+// `expected == ""` condition triggers and the loop body is skipped, resulting in
+// a nil return despite non-empty paths.
+func TestParseSELinuxContextIssues_MatchpathconEmpty(t *testing.T) {
+	// No t.Parallel(): withFixtureSource swaps the package-global source.
+	withFixtureSource(t, func(_ *source.Bundle) {
+		// matchpathcon and ls -dZ intentionally not seeded → both return "" →
+		// `expected == ""` fires → continue.
+	})
+	groups := []models.SELinuxAVCGroup{
+		{Scontext: "httpd_t", Tcontext: "admin_home_t", Tclass: "file", Paths: []string{"/data/file"}},
+	}
+	issues := parseSELinuxContextIssues(t.Context(), groups)
+	if issues != nil {
+		t.Errorf("expected nil when matchpathconContext returns empty, got %+v", issues)
+	}
+}
