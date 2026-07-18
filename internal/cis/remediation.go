@@ -101,6 +101,20 @@ func sudoInstallCmd(pkgMgr string) string {
 	}
 }
 
+// rsyslogInstallCmd returns the package-manager-appropriate command to install rsyslog.
+func rsyslogInstallCmd(pkgMgr string) string {
+	switch pkgMgr {
+	case "dnf", "yum", "tdnf":
+		return "dnf install rsyslog && systemctl enable --now rsyslog"
+	case "zypper":
+		return "zypper install rsyslog && systemctl enable --now rsyslog"
+	case "pacman":
+		return "pacman -S rsyslog && systemctl enable --now rsyslog"
+	default: // apt and unknown
+		return "apt install rsyslog && systemctl enable --now rsyslog"
+	}
+}
+
 // firewallInstallCmd returns the package-manager-appropriate command to install and
 // enable a firewall. Debian/Ubuntu default to ufw; RHEL/SLES/Arch to firewalld.
 func firewallInstallCmd(pkgMgr string) string {
@@ -143,6 +157,8 @@ func adaptRemediation(res models.CISResult, pkgMgr string) models.CISResult {
 		res.Remediation = auditRulesCmd(pkgMgr)
 	case "5.3.1":
 		res.Remediation = sudoInstallCmd(pkgMgr)
+	case "4.2.1":
+		res.Remediation = rsyslogInstallCmd(pkgMgr)
 	}
 	return res
 }

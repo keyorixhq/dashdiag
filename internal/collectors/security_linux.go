@@ -601,7 +601,19 @@ func parseSudoersFile(path string, info *models.SecurityInfo) {
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-		if strings.HasPrefix(line, "#") || !strings.Contains(line, "NOPASSWD") {
+		if strings.HasPrefix(line, "#") {
+			continue
+		}
+		// Defaults directives: scan for CIS 5.3.2 (use_pty) and 5.3.3 (logfile)
+		if strings.HasPrefix(line, "Defaults") {
+			if strings.Contains(line, "use_pty") {
+				info.SudoDefaultsPTY = true
+			}
+			if strings.Contains(line, "logfile=") {
+				info.SudoDefaultsLogfile = true
+			}
+		}
+		if !strings.Contains(line, "NOPASSWD") {
 			continue
 		}
 		// Extract the user/group — first field before whitespace

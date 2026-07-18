@@ -731,6 +731,21 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				return pass(r)
 			}},
 
+		// ── 4.2 Rsyslog ──────────────────────────────────────────────────────
+
+		{ID: "4.2.1", Framework: cisBenchCIS, Level: 1, Section: "Audit",
+			Description: "Ensure rsyslog or syslog-ng is installed",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("4.2.1")
+				for _, p := range rsyslogBinPaths {
+					if _, err := os.Stat(p); err == nil { //nolint:gosec // path is a package var, not user input
+						return pass(r)
+					}
+				}
+				return failr(r, "no syslog daemon found (rsyslogd or syslog-ng)",
+					"install rsyslog (see remediation)")
+			}},
+
 		// ── 5.3/5.4 Auth ──────────────────────────────────────────────────────
 
 		{ID: "5.3.1", Framework: cisBenchCIS, Level: 1, Section: cisCatAuth,
@@ -769,6 +784,34 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				return failr(r,
 					fmt.Sprintf("NOPASSWD entries in sudoers: %s", strings.Join(sec.SudoNopasswd, ", ")),
 					"remove NOPASSWD from /etc/sudoers and /etc/sudoers.d/")
+			}},
+
+		{ID: "5.3.2", Framework: cisBenchCIS, Level: 1, Section: cisCatAuth,
+			Description: "Ensure sudo commands use a pseudo-terminal (Defaults use_pty)",
+			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.3.2")
+				if sec.SudoersUnreadable {
+					return skipr(r, "sudoers not readable — run as root for full coverage")
+				}
+				if !sec.SudoDefaultsPTY {
+					return failr(r, "Defaults use_pty not set in sudoers",
+						"add 'Defaults use_pty' to /etc/sudoers")
+				}
+				return pass(r)
+			}},
+
+		{ID: "5.3.3", Framework: cisBenchCIS, Level: 1, Section: cisCatAuth,
+			Description: "Ensure sudo log file is configured (Defaults logfile=<path>)",
+			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.3.3")
+				if sec.SudoersUnreadable {
+					return skipr(r, "sudoers not readable — run as root for full coverage")
+				}
+				if !sec.SudoDefaultsLogfile {
+					return failr(r, "Defaults logfile= not configured in sudoers",
+						"add 'Defaults logfile=/var/log/sudo.log' to /etc/sudoers")
+				}
+				return pass(r)
 			}},
 
 		{ID: "5.4.2", Framework: cisBenchCIS, Level: 1, Section: cisCatAuth,
@@ -901,6 +944,34 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("5.1.7")
 				return checkFilePerm(r, "/etc/cron.d", 0o700, "chmod og-rwx /etc/cron.d")
+			}},
+
+		{ID: "5.1.8", Framework: cisBenchCIS, Level: 1, Section: "Cron",
+			Description: "Ensure cron is restricted to authorized users (/etc/cron.allow or /etc/cron.deny)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.1.8")
+				if _, err := os.Stat(cronAllowPath); err == nil {
+					return pass(r)
+				}
+				if _, err := os.Stat(cronDenyPath); err == nil {
+					return pass(r)
+				}
+				return failr(r, "neither /etc/cron.allow nor /etc/cron.deny exists",
+					"create /etc/cron.allow with authorized users (one per line)")
+			}},
+
+		{ID: "5.1.9", Framework: cisBenchCIS, Level: 1, Section: "Cron",
+			Description: "Ensure at is restricted to authorized users (/etc/at.allow or /etc/at.deny)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.1.9")
+				if _, err := os.Stat(atAllowPath); err == nil {
+					return pass(r)
+				}
+				if _, err := os.Stat(atDenyPath); err == nil {
+					return pass(r)
+				}
+				return failr(r, "neither /etc/at.allow nor /etc/at.deny exists",
+					"create /etc/at.allow with authorized users (one per line)")
 			}},
 
 		// ── 1.1 Filesystem ────────────────────────────────────────────────────
@@ -1254,6 +1325,17 @@ var slapdBinPaths = []string{"/usr/sbin/slapd"}
 // rules 1.4.1 and 1.4.2. Ubuntu/Debian use /boot/grub/grub.cfg; RHEL/Rocky
 // use /boot/grub2/grub.cfg. Package-level var for test injection.
 var grubCfgPaths = []string{"/boot/grub/grub.cfg", "/boot/grub2/grub.cfg"}
+
+// cronAllowPath, cronDenyPath, atAllowPath, atDenyPath are the access-control
+// files checked by rules 5.1.8 and 5.1.9. Package-level vars for test injection.
+var cronAllowPath = "/etc/cron.allow"
+var cronDenyPath = "/etc/cron.deny"
+var atAllowPath = "/etc/at.allow"
+var atDenyPath = "/etc/at.deny"
+
+// rsyslogBinPaths is the set of syslog daemon binaries checked by rule 4.2.1.
+// Both rsyslog and syslog-ng satisfy the "logging daemon installed" requirement.
+var rsyslogBinPaths = []string{"/usr/sbin/rsyslogd", "/sbin/rsyslogd", "/usr/sbin/syslog-ng"}
 
 // checkLoginDefsField reads path (normally /etc/login.defs) for the first
 // uncommented "field value..." line and applies fails(days) to decide PASS/FAIL.

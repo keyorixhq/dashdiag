@@ -1916,6 +1916,249 @@ func TestRule1_4_1_GRUBMissing(t *testing.T) {
 	}
 }
 
+// ── 5.3.2 / 5.3.3 sudo PTY and logfile ──────────────────────────────────────
+
+func TestRule5_3_2_UsePTY(t *testing.T) {
+	t.Parallel()
+	rule := ruleByID("5.3.2")
+
+	t.Run("sudoers unreadable → skip", func(t *testing.T) {
+		t.Parallel()
+		got := rule.Check(models.SecurityInfo{SudoersUnreadable: true}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("SudoersUnreadable=true: want Skipped, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+	t.Run("use_pty not set → fail", func(t *testing.T) {
+		t.Parallel()
+		got := rule.Check(models.SecurityInfo{SudoDefaultsPTY: false}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("SudoDefaultsPTY=false: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+	t.Run("use_pty set → pass", func(t *testing.T) {
+		t.Parallel()
+		got := rule.Check(models.SecurityInfo{SudoDefaultsPTY: true}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("SudoDefaultsPTY=true: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+func TestRule5_3_3_Logfile(t *testing.T) {
+	t.Parallel()
+	rule := ruleByID("5.3.3")
+
+	t.Run("sudoers unreadable → skip", func(t *testing.T) {
+		t.Parallel()
+		got := rule.Check(models.SecurityInfo{SudoersUnreadable: true}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("SudoersUnreadable=true: want Skipped, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+	t.Run("logfile not configured → fail", func(t *testing.T) {
+		t.Parallel()
+		got := rule.Check(models.SecurityInfo{SudoDefaultsLogfile: false}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("SudoDefaultsLogfile=false: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+	t.Run("logfile configured → pass", func(t *testing.T) {
+		t.Parallel()
+		got := rule.Check(models.SecurityInfo{SudoDefaultsLogfile: true}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("SudoDefaultsLogfile=true: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// ── 5.1.8 / 5.1.9 cron/at access control ────────────────────────────────────
+
+// TestRule5_1_8_CronAccess verifies rule 5.1.8 (cron.allow or cron.deny).
+// No t.Parallel(): modifies package-level cronAllowPath / cronDenyPath.
+func TestRule5_1_8_CronAccess(t *testing.T) {
+	dir := t.TempDir()
+
+	origAllow := cronAllowPath
+	origDeny := cronDenyPath
+	t.Cleanup(func() {
+		cronAllowPath = origAllow
+		cronDenyPath = origDeny
+	})
+
+	findResult := func(report models.CISReport) models.CISResult {
+		t.Helper()
+		for _, r := range report.Results {
+			if r.ID == "5.1.8" {
+				return r
+			}
+		}
+		t.Fatal("rule 5.1.8 not found in Evaluate output")
+		return models.CISResult{}
+	}
+
+	t.Run("neither file exists → fail", func(t *testing.T) {
+		cronAllowPath = filepath.Join(dir, "cron.allow.missing")
+		cronDenyPath = filepath.Join(dir, "cron.deny.missing")
+		report := Evaluate(models.SecurityInfo{}, models.KernelSecurityInfo{}, 1, false, "apt")
+		res := findResult(report)
+		if res.Status != models.CISFail {
+			t.Errorf("no cron control files: want Fail, got %s (%s)", res.Status, res.Finding)
+		}
+	})
+	t.Run("cron.allow present → pass", func(t *testing.T) {
+		allowFile := filepath.Join(dir, "cron.allow")
+		if err := os.WriteFile(allowFile, []byte("alice\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		cronAllowPath = allowFile
+		cronDenyPath = filepath.Join(dir, "cron.deny.missing")
+		report := Evaluate(models.SecurityInfo{}, models.KernelSecurityInfo{}, 1, false, "apt")
+		res := findResult(report)
+		if res.Status != models.CISPass {
+			t.Errorf("cron.allow present: want Pass, got %s (%s)", res.Status, res.Finding)
+		}
+	})
+	t.Run("cron.deny present → pass", func(t *testing.T) {
+		cronAllowPath = filepath.Join(dir, "cron.allow.missing")
+		denyFile := filepath.Join(dir, "cron.deny")
+		if err := os.WriteFile(denyFile, []byte("ALL\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		cronDenyPath = denyFile
+		report := Evaluate(models.SecurityInfo{}, models.KernelSecurityInfo{}, 1, false, "apt")
+		res := findResult(report)
+		if res.Status != models.CISPass {
+			t.Errorf("cron.deny present: want Pass, got %s (%s)", res.Status, res.Finding)
+		}
+	})
+}
+
+// TestRule5_1_9_AtAccess verifies rule 5.1.9 (at.allow or at.deny).
+// No t.Parallel(): modifies package-level atAllowPath / atDenyPath.
+func TestRule5_1_9_AtAccess(t *testing.T) {
+	dir := t.TempDir()
+
+	origAllow := atAllowPath
+	origDeny := atDenyPath
+	t.Cleanup(func() {
+		atAllowPath = origAllow
+		atDenyPath = origDeny
+	})
+
+	findResult := func(report models.CISReport) models.CISResult {
+		t.Helper()
+		for _, r := range report.Results {
+			if r.ID == "5.1.9" {
+				return r
+			}
+		}
+		t.Fatal("rule 5.1.9 not found in Evaluate output")
+		return models.CISResult{}
+	}
+
+	t.Run("neither file exists → fail", func(t *testing.T) {
+		atAllowPath = filepath.Join(dir, "at.allow.missing")
+		atDenyPath = filepath.Join(dir, "at.deny.missing")
+		report := Evaluate(models.SecurityInfo{}, models.KernelSecurityInfo{}, 1, false, "apt")
+		res := findResult(report)
+		if res.Status != models.CISFail {
+			t.Errorf("no at control files: want Fail, got %s (%s)", res.Status, res.Finding)
+		}
+	})
+	t.Run("at.allow present → pass", func(t *testing.T) {
+		allowFile := filepath.Join(dir, "at.allow")
+		if err := os.WriteFile(allowFile, []byte("alice\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		atAllowPath = allowFile
+		atDenyPath = filepath.Join(dir, "at.deny.missing")
+		report := Evaluate(models.SecurityInfo{}, models.KernelSecurityInfo{}, 1, false, "apt")
+		res := findResult(report)
+		if res.Status != models.CISPass {
+			t.Errorf("at.allow present: want Pass, got %s (%s)", res.Status, res.Finding)
+		}
+	})
+	t.Run("at.deny present → pass", func(t *testing.T) {
+		atAllowPath = filepath.Join(dir, "at.allow.missing")
+		denyFile := filepath.Join(dir, "at.deny")
+		if err := os.WriteFile(denyFile, []byte("ALL\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		atDenyPath = denyFile
+		report := Evaluate(models.SecurityInfo{}, models.KernelSecurityInfo{}, 1, false, "apt")
+		res := findResult(report)
+		if res.Status != models.CISPass {
+			t.Errorf("at.deny present: want Pass, got %s (%s)", res.Status, res.Finding)
+		}
+	})
+}
+
+// ── 4.2.1 rsyslog/syslog-ng installed ────────────────────────────────────────
+
+// TestRule4_2_1_RsyslogInstalled verifies rule 4.2.1.
+// No t.Parallel(): modifies package-level rsyslogBinPaths.
+func TestRule4_2_1_RsyslogInstalled(t *testing.T) {
+	dir := t.TempDir()
+	origPaths := rsyslogBinPaths
+	t.Cleanup(func() { rsyslogBinPaths = origPaths })
+
+	findResult := func(report models.CISReport) models.CISResult {
+		t.Helper()
+		for _, r := range report.Results {
+			if r.ID == "4.2.1" {
+				return r
+			}
+		}
+		t.Fatal("rule 4.2.1 not found in Evaluate output")
+		return models.CISResult{}
+	}
+
+	t.Run("no syslog binary → fail", func(t *testing.T) {
+		rsyslogBinPaths = []string{filepath.Join(dir, "rsyslogd.missing")}
+		report := Evaluate(models.SecurityInfo{}, models.KernelSecurityInfo{}, 1, false, "apt")
+		res := findResult(report)
+		if res.Status != models.CISFail {
+			t.Errorf("no syslog daemon: want Fail, got %s (%s)", res.Status, res.Finding)
+		}
+	})
+	t.Run("rsyslogd present → pass", func(t *testing.T) {
+		bin := filepath.Join(dir, "rsyslogd")
+		if err := os.WriteFile(bin, []byte("#!/bin/sh"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		rsyslogBinPaths = []string{bin}
+		report := Evaluate(models.SecurityInfo{}, models.KernelSecurityInfo{}, 1, false, "apt")
+		res := findResult(report)
+		if res.Status != models.CISPass {
+			t.Errorf("rsyslogd present: want Pass, got %s (%s)", res.Status, res.Finding)
+		}
+	})
+	t.Run("remediation adapts to package manager", func(t *testing.T) {
+		rsyslogBinPaths = []string{filepath.Join(dir, "rsyslogd.missing")}
+		cases := []struct {
+			pkgMgr  string
+			wantStr string
+		}{
+			{"apt", "apt install rsyslog"},
+			{"dnf", "dnf install rsyslog"},
+			{"zypper", "zypper install rsyslog"},
+			{"pacman", "pacman -S rsyslog"},
+		}
+		for _, tc := range cases {
+			report := Evaluate(models.SecurityInfo{}, models.KernelSecurityInfo{}, 1, false, tc.pkgMgr)
+			res := findResult(report)
+			if res.Status != models.CISFail {
+				t.Errorf("[%s] want Fail, got %s", tc.pkgMgr, res.Status)
+				continue
+			}
+			if !strings.Contains(res.Remediation, tc.wantStr) {
+				t.Errorf("[%s] remediation %q missing %q", tc.pkgMgr, res.Remediation, tc.wantStr)
+			}
+		}
+	})
+}
+
 // TestRule1_4_2_GRUBOwnership verifies rule 1.4.2 fails for non-root-owned file.
 // No t.Parallel(): modifies package-level grubCfgPaths.
 func TestRule1_4_2_GRUBOwnership(t *testing.T) {
