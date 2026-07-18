@@ -2565,6 +2565,152 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					"add 'auth required pam_wheel.so use_uid' to /etc/pam.d/su to restrict su to wheel group")
 			}},
 
+		{ID: "5.5.3", Framework: cisBenchCIS, Level: 1, Section: cisCatAuth,
+			Description: "Ensure default user umask is 027 or more restrictive",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.5.3")
+				// isRestrictive returns true if octal umask string is 027 or more restrictive
+				// (all bits of 027 must be set: group-write + all-other).
+				isRestrictive := func(s string) (bool, bool) { // (valid, ok)
+					s = strings.TrimSpace(s)
+					v, err := strconv.ParseInt(s, 8, 32)
+					if err != nil {
+						return false, false
+					}
+					return (v & 0o027) == 0o027, true
+				}
+				// scanFile collects umask values from a file's lines.
+				// login.defs uses "UMASK <value>"; shell files use "umask <value>".
+				scanFile := func(data []byte) []string {
+					var vals []string
+					for line := range strings.SplitSeq(string(data), "\n") {
+						line = strings.TrimSpace(line)
+						if line == "" || strings.HasPrefix(line, "#") {
+							continue
+						}
+						fields := strings.Fields(line)
+						if len(fields) == 2 && strings.EqualFold(fields[0], "umask") {
+							vals = append(vals, fields[1])
+						}
+					}
+					return vals
+				}
+				var allVals []string
+				if data, err := os.ReadFile(loginDefsPath); err == nil { //nolint:gosec // package-level var
+					for line := range strings.SplitSeq(string(data), "\n") {
+						line = strings.TrimSpace(line)
+						if line == "" || strings.HasPrefix(line, "#") {
+							continue
+						}
+						fields := strings.Fields(line)
+						if len(fields) == 2 && strings.EqualFold(fields[0], "UMASK") {
+							allVals = append(allVals, fields[1])
+						}
+					}
+				}
+				if data, err := os.ReadFile(etcProfilePath); err == nil { //nolint:gosec // package-level var
+					allVals = append(allVals, scanFile(data)...)
+				}
+				if entries, err := os.ReadDir(etcProfileDPath); err == nil { //nolint:gosec // package-level var
+					for _, e := range entries {
+						if e.IsDir() || !strings.HasSuffix(e.Name(), ".sh") {
+							continue
+						}
+						if data, err := os.ReadFile(filepath.Join(etcProfileDPath, e.Name())); err == nil { //nolint:gosec
+							allVals = append(allVals, scanFile(data)...)
+						}
+					}
+				}
+				if data, err := os.ReadFile(etcBashrcPath); err == nil { //nolint:gosec // package-level var
+					allVals = append(allVals, scanFile(data)...)
+				}
+				if len(allVals) == 0 {
+					return failr(r, "umask not configured in /etc/login.defs, /etc/profile, /etc/profile.d/*.sh, or /etc/bash.bashrc",
+						"add 'umask 027' to /etc/profile or a /etc/profile.d/*.sh drop-in")
+				}
+				for _, val := range allVals {
+					ok, valid := isRestrictive(val)
+					if !valid {
+						continue
+					}
+					if !ok {
+						return failr(r, fmt.Sprintf("umask %s is less restrictive than 027", val),
+							"set 'umask 027' in /etc/profile or /etc/login.defs (UMASK 027)")
+					}
+				}
+				return pass(r)
+			}},
+
+		{ID: "5.5.4", Framework: cisBenchCIS, Level: 1, Section: cisCatAuth,
+			Description: "Ensure default user shell timeout is 900 seconds or less",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.5.4")
+				// parseTMOUT extracts TMOUT value from a line (returns -1 if not found).
+				// Handles: TMOUT=900, readonly TMOUT=900, export TMOUT=900.
+				parseTMOUT := func(line string) int {
+					line = strings.TrimSpace(line)
+					for _, prefix := range []string{"readonly ", "export ", ""} {
+						rest, ok := strings.CutPrefix(line, prefix)
+						if !ok {
+							continue
+						}
+						rest2, ok2 := strings.CutPrefix(rest, "TMOUT=")
+						if !ok2 {
+							continue
+						}
+						n, err := strconv.Atoi(strings.TrimSpace(rest2))
+						if err == nil {
+							return n
+						}
+					}
+					return -1
+				}
+				scanTMOUT := func(data []byte) int {
+					for line := range strings.SplitSeq(string(data), "\n") {
+						if strings.HasPrefix(strings.TrimSpace(line), "#") {
+							continue
+						}
+						if n := parseTMOUT(line); n >= 0 {
+							return n
+						}
+					}
+					return -1
+				}
+				found := -1
+				if data, err := os.ReadFile(etcProfilePath); err == nil { //nolint:gosec // package-level var
+					if n := scanTMOUT(data); n >= 0 {
+						found = n
+					}
+				}
+				if entries, err := os.ReadDir(etcProfileDPath); err == nil && found < 0 { //nolint:gosec // package-level var
+					for _, e := range entries {
+						if e.IsDir() || !strings.HasSuffix(e.Name(), ".sh") {
+							continue
+						}
+						if data, err := os.ReadFile(filepath.Join(etcProfileDPath, e.Name())); err == nil { //nolint:gosec
+							if n := scanTMOUT(data); n >= 0 {
+								found = n
+								break
+							}
+						}
+					}
+				}
+				if found < 0 {
+					if data, err := os.ReadFile(etcBashrcPath); err == nil { //nolint:gosec // package-level var
+						found = scanTMOUT(data)
+					}
+				}
+				if found < 0 {
+					return failr(r, "TMOUT not set in /etc/profile, /etc/profile.d/*.sh, or /etc/bash.bashrc",
+						"add 'readonly TMOUT=900' to /etc/profile.d/timeout.sh")
+				}
+				if found > 900 {
+					return failr(r, fmt.Sprintf("TMOUT=%d exceeds CIS maximum of 900 seconds", found),
+						"set 'readonly TMOUT=900' in /etc/profile.d/timeout.sh")
+				}
+				return pass(r)
+			}},
+
 		// ── 5.1 Cron Daemon Configuration ────────────────────────────────────
 
 		{ID: "5.1.1", Framework: cisBenchCIS, Level: 1, Section: "Cron",
@@ -3638,6 +3784,11 @@ var pamCommonAuthPath = "/etc/pam.d/common-auth"
 
 // pamCommonPasswordPath for password hashing (5.4.11) and reuse (5.4.12) checks.
 var pamCommonPasswordPath = "/etc/pam.d/common-password"
+
+// etcProfilePath, etcProfileDPath, etcBashrcPath for umask (5.5.3) and TMOUT (5.5.4) checks.
+var etcProfilePath = "/etc/profile"
+var etcProfileDPath = "/etc/profile.d"
+var etcBashrcPath = "/etc/bash.bashrc"
 
 // rsyslogConfPath and rsyslogConfDPath for rsyslog remote-logging check (4.2.3).
 var rsyslogConfPath = "/etc/rsyslog.conf"

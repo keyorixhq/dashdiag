@@ -6137,3 +6137,170 @@ func TestRule5_4_12_PasswordReuse(t *testing.T) {
 		}
 	})
 }
+
+// TestRule5_5_3_DefaultUmask verifies rule 5.5.3.
+// No t.Parallel() — mutates etcProfilePath, etcProfileDPath, etcBashrcPath, loginDefsPath.
+func TestRule5_5_3_DefaultUmask(t *testing.T) {
+	rule := ruleByID("5.5.3")
+	dir := t.TempDir()
+
+	origProfile := etcProfilePath
+	origProfileD := etcProfileDPath
+	origBashrc := etcBashrcPath
+	origLoginDefs := loginDefsPath
+	t.Cleanup(func() {
+		etcProfilePath = origProfile
+		etcProfileDPath = origProfileD
+		etcBashrcPath = origBashrc
+		loginDefsPath = origLoginDefs
+	})
+
+	noFile := func(name string) string { return filepath.Join(dir, name) }
+
+	t.Run("no umask configured anywhere → FAIL", func(t *testing.T) {
+		etcProfilePath = noFile("no_profile")
+		etcProfileDPath = noFile("no_profile_d")
+		etcBashrcPath = noFile("no_bashrc")
+		loginDefsPath = noFile("no_login_defs")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("none configured: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("UMASK 027 in login.defs → PASS", func(t *testing.T) {
+		f := filepath.Join(dir, "login_umask027.defs")
+		if err := os.WriteFile(f, []byte("PASS_MAX_DAYS 90\nUMASK 027\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		loginDefsPath = f
+		etcProfilePath = noFile("no_profile2")
+		etcProfileDPath = noFile("no_profile_d2")
+		etcBashrcPath = noFile("no_bashrc2")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("UMASK 027: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("umask 022 in /etc/profile → FAIL", func(t *testing.T) {
+		loginDefsPath = noFile("no_login_defs3")
+		f := filepath.Join(dir, "profile_022")
+		if err := os.WriteFile(f, []byte("# system profile\numask 022\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		etcProfilePath = f
+		etcProfileDPath = noFile("no_profile_d3")
+		etcBashrcPath = noFile("no_bashrc3")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("umask 022: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("umask 077 in profile.d drop-in → PASS", func(t *testing.T) {
+		loginDefsPath = noFile("no_login_defs4")
+		etcProfilePath = noFile("no_profile4")
+		dDir := filepath.Join(dir, "profile_d_077")
+		if err := os.Mkdir(dDir, 0o755); err != nil && !os.IsExist(err) {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dDir, "umask.sh"), []byte("umask 077\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		etcProfileDPath = dDir
+		etcBashrcPath = noFile("no_bashrc4")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("umask 077 drop-in: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("umask 027 in /etc/bash.bashrc → PASS", func(t *testing.T) {
+		loginDefsPath = noFile("no_login_defs5")
+		etcProfilePath = noFile("no_profile5")
+		etcProfileDPath = noFile("no_profile_d5")
+		f := filepath.Join(dir, "bashrc_027")
+		if err := os.WriteFile(f, []byte("# bashrc\numask 027\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		etcBashrcPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("bashrc umask 027: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// TestRule5_5_4_ShellTimeout verifies rule 5.5.4.
+// No t.Parallel() — mutates etcProfilePath, etcProfileDPath, etcBashrcPath.
+func TestRule5_5_4_ShellTimeout(t *testing.T) {
+	rule := ruleByID("5.5.4")
+	dir := t.TempDir()
+
+	origProfile := etcProfilePath
+	origProfileD := etcProfileDPath
+	origBashrc := etcBashrcPath
+	t.Cleanup(func() {
+		etcProfilePath = origProfile
+		etcProfileDPath = origProfileD
+		etcBashrcPath = origBashrc
+	})
+
+	noFile := func(name string) string { return filepath.Join(dir, name) }
+
+	t.Run("TMOUT not set anywhere → FAIL", func(t *testing.T) {
+		etcProfilePath = noFile("no_profile_tmout")
+		etcProfileDPath = noFile("no_profile_d_tmout")
+		etcBashrcPath = noFile("no_bashrc_tmout")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("not set: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("readonly TMOUT=900 in /etc/profile → PASS", func(t *testing.T) {
+		f := filepath.Join(dir, "profile_tmout_900")
+		if err := os.WriteFile(f, []byte("readonly TMOUT=900\nexport TMOUT\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		etcProfilePath = f
+		etcProfileDPath = noFile("no_profile_d_tmout2")
+		etcBashrcPath = noFile("no_bashrc_tmout2")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("TMOUT=900: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("TMOUT=1800 (exceeds 900) → FAIL", func(t *testing.T) {
+		etcProfilePath = noFile("no_profile_tmout3")
+		dDir := filepath.Join(dir, "profile_d_tmout_1800")
+		if err := os.Mkdir(dDir, 0o755); err != nil && !os.IsExist(err) {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(dDir, "timeout.sh"), []byte("TMOUT=1800\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		etcProfileDPath = dDir
+		etcBashrcPath = noFile("no_bashrc_tmout3")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("TMOUT=1800: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("TMOUT=600 in /etc/bash.bashrc → PASS", func(t *testing.T) {
+		etcProfilePath = noFile("no_profile_tmout4")
+		etcProfileDPath = noFile("no_profile_d_tmout4")
+		f := filepath.Join(dir, "bashrc_tmout_600")
+		if err := os.WriteFile(f, []byte("export TMOUT=600\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		etcBashrcPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("TMOUT=600: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
