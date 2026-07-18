@@ -7662,3 +7662,77 @@ func TestRule6_1_29_32_ResolvSysctlPerms(t *testing.T) {
 		})
 	}
 }
+
+// TestRule3_2_36_39_IPv6DefaultHardening verifies 3.2.36-3.2.39 (IPv6 default interface params).
+func TestRule3_2_36_39_IPv6DefaultHardening(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		id   string
+		desc string
+	}{
+		{"3.2.36", "accept_ra"},
+		{"3.2.37", "accept_redirects"},
+		{"3.2.38", "accept_source_route"},
+		{"3.2.39", "accept_source_route"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.id+"_registered", func(t *testing.T) {
+			t.Parallel()
+			r := ruleByID(tc.id)
+			if r.ID != tc.id {
+				t.Errorf("ruleByID(%q) returned ID %q", tc.id, r.ID)
+			}
+			if !strings.Contains(r.Description, tc.desc) {
+				t.Errorf("description missing %q: %s", tc.desc, r.Description)
+			}
+		})
+		t.Run(tc.id+"_valid_status", func(t *testing.T) {
+			t.Parallel()
+			r := ruleByID(tc.id)
+			got := r.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+			switch got.Status {
+			case models.CISPass, models.CISFail, models.CISSkipped:
+			default:
+				t.Errorf("unexpected status %q for rule %s", got.Status, tc.id)
+			}
+		})
+	}
+}
+
+// TestRule5_1_10_15_CronOwnership verifies 5.1.10-5.1.15 (cron directories owned root:root).
+func TestRule5_1_10_15_CronOwnership(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		id   string
+		desc string
+	}{
+		{"5.1.10", "crontab"},
+		{"5.1.11", "cron.hourly"},
+		{"5.1.12", "cron.daily"},
+		{"5.1.13", "cron.weekly"},
+		{"5.1.14", "cron.monthly"},
+		{"5.1.15", "cron.d"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.id+"_registered", func(t *testing.T) {
+			t.Parallel()
+			r := ruleByID(tc.id)
+			if r.ID != tc.id {
+				t.Errorf("ruleByID(%q) returned ID %q", tc.id, r.ID)
+			}
+			if !strings.Contains(r.Description, tc.desc) {
+				t.Errorf("description missing %q: %s", tc.desc, r.Description)
+			}
+		})
+		t.Run(tc.id+"_valid_status", func(t *testing.T) {
+			t.Parallel()
+			r := ruleByID(tc.id)
+			got := r.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+			switch got.Status {
+			case models.CISPass, models.CISFail, models.CISSkipped:
+			default:
+				t.Errorf("unexpected status %q for rule %s", got.Status, tc.id)
+			}
+		})
+	}
+}

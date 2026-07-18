@@ -1631,6 +1631,38 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					"net.ipv4.conf.default.log_martians is not 1 — martian packets not logged on new interfaces",
 					"sysctl -w net.ipv4.conf.default.log_martians=1 && echo 'net.ipv4.conf.default.log_martians=1' >> /etc/sysctl.d/99-cis.conf")
 			}},
+		{ID: "3.2.36", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure IPv6 router advertisements are not accepted on default interface (net.ipv6.conf.default.accept_ra = 0)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.2.36")
+				return checkSysctl(r, "/proc/sys/net/ipv6/conf/default/accept_ra", "0",
+					"net.ipv6.conf.default.accept_ra is not 0 — new interfaces will accept IPv6 router advertisements",
+					"sysctl -w net.ipv6.conf.default.accept_ra=0 && echo 'net.ipv6.conf.default.accept_ra=0' >> /etc/sysctl.d/99-cis.conf")
+			}},
+		{ID: "3.2.37", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure IPv6 redirects are not accepted on default interface (net.ipv6.conf.default.accept_redirects = 0)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.2.37")
+				return checkSysctl(r, "/proc/sys/net/ipv6/conf/default/accept_redirects", "0",
+					"net.ipv6.conf.default.accept_redirects is not 0 — new interfaces will accept IPv6 ICMP redirects",
+					"sysctl -w net.ipv6.conf.default.accept_redirects=0 && echo 'net.ipv6.conf.default.accept_redirects=0' >> /etc/sysctl.d/99-cis.conf")
+			}},
+		{ID: "3.2.38", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure IPv6 source routing is not accepted (net.ipv6.conf.all.accept_source_route = 0)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.2.38")
+				return checkSysctl(r, "/proc/sys/net/ipv6/conf/all/accept_source_route", "0",
+					"net.ipv6.conf.all.accept_source_route is not 0 — IPv6 source-routed packets accepted",
+					"sysctl -w net.ipv6.conf.all.accept_source_route=0 && echo 'net.ipv6.conf.all.accept_source_route=0' >> /etc/sysctl.d/99-cis.conf")
+			}},
+		{ID: "3.2.39", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure IPv6 source routing is not accepted on default interface (net.ipv6.conf.default.accept_source_route = 0)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.2.39")
+				return checkSysctl(r, "/proc/sys/net/ipv6/conf/default/accept_source_route", "0",
+					"net.ipv6.conf.default.accept_source_route is not 0 — new interfaces will accept IPv6 source-routed packets",
+					"sysctl -w net.ipv6.conf.default.accept_source_route=0 && echo 'net.ipv6.conf.default.accept_source_route=0' >> /etc/sysctl.d/99-cis.conf")
+			}},
 
 		// ── 3.4 Uncommon Network Protocols ───────────────────────────────────────
 		// These kernel modules implement uncommon network protocols rarely needed
@@ -3309,6 +3341,36 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				}
 				return failr(r, "neither /etc/at.allow nor /etc/at.deny exists",
 					"create /etc/at.allow with authorized users (one per line)")
+			}},
+		{ID: "5.1.10", Framework: cisBenchCIS, Level: 1, Section: "Cron",
+			Description: "Ensure /etc/crontab is owned by root:root",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkFileOwnerRootRoot(ruleByID("5.1.10"), "/etc/crontab", "chown root:root /etc/crontab")
+			}},
+		{ID: "5.1.11", Framework: cisBenchCIS, Level: 1, Section: "Cron",
+			Description: "Ensure /etc/cron.hourly is owned by root:root",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkFileOwnerRootRoot(ruleByID("5.1.11"), "/etc/cron.hourly", "chown root:root /etc/cron.hourly")
+			}},
+		{ID: "5.1.12", Framework: cisBenchCIS, Level: 1, Section: "Cron",
+			Description: "Ensure /etc/cron.daily is owned by root:root",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkFileOwnerRootRoot(ruleByID("5.1.12"), "/etc/cron.daily", "chown root:root /etc/cron.daily")
+			}},
+		{ID: "5.1.13", Framework: cisBenchCIS, Level: 1, Section: "Cron",
+			Description: "Ensure /etc/cron.weekly is owned by root:root",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkFileOwnerRootRoot(ruleByID("5.1.13"), "/etc/cron.weekly", "chown root:root /etc/cron.weekly")
+			}},
+		{ID: "5.1.14", Framework: cisBenchCIS, Level: 1, Section: "Cron",
+			Description: "Ensure /etc/cron.monthly is owned by root:root",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkFileOwnerRootRoot(ruleByID("5.1.14"), "/etc/cron.monthly", "chown root:root /etc/cron.monthly")
+			}},
+		{ID: "5.1.15", Framework: cisBenchCIS, Level: 1, Section: "Cron",
+			Description: "Ensure /etc/cron.d is owned by root:root",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkFileOwnerRootRoot(ruleByID("5.1.15"), "/etc/cron.d", "chown root:root /etc/cron.d")
 			}},
 
 		{ID: "1.1.19", Framework: cisBenchCIS, Level: 1, Section: "Filesystem",
