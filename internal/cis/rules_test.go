@@ -8408,3 +8408,262 @@ func TestRule4_1_1_5_AuditEarlyBoot(t *testing.T) {
 		}
 	})
 }
+
+// ── Batch 33: bluetooth + faillock unlock_time/fail_interval + pwquality minclass ──
+
+// TestRule3_4_5_BluetoothDisabled is a smoke test for rule 3.4.5.
+// Full helper coverage is in TestCheckModuleDisabled_Rule1_1_1_1 (shared helper).
+// No t.Parallel() — mutates procModulesPath and modprobeDPath.
+func TestRule3_4_5_BluetoothDisabled(t *testing.T) {
+	dir := t.TempDir()
+	origModules := procModulesPath
+	origModprobe := modprobeDPath
+	t.Cleanup(func() {
+		procModulesPath = origModules
+		modprobeDPath = origModprobe
+	})
+
+	rule := ruleByID("3.4.5")
+
+	t.Run("bluetooth loaded → FAIL", func(t *testing.T) {
+		f := filepath.Join(dir, "modules_bt.txt")
+		if err := os.WriteFile(f, []byte("bluetooth 438272 0 - Live 0x0000000000000000\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		procModulesPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("bluetooth loaded: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("absent + install directive → PASS", func(t *testing.T) {
+		f := filepath.Join(dir, "modules_no_bt.txt")
+		if err := os.WriteFile(f, []byte("ext4 999999 2\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		procModulesPath = f
+		confDir := filepath.Join(dir, "modprobe_bt")
+		if err := os.MkdirAll(confDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(confDir, "bluetooth.conf"), []byte("install bluetooth /bin/true\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		modprobeDPath = confDir
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("install directive: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// TestRule5_4_13_FaillockUnlockTime verifies rule 5.4.13.
+// No t.Parallel() — mutates faillockConfPath.
+func TestRule5_4_13_FaillockUnlockTime(t *testing.T) {
+	dir := t.TempDir()
+	orig := faillockConfPath
+	t.Cleanup(func() { faillockConfPath = orig })
+
+	rule := ruleByID("5.4.13")
+
+	t.Run("absent faillock.conf → SKIP", func(t *testing.T) {
+		faillockConfPath = filepath.Join(dir, "no_faillock_13.conf")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("absent: want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("unlock_time = 900 → PASS", func(t *testing.T) {
+		f := filepath.Join(dir, "faillock_unlock900.conf")
+		if err := os.WriteFile(f, []byte("deny = 5\nunlock_time = 900\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		faillockConfPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("unlock_time=900: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("unlock_time = 1800 → PASS", func(t *testing.T) {
+		f := filepath.Join(dir, "faillock_unlock1800.conf")
+		if err := os.WriteFile(f, []byte("unlock_time = 1800\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		faillockConfPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("unlock_time=1800: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("unlock_time = 300 (too low) → FAIL", func(t *testing.T) {
+		f := filepath.Join(dir, "faillock_unlock300.conf")
+		if err := os.WriteFile(f, []byte("unlock_time = 300\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		faillockConfPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("unlock_time=300: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("unlock_time absent → FAIL", func(t *testing.T) {
+		f := filepath.Join(dir, "faillock_no_unlock.conf")
+		if err := os.WriteFile(f, []byte("deny = 5\nfail_interval = 900\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		faillockConfPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("missing unlock_time: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// TestRule5_4_14_FaillockFailInterval verifies rule 5.4.14.
+// No t.Parallel() — mutates faillockConfPath.
+func TestRule5_4_14_FaillockFailInterval(t *testing.T) {
+	dir := t.TempDir()
+	orig := faillockConfPath
+	t.Cleanup(func() { faillockConfPath = orig })
+
+	rule := ruleByID("5.4.14")
+
+	t.Run("absent faillock.conf → SKIP", func(t *testing.T) {
+		faillockConfPath = filepath.Join(dir, "no_faillock_14.conf")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("absent: want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("fail_interval = 900 → PASS", func(t *testing.T) {
+		f := filepath.Join(dir, "faillock_interval900.conf")
+		if err := os.WriteFile(f, []byte("fail_interval = 900\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		faillockConfPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("fail_interval=900: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("fail_interval = 120 (too low) → FAIL", func(t *testing.T) {
+		f := filepath.Join(dir, "faillock_interval120.conf")
+		if err := os.WriteFile(f, []byte("fail_interval = 120\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		faillockConfPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("fail_interval=120: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("fail_interval absent → FAIL", func(t *testing.T) {
+		f := filepath.Join(dir, "faillock_no_interval.conf")
+		if err := os.WriteFile(f, []byte("deny = 5\nunlock_time = 900\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		faillockConfPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("missing fail_interval: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// TestRule5_4_15_PwqualityMinclass verifies rule 5.4.15.
+// No t.Parallel() — mutates pwqualityConfPath.
+func TestRule5_4_15_PwqualityMinclass(t *testing.T) {
+	dir := t.TempDir()
+	orig := pwqualityConfPath
+	t.Cleanup(func() { pwqualityConfPath = orig })
+
+	rule := ruleByID("5.4.15")
+
+	t.Run("absent pwquality.conf → SKIP", func(t *testing.T) {
+		pwqualityConfPath = filepath.Join(dir, "no_pwquality_15.conf")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("absent: want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("minclass = 4 → PASS", func(t *testing.T) {
+		f := filepath.Join(dir, "pwq_minclass4.conf")
+		if err := os.WriteFile(f, []byte("minlen = 14\nminclass = 4\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		pwqualityConfPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("minclass=4: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("minclass = 3 → PASS", func(t *testing.T) {
+		f := filepath.Join(dir, "pwq_minclass3.conf")
+		if err := os.WriteFile(f, []byte("minclass = 3\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		pwqualityConfPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("minclass=3: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("minclass = 2 (too low) → FAIL", func(t *testing.T) {
+		f := filepath.Join(dir, "pwq_minclass2.conf")
+		if err := os.WriteFile(f, []byte("minclass = 2\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		pwqualityConfPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("minclass=2: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("3 negative credits (dcredit+ucredit+ocredit) → PASS", func(t *testing.T) {
+		f := filepath.Join(dir, "pwq_credits3.conf")
+		if err := os.WriteFile(f, []byte("dcredit = -1\nucredit = -1\nocredit = -1\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		pwqualityConfPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("3 negative credits: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("only 2 negative credits → FAIL", func(t *testing.T) {
+		f := filepath.Join(dir, "pwq_credits2.conf")
+		if err := os.WriteFile(f, []byte("dcredit = -1\nucredit = -1\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		pwqualityConfPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("only 2 neg credits: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("no complexity settings → FAIL", func(t *testing.T) {
+		f := filepath.Join(dir, "pwq_no_complexity.conf")
+		if err := os.WriteFile(f, []byte("minlen = 14\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		pwqualityConfPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("no complexity: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}

@@ -1886,6 +1886,13 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					"echo 'install tipc /bin/true' > /etc/modprobe.d/tipc.conf")
 			}},
 
+		{ID: "3.4.5", Framework: cisBenchCIS, Level: 2, Section: cisCatNetwork,
+			Description: "Ensure bluetooth is disabled",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkModuleDisabled(ruleByID("3.4.5"), "bluetooth",
+					"echo 'install bluetooth /bin/true' > /etc/modprobe.d/bluetooth.conf && systemctl disable bluetooth")
+			}},
+
 		// ── 3.3.x / 3.5.x MAC + Firewall ────────────────────────────────────
 		//
 		// These rules are cross-distro: MAC checks prefer SELinux when present
@@ -3363,6 +3370,111 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				}
 				return failr(r, "password reuse limit (remember=) not configured in /etc/pam.d/common-password",
 					"add 'remember=5' to pam_unix.so or pam_pwhistory.so in /etc/pam.d/common-password")
+			}},
+
+		// ── 5.4.13-5.4.15 additional PAM faillock + pwquality settings ───────
+
+		{ID: "5.4.13", Framework: cisBenchCIS, Level: 1, Section: cisCatAuth,
+			Description: "Ensure PAM lockout unlock time is 15 minutes or more (unlock_time >= 900)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.4.13")
+				data, err := os.ReadFile(faillockConfPath) // #nosec G304 -- package-level var
+				if err != nil {
+					return skipr(r, "/etc/security/faillock.conf not found (pam_faillock not installed)")
+				}
+				for line := range strings.SplitSeq(string(data), "\n") {
+					line = strings.TrimSpace(line)
+					if line == "" || strings.HasPrefix(line, "#") {
+						continue
+					}
+					parts := strings.SplitN(line, "=", 2)
+					if len(parts) == 2 && strings.TrimSpace(parts[0]) == "unlock_time" {
+						n, parseErr := strconv.Atoi(strings.TrimSpace(parts[1]))
+						if parseErr != nil {
+							return failr(r, fmt.Sprintf("unlock_time=%q is not a valid integer", strings.TrimSpace(parts[1])),
+								"set 'unlock_time = 900' in /etc/security/faillock.conf")
+						}
+						if n < 900 {
+							return failr(r, fmt.Sprintf("unlock_time = %d is below CIS minimum of 900 seconds", n),
+								"set 'unlock_time = 900' in /etc/security/faillock.conf")
+						}
+						return pass(r)
+					}
+				}
+				return failr(r, "unlock_time not configured in /etc/security/faillock.conf",
+					"add 'unlock_time = 900' to /etc/security/faillock.conf")
+			}},
+
+		{ID: "5.4.14", Framework: cisBenchCIS, Level: 1, Section: cisCatAuth,
+			Description: "Ensure PAM lockout failure window is configured (fail_interval >= 900)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.4.14")
+				data, err := os.ReadFile(faillockConfPath) // #nosec G304 -- package-level var
+				if err != nil {
+					return skipr(r, "/etc/security/faillock.conf not found (pam_faillock not installed)")
+				}
+				for line := range strings.SplitSeq(string(data), "\n") {
+					line = strings.TrimSpace(line)
+					if line == "" || strings.HasPrefix(line, "#") {
+						continue
+					}
+					parts := strings.SplitN(line, "=", 2)
+					if len(parts) == 2 && strings.TrimSpace(parts[0]) == "fail_interval" {
+						n, parseErr := strconv.Atoi(strings.TrimSpace(parts[1]))
+						if parseErr != nil {
+							return failr(r, fmt.Sprintf("fail_interval=%q is not a valid integer", strings.TrimSpace(parts[1])),
+								"set 'fail_interval = 900' in /etc/security/faillock.conf")
+						}
+						if n < 900 {
+							return failr(r, fmt.Sprintf("fail_interval = %d is below CIS minimum of 900 seconds", n),
+								"set 'fail_interval = 900' in /etc/security/faillock.conf")
+						}
+						return pass(r)
+					}
+				}
+				return failr(r, "fail_interval not configured in /etc/security/faillock.conf",
+					"add 'fail_interval = 900' to /etc/security/faillock.conf")
+			}},
+
+		{ID: "5.4.15", Framework: cisBenchCIS, Level: 1, Section: cisCatAuth,
+			Description: "Ensure password complexity class requirement is configured (minclass >= 3 or credit settings)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.4.15")
+				data, err := os.ReadFile(pwqualityConfPath) // #nosec G304 -- package-level var
+				if err != nil {
+					return skipr(r, "/etc/security/pwquality.conf not found (pam_pwquality not installed)")
+				}
+				settings := map[string]int{}
+				for line := range strings.SplitSeq(string(data), "\n") {
+					line = strings.TrimSpace(line)
+					if line == "" || strings.HasPrefix(line, "#") {
+						continue
+					}
+					parts := strings.SplitN(line, "=", 2)
+					if len(parts) != 2 {
+						continue
+					}
+					key := strings.TrimSpace(parts[0])
+					val := strings.TrimSpace(parts[1])
+					if n, parseErr := strconv.Atoi(val); parseErr == nil {
+						settings[key] = n
+					}
+				}
+				if v, ok := settings["minclass"]; ok && v >= 3 {
+					return pass(r)
+				}
+				negCredit := 0
+				for _, k := range []string{"dcredit", "ucredit", "ocredit", "lcredit"} {
+					if v, ok := settings[k]; ok && v < 0 {
+						negCredit++
+					}
+				}
+				if negCredit >= 3 {
+					return pass(r)
+				}
+				return failr(r,
+					"password complexity not configured (minclass < 3 and fewer than 3 credit settings are negative)",
+					"add 'minclass = 4' to /etc/security/pwquality.conf")
 			}},
 
 		{ID: "5.3.5", Framework: cisBenchCIS, Level: 1, Section: cisCatAuth,
@@ -5059,6 +5171,24 @@ var rsyncDefaultPath = "/etc/default/rsync"
 // logrotateConfPath and logrotateConfDPath for logrotate config check (4.3.1).
 var logrotateConfPath = "/etc/logrotate.conf"
 var logrotateConfDPath = "/etc/logrotate.d"
+
+// devShmPath and varTmpPath are the mount points checked by mount-option rules
+// (1.1.6-1.1.8 and 1.1.9-1.1.11). Package-level vars for test injection.
+var devShmPath = "/dev/shm"
+var varTmpPath = "/var/tmp"
+
+// Shared skip/error reason strings used across multiple CIS rules.
+const (
+	cisDebianOnly          = "rule applies to Debian/Ubuntu systems only"
+	cisAuditdNA            = "auditd not available"
+	cisAuditConfNA         = "auditd.conf not readable"
+	cisSudoersNA           = "sudoers not readable — run as root for full coverage"
+	cisInactiveRemediation = "set INACTIVE=30 in /etc/default/useradd"
+	cisPasswdUnreadable    = "could not read /etc/passwd"
+	cisGroupUnreadable     = "could not read /etc/group"
+	cisNoExistentHome      = "/nonexistent"
+	cisDevNullHome         = "/dev/null"
+)
 
 // checkLoginDefsField reads path (normally /etc/login.defs) for the first
 // uncommented "field value..." line and applies fails(days) to decide PASS/FAIL.
