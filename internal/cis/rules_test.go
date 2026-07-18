@@ -1768,3 +1768,185 @@ func TestRules6_1_9_to_6_1_13_InEvaluate(t *testing.T) {
 		}
 	}
 }
+
+// ── 2.2 / 2.3 Legacy Services / Server Daemons ──────────────────────────────
+
+// TestCheckServiceNotInstalled_Pass verifies PASS when no binary is found.
+func TestCheckServiceNotInstalled_Pass(t *testing.T) {
+	t.Parallel()
+	r := ruleByID("2.2.2")
+	got := checkServiceNotInstalled(r, []string{"/nonexistent/rsh", "/also/nonexistent/rlogin"}, "fix")
+	if got.Status != models.CISPass {
+		t.Errorf("got %s, want PASS when no binary found", got.Status)
+	}
+}
+
+// TestCheckServiceNotInstalled_Fail verifies FAIL when a binary is present.
+func TestCheckServiceNotInstalled_Fail(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	bin := filepath.Join(dir, "rsh")
+	if err := os.WriteFile(bin, []byte{}, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	r := ruleByID("2.2.2")
+	got := checkServiceNotInstalled(r, []string{bin}, "remove rsh")
+	if got.Status != models.CISFail {
+		t.Errorf("got %s, want FAIL when binary found", got.Status)
+	}
+	if !strings.Contains(got.Finding, bin) {
+		t.Errorf("finding %q missing binary path", got.Finding)
+	}
+}
+
+// TestRules2_2_and_2_3_InEvaluate verifies all 9 service rules appear in Evaluate.
+func TestRules2_2_and_2_3_InEvaluate(t *testing.T) {
+	t.Parallel()
+	sec := models.SecurityInfo{}
+	ks := models.KernelSecurityInfo{}
+	report := Evaluate(sec, ks, 1, false, "apt")
+	want := map[string]bool{
+		"2.2.1": false, "2.2.2": false, "2.2.3": false, "2.2.4": false,
+		"2.3.1": false, "2.3.2": false, "2.3.3": false, "2.3.4": false, "2.3.5": false,
+	}
+	for _, res := range report.Results {
+		if _, ok := want[res.ID]; ok {
+			want[res.ID] = true
+			if res.Section != cisCatServices {
+				t.Errorf("rule %s section = %q, want %q", res.ID, res.Section, cisCatServices)
+			}
+		}
+	}
+	for id, found := range want {
+		if !found {
+			t.Errorf("rule %s missing from Evaluate output", id)
+		}
+	}
+}
+
+// ── 1.4 Bootloader / GRUB ────────────────────────────────────────────────────
+
+// TestRule1_4_1_GRUBPermissions verifies rule 1.4.1 passes for ≤0600 file.
+// No t.Parallel(): modifies package-level grubCfgPaths.
+func TestRule1_4_1_GRUBPermissions(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "grub.cfg")
+	if err := os.WriteFile(p, []byte("set default=0\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	orig := grubCfgPaths
+	grubCfgPaths = []string{p}
+	t.Cleanup(func() { grubCfgPaths = orig })
+
+	sec := models.SecurityInfo{}
+	ks := models.KernelSecurityInfo{}
+	report := Evaluate(sec, ks, 1, false, "apt")
+	var res *models.CISResult
+	for i := range report.Results {
+		if report.Results[i].ID == "1.4.1" {
+			res = &report.Results[i]
+			break
+		}
+	}
+	if res == nil {
+		t.Fatal("rule 1.4.1 not found in Evaluate output")
+	}
+	if res.Status != models.CISPass {
+		t.Errorf("grub.cfg at 0600 should PASS, got %s (%s)", res.Status, res.Finding)
+	}
+}
+
+// TestRule1_4_1_GRUBTooPermissive verifies rule 1.4.1 fails when mode > 0600.
+// No t.Parallel(): modifies package-level grubCfgPaths.
+func TestRule1_4_1_GRUBTooPermissive(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "grub.cfg")
+	if err := os.WriteFile(p, []byte("set default=0\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(p, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	orig := grubCfgPaths
+	grubCfgPaths = []string{p}
+	t.Cleanup(func() { grubCfgPaths = orig })
+
+	sec := models.SecurityInfo{}
+	ks := models.KernelSecurityInfo{}
+	report := Evaluate(sec, ks, 1, false, "apt")
+	var res *models.CISResult
+	for i := range report.Results {
+		if report.Results[i].ID == "1.4.1" {
+			res = &report.Results[i]
+			break
+		}
+	}
+	if res == nil {
+		t.Fatal("rule 1.4.1 not found in Evaluate output")
+	}
+	if res.Status != models.CISFail {
+		t.Errorf("grub.cfg at 0644 should FAIL, got %s (%s)", res.Status, res.Finding)
+	}
+}
+
+// TestRule1_4_1_GRUBMissing verifies rule 1.4.1 SKIPs when grub.cfg absent.
+// No t.Parallel(): modifies package-level grubCfgPaths.
+func TestRule1_4_1_GRUBMissing(t *testing.T) {
+	orig := grubCfgPaths
+	grubCfgPaths = []string{"/nonexistent/grub.cfg"}
+	t.Cleanup(func() { grubCfgPaths = orig })
+
+	sec := models.SecurityInfo{}
+	ks := models.KernelSecurityInfo{}
+	report := Evaluate(sec, ks, 1, false, "apt")
+	var res *models.CISResult
+	for i := range report.Results {
+		if report.Results[i].ID == "1.4.1" {
+			res = &report.Results[i]
+			break
+		}
+	}
+	if res == nil {
+		t.Fatal("rule 1.4.1 not found in Evaluate output")
+	}
+	if res.Status != models.CISSkipped {
+		t.Errorf("missing grub.cfg should SKIP, got %s", res.Status)
+	}
+}
+
+// TestRule1_4_2_GRUBOwnership verifies rule 1.4.2 fails for non-root-owned file.
+// No t.Parallel(): modifies package-level grubCfgPaths.
+func TestRule1_4_2_GRUBOwnership(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "grub.cfg")
+	if err := os.WriteFile(p, []byte("set default=0\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	orig := grubCfgPaths
+	grubCfgPaths = []string{p}
+	t.Cleanup(func() { grubCfgPaths = orig })
+
+	sec := models.SecurityInfo{}
+	ks := models.KernelSecurityInfo{}
+	report := Evaluate(sec, ks, 1, false, "apt")
+	var res *models.CISResult
+	for i := range report.Results {
+		if report.Results[i].ID == "1.4.2" {
+			res = &report.Results[i]
+			break
+		}
+	}
+	if res == nil {
+		t.Fatal("rule 1.4.2 not found in Evaluate output")
+	}
+	if res.Status == models.CISSkipped {
+		t.Skip("ownership check unavailable on this platform")
+	}
+	// Running as non-root: expect FAIL (uid != 0)
+	if res.Status != models.CISFail {
+		t.Errorf("non-root-owned grub.cfg should FAIL, got %s (%s)", res.Status, res.Finding)
+	}
+}
