@@ -1687,6 +1687,9 @@ func TestRule5_4_6_PassWarnAge(t *testing.T) {
 // Uses the helper directly so we can inject a temp path without root.
 func TestCheckFileOwnerRootRoot_Fail(t *testing.T) {
 	t.Parallel()
+	if os.Getuid() == 0 {
+		t.Skip("temp files are root-owned when running as root; FAIL verdict cannot be produced")
+	}
 	dir := t.TempDir()
 	p := filepath.Join(dir, "passwd")
 	if err := os.WriteFile(p, []byte("root:x:0:0::/root:/bin/sh\n"), 0o644); err != nil {
@@ -1719,6 +1722,9 @@ func TestCheckFileOwnerRootRoot_Missing(t *testing.T) {
 // TestCheckFileOwnerRootRootOrShadow_Fail verifies a non-root-owned file fails.
 func TestCheckFileOwnerRootRootOrShadow_Fail(t *testing.T) {
 	t.Parallel()
+	if os.Getuid() == 0 {
+		t.Skip("temp files are root-owned when running as root; FAIL verdict cannot be produced")
+	}
 	dir := t.TempDir()
 	p := filepath.Join(dir, "shadow")
 	if err := os.WriteFile(p, []byte("root:!:0:0:99999:7:::\n"), 0o640); err != nil {
@@ -2163,6 +2169,9 @@ func TestRule4_2_1_RsyslogInstalled(t *testing.T) {
 // TestRule1_4_2_GRUBOwnership verifies rule 1.4.2 fails for non-root-owned file.
 // No t.Parallel(): modifies package-level grubCfgPaths.
 func TestRule1_4_2_GRUBOwnership(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("temp files are root-owned when running as root; FAIL verdict cannot be produced")
+	}
 	dir := t.TempDir()
 	p := filepath.Join(dir, "grub.cfg")
 	if err := os.WriteFile(p, []byte("set default=0\n"), 0o600); err != nil {

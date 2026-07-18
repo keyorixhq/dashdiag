@@ -17,6 +17,9 @@ import (
 // a writable HOME dir → store.Open succeeds → Append succeeds → Close succeeds.
 // Not parallel: sets HOME via t.Setenv which affects process-global state.
 func TestPersistHealthRun_OK(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("StorePath() returns system path as root; test requires non-root")
+	}
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 
@@ -42,6 +45,9 @@ func TestPersistHealthRun_OK(t *testing.T) {
 // exists and check statuses changed, a "persist: N change(s)" line appears on
 // stderr. Also covers the first-run path (no prior → no drift line).
 func TestPersistHealthRun_DriftSummary(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("StorePath() returns system path as root; test requires non-root")
+	}
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 	ctx := context.Background()
@@ -94,6 +100,9 @@ func TestPersistHealthRun_DriftSummary(t *testing.T) {
 // a regular file placed at the expected directory path causes MkdirAll to fail,
 // so persistHealthRun must print to stderr and return without panicking.
 func TestPersistHealthRun_StoreOpenError(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("StorePath() returns system path as root; test requires non-root")
+	}
 	dir := t.TempDir()
 	// Place a regular file where MkdirAll would need to create the .dsd directory.
 	// This makes store.Open's MkdirAll call fail with ENOTDIR.
