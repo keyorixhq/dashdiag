@@ -7398,3 +7398,96 @@ func TestRule6_1_18_22_SudoersAuditd(t *testing.T) {
 		})
 	}
 }
+
+// TestRule1_5_18_UnprivilegedBpf verifies 1.5.18 (kernel.unprivileged_bpf_disabled >= 1).
+// No t.Parallel(): mutates package-level unprivilegedBpfDisabledPath.
+func TestRule1_5_18_UnprivilegedBpf(t *testing.T) {
+	dir := t.TempDir()
+	orig := unprivilegedBpfDisabledPath
+	t.Cleanup(func() { unprivilegedBpfDisabledPath = orig })
+	rule := ruleByID("1.5.18")
+
+	t.Run("registered", func(t *testing.T) {
+		if rule.ID != "1.5.18" {
+			t.Errorf("unexpected ID %s", rule.ID)
+		}
+		if !strings.Contains(rule.Description, "unprivileged") {
+			t.Errorf("description missing 'unprivileged': %s", rule.Description)
+		}
+	})
+	t.Run("missing_→_SKIP", func(t *testing.T) {
+		unprivilegedBpfDisabledPath = filepath.Join(dir, "nosuchfile")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("missing: want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+	t.Run("value_0_→_FAIL", func(t *testing.T) {
+		f := filepath.Join(dir, "bpf0")
+		if err := os.WriteFile(f, []byte("0\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		unprivilegedBpfDisabledPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("value=0: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+	t.Run("value_1_→_PASS", func(t *testing.T) {
+		f := filepath.Join(dir, "bpf1")
+		if err := os.WriteFile(f, []byte("1\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		unprivilegedBpfDisabledPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("value=1: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+	t.Run("value_2_→_PASS", func(t *testing.T) {
+		f := filepath.Join(dir, "bpf2")
+		if err := os.WriteFile(f, []byte("2\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		unprivilegedBpfDisabledPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("value=2: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// TestRule6_1_23_25_HostsPerms verifies 6.1.23-6.1.25 (/etc/hosts* permissions).
+func TestRule6_1_23_25_HostsPerms(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		id   string
+		desc string
+	}{
+		{"6.1.23", "hosts"},
+		{"6.1.24", "hosts.allow"},
+		{"6.1.25", "hosts.deny"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.id+"_registered", func(t *testing.T) {
+			t.Parallel()
+			r := ruleByID(tc.id)
+			if r.ID != tc.id {
+				t.Errorf("ruleByID(%q) returned ID %q", tc.id, r.ID)
+			}
+			if !strings.Contains(r.Description, tc.desc) {
+				t.Errorf("description missing %q: %s", tc.desc, r.Description)
+			}
+		})
+		t.Run(tc.id+"_valid_status", func(t *testing.T) {
+			t.Parallel()
+			r := ruleByID(tc.id)
+			got := r.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+			switch got.Status {
+			case models.CISPass, models.CISFail, models.CISSkipped:
+			default:
+				t.Errorf("unexpected status %q for rule %s", got.Status, tc.id)
+			}
+		})
+	}
+}

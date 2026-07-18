@@ -183,6 +183,14 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					"fs.protected_fifos < 1 — unprivileged users can create FIFOs in sticky world-writable dirs owned by others",
 					"sysctl -w fs.protected_fifos=2 && echo 'fs.protected_fifos=2' >> /etc/sysctl.d/99-cis.conf")
 			}},
+		{ID: "1.5.18", Framework: cisBenchCIS, Level: 1, Section: "Kernel",
+			Description: "Ensure unprivileged BPF is disabled (kernel.unprivileged_bpf_disabled >= 1)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("1.5.18")
+				return checkSysctlGE(r, unprivilegedBpfDisabledPath, 1,
+					"kernel.unprivileged_bpf_disabled < 1 — unprivileged users can load BPF programs (privilege escalation risk)",
+					"sysctl -w kernel.unprivileged_bpf_disabled=1 && echo 'kernel.unprivileged_bpf_disabled=1' >> /etc/sysctl.d/99-cis.conf")
+			}},
 
 		// ── 2.1 Time Synchronization ──────────────────────────────────────────
 
@@ -3483,6 +3491,24 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				return checkFileOwnerRootRoot(ruleByID("6.1.22"), "/etc/audit/auditd.conf", "chown root:root /etc/audit/auditd.conf")
 			}},
+		{ID: "6.1.23", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
+			Description: "Ensure /etc/hosts permissions are configured (644 or more restrictive)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("6.1.23")
+				return checkFilePerm(r, "/etc/hosts", 0o644, "chmod 644 /etc/hosts")
+			}},
+		{ID: "6.1.24", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
+			Description: "Ensure /etc/hosts.allow permissions are configured (644 or more restrictive)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("6.1.24")
+				return checkFilePerm(r, "/etc/hosts.allow", 0o644, "chmod 644 /etc/hosts.allow")
+			}},
+		{ID: "6.1.25", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
+			Description: "Ensure /etc/hosts.deny permissions are configured (644 or more restrictive)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("6.1.25")
+				return checkFilePerm(r, "/etc/hosts.deny", 0o644, "chmod 644 /etc/hosts.deny")
+			}},
 
 		{ID: "6.2.1", StigID: "V-238408", Framework: cisBenchBOTH, Level: 1, Section: "Users",
 			Description: "Ensure no accounts have empty password fields",
@@ -4386,6 +4412,9 @@ var coreUsesPidPath = "/proc/sys/kernel/core_uses_pid"
 // sysctl paths for sticky-directory file creation protection (1.5.16-1.5.17).
 var protectedRegularPath = "/proc/sys/fs/protected_regular"
 var protectedFifosPath = "/proc/sys/fs/protected_fifos"
+
+// sysctl path for unprivileged BPF restriction (1.5.18).
+var unprivilegedBpfDisabledPath = "/proc/sys/kernel/unprivileged_bpf_disabled"
 
 // apparmorParserPaths: candidates for the apparmor_parser binary (1.6.1).
 var apparmorParserPaths = []string{"/usr/sbin/apparmor_parser", "/sbin/apparmor_parser"}
