@@ -6547,6 +6547,57 @@ func TestRule3_2_10_IPv6AcceptRedirects(t *testing.T) {
 	})
 }
 
+// TestRule4_2_7_LogFilePermissions verifies rule 4.2.7 (log file permissions).
+// No t.Parallel() — mutates varLogPath.
+func TestRule4_2_7_LogFilePermissions(t *testing.T) {
+	rule := ruleByID("4.2.7")
+	dir := t.TempDir()
+
+	origPath := varLogPath
+	t.Cleanup(func() { varLogPath = origPath })
+
+	t.Run("/var/log not readable → SKIP", func(t *testing.T) {
+		varLogPath = filepath.Join(dir, "no_varlog")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("all logfiles have safe permissions → PASS", func(t *testing.T) {
+		logDir := filepath.Join(dir, "varlog_safe")
+		if err := os.Mkdir(logDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(logDir, "syslog"), []byte("log\n"), 0o640); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(logDir, "auth.log"), []byte("auth\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		varLogPath = logDir
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("safe perms: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("world-readable logfile → FAIL", func(t *testing.T) {
+		logDir := filepath.Join(dir, "varlog_bad")
+		if err := os.Mkdir(logDir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(logDir, "syslog"), []byte("log\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		varLogPath = logDir
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("world-readable: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
 // TestRule1_1_23_24_25_SeparatePartitions verifies rules 1.1.23, 1.1.24, 1.1.25.
 // These use checkSeparateMountPoint which reads /proc/mounts; we verify registration
 // and that each returns a valid status (PASS/FAIL/SKIP) — no pkg-var mutation needed.

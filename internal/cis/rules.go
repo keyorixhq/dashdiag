@@ -2203,6 +2203,89 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					"add '$FileCreateMode 0640' to /etc/rsyslog.conf to ensure log files are not world-readable")
 			}},
 
+		{ID: "4.2.6", Framework: cisBenchCIS, Level: 2, Section: "Audit",
+			Description: "Ensure rsyslog is configured to send logs to a remote log host",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("4.2.6")
+				rsyslogPresent := false
+				for _, p := range rsyslogBinPaths {
+					if _, statErr := os.Stat(p); statErr == nil {
+						rsyslogPresent = true
+						break
+					}
+				}
+				if !rsyslogPresent {
+					return skipr(r, "rsyslog not installed")
+				}
+				hasRemote := func(data []byte) bool {
+					for line := range strings.SplitSeq(string(data), "\n") {
+						trimmed := strings.TrimSpace(line)
+						if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+							continue
+						}
+						// Legacy format: *.* @@loghost:514 (TCP) / *.* @loghost:514 (UDP)
+						if strings.Contains(trimmed, "@@") {
+							return true
+						}
+						// RainerScript omfwd action
+						if strings.Contains(trimmed, `type="omfwd"`) || strings.Contains(trimmed, "type='omfwd'") {
+							return true
+						}
+					}
+					return false
+				}
+				if data, err := os.ReadFile(rsyslogConfPath); err == nil { //nolint:gosec // package-level var
+					if hasRemote(data) {
+						return pass(r)
+					}
+				}
+				if entries, err := os.ReadDir(rsyslogConfDPath); err == nil { //nolint:gosec // package-level var
+					for _, e := range entries {
+						if e.IsDir() || !strings.HasSuffix(e.Name(), ".conf") {
+							continue
+						}
+						data, rdErr := os.ReadFile(filepath.Join(rsyslogConfDPath, e.Name())) //nolint:gosec
+						if rdErr != nil {
+							continue
+						}
+						if hasRemote(data) {
+							return pass(r)
+						}
+					}
+				}
+				return failr(r, "no remote log forwarding found in rsyslog configuration",
+					"add '*.* @@loghost.example.com:514' to /etc/rsyslog.d/99-remote.conf and restart rsyslog")
+			}},
+
+		{ID: "4.2.7", Framework: cisBenchCIS, Level: 1, Section: "Audit",
+			Description: "Ensure permissions on all logfiles are configured (no world-read/write)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("4.2.7")
+				entries, err := os.ReadDir(varLogPath) //nolint:gosec // package-level var
+				if err != nil {
+					return skipr(r, "/var/log not readable")
+				}
+				var bad []string
+				for _, e := range entries {
+					if e.IsDir() {
+						continue
+					}
+					fi, err := e.Info()
+					if err != nil {
+						continue
+					}
+					if fi.Mode().Perm()&0o006 != 0 {
+						bad = append(bad, fmt.Sprintf("%s (%04o)", e.Name(), fi.Mode().Perm()))
+					}
+				}
+				if len(bad) > 0 {
+					return failr(r,
+						fmt.Sprintf("log files with world-read/write permissions: %s", strings.Join(bad, ", ")),
+						"chmod go-rw /var/log/*.log")
+				}
+				return pass(r)
+			}},
+
 		// ── 4.3 Log rotation ──────────────────────────────────────────────────
 
 		{ID: "4.3.1", Framework: cisBenchCIS, Level: 1, Section: "Audit",
@@ -3936,6 +4019,9 @@ var etcBashrcPath = "/etc/bash.bashrc"
 // rsyslogConfPath and rsyslogConfDPath for rsyslog remote-logging check (4.2.3).
 var rsyslogConfPath = "/etc/rsyslog.conf"
 var rsyslogConfDPath = "/etc/rsyslog.d"
+
+// varLogPath for log file permissions check (4.2.7).
+var varLogPath = "/var/log"
 
 // apparmorParserPaths: candidates for the apparmor_parser binary (1.6.1).
 var apparmorParserPaths = []string{"/usr/sbin/apparmor_parser", "/sbin/apparmor_parser"}
