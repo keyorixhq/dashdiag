@@ -1288,3 +1288,234 @@ func TestRule_351_FirewallActive(t *testing.T) {
 		})
 	}
 }
+
+// ── 5.3.1 sudo installed ──────────────────────────────────────────────────────
+
+func TestRule5_3_1_SudoFound(t *testing.T) {
+	// No t.Parallel(): modifies package-level sudoBinPaths.
+	dir := t.TempDir()
+	saved := sudoBinPaths
+	t.Cleanup(func() { sudoBinPaths = saved })
+	p := filepath.Join(dir, "sudo")
+	if err := os.WriteFile(p, []byte(""), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	sudoBinPaths = []string{p}
+	rule := ruleByID("5.3.1")
+	got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+	if got.Status != models.CISPass {
+		t.Errorf("sudo found: want Pass, got %s (%s)", got.Status, got.Finding)
+	}
+}
+
+func TestRule5_3_1_SudoNotFound(t *testing.T) {
+	// No t.Parallel(): modifies package-level sudoBinPaths.
+	saved := sudoBinPaths
+	t.Cleanup(func() { sudoBinPaths = saved })
+	sudoBinPaths = []string{"/nonexistent/path/sudo"}
+	rule := ruleByID("5.3.1")
+	got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+	if got.Status != models.CISFail {
+		t.Errorf("sudo absent: want Fail, got %s (%s)", got.Status, got.Finding)
+	}
+}
+
+func TestRule5_3_1_RemediationAdaptsToPackageManager(t *testing.T) {
+	saved := sudoBinPaths
+	t.Cleanup(func() { sudoBinPaths = saved })
+	sudoBinPaths = []string{"/nonexistent/path/sudo"}
+	cases := []struct {
+		pkgMgr  string
+		wantCmd string
+	}{
+		{"apt", "apt install sudo"},
+		{"dnf", "dnf install sudo"},
+		{"zypper", "zypper install sudo"},
+		{"pacman", "pacman -S sudo"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.pkgMgr, func(t *testing.T) {
+			t.Parallel()
+			report := Evaluate(models.SecurityInfo{}, models.KernelSecurityInfo{}, 1, false, tc.pkgMgr)
+			var r models.CISResult
+			for _, res := range report.Results {
+				if res.ID == "5.3.1" {
+					r = res
+					break
+				}
+			}
+			if r.Status != models.CISFail {
+				t.Fatalf("5.3.1 should fail when sudo absent, got %s", r.Status)
+			}
+			if !strings.Contains(r.Remediation, tc.wantCmd) {
+				t.Errorf("remediation = %q, want %q", r.Remediation, tc.wantCmd)
+			}
+		})
+	}
+}
+
+// ── 5.4.3 ENCRYPT_METHOD ─────────────────────────────────────────────────────
+
+func TestRule5_4_3_EncryptMethod(t *testing.T) {
+	// No t.Parallel(): modifies package-level loginDefsPath.
+	saved := loginDefsPath
+	t.Cleanup(func() { loginDefsPath = saved })
+	cases := []struct {
+		name    string
+		content string
+		want    models.CISStatus
+	}{
+		{"SHA512 passes", "ENCRYPT_METHOD SHA512\n", models.CISPass},
+		{"yescrypt passes", "ENCRYPT_METHOD yescrypt\n", models.CISPass},
+		{"YESCRYPT upper passes", "ENCRYPT_METHOD YESCRYPT\n", models.CISPass},
+		{"MD5 fails", "ENCRYPT_METHOD MD5\n", models.CISFail},
+		{"missing field fails", "PASS_MAX_DAYS 90\n", models.CISFail},
+		{"missing file skips", "", models.CISSkipped},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.content == "" {
+				loginDefsPath = filepath.Join(t.TempDir(), "no-login.defs")
+			} else {
+				p := filepath.Join(t.TempDir(), "login.defs")
+				if err := os.WriteFile(p, []byte(tc.content), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				loginDefsPath = p
+			}
+			rule := ruleByID("5.4.3")
+			got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+			if got.Status != tc.want {
+				t.Errorf("got %s, want %s (finding=%q)", got.Status, tc.want, got.Finding)
+			}
+		})
+	}
+}
+
+// ── 5.4.4 PASS_MIN_DAYS ───────────────────────────────────────────────────────
+
+func TestRule5_4_4_PassMinDays(t *testing.T) {
+	// No t.Parallel(): modifies package-level loginDefsPath.
+	saved := loginDefsPath
+	t.Cleanup(func() { loginDefsPath = saved })
+	cases := []struct {
+		name    string
+		content string
+		want    models.CISStatus
+	}{
+		{"min days 1 passes", "PASS_MIN_DAYS 1\n", models.CISPass},
+		{"min days 7 passes", "PASS_MIN_DAYS 7\n", models.CISPass},
+		{"min days 0 fails", "PASS_MIN_DAYS 0\n", models.CISFail},
+		{"missing field fails", "PASS_MAX_DAYS 90\n", models.CISFail},
+		{"missing file skips", "", models.CISSkipped},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.content == "" {
+				loginDefsPath = filepath.Join(t.TempDir(), "no-login.defs")
+			} else {
+				p := filepath.Join(t.TempDir(), "login.defs")
+				if err := os.WriteFile(p, []byte(tc.content), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				loginDefsPath = p
+			}
+			rule := ruleByID("5.4.4")
+			got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+			if got.Status != tc.want {
+				t.Errorf("got %s, want %s (finding=%q)", got.Status, tc.want, got.Finding)
+			}
+		})
+	}
+}
+
+// ── 5.4.5 useradd default GROUP ───────────────────────────────────────────────
+
+func TestRule5_4_5_UseraddDefaultGroup(t *testing.T) {
+	// No t.Parallel(): modifies package-level useraddDefaultPath.
+	saved := useraddDefaultPath
+	t.Cleanup(func() { useraddDefaultPath = saved })
+	cases := []struct {
+		name    string
+		content string
+		want    models.CISStatus
+	}{
+		{"GROUP=0 passes", "GROUP=0\n", models.CISPass},
+		{"GROUP=root passes", "GROUP=root\n", models.CISPass},
+		{"GROUP=100 fails", "GROUP=100\n", models.CISFail},
+		{"no GROUP line fails", "SHELL=/bin/bash\n", models.CISFail},
+		{"missing file skips", "", models.CISSkipped},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			if tc.content == "" {
+				useraddDefaultPath = filepath.Join(t.TempDir(), "no-useradd")
+			} else {
+				p := filepath.Join(t.TempDir(), "useradd")
+				if err := os.WriteFile(p, []byte(tc.content), 0o644); err != nil {
+					t.Fatal(err)
+				}
+				useraddDefaultPath = p
+			}
+			rule := ruleByID("5.4.5")
+			got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+			if got.Status != tc.want {
+				t.Errorf("got %s, want %s (finding=%q)", got.Status, tc.want, got.Finding)
+			}
+		})
+	}
+}
+
+// ── 6.1.4–6.1.8 backup file permissions ──────────────────────────────────────
+
+func TestRule6_1_4_to_6_1_8_RegistryPresence(t *testing.T) {
+	t.Parallel()
+	ids := []string{"6.1.4", "6.1.5", "6.1.6", "6.1.7", "6.1.8"}
+	for _, id := range ids {
+		t.Run(id, func(t *testing.T) {
+			t.Parallel()
+			rule := ruleByID(id)
+			if rule.Check == nil {
+				t.Fatalf("rule %s not found in registry", id)
+			}
+			if rule.Description == "" {
+				t.Errorf("rule %s has no description", id)
+			}
+		})
+	}
+}
+
+func TestCheckFilePerm6_1_Variants(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	cases := []struct {
+		name    string
+		mode    os.FileMode
+		maxMode os.FileMode
+		wantSt  models.CISStatus
+	}{
+		{"0600 vs max 0600 passes", 0o600, 0o600, models.CISPass},
+		{"0644 vs max 0600 fails", 0o644, 0o600, models.CISFail},
+		{"0640 vs max 0640 passes", 0o640, 0o640, models.CISPass},
+		{"0644 vs max 0640 fails", 0o644, 0o640, models.CISFail},
+		{"0644 vs max 0644 passes", 0o644, 0o644, models.CISPass},
+		{"0664 vs max 0644 fails", 0o664, 0o644, models.CISFail},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			p := filepath.Join(dir, strings.ReplaceAll(tc.name, " ", "_"))
+			if err := os.WriteFile(p, []byte(""), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if err := os.Chmod(p, tc.mode); err != nil {
+				t.Fatal(err)
+			}
+			r := ruleByID("6.1.4")
+			got := checkFilePerm(r, p, tc.maxMode, "fix")
+			if got.Status != tc.wantSt {
+				t.Errorf("mode %04o maxMode %04o: got %s, want %s", tc.mode, tc.maxMode, got.Status, tc.wantSt)
+			}
+		})
+	}
+}

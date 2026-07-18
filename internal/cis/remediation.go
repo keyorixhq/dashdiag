@@ -87,6 +87,20 @@ func macInstallCmd(pkgMgr string) string {
 	}
 }
 
+// sudoInstallCmd returns the package-manager-appropriate command to install sudo.
+func sudoInstallCmd(pkgMgr string) string {
+	switch pkgMgr {
+	case "dnf", "yum", "tdnf":
+		return "dnf install sudo"
+	case "zypper":
+		return "zypper install sudo"
+	case "pacman":
+		return "pacman -S sudo"
+	default: // apt and unknown
+		return "apt install sudo"
+	}
+}
+
 // firewallInstallCmd returns the package-manager-appropriate command to install and
 // enable a firewall. Debian/Ubuntu default to ufw; RHEL/SLES/Arch to firewalld.
 func firewallInstallCmd(pkgMgr string) string {
@@ -127,6 +141,8 @@ func adaptRemediation(res models.CISResult, pkgMgr string) models.CISResult {
 		res.Remediation = auditInstallCmd(pkgMgr)
 	case "4.1.2":
 		res.Remediation = auditRulesCmd(pkgMgr)
+	case "5.3.1":
+		res.Remediation = sudoInstallCmd(pkgMgr)
 	}
 	return res
 }

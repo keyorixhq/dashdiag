@@ -588,6 +588,20 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 
 		// ── 5.3/5.4 Auth ──────────────────────────────────────────────────────
 
+		{ID: "5.3.1", Framework: cisBenchCIS, Level: 1, Section: cisCatAuth,
+			Description: "Ensure sudo is installed",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.3.1")
+				for _, p := range sudoBinPaths {
+					if _, err := os.Stat(p); err == nil {
+						return pass(r)
+					}
+				}
+				return failr(r,
+					"sudo binary not found",
+					"install sudo (see remediation)")
+			}},
+
 		{ID: "5.4.1", StigID: stigPassMaxDaysID, Framework: cisBenchBOTH, Level: 1, Section: cisCatAuth,
 			Description: "Ensure password expiration is 365 days or less",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
@@ -625,6 +639,70 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				return failr(r,
 					fmt.Sprintf("accounts without password expiry: %s", strings.Join(sec.StalePasswordAccounts, ", ")),
 					"set expiry: chage --maxdays 365 <user>")
+			}},
+
+		{ID: "5.4.3", Framework: cisBenchCIS, Level: 1, Section: cisCatAuth,
+			Description: "Ensure password hashing algorithm is SHA-512 or yescrypt",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.4.3")
+				data, err := os.ReadFile(loginDefsPath) //nolint:gosec // path is a package var, not user input
+				if err != nil {
+					return skipr(r, fmt.Sprintf("could not read %s", loginDefsPath))
+				}
+				for line := range strings.SplitSeq(string(data), "\n") {
+					if strings.HasPrefix(strings.TrimSpace(line), "#") || strings.TrimSpace(line) == "" {
+						continue
+					}
+					fields := strings.Fields(line)
+					if len(fields) >= 2 && fields[0] == "ENCRYPT_METHOD" {
+						method := strings.ToUpper(fields[1])
+						if method == "SHA512" || method == "YESCRYPT" {
+							return pass(r)
+						}
+						return failr(r,
+							fmt.Sprintf("ENCRYPT_METHOD is %q (must be SHA512 or yescrypt)", fields[1]),
+							"set ENCRYPT_METHOD SHA512 in /etc/login.defs")
+					}
+				}
+				return failr(r,
+					"ENCRYPT_METHOD not set in /etc/login.defs",
+					"add ENCRYPT_METHOD SHA512 to /etc/login.defs")
+			}},
+
+		{ID: "5.4.4", Framework: cisBenchCIS, Level: 1, Section: cisCatAuth,
+			Description: "Ensure minimum days between password changes is configured (PASS_MIN_DAYS ≥ 1)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkLoginDefsField(ruleByID("5.4.4"), loginDefsPath, "PASS_MIN_DAYS",
+					func(days int) bool { return days < 1 },
+					"PASS_MIN_DAYS is %d (must be ≥ 1)", "set PASS_MIN_DAYS 1 in /etc/login.defs",
+					"PASS_MIN_DAYS not set in /etc/login.defs", "add PASS_MIN_DAYS 1 to /etc/login.defs")
+			}},
+
+		{ID: "5.4.5", Framework: cisBenchCIS, Level: 1, Section: cisCatAuth,
+			Description: "Ensure default group for root is GID 0",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.4.5")
+				data, err := os.ReadFile(useraddDefaultPath) //nolint:gosec // path is a package var, not user input
+				if err != nil {
+					return skipr(r, "/etc/default/useradd not readable")
+				}
+				for line := range strings.SplitSeq(string(data), "\n") {
+					line = strings.TrimSpace(line)
+					if strings.HasPrefix(line, "#") || line == "" {
+						continue
+					}
+					if groupVal, matched := strings.CutPrefix(line, "GROUP="); matched {
+						if groupVal == "0" || groupVal == "root" {
+							return pass(r)
+						}
+						return failr(r,
+							fmt.Sprintf("default GROUP is %q (must be 0 or root)", groupVal),
+							"set GROUP=0 in /etc/default/useradd")
+					}
+				}
+				return failr(r,
+					"GROUP not set in /etc/default/useradd",
+					"add GROUP=0 to /etc/default/useradd")
 			}},
 
 		// ── 5.1 Cron Daemon Configuration ────────────────────────────────────
@@ -706,6 +784,41 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("6.1.3")
 				return checkFilePerm(r, "/etc/group", 0o644, "chmod 644 /etc/group")
+			}},
+
+		{ID: "6.1.4", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
+			Description: "Ensure /etc/passwd- permissions are 600 or stricter",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("6.1.4")
+				return checkFilePerm(r, "/etc/passwd-", 0o600, "chmod 600 /etc/passwd-")
+			}},
+
+		{ID: "6.1.5", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
+			Description: "Ensure /etc/shadow- permissions are 000 or 600",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("6.1.5")
+				return checkFilePerm(r, "/etc/shadow-", 0o600, "chmod 000 /etc/shadow-")
+			}},
+
+		{ID: "6.1.6", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
+			Description: "Ensure /etc/gshadow permissions are 000 or 640",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("6.1.6")
+				return checkFilePerm(r, "/etc/gshadow", 0o640, "chmod 000 /etc/gshadow")
+			}},
+
+		{ID: "6.1.7", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
+			Description: "Ensure /etc/gshadow- permissions are 000 or 600",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("6.1.7")
+				return checkFilePerm(r, "/etc/gshadow-", 0o600, "chmod 000 /etc/gshadow-")
+			}},
+
+		{ID: "6.1.8", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
+			Description: "Ensure /etc/group- permissions are 644 or stricter",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("6.1.8")
+				return checkFilePerm(r, "/etc/group-", 0o644, "chmod 644 /etc/group-")
 			}},
 
 		{ID: "6.2.1", StigID: "V-238408", Framework: cisBenchBOTH, Level: 1, Section: "Users",
@@ -919,6 +1032,15 @@ var chronyCfgPaths = []string{"/etc/chrony.conf", "/etc/chrony/chrony.conf"}
 // systemd-timesyncd respectively. Package-level vars for test injection.
 var ntpCfgPath = "/etc/ntp.conf"
 var timesyncdCfgPath = "/etc/systemd/timesyncd.conf"
+
+// sudoBinPaths is the ordered list of paths where the sudo binary may live.
+// Package-level var so tests can inject a t.TempDir() fixture instead of the
+// real host path.
+var sudoBinPaths = []string{"/usr/bin/sudo", "/bin/sudo"}
+
+// useraddDefaultPath is the useradd defaults file checked by rule 5.4.5.
+// Package-level var for test injection.
+var useraddDefaultPath = "/etc/default/useradd"
 
 // checkLoginDefsField reads path (normally /etc/login.defs) for the first
 // uncommented "field value..." line and applies fails(days) to decide PASS/FAIL.
