@@ -44,7 +44,7 @@ func parseMaxStartups(v string) (start, full int, ok bool) {
 }
 
 // CISRules is the full benchmark rule set: CIS Ubuntu 22.04 LTS L1+L2
-// covering filesystem (1.x), services (2.x), SSH (5.2.x), network (3.x), audit (4.x), auth (5.x), files (6.x).
+// covering filesystem (1.x), kernel hardening (1.5.x), services (2.x), SSH (5.2.x), network (3.x), audit (4.x), auth (5.x), files (6.x).
 var CISRules []Rule
 
 func init() {
@@ -54,6 +54,26 @@ func init() {
 //nolint:cyclop,funlen // rule registry — each entry is a self-contained check, splitting would harm readability
 func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entry count, not logic branches
 	return []Rule{
+
+		// ── 1.5 Additional Process Hardening ─────────────────────────────────
+
+		{ID: "1.5.1", Framework: cisBenchCIS, Level: 1, Section: "Kernel",
+			Description: "Ensure ASLR is enabled (kernel.randomize_va_space=2)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("1.5.1")
+				return checkSysctl(r, "/proc/sys/kernel/randomize_va_space", "2",
+					"ASLR not fully enabled (randomize_va_space != 2)",
+					"sysctl -w kernel.randomize_va_space=2 && echo 'kernel.randomize_va_space=2' >> /etc/sysctl.d/99-cis.conf")
+			}},
+
+		{ID: "1.5.4", Framework: cisBenchCIS, Level: 1, Section: "Kernel",
+			Description: "Ensure core dumps are restricted (fs.suid_dumpable=0)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("1.5.4")
+				return checkSysctl(r, "/proc/sys/fs/suid_dumpable", "0",
+					"SUID core dumps not restricted (fs.suid_dumpable != 0)",
+					"sysctl -w fs.suid_dumpable=0 && echo 'fs.suid_dumpable=0' >> /etc/sysctl.d/99-cis.conf")
+			}},
 
 		// ── 2.1 Time Synchronization ──────────────────────────────────────────
 
@@ -419,6 +439,24 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				return pass(r)
 			}},
 
+		{ID: "3.2.5", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure broadcast ICMP requests are ignored",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.2.5")
+				return checkSysctl(r, "/proc/sys/net/ipv4/icmp_echo_ignore_broadcasts", "1",
+					"icmp_echo_ignore_broadcasts is 0 — smurf amplification possible",
+					"sysctl -w net.ipv4.icmp_echo_ignore_broadcasts=1 && echo 'net.ipv4.icmp_echo_ignore_broadcasts=1' >> /etc/sysctl.d/99-cis.conf")
+			}},
+
+		{ID: "3.2.6", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure bogus ICMP responses are ignored",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.2.6")
+				return checkSysctl(r, "/proc/sys/net/ipv4/icmp_ignore_bogus_error_responses", "1",
+					"icmp_ignore_bogus_error_responses is 0 — bogus ICMP error messages accepted",
+					"sysctl -w net.ipv4.icmp_ignore_bogus_error_responses=1 && echo 'net.ipv4.icmp_ignore_bogus_error_responses=1' >> /etc/sysctl.d/99-cis.conf")
+			}},
+
 		// ── 3.3.x / 3.5.x MAC + Firewall ────────────────────────────────────
 		//
 		// These rules are cross-distro: MAC checks prefer SELinux when present
@@ -597,6 +635,21 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("6.1.3")
 				return checkFilePerm(r, "/etc/group", 0o644, "chmod 644 /etc/group")
+			}},
+
+		{ID: "6.2.1", StigID: "V-238408", Framework: cisBenchBOTH, Level: 1, Section: "Users",
+			Description: "Ensure no accounts have empty password fields",
+			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("6.2.1")
+				if sec.ShadowUnreadable {
+					return skipr(r, "/etc/shadow not readable (run as root) — empty-password state not verified")
+				}
+				if len(sec.EmptyPasswordAccounts) > 0 {
+					return failr(r,
+						fmt.Sprintf("accounts with empty password: %s", strings.Join(sec.EmptyPasswordAccounts, ", ")),
+						"lock each account: passwd -l <user>")
+				}
+				return pass(r)
 			}},
 
 		{ID: "6.2.2", StigID: "V-238410", Framework: cisBenchBOTH, Level: 1, Section: "Users",
