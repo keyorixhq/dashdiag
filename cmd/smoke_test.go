@@ -146,6 +146,19 @@ func TestSubcommandsPlainNoEmoji(t *testing.T) {
 	}
 }
 
+// TestMCPHelp guards that `dsd mcp` is visible (not hidden) and its --help
+// exits 0 — the command was previously Hidden=true pending end-to-end
+// validation; this test ensures it stays surfaced to users.
+func TestMCPHelp(t *testing.T) {
+	out, code := run(t, "mcp", "--help")
+	if code != 0 {
+		t.Fatalf("mcp --help returned exit code %d (want 0)", code)
+	}
+	if !strings.Contains(out, "dsd_health") {
+		t.Errorf("mcp --help output missing 'dsd_health': %q", out)
+	}
+}
+
 func TestHealthOutputContainsCollectors(t *testing.T) {
 	if testing.Short() {
 		t.Skip("skipping slow smoke test in short mode")
