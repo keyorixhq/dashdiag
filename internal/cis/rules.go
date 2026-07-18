@@ -175,6 +175,22 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					"kernel.core_uses_pid is not 1 — core dumps do not include PID, concurrent dumps may overwrite each other",
 					"sysctl -w kernel.core_uses_pid=1 && echo 'kernel.core_uses_pid=1' >> /etc/sysctl.d/99-cis.conf")
 			}},
+		{ID: "1.5.16", Framework: cisBenchCIS, Level: 1, Section: "Kernel",
+			Description: "Ensure regular file creation in sticky dirs is restricted (fs.protected_regular >= 1)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("1.5.16")
+				return checkSysctlGE(r, protectedRegularPath, 1,
+					"fs.protected_regular < 1 — unprivileged users can create regular files in sticky world-writable dirs owned by others",
+					"sysctl -w fs.protected_regular=2 && echo 'fs.protected_regular=2' >> /etc/sysctl.d/99-cis.conf")
+			}},
+		{ID: "1.5.17", Framework: cisBenchCIS, Level: 1, Section: "Kernel",
+			Description: "Ensure FIFO creation in sticky dirs is restricted (fs.protected_fifos >= 1)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("1.5.17")
+				return checkSysctlGE(r, protectedFifosPath, 1,
+					"fs.protected_fifos < 1 — unprivileged users can create FIFOs in sticky world-writable dirs owned by others",
+					"sysctl -w fs.protected_fifos=2 && echo 'fs.protected_fifos=2' >> /etc/sysctl.d/99-cis.conf")
+			}},
 
 		// ── 2.1 Time Synchronization ──────────────────────────────────────────
 
@@ -1505,6 +1521,30 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				return checkSysctl(r, "/proc/sys/net/ipv4/conf/all/arp_announce", "2",
 					"net.ipv4.conf.all.arp_announce is not 2 — ARP packets may advertise unroutable source IPs, confusing neighbours",
 					"sysctl -w net.ipv4.conf.all.arp_announce=2 && echo 'net.ipv4.conf.all.arp_announce=2' >> /etc/sysctl.d/99-cis.conf")
+			}},
+		{ID: "3.2.25", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure ARP requests are filtered on non-target default interfaces (net.ipv4.conf.default.arp_ignore = 1)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.2.25")
+				return checkSysctl(r, "/proc/sys/net/ipv4/conf/default/arp_ignore", "1",
+					"net.ipv4.conf.default.arp_ignore is not 1 — new interfaces will reply to ARP for IPs bound to other interfaces",
+					"sysctl -w net.ipv4.conf.default.arp_ignore=1 && echo 'net.ipv4.conf.default.arp_ignore=1' >> /etc/sysctl.d/99-cis.conf")
+			}},
+		{ID: "3.2.26", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure ARP announcements use best local address on default interfaces (net.ipv4.conf.default.arp_announce = 2)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.2.26")
+				return checkSysctl(r, "/proc/sys/net/ipv4/conf/default/arp_announce", "2",
+					"net.ipv4.conf.default.arp_announce is not 2 — new interfaces may advertise unroutable source IPs in ARP",
+					"sysctl -w net.ipv4.conf.default.arp_announce=2 && echo 'net.ipv4.conf.default.arp_announce=2' >> /etc/sysctl.d/99-cis.conf")
+			}},
+		{ID: "3.2.27", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure TIME_WAIT assassination is prevented (net.ipv4.tcp_rfc1337 = 1)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.2.27")
+				return checkSysctl(r, "/proc/sys/net/ipv4/tcp_rfc1337", "1",
+					"net.ipv4.tcp_rfc1337 is not 1 — RST packets from TIME_WAIT connections can abort established sessions",
+					"sysctl -w net.ipv4.tcp_rfc1337=1 && echo 'net.ipv4.tcp_rfc1337=1' >> /etc/sysctl.d/99-cis.conf")
 			}},
 
 		// ── 3.4 Uncommon Network Protocols ───────────────────────────────────────
@@ -4293,6 +4333,10 @@ var suidDumpablePath = "/proc/sys/fs/suid_dumpable"
 // sysctl paths for SysRq and core dump PID (1.5.14-1.5.15).
 var sysrqPath = "/proc/sys/kernel/sysrq"
 var coreUsesPidPath = "/proc/sys/kernel/core_uses_pid"
+
+// sysctl paths for sticky-directory file creation protection (1.5.16-1.5.17).
+var protectedRegularPath = "/proc/sys/fs/protected_regular"
+var protectedFifosPath = "/proc/sys/fs/protected_fifos"
 
 // apparmorParserPaths: candidates for the apparmor_parser binary (1.6.1).
 var apparmorParserPaths = []string{"/usr/sbin/apparmor_parser", "/sbin/apparmor_parser"}

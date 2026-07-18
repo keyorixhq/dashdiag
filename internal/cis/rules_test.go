@@ -7119,6 +7119,98 @@ func TestRule1_5_15_CoreUsesPid(t *testing.T) {
 	})
 }
 
+// TestRule1_5_16_17_ProtectedDirCreation verifies 1.5.16-1.5.17 (fs.protected_regular/fifos).
+// No t.Parallel(): mutates package-level vars.
+func TestRule1_5_16_17_ProtectedDirCreation(t *testing.T) {
+	cases := []struct {
+		id      string
+		pathPtr *string
+		desc    string
+	}{
+		{"1.5.16", &protectedRegularPath, "protected_regular"},
+		{"1.5.17", &protectedFifosPath, "protected_fifos"},
+	}
+	for _, tc := range cases {
+		dir := t.TempDir()
+		orig := *tc.pathPtr
+		t.Cleanup(func() { *tc.pathPtr = orig })
+
+		t.Run(tc.id+"_registered", func(t *testing.T) {
+			r := ruleByID(tc.id)
+			if r.ID != tc.id {
+				t.Errorf("unexpected ID %s", r.ID)
+			}
+			if !strings.Contains(r.Description, tc.desc) {
+				t.Errorf("description missing %q: %s", tc.desc, r.Description)
+			}
+		})
+		t.Run(tc.id+"_missing_→_SKIP", func(t *testing.T) {
+			*tc.pathPtr = filepath.Join(dir, "nosuchfile_"+tc.id)
+			got := ruleByID(tc.id).Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+			if got.Status != models.CISSkipped {
+				t.Errorf("missing: want Skip, got %s (%s)", got.Status, got.Finding)
+			}
+		})
+		t.Run(tc.id+"_value_0_→_FAIL", func(t *testing.T) {
+			f := filepath.Join(dir, "prot0_"+tc.id)
+			if err := os.WriteFile(f, []byte("0\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			*tc.pathPtr = f
+			got := ruleByID(tc.id).Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+			if got.Status != models.CISFail {
+				t.Errorf("value=0: want Fail, got %s (%s)", got.Status, got.Finding)
+			}
+		})
+		t.Run(tc.id+"_value_2_→_PASS", func(t *testing.T) {
+			f := filepath.Join(dir, "prot2_"+tc.id)
+			if err := os.WriteFile(f, []byte("2\n"), 0o644); err != nil {
+				t.Fatal(err)
+			}
+			*tc.pathPtr = f
+			got := ruleByID(tc.id).Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+			if got.Status != models.CISPass {
+				t.Errorf("value=2: want Pass (GE), got %s (%s)", got.Status, got.Finding)
+			}
+		})
+	}
+}
+
+// TestRule3_2_25_27_ArpDefaultRfc verifies rules 3.2.25-3.2.27 (ARP default iface + rfc1337).
+func TestRule3_2_25_27_ArpDefaultRfc(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		id   string
+		desc string
+	}{
+		{"3.2.25", "arp_ignore"},
+		{"3.2.26", "arp_announce"},
+		{"3.2.27", "tcp_rfc1337"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.id+"_registered", func(t *testing.T) {
+			t.Parallel()
+			r := ruleByID(tc.id)
+			if r.ID != tc.id {
+				t.Errorf("ruleByID(%q) returned ID %q", tc.id, r.ID)
+			}
+			if !strings.Contains(r.Description, tc.desc) {
+				t.Errorf("description missing %q: %s", tc.desc, r.Description)
+			}
+		})
+		t.Run(tc.id+"_valid_status", func(t *testing.T) {
+			t.Parallel()
+			r := ruleByID(tc.id)
+			got := r.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+			switch got.Status {
+			case models.CISPass, models.CISFail, models.CISSkipped:
+			default:
+				t.Errorf("unexpected status %q for rule %s", got.Status, tc.id)
+			}
+		})
+	}
+}
+
 // TestRule3_2_23_24_ArpHardening verifies rules 3.2.23-3.2.24 (ARP hardening).
 func TestRule3_2_23_24_ArpHardening(t *testing.T) {
 	t.Parallel()
