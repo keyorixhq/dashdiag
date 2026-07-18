@@ -7060,6 +7060,67 @@ func TestRule3_2_19_21_NetworkHardening(t *testing.T) {
 	}
 }
 
+// TestRule1_1_29_32_VarHomeMountOptions verifies 1.1.29-1.1.32 (/var and /home mount options).
+func TestRule1_1_29_32_VarHomeMountOptions(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		id   string
+		path string
+		opt  string
+	}{
+		{"1.1.29", "/var", "nodev"},
+		{"1.1.30", "/var", "nosuid"},
+		{"1.1.31", "/home", "nosuid"},
+		{"1.1.32", "/home", "noexec"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.id+"_registered", func(t *testing.T) {
+			t.Parallel()
+			r := ruleByID(tc.id)
+			if r.ID != tc.id {
+				t.Errorf("ruleByID(%q) returned ID %q", tc.id, r.ID)
+			}
+			if !strings.Contains(r.Description, tc.opt) {
+				t.Errorf("description missing %q: %s", tc.opt, r.Description)
+			}
+		})
+		t.Run(tc.id+"_valid_status", func(t *testing.T) {
+			t.Parallel()
+			r := ruleByID(tc.id)
+			got := r.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+			switch got.Status {
+			case models.CISPass, models.CISFail, models.CISSkipped:
+			default:
+				t.Errorf("unexpected status %q for rule %s", got.Status, tc.id)
+			}
+		})
+	}
+}
+
+// TestRule3_2_22_TcpTimestamps verifies rule 3.2.22 (net.ipv4.tcp_timestamps = 0).
+func TestRule3_2_22_TcpTimestamps(t *testing.T) {
+	t.Parallel()
+	r := ruleByID("3.2.22")
+	t.Run("registered", func(t *testing.T) {
+		t.Parallel()
+		if r.ID != "3.2.22" {
+			t.Errorf("unexpected ID %s", r.ID)
+		}
+		if !strings.Contains(r.Description, "tcp_timestamps") {
+			t.Errorf("description missing 'tcp_timestamps': %s", r.Description)
+		}
+	})
+	t.Run("valid_status", func(t *testing.T) {
+		t.Parallel()
+		got := r.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		switch got.Status {
+		case models.CISPass, models.CISFail, models.CISSkipped:
+		default:
+			t.Errorf("unexpected status %q", got.Status)
+		}
+	})
+}
+
 // TestRule6_1_15_16_17_GshadowOwnership verifies rules 6.1.15-6.1.17 (file ownership).
 func TestRule6_1_15_16_17_GshadowOwnership(t *testing.T) {
 	cases := []struct {

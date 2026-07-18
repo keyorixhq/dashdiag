@@ -1466,6 +1466,14 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					"net.ipv4.icmp_ignore_bogus_error_responses is not 1 — malformed ICMP responses logged, potential log flood via spoofed packets",
 					"sysctl -w net.ipv4.icmp_ignore_bogus_error_responses=1 && echo 'net.ipv4.icmp_ignore_bogus_error_responses=1' >> /etc/sysctl.d/99-cis.conf")
 			}},
+		{ID: "3.2.22", Framework: cisBenchCIS, Level: 2, Section: cisCatNetwork,
+			Description: "Ensure TCP timestamps are disabled (net.ipv4.tcp_timestamps = 0)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.2.22")
+				return checkSysctl(r, "/proc/sys/net/ipv4/tcp_timestamps", "0",
+					"net.ipv4.tcp_timestamps is not 0 — TCP timestamps may allow remote clock fingerprinting and sequence number inference",
+					"sysctl -w net.ipv4.tcp_timestamps=0 && echo 'net.ipv4.tcp_timestamps=0' >> /etc/sysctl.d/99-cis.conf")
+			}},
 
 		// ── 3.4 Uncommon Network Protocols ───────────────────────────────────────
 		// These kernel modules implement uncommon network protocols rarely needed
@@ -3218,6 +3226,30 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				return checkMountOption(ruleByID("1.1.28"), "/var/log", "noexec",
 					"add 'noexec' to /var/log mount options in /etc/fstab")
+			}},
+		{ID: "1.1.29", Framework: cisBenchCIS, Level: 2, Section: "Filesystem",
+			Description: "Ensure nodev option set on /var partition",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkMountOption(ruleByID("1.1.29"), "/var", "nodev",
+					"add 'nodev' to /var mount options in /etc/fstab")
+			}},
+		{ID: "1.1.30", Framework: cisBenchCIS, Level: 2, Section: "Filesystem",
+			Description: "Ensure nosuid option set on /var partition",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkMountOption(ruleByID("1.1.30"), "/var", "nosuid",
+					"add 'nosuid' to /var mount options in /etc/fstab")
+			}},
+		{ID: "1.1.31", Framework: cisBenchCIS, Level: 2, Section: "Filesystem",
+			Description: "Ensure nosuid option set on /home partition",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkMountOption(ruleByID("1.1.31"), "/home", "nosuid",
+					"add 'nosuid' to /home mount options in /etc/fstab")
+			}},
+		{ID: "1.1.32", Framework: cisBenchCIS, Level: 2, Section: "Filesystem",
+			Description: "Ensure noexec option set on /home partition",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkMountOption(ruleByID("1.1.32"), "/home", "noexec",
+					"add 'noexec' to /home mount options in /etc/fstab")
 			}},
 
 		// ── 6.x System Maintenance ────────────────────────────────────────────
