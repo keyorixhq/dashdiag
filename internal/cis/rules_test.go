@@ -6547,6 +6547,39 @@ func TestRule3_2_10_IPv6AcceptRedirects(t *testing.T) {
 	})
 }
 
+// TestRule1_1_23_24_25_SeparatePartitions verifies rules 1.1.23, 1.1.24, 1.1.25.
+// These use checkSeparateMountPoint which reads /proc/mounts; we verify registration
+// and that each returns a valid status (PASS/FAIL/SKIP) — no pkg-var mutation needed.
+func TestRule1_1_23_24_25_SeparatePartitions(t *testing.T) {
+	for _, tc := range []struct {
+		id   string
+		want string // fragment of Description
+	}{
+		{"1.1.23", "/var"},
+		{"1.1.24", "/var/tmp"},
+		{"1.1.25", "/home"},
+	} {
+		rule := ruleByID(tc.id)
+		t.Run(tc.id+"_registered", func(t *testing.T) {
+			if rule.ID != tc.id {
+				t.Errorf("want ID %s, got %s", tc.id, rule.ID)
+			}
+			if !strings.Contains(rule.Description, tc.want) {
+				t.Errorf("description missing %q: %s", tc.want, rule.Description)
+			}
+		})
+		t.Run(tc.id+"_returns_valid_status", func(t *testing.T) {
+			got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+			valid := map[models.CISStatus]bool{
+				models.CISPass: true, models.CISFail: true, models.CISSkipped: true,
+			}
+			if !valid[got.Status] {
+				t.Errorf("%s: unexpected status %q", tc.id, got.Status)
+			}
+		})
+	}
+}
+
 // TestRule1_5_5_ProtectedHardlinks verifies rule 1.5.5 (hardlink protection).
 // checkSysctl reads a real /proc path; test verifies registration and valid status.
 func TestRule1_5_5_ProtectedHardlinks(t *testing.T) {

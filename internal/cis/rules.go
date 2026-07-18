@@ -2943,6 +2943,27 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					"set sticky bit: chmod +t /tmp /var/tmp /dev/shm")
 			}},
 
+		{ID: "1.1.23", Framework: cisBenchCIS, Level: 2, Section: "Filesystem",
+			Description: "Ensure /var is on a separate partition",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkSeparateMountPoint(ruleByID("1.1.23"), "/var",
+					"create a separate /var partition and add to /etc/fstab")
+			}},
+
+		{ID: "1.1.24", Framework: cisBenchCIS, Level: 1, Section: "Filesystem",
+			Description: "Ensure /var/tmp is on a separate partition",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkSeparateMountPoint(ruleByID("1.1.24"), "/var/tmp",
+					"create a separate /var/tmp partition and add to /etc/fstab")
+			}},
+
+		{ID: "1.1.25", Framework: cisBenchCIS, Level: 2, Section: "Filesystem",
+			Description: "Ensure /home is on a separate partition",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkSeparateMountPoint(ruleByID("1.1.25"), "/home",
+					"create a separate /home partition and add to /etc/fstab")
+			}},
+
 		// ── 6.x System Maintenance ────────────────────────────────────────────
 
 		{ID: "6.1.1", StigID: "V-238401", Framework: cisBenchBOTH, Level: 1, Section: cisCatFiles,
