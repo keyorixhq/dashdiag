@@ -682,6 +682,43 @@ func TestCheckJournalHealth_CorruptArchived(t *testing.T) {
 	}
 }
 
+// TestHasCorruptArchived_EmptySubdir covers logs_linux.go:534 — the `continue`
+// after `hasCorruptArchived(sub)` returns false for an empty machine-ID sub-dir.
+// The existing CorruptArchived test seeds only files, never a directory entry,
+// so the e.IsDir() branch and the post-recurse continue are never reached there.
+func TestHasCorruptArchived_EmptySubdir(t *testing.T) {
+	// No t.Parallel(): withFixtureSource swaps the package-global source.
+	withFixtureSource(t, func(b *source.Bundle) {
+		// Parent dir has one entry that probeIsDir detects as a directory
+		// (ReadDir on the sub-path succeeds → IsDir() == true).
+		b.PutDir("/var/log/journal", []string{"abcd1234"})
+		b.PutDir("/var/log/journal/abcd1234", []string{})
+		// The empty sub-dir has no .journal~ entries → hasCorruptArchived returns
+		// false for it → the `continue` at line 534 executes.
+	})
+	if got := hasCorruptArchived("/var/log/journal"); got {
+		t.Error("hasCorruptArchived must return false when all sub-dirs are empty (no archived journals)")
+	}
+}
+
+// TestCollectVarLogErrorsFrom_ReadFileFails covers logs_linux.go:1111-1113 —
+// the early return when statFile succeeds (path is selected) but readFile fails
+// because the file content is not seeded in the fixture source.
+func TestCollectVarLogErrorsFrom_ReadFileFails(t *testing.T) {
+	// No t.Parallel(): SetSource swaps the package-global source.
+	b := source.NewBundle()
+	b.PutStat("/var/log/syslog", source.FileMeta{Size: 100})
+	// /var/log/syslog not seeded via PutFile → readFile returns ErrNotRecorded.
+	prev := SetSource(source.NewReplay(b))
+	t.Cleanup(func() { SetSource(prev) })
+
+	info := &models.LogsInfo{}
+	collectVarLogErrorsFrom(info, []string{"/var/log/syslog"})
+	if info.LogSource != "" {
+		t.Errorf("LogSource = %q, want empty (readFile failed → early return)", info.LogSource)
+	}
+}
+
 // ── collectSeveritySummary ───────────────────────────────────────────────────
 
 func TestCollectSeveritySummary_CountsErrorsAndWarnings(t *testing.T) {

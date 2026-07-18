@@ -412,3 +412,27 @@ func TestCollectVMwareDiskIDs_ReadDirError(t *testing.T) {
 		t.Errorf("expected (false, nil) when readDirEntries fails, got checked=%v noStableID=%v", checked, noStableID)
 	}
 }
+
+// TestCollectVMwareStat_CPULimitMHz covers vmware_linux.go:214-216 — the
+// CPULimitMHz assignment when vmwareStatLimit returns limited=true.
+// The existing FullHappyPath test seeds cpulimit as "Unlimited" (limited=false);
+// this test uses a numeric value so the assignment is reached.
+func TestCollectVMwareStat_CPULimitMHz(t *testing.T) {
+	// No t.Parallel(): withVMwareFixture swaps the package-global source.
+	withVMwareFixture(t,
+		map[string][]byte{"lookpath/vmware-toolbox-cmd": []byte("/usr/bin/vmware-toolbox-cmd")},
+		nil,
+		func(b *source.Bundle) {
+			b.PutCmd("/usr/bin/vmware-toolbox-cmd", []string{"stat", "balloon"}, "0 MB\n", 0)
+			b.PutCmd("/usr/bin/vmware-toolbox-cmd", []string{"stat", "swap"}, "0 MB\n", 0)
+			b.PutCmd("/usr/bin/vmware-toolbox-cmd", []string{"stat", "memlimit"}, "Unlimited\n", 0)
+			b.PutCmd("/usr/bin/vmware-toolbox-cmd", []string{"stat", "cpulimit"}, "2400\n", 0)
+			b.PutCmd("/usr/bin/vmware-toolbox-cmd", []string{"stat", "speed"}, "3000 MHz\n", 0)
+		},
+	)
+	info := &models.VMwareInfo{}
+	collectVMwareStat(context.Background(), info)
+	if info.CPULimitMHz != 2400 {
+		t.Errorf("CPULimitMHz = %d, want 2400 (numeric cpulimit → limited=true path)", info.CPULimitMHz)
+	}
+}
