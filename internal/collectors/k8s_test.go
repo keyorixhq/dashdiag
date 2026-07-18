@@ -403,3 +403,57 @@ func TestCheckCertExpiry_ReadFileFails(t *testing.T) {
 			layer.CertExpirySoon, layer.CertExpiredNames)
 	}
 }
+
+// TestPodAge_SecondsCase covers k8s.go:193.23,194.46 — the "%ds" branch
+// when a pod's age is under one minute.
+func TestPodAge_SecondsCase(t *testing.T) {
+	t.Parallel()
+	now := NowViaSource()
+	ts := now.Add(-45 * time.Second).Format(time.RFC3339)
+	if got := podAge(ts); got != "45s" {
+		t.Errorf("podAge(45s ago) = %q, want %q", got, "45s")
+	}
+}
+
+// TestCollectK8sWorkloads_ReadyFieldNoSlash covers k8s.go:495.28,496.13 —
+// the continue when the READY column has no "/" separator (malformed output).
+func TestCollectK8sWorkloads_ReadyFieldNoSlash(t *testing.T) {
+	// The READY column "1" has no "/" — readyParts len=1 != 2 → continue.
+	const workloadsOut = "default  myapp  1  1  1  3d\n"
+	prev := SetSource(mockExec(func(name string, args []string) (source.Result, error) {
+		if name == "kubectl" && len(args) >= 2 && args[0] == "get" {
+			return source.Result{Stdout: []byte(workloadsOut), ExitCode: 0}, nil
+		}
+		return source.Result{ExitCode: 1}, nil
+	}))
+	defer SetSource(prev)
+
+	info := &models.K8sInfo{}
+	collectK8sWorkloads(context.Background(), "kubectl", info)
+	if len(info.Workloads) != 0 {
+		t.Errorf("workloads with malformed READY field must be skipped, got %d entries", len(info.Workloads))
+	}
+}
+
+// TestK8sCollector_DeepBranchPopulatesOSLayer covers k8s.go:77.12,79.3 —
+// the `if c.Deep { info.OSLayer = collectK8sOSLayer(...) }` branch.
+func TestK8sCollector_DeepBranchPopulatesOSLayer(t *testing.T) {
+	// Seed the RKE2 kubectl binary so k8sDetectBin returns non-empty.
+	b := source.NewBundle()
+	b.PutStat("/var/lib/rancher/rke2/bin/kubectl", source.FileMeta{})
+	prev := SetSource(source.NewReplay(b))
+	defer SetSource(prev)
+
+	c := &K8sCollector{Deep: true}
+	result, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect returned error: %v", err)
+	}
+	info, ok := result.(*models.K8sInfo)
+	if !ok {
+		t.Fatal("result is not *models.K8sInfo")
+	}
+	if info.OSLayer == nil {
+		t.Error("OSLayer must be non-nil when Deep=true and a k8s binary is detected")
+	}
+}
