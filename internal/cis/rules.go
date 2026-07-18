@@ -164,6 +164,13 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					"remove telnet: apt purge telnet / dnf remove telnet")
 			}},
 
+		{ID: "2.2.5", Framework: cisBenchCIS, Level: 1, Section: cisCatServices,
+			Description: "Ensure LDAP client is not installed",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkServiceNotInstalled(ruleByID("2.2.5"), ldapClientBinPaths,
+					"remove LDAP client: apt purge ldap-utils / dnf remove openldap-clients")
+			}},
+
 		// ── 2.3 Server Daemons Not Installed ─────────────────────────────────
 		// These daemons are not needed on a general-purpose server and increase
 		// attack surface. Binary presence → service is installed → FAIL.
@@ -257,6 +264,99 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				return checkServiceNotInstalled(ruleByID("2.3.13"), snmpBinPaths,
 					"remove SNMP: apt purge snmpd / dnf remove net-snmp")
+			}},
+
+		{ID: "2.3.14", Framework: cisBenchCIS, Level: 1, Section: cisCatServices,
+			Description: "Ensure MTA is configured for local-only mode",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("2.3.14")
+				mtaFound := false
+				for _, p := range mtaBinPaths {
+					if _, err := os.Stat(p); err == nil {
+						mtaFound = true
+						break
+					}
+				}
+				if !mtaFound {
+					return skipr(r, "no MTA (postfix/sendmail) installed")
+				}
+				data, err := os.ReadFile(postfixMainCfPath) // #nosec G304 -- package-level var
+				if err != nil {
+					return skipr(r, "postfix main.cf not readable — cannot verify inet_interfaces")
+				}
+				for line := range strings.SplitSeq(string(data), "\n") {
+					trimmed := strings.TrimSpace(line)
+					if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+						continue
+					}
+					rest, ok := strings.CutPrefix(trimmed, "inet_interfaces")
+					if !ok {
+						continue
+					}
+					rest = strings.TrimSpace(rest)
+					rest, ok = strings.CutPrefix(rest, "=")
+					if !ok {
+						continue
+					}
+					val := strings.ToLower(strings.TrimSpace(rest))
+					if val == "loopback-only" || val == "localhost" {
+						return pass(r)
+					}
+					return failr(r,
+						fmt.Sprintf("inet_interfaces = %q — MTA accepts external connections", val),
+						"set inet_interfaces = loopback-only in /etc/postfix/main.cf and run: postfix reload")
+				}
+				return failr(r, "inet_interfaces not set in /etc/postfix/main.cf",
+					"add inet_interfaces = loopback-only to /etc/postfix/main.cf and run: postfix reload")
+			}},
+
+		{ID: "2.3.15", Framework: cisBenchCIS, Level: 1, Section: cisCatServices,
+			Description: "Ensure rsync service is not enabled",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("2.3.15")
+				rsyncPresent := false
+				for _, p := range rsyncBinPaths {
+					if _, err := os.Stat(p); err == nil {
+						rsyncPresent = true
+						break
+					}
+				}
+				if !rsyncPresent {
+					return skipr(r, "rsync not installed")
+				}
+				for _, p := range rsyncWantsPaths {
+					if _, err := os.Stat(p); err == nil {
+						return failr(r, "rsync daemon is enabled via systemd",
+							"systemctl disable rsync && systemctl stop rsync")
+					}
+				}
+				data, err := os.ReadFile(rsyncDefaultPath) // #nosec G304 -- package-level var
+				if err == nil {
+					for line := range strings.SplitSeq(string(data), "\n") {
+						trimmed := strings.TrimSpace(line)
+						if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+							continue
+						}
+						rest, ok := strings.CutPrefix(trimmed, "RSYNC_ENABLE=")
+						if !ok {
+							continue
+						}
+						val := strings.Trim(rest, "\"'")
+						if strings.EqualFold(val, "true") || val == "1" {
+							return failr(r,
+								"RSYNC_ENABLE=true in /etc/default/rsync — rsync daemon is enabled",
+								"set RSYNC_ENABLE=false in /etc/default/rsync")
+						}
+					}
+				}
+				return pass(r)
+			}},
+
+		{ID: "2.3.16", Framework: cisBenchCIS, Level: 1, Section: cisCatServices,
+			Description: "Ensure NIS server is not installed",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkServiceNotInstalled(ruleByID("2.3.16"), nisServerBinPaths,
+					"remove NIS server: apt purge nis / dnf remove ypserv")
 			}},
 
 		// ── 5.2 SSH Server Configuration ─────────────────────────────────────
@@ -622,6 +722,61 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				return checkSysctl(r, "/proc/sys/net/ipv4/conf/all/log_martians", "1",
 					"log_martians is 0 — martian packets not logged",
 					"sysctl -w net.ipv4.conf.all.log_martians=1")
+			}},
+
+		// ── 1.2 Software Updates ─────────────────────────────────────────────
+		// These rules are Debian/Ubuntu-specific: RHEL/SUSE/Arch use different
+		// repository and keyring paths. Gate on /etc/debian_version to SKIP gracefully.
+
+		{ID: "1.2.1", Framework: cisBenchCIS, Level: 1, Section: "Filesystem",
+			Description: "Ensure package manager repositories are configured",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("1.2.1")
+				if _, err := os.Stat(debianVersionPath); err != nil {
+					return skipr(r, "rule applies to Debian/Ubuntu systems only")
+				}
+				data, err := os.ReadFile(aptSourcesListPath) // #nosec G304 -- package-level var
+				if err == nil {
+					for line := range strings.SplitSeq(string(data), "\n") {
+						trimmed := strings.TrimSpace(line)
+						if trimmed != "" && !strings.HasPrefix(trimmed, "#") {
+							return pass(r)
+						}
+					}
+				}
+				entries, err := os.ReadDir(aptSourcesListDPath) //nolint:gosec // package-level var
+				if err == nil {
+					for _, e := range entries {
+						name := e.Name()
+						if strings.HasSuffix(name, ".list") || strings.HasSuffix(name, ".sources") {
+							return pass(r)
+						}
+					}
+				}
+				return failr(r, "no apt repositories configured",
+					"configure apt repositories in /etc/apt/sources.list or /etc/apt/sources.list.d/")
+			}},
+
+		{ID: "1.2.2", Framework: cisBenchCIS, Level: 1, Section: "Filesystem",
+			Description: "Ensure GPG keys are configured",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("1.2.2")
+				if _, err := os.Stat(debianVersionPath); err != nil {
+					return skipr(r, "rule applies to Debian/Ubuntu systems only")
+				}
+				if _, err := os.Stat(aptTrustedGpgPath); err == nil {
+					return pass(r)
+				}
+				entries, err := os.ReadDir(aptTrustedGpgDPath) //nolint:gosec // package-level var
+				if err == nil && len(entries) > 0 {
+					return pass(r)
+				}
+				entries2, err := os.ReadDir(aptKeyringsPath) //nolint:gosec // package-level var
+				if err == nil && len(entries2) > 0 {
+					return pass(r)
+				}
+				return failr(r, "no GPG keys found for apt repositories",
+					"verify apt GPG keys: apt-key list or inspect /etc/apt/trusted.gpg.d/ and /etc/apt/keyrings/")
 			}},
 
 		// ── 1.3 Filesystem Integrity ─────────────────────────────────────────
@@ -1148,6 +1303,156 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					"enable the firewall: ufw enable (Ubuntu/Debian) or systemctl enable --now firewalld (RHEL/Rocky)")
 			}},
 
+		{ID: "3.5.1.1", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure ufw is installed",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.5.1.1")
+				if _, err := os.Stat(debianVersionPath); err != nil {
+					return skipr(r, "ufw rule applies to Debian/Ubuntu systems only")
+				}
+				for _, p := range ufwBinPaths {
+					if _, err := os.Stat(p); err == nil {
+						return pass(r)
+					}
+				}
+				return failr(r, "ufw binary not found", firewallInstallCmd("apt"))
+			}},
+
+		{ID: "3.5.1.2", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure iptables-persistent is not installed with ufw",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.5.1.2")
+				if _, err := os.Stat(debianVersionPath); err != nil {
+					return skipr(r, "rule applies to Debian/Ubuntu systems only")
+				}
+				for _, p := range netfilterPersistentPaths {
+					if _, err := os.Stat(p); err == nil {
+						return failr(r,
+							"iptables-persistent (netfilter-persistent) is installed — conflicts with ufw",
+							iptablesPersistentRemoveCmd("apt"))
+					}
+				}
+				return pass(r)
+			}},
+
+		{ID: "3.5.1.3", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure ufw service is enabled",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.5.1.3")
+				ufwPresent := false
+				for _, p := range ufwBinPaths {
+					if _, err := os.Stat(p); err == nil {
+						ufwPresent = true
+						break
+					}
+				}
+				if !ufwPresent {
+					return skipr(r, "ufw not installed")
+				}
+				for _, p := range ufwWantsPaths {
+					if _, err := os.Stat(p); err == nil {
+						return pass(r)
+					}
+				}
+				return failr(r,
+					"ufw service is not enabled",
+					"ufw enable && systemctl enable ufw")
+			}},
+
+		{ID: "3.5.1.4", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure ufw loopback traffic is configured",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.5.1.4")
+				data, err := os.ReadFile(ufwBeforeRulesPath) // #nosec G304 -- package-level var
+				if err != nil {
+					return skipr(r, "ufw not configured — /etc/ufw/before.rules not found")
+				}
+				content := strings.ToLower(string(data))
+				hasInput := strings.Contains(content, "-i lo -j accept")
+				hasOutput := strings.Contains(content, "-o lo -j accept")
+				hasDeny127 := strings.Contains(content, "127.0.0.0/8") &&
+					(strings.Contains(content, "-j drop") || strings.Contains(content, "-j deny"))
+				if !hasInput || !hasOutput || !hasDeny127 {
+					var missing []string
+					if !hasInput {
+						missing = append(missing, "loopback input ACCEPT rule")
+					}
+					if !hasOutput {
+						missing = append(missing, "loopback output ACCEPT rule")
+					}
+					if !hasDeny127 {
+						missing = append(missing, "127.0.0.0/8 deny rule")
+					}
+					return failr(r,
+						fmt.Sprintf("missing loopback rules in before.rules: %s", strings.Join(missing, ", ")),
+						"restore default loopback rules in /etc/ufw/before.rules or reinstall ufw")
+				}
+				data6, err := os.ReadFile(ufwBefore6RulesPath) // #nosec G304 -- package-level var
+				if err == nil {
+					c6 := strings.ToLower(string(data6))
+					hasIn6 := strings.Contains(c6, "-i lo -j accept")
+					hasOut6 := strings.Contains(c6, "-o lo -j accept")
+					hasDeny6 := strings.Contains(c6, "::1") &&
+						(strings.Contains(c6, "-j drop") || strings.Contains(c6, "-j deny"))
+					if !hasIn6 || !hasOut6 || !hasDeny6 {
+						var missing []string
+						if !hasIn6 {
+							missing = append(missing, "IPv6 loopback input ACCEPT")
+						}
+						if !hasOut6 {
+							missing = append(missing, "IPv6 loopback output ACCEPT")
+						}
+						if !hasDeny6 {
+							missing = append(missing, "::1 deny rule")
+						}
+						return failr(r,
+							fmt.Sprintf("missing IPv6 loopback rules in before6.rules: %s", strings.Join(missing, ", ")),
+							"restore default IPv6 loopback rules in /etc/ufw/before6.rules")
+					}
+				}
+				return pass(r)
+			}},
+
+		{ID: "3.5.1.5", Framework: cisBenchCIS, Level: 2, Section: cisCatNetwork,
+			Description: "Ensure ufw outbound connections are configured",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.5.1.5")
+				data, err := os.ReadFile(ufwDefaultPath) // #nosec G304 -- package-level var
+				if err != nil {
+					return skipr(r, "ufw not configured — /etc/default/ufw not found")
+				}
+				for line := range strings.SplitSeq(string(data), "\n") {
+					trimmed := strings.TrimSpace(line)
+					if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+						continue
+					}
+					rest, ok := strings.CutPrefix(trimmed, "DEFAULT_OUTPUT_POLICY=")
+					if !ok {
+						continue
+					}
+					val := strings.Trim(rest, "\"'")
+					if strings.EqualFold(val, "ALLOW") {
+						return pass(r)
+					}
+					break
+				}
+				data2, err := os.ReadFile(ufwUserRulesPath) // #nosec G304 -- package-level var
+				if err != nil {
+					return failr(r,
+						"ufw output policy is not ALLOW and user.rules is unreadable",
+						"configure outbound rules: set DEFAULT_OUTPUT_POLICY=ALLOW in /etc/default/ufw")
+				}
+				content := strings.ToLower(string(data2))
+				if strings.Contains(content, "-a ufw-user-output -j accept") ||
+					strings.Contains(content, "-a ufw-user-output -j return") ||
+					strings.Contains(content, "allow out") {
+					return pass(r)
+				}
+				return failr(r,
+					"ufw DEFAULT_OUTPUT_POLICY is not ALLOW and no explicit allow-out rules found",
+					"set DEFAULT_OUTPUT_POLICY=ALLOW in /etc/default/ufw or add explicit allow-out rules")
+			}},
+
 		{ID: "3.5.1.7", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
 			Description: "Ensure ufw default deny firewall policy",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
@@ -1185,6 +1490,42 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				return pass(r)
 			}},
 
+		// ── 3.6 Wireless Interfaces ──────────────────────────────────────────
+
+		{ID: "3.6.1", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
+			Description: "Ensure wireless interfaces are disabled",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("3.6.1")
+				entries, err := os.ReadDir(sysClassNetPath) //nolint:gosec // package-level var
+				if err != nil {
+					return skipr(r, "/sys/class/net not readable")
+				}
+				var up []string
+				for _, e := range entries {
+					wirelessDir := filepath.Join(sysClassNetPath, e.Name(), "wireless")
+					if _, err := os.Stat(wirelessDir); err != nil {
+						continue
+					}
+					flagsPath := filepath.Join(sysClassNetPath, e.Name(), "flags")
+					flagsData, err := os.ReadFile(flagsPath) // #nosec G304 -- sysfs path from ReadDir
+					if err != nil {
+						up = append(up, e.Name())
+						continue
+					}
+					flagStr := strings.TrimSpace(string(flagsData))
+					flags, err := strconv.ParseInt(strings.TrimPrefix(flagStr, "0x"), 16, 64)
+					if err != nil || flags&0x1 != 0 {
+						up = append(up, e.Name())
+					}
+				}
+				if len(up) > 0 {
+					return failr(r,
+						fmt.Sprintf("wireless interface(s) are active: %s", strings.Join(up, ", ")),
+						"disable wireless: ip link set <iface> down && rfkill block all")
+				}
+				return pass(r)
+			}},
+
 		// ── 4.x Logging and Auditing ──────────────────────────────────────────
 
 		{ID: cisRuleAudit41, StigID: "V-238360",
@@ -1196,6 +1537,111 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					// remediation is rewritten per package manager in Evaluate
 					return failr(r, "auditd not installed or not running",
 						auditInstallCmd("apt"))
+				}
+				return pass(r)
+			}},
+
+		{ID: "4.1.1.1", Framework: cisBenchCIS, Level: 2, Section: "Audit",
+			Description: "Ensure audit log storage size is configured",
+			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("4.1.1.1")
+				if sec.AuditRules == -1 {
+					return skipr(r, "auditd not available")
+				}
+				data, err := os.ReadFile(auditdConfPath) // #nosec G304 -- package-level var
+				if err != nil {
+					return skipr(r, "auditd.conf not readable")
+				}
+				for line := range strings.SplitSeq(string(data), "\n") {
+					parts := strings.SplitN(strings.TrimSpace(line), "=", 2)
+					if len(parts) != 2 {
+						continue
+					}
+					if strings.TrimSpace(strings.ToLower(parts[0])) != "max_log_file" {
+						continue
+					}
+					val := strings.TrimSpace(parts[1])
+					n, err := strconv.Atoi(val)
+					if err != nil {
+						return skipr(r, fmt.Sprintf("max_log_file value %q not parseable", val))
+					}
+					if n == 0 {
+						return failr(r, "max_log_file = 0 — audit log size limit not configured",
+							"set max_log_file = 8 (or site-defined value) in /etc/audit/auditd.conf")
+					}
+					return pass(r)
+				}
+				return failr(r, "max_log_file not set in auditd.conf",
+					"add max_log_file = 8 to /etc/audit/auditd.conf")
+			}},
+
+		{ID: "4.1.1.2", Framework: cisBenchCIS, Level: 2, Section: "Audit",
+			Description: "Ensure audit logs are not automatically deleted",
+			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("4.1.1.2")
+				if sec.AuditRules == -1 {
+					return skipr(r, "auditd not available")
+				}
+				data, err := os.ReadFile(auditdConfPath) // #nosec G304 -- package-level var
+				if err != nil {
+					return skipr(r, "auditd.conf not readable")
+				}
+				for line := range strings.SplitSeq(string(data), "\n") {
+					parts := strings.SplitN(strings.TrimSpace(line), "=", 2)
+					if len(parts) != 2 {
+						continue
+					}
+					if strings.TrimSpace(strings.ToLower(parts[0])) != "max_log_file_action" {
+						continue
+					}
+					val := strings.ToLower(strings.TrimSpace(parts[1]))
+					if val == "rotate" || val == "ignore" {
+						return failr(r,
+							fmt.Sprintf("max_log_file_action = %q — old audit logs may be silently discarded", val),
+							"set max_log_file_action = keep_logs in /etc/audit/auditd.conf")
+					}
+					return pass(r)
+				}
+				return failr(r, "max_log_file_action not set in auditd.conf",
+					"add max_log_file_action = keep_logs to /etc/audit/auditd.conf")
+			}},
+
+		{ID: "4.1.1.3", Framework: cisBenchCIS, Level: 2, Section: "Audit",
+			Description: "Ensure system is disabled when audit logs are full",
+			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("4.1.1.3")
+				if sec.AuditRules == -1 {
+					return skipr(r, "auditd not available")
+				}
+				data, err := os.ReadFile(auditdConfPath) // #nosec G304 -- package-level var
+				if err != nil {
+					return skipr(r, "auditd.conf not readable")
+				}
+				spaceLeft, adminSpaceLeft := "", ""
+				for line := range strings.SplitSeq(string(data), "\n") {
+					parts := strings.SplitN(strings.TrimSpace(line), "=", 2)
+					if len(parts) != 2 {
+						continue
+					}
+					key := strings.TrimSpace(strings.ToLower(parts[0]))
+					val := strings.ToLower(strings.TrimSpace(parts[1]))
+					switch key {
+					case "space_left_action":
+						spaceLeft = val
+					case "admin_space_left_action":
+						adminSpaceLeft = val
+					}
+				}
+				safeActions := map[string]bool{"halt": true, "single": true, "email": true, "exec": true}
+				if !safeActions[spaceLeft] {
+					return failr(r,
+						fmt.Sprintf("space_left_action = %q — system won't halt/notify on low disk", spaceLeft),
+						"set space_left_action = email in /etc/audit/auditd.conf")
+				}
+				if adminSpaceLeft != "halt" && adminSpaceLeft != "single" {
+					return failr(r,
+						fmt.Sprintf("admin_space_left_action = %q — system won't halt when disk is critically full", adminSpaceLeft),
+						"set admin_space_left_action = halt in /etc/audit/auditd.conf")
 				}
 				return pass(r)
 			}},
@@ -1483,6 +1929,83 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					}
 				}
 				return pass(r)
+			}},
+
+		{ID: "4.2.5", Framework: cisBenchCIS, Level: 2, Section: "Audit",
+			Description: "Ensure rsyslog default file creation mode is configured",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("4.2.5")
+				findMode := func(data []byte) (string, bool) {
+					for line := range strings.SplitSeq(string(data), "\n") {
+						trimmed := strings.TrimSpace(line)
+						if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+							continue
+						}
+						// Legacy directive: $FileCreateMode 0640
+						if rest, ok := strings.CutPrefix(trimmed, "$FileCreateMode"); ok {
+							return strings.TrimSpace(rest), true
+						}
+						// RainerScript: FileCreateMode="0640" inside module() or global()
+						if strings.Contains(trimmed, "FileCreateMode=") {
+							for field := range strings.FieldsSeq(trimmed) {
+								if rest, ok := strings.CutPrefix(field, "FileCreateMode="); ok {
+									return strings.Trim(rest, "\"'"), true
+								}
+							}
+						}
+					}
+					return "", false
+				}
+				checkMode := func(modeStr string) (bool, string) {
+					modeStr = strings.Trim(modeStr, "\"'")
+					v, err := strconv.ParseInt(modeStr, 8, 32)
+					if err != nil {
+						return false, fmt.Sprintf("unrecognised $FileCreateMode value %q", modeStr)
+					}
+					// Mode must not exceed 0640 (no write-other, no execute-owner)
+					if v&0o137 != 0 {
+						return false, fmt.Sprintf("$FileCreateMode %s is more permissive than 0640", modeStr)
+					}
+					return true, ""
+				}
+				tryFile := func(data []byte) (string, bool) {
+					if modeStr, found := findMode(data); found {
+						return modeStr, true
+					}
+					return "", false
+				}
+				var modeStr string
+				var found bool
+				if data, err := os.ReadFile(rsyslogConfPath); err == nil { //nolint:gosec // package-level var
+					if modeStr, found = tryFile(data); found {
+						if ok, reason := checkMode(modeStr); !ok {
+							return failr(r, reason,
+								"set '$FileCreateMode 0640' in /etc/rsyslog.conf or a /etc/rsyslog.d/ drop-in")
+						}
+						return pass(r)
+					}
+				}
+				if entries, err := os.ReadDir(rsyslogConfDPath); err == nil { //nolint:gosec // package-level var
+					for _, e := range entries {
+						if e.IsDir() || !strings.HasSuffix(e.Name(), ".conf") {
+							continue
+						}
+						data, rdErr := os.ReadFile(filepath.Join(rsyslogConfDPath, e.Name())) //nolint:gosec
+						if rdErr != nil {
+							continue
+						}
+						if modeStr, found = tryFile(data); found {
+							if ok, reason := checkMode(modeStr); !ok {
+								return failr(r, reason,
+									"set '$FileCreateMode 0640' in /etc/rsyslog.conf or a /etc/rsyslog.d/ drop-in")
+							}
+							return pass(r)
+						}
+					}
+				}
+				return failr(r,
+					"$FileCreateMode not explicitly set in rsyslog config",
+					"add '$FileCreateMode 0640' to /etc/rsyslog.conf to ensure log files are not world-readable")
 			}},
 
 		// ── 4.3 Log rotation ──────────────────────────────────────────────────
@@ -2815,6 +3338,12 @@ var snmpBinPaths = []string{"/usr/sbin/snmpd"}
 var auditRulesDPath = "/etc/audit/rules.d"
 var auditRulesFilePath = "/etc/audit/audit.rules"
 
+// auditdConfPath for auditd configuration checks (4.1.1.1–4.1.1.3).
+var auditdConfPath = "/etc/audit/auditd.conf"
+
+// nisServerBinPaths for NIS server check (2.3.16).
+var nisServerBinPaths = []string{"/usr/sbin/ypserv", "/usr/lib/yp/ypserv"}
+
 // sshHostKeyDir for SSH host key permission checks (5.2.3, 5.2.4).
 var sshHostKeyDir = "/etc/ssh"
 
@@ -2844,8 +3373,74 @@ var cronWantsPaths = []string{
 	"/etc/systemd/system/multi-user.target.wants/crond.service",
 }
 
-// ufwDefaultPath: ufw default policy config (3.5.1.7).
+// debianVersionPath is the Debian/Ubuntu family indicator; gates Debian-specific rules.
+var debianVersionPath = "/etc/debian_version"
+
+// ufwBinPaths for ufw binary presence checks (3.5.1.1, 3.5.1.3).
+var ufwBinPaths = []string{"/usr/sbin/ufw", "/sbin/ufw"}
+
+// netfilterPersistentPaths for iptables-persistent conflict check (3.5.1.2).
+var netfilterPersistentPaths = []string{
+	"/lib/systemd/system/netfilter-persistent.service",
+	"/etc/init.d/iptables-persistent",
+}
+
+// ufwWantsPaths for ufw service enabled check (3.5.1.3).
+var ufwWantsPaths = []string{
+	"/etc/systemd/system/multi-user.target.wants/ufw.service",
+	"/run/systemd/generator.late/multi-user.target.wants/ufw.service",
+}
+
+// ufwDefaultPath: ufw default policy config (3.5.1.7, 3.5.1.5).
 var ufwDefaultPath = "/etc/default/ufw"
+
+// ufwBeforeRulesPath and ufwBefore6RulesPath for UFW loopback check (3.5.1.4).
+var ufwBeforeRulesPath = "/etc/ufw/before.rules"
+var ufwBefore6RulesPath = "/etc/ufw/before6.rules"
+
+// aptSourcesListPath and aptSourcesListDPath for package repo check (1.2.1).
+var aptSourcesListPath = "/etc/apt/sources.list"
+var aptSourcesListDPath = "/etc/apt/sources.list.d"
+
+// aptTrustedGpgPath, aptTrustedGpgDPath, aptKeyringsPath for GPG key check (1.2.2).
+var aptTrustedGpgPath = "/etc/apt/trusted.gpg"
+var aptTrustedGpgDPath = "/etc/apt/trusted.gpg.d"
+var aptKeyringsPath = "/etc/apt/keyrings"
+
+// sysClassNetPath for wireless interface check (3.6.1).
+var sysClassNetPath = "/sys/class/net"
+
+// ufwUserRulesPath for UFW outbound connections check (3.5.1.5).
+var ufwUserRulesPath = "/etc/ufw/user.rules"
+
+// ldapClientBinPaths for LDAP client check (2.2.5).
+var ldapClientBinPaths = []string{
+	"/usr/bin/ldapsearch",
+	"/usr/bin/ldapadd",
+	"/usr/bin/ldapmodify",
+}
+
+// mtaBinPaths for MTA local-only mode check (2.3.14).
+var mtaBinPaths = []string{
+	"/usr/sbin/postfix",
+	"/usr/lib/postfix/sbin/master",
+	"/usr/sbin/sendmail",
+}
+
+// postfixMainCfPath for MTA local-only mode check (2.3.14).
+var postfixMainCfPath = "/etc/postfix/main.cf"
+
+// rsyncBinPaths for rsync service check (2.3.15).
+var rsyncBinPaths = []string{"/usr/bin/rsync"}
+
+// rsyncWantsPaths: systemd wants-directory symlinks for rsync daemon (2.3.15).
+var rsyncWantsPaths = []string{
+	"/etc/systemd/system/multi-user.target.wants/rsync.service",
+	"/run/systemd/generator.late/multi-user.target.wants/rsync.service",
+}
+
+// rsyncDefaultPath: Debian/Ubuntu rsync daemon init default file (2.3.15).
+var rsyncDefaultPath = "/etc/default/rsync"
 
 // logrotateConfPath and logrotateConfDPath for logrotate config check (4.3.1).
 var logrotateConfPath = "/etc/logrotate.conf"

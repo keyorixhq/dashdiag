@@ -4442,3 +4442,1064 @@ func TestRule4_3_1_LogrotateConfigured(t *testing.T) {
 		}
 	})
 }
+
+// TestRule3_5_1_1_UFWInstalled verifies rule 3.5.1.1.
+// No t.Parallel(): mutates package-level debianVersionPath and ufwBinPaths.
+func TestRule3_5_1_1_UFWInstalled(t *testing.T) {
+	dir := t.TempDir()
+	origDebian := debianVersionPath
+	origBins := ufwBinPaths
+	t.Cleanup(func() {
+		debianVersionPath = origDebian
+		ufwBinPaths = origBins
+	})
+
+	rule := ruleByID("3.5.1.1")
+
+	t.Run("non-Debian system → SKIP", func(t *testing.T) {
+		debianVersionPath = filepath.Join(dir, "no_debian_version")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("Debian without ufw binary → FAIL", func(t *testing.T) {
+		dv := filepath.Join(dir, "debian_version")
+		if err := os.WriteFile(dv, []byte("12\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		debianVersionPath = dv
+		ufwBinPaths = []string{filepath.Join(dir, "no_ufw")}
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("no binary: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("Debian with ufw binary → PASS", func(t *testing.T) {
+		dv := filepath.Join(dir, "debian_version2")
+		if err := os.WriteFile(dv, []byte("12\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		debianVersionPath = dv
+		fakeBin := filepath.Join(dir, "ufw")
+		if err := os.WriteFile(fakeBin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		ufwBinPaths = []string{fakeBin}
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("binary present: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// TestRule3_5_1_2_IPTablesPersistentAbsent verifies rule 3.5.1.2.
+// No t.Parallel(): mutates package-level debianVersionPath and netfilterPersistentPaths.
+func TestRule3_5_1_2_IPTablesPersistentAbsent(t *testing.T) {
+	dir := t.TempDir()
+	origDebian := debianVersionPath
+	origPaths := netfilterPersistentPaths
+	t.Cleanup(func() {
+		debianVersionPath = origDebian
+		netfilterPersistentPaths = origPaths
+	})
+
+	rule := ruleByID("3.5.1.2")
+
+	t.Run("non-Debian system → SKIP", func(t *testing.T) {
+		debianVersionPath = filepath.Join(dir, "no_debian_version")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("Debian without iptables-persistent → PASS", func(t *testing.T) {
+		dv := filepath.Join(dir, "debian_version")
+		if err := os.WriteFile(dv, []byte("12\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		debianVersionPath = dv
+		netfilterPersistentPaths = []string{filepath.Join(dir, "no_service")}
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("not installed: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("Debian with netfilter-persistent service → FAIL", func(t *testing.T) {
+		dv := filepath.Join(dir, "debian_version2")
+		if err := os.WriteFile(dv, []byte("12\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		debianVersionPath = dv
+		svc := filepath.Join(dir, "netfilter-persistent.service")
+		if err := os.WriteFile(svc, []byte("[Unit]\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		netfilterPersistentPaths = []string{svc}
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("service present: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// TestRule3_5_1_3_UFWServiceEnabled verifies rule 3.5.1.3.
+// No t.Parallel(): mutates package-level ufwBinPaths and ufwWantsPaths.
+func TestRule3_5_1_3_UFWServiceEnabled(t *testing.T) {
+	dir := t.TempDir()
+	origBins := ufwBinPaths
+	origWants := ufwWantsPaths
+	t.Cleanup(func() {
+		ufwBinPaths = origBins
+		ufwWantsPaths = origWants
+	})
+
+	rule := ruleByID("3.5.1.3")
+
+	t.Run("ufw not installed → SKIP", func(t *testing.T) {
+		ufwBinPaths = []string{filepath.Join(dir, "no_ufw")}
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("ufw installed but service not enabled → FAIL", func(t *testing.T) {
+		fakeBin := filepath.Join(dir, "ufw")
+		if err := os.WriteFile(fakeBin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		ufwBinPaths = []string{fakeBin}
+		ufwWantsPaths = []string{filepath.Join(dir, "no_wants_ufw.service")}
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("not enabled: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("ufw service enabled → PASS", func(t *testing.T) {
+		fakeBin := filepath.Join(dir, "ufw2")
+		if err := os.WriteFile(fakeBin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		ufwBinPaths = []string{fakeBin}
+		wantsLink := filepath.Join(dir, "ufw.service")
+		if err := os.WriteFile(wantsLink, []byte(""), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		ufwWantsPaths = []string{wantsLink}
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("service enabled: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// TestRule4_2_5_RsyslogFileCreateMode verifies rule 4.2.5.
+// No t.Parallel(): mutates package-level rsyslogConfPath and rsyslogConfDPath.
+func TestRule4_2_5_RsyslogFileCreateMode(t *testing.T) {
+	dir := t.TempDir()
+	origConf := rsyslogConfPath
+	origConfD := rsyslogConfDPath
+	t.Cleanup(func() {
+		rsyslogConfPath = origConf
+		rsyslogConfDPath = origConfD
+	})
+
+	rule := ruleByID("4.2.5")
+
+	t.Run("no config files → FAIL (not configured)", func(t *testing.T) {
+		rsyslogConfPath = filepath.Join(dir, "no_rsyslog.conf")
+		rsyslogConfDPath = filepath.Join(dir, "no_rsyslog.d")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("no config: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("$FileCreateMode 0640 → PASS", func(t *testing.T) {
+		p := filepath.Join(dir, "rsyslog_0640.conf")
+		if err := os.WriteFile(p, []byte("$FileCreateMode 0640\n*.* /var/log/syslog\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		rsyslogConfPath = p
+		rsyslogConfDPath = filepath.Join(dir, "no_rsyslog.d")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("0640 mode: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("$FileCreateMode 0600 → PASS (more restrictive)", func(t *testing.T) {
+		p := filepath.Join(dir, "rsyslog_0600.conf")
+		if err := os.WriteFile(p, []byte("$FileCreateMode 0600\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		rsyslogConfPath = p
+		rsyslogConfDPath = filepath.Join(dir, "no_rsyslog.d")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("0600 mode: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("$FileCreateMode 0644 → FAIL (world-readable)", func(t *testing.T) {
+		p := filepath.Join(dir, "rsyslog_0644.conf")
+		if err := os.WriteFile(p, []byte("$FileCreateMode 0644\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		rsyslogConfPath = p
+		rsyslogConfDPath = filepath.Join(dir, "no_rsyslog.d")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("0644 mode: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("FileCreateMode in conf.d → PASS", func(t *testing.T) {
+		rsyslogConfPath = filepath.Join(dir, "no_rsyslog.conf")
+		confD := filepath.Join(dir, "rsyslog_d_mode")
+		if err := os.MkdirAll(confD, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(confD, "50-default.conf"),
+			[]byte("$FileCreateMode 0640\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		rsyslogConfDPath = confD
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("conf.d 0640: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// ── 2.2.5 LDAP client ────────────────────────────────────────────────────────
+
+// TestRule2_2_5_LDAPClientNotInstalled verifies rule 2.2.5.
+// No t.Parallel(): mutates package-level ldapClientBinPaths.
+func TestRule2_2_5_LDAPClientNotInstalled(t *testing.T) {
+	dir := t.TempDir()
+	orig := ldapClientBinPaths
+	t.Cleanup(func() { ldapClientBinPaths = orig })
+
+	rule := ruleByID("2.2.5")
+
+	t.Run("no ldap-utils binaries → PASS", func(t *testing.T) {
+		ldapClientBinPaths = []string{filepath.Join(dir, "no_ldapsearch")}
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("no ldap binaries: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("ldapsearch found → FAIL", func(t *testing.T) {
+		bin := filepath.Join(dir, "ldapsearch")
+		if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		ldapClientBinPaths = []string{bin}
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("ldapsearch present: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// ── 2.3.14 MTA local-only ────────────────────────────────────────────────────
+
+// TestRule2_3_14_MTALocalOnly verifies rule 2.3.14.
+// No t.Parallel(): mutates package-level mtaBinPaths and postfixMainCfPath.
+func TestRule2_3_14_MTALocalOnly(t *testing.T) {
+	dir := t.TempDir()
+	origBins := mtaBinPaths
+	origCf := postfixMainCfPath
+	t.Cleanup(func() {
+		mtaBinPaths = origBins
+		postfixMainCfPath = origCf
+	})
+
+	rule := ruleByID("2.3.14")
+
+	t.Run("no MTA installed → SKIP", func(t *testing.T) {
+		mtaBinPaths = []string{filepath.Join(dir, "no_postfix")}
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("no MTA: want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("postfix installed, main.cf unreadable → SKIP", func(t *testing.T) {
+		bin := filepath.Join(dir, "postfix")
+		if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		mtaBinPaths = []string{bin}
+		postfixMainCfPath = filepath.Join(dir, "no_main.cf")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("no main.cf: want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("inet_interfaces = loopback-only → PASS", func(t *testing.T) {
+		bin := filepath.Join(dir, "postfix2")
+		if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		mtaBinPaths = []string{bin}
+		cf := filepath.Join(dir, "main_loopback.cf")
+		if err := os.WriteFile(cf, []byte("# comment\ninet_interfaces = loopback-only\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		postfixMainCfPath = cf
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("loopback-only: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("inet_interfaces = all → FAIL", func(t *testing.T) {
+		bin := filepath.Join(dir, "postfix3")
+		if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		mtaBinPaths = []string{bin}
+		cf := filepath.Join(dir, "main_all.cf")
+		if err := os.WriteFile(cf, []byte("inet_interfaces = all\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		postfixMainCfPath = cf
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("inet_interfaces=all: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("inet_interfaces not set → FAIL", func(t *testing.T) {
+		bin := filepath.Join(dir, "postfix4")
+		if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		mtaBinPaths = []string{bin}
+		cf := filepath.Join(dir, "main_nokey.cf")
+		if err := os.WriteFile(cf, []byte("# only a comment\nmydomain = example.com\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		postfixMainCfPath = cf
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("no inet_interfaces: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// ── 2.3.15 rsync service ─────────────────────────────────────────────────────
+
+// TestRule2_3_15_RsyncNotEnabled verifies rule 2.3.15.
+// No t.Parallel(): mutates package-level rsyncBinPaths, rsyncWantsPaths, rsyncDefaultPath.
+func TestRule2_3_15_RsyncNotEnabled(t *testing.T) {
+	dir := t.TempDir()
+	origBins := rsyncBinPaths
+	origWants := rsyncWantsPaths
+	origDef := rsyncDefaultPath
+	t.Cleanup(func() {
+		rsyncBinPaths = origBins
+		rsyncWantsPaths = origWants
+		rsyncDefaultPath = origDef
+	})
+
+	rule := ruleByID("2.3.15")
+
+	t.Run("rsync not installed → SKIP", func(t *testing.T) {
+		rsyncBinPaths = []string{filepath.Join(dir, "no_rsync")}
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("no rsync: want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("rsync installed, no service enabled → PASS", func(t *testing.T) {
+		bin := filepath.Join(dir, "rsync")
+		if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		rsyncBinPaths = []string{bin}
+		rsyncWantsPaths = []string{filepath.Join(dir, "no_rsync.service")}
+		rsyncDefaultPath = filepath.Join(dir, "no_default_rsync")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("rsync present but not enabled: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("rsync service enabled via systemd wants → FAIL", func(t *testing.T) {
+		bin := filepath.Join(dir, "rsync2")
+		if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		rsyncBinPaths = []string{bin}
+		svcLink := filepath.Join(dir, "rsync.service")
+		if err := os.WriteFile(svcLink, []byte(""), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		rsyncWantsPaths = []string{svcLink}
+		rsyncDefaultPath = filepath.Join(dir, "no_default_rsync2")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("rsync service enabled: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("RSYNC_ENABLE=true in /etc/default/rsync → FAIL", func(t *testing.T) {
+		bin := filepath.Join(dir, "rsync3")
+		if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		rsyncBinPaths = []string{bin}
+		rsyncWantsPaths = []string{filepath.Join(dir, "no_svc3")}
+		def := filepath.Join(dir, "default_rsync_enabled")
+		if err := os.WriteFile(def, []byte("# comment\nRSYNC_ENABLE=true\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		rsyncDefaultPath = def
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("RSYNC_ENABLE=true: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// ── 3.5.1.4 UFW loopback ─────────────────────────────────────────────────────
+
+// TestRule3_5_1_4_UFWLoopback verifies rule 3.5.1.4.
+// No t.Parallel(): mutates package-level ufwBeforeRulesPath and ufwBefore6RulesPath.
+func TestRule3_5_1_4_UFWLoopback(t *testing.T) {
+	dir := t.TempDir()
+	origBefore := ufwBeforeRulesPath
+	origBefore6 := ufwBefore6RulesPath
+	t.Cleanup(func() {
+		ufwBeforeRulesPath = origBefore
+		ufwBefore6RulesPath = origBefore6
+	})
+
+	rule := ruleByID("3.5.1.4")
+
+	const validBefore = `-A ufw-before-input -i lo -j ACCEPT
+-A ufw-before-output -o lo -j ACCEPT
+-A ufw-before-input -s 127.0.0.0/8 ! -i lo -j DROP
+`
+	const validBefore6 = `-A ufw6-before-input -i lo -j ACCEPT
+-A ufw6-before-output -o lo -j ACCEPT
+-A ufw6-before-input -s ::1 ! -i lo -j DROP
+`
+
+	t.Run("before.rules missing → SKIP", func(t *testing.T) {
+		ufwBeforeRulesPath = filepath.Join(dir, "no_before.rules")
+		ufwBefore6RulesPath = filepath.Join(dir, "no_before6.rules")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("no before.rules: want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("complete loopback rules (no before6.rules) → PASS", func(t *testing.T) {
+		f := filepath.Join(dir, "before_ok.rules")
+		if err := os.WriteFile(f, []byte(validBefore), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		ufwBeforeRulesPath = f
+		ufwBefore6RulesPath = filepath.Join(dir, "no_before6.rules")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("valid before.rules, no before6: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("complete loopback rules with valid before6.rules → PASS", func(t *testing.T) {
+		f := filepath.Join(dir, "before_ok2.rules")
+		if err := os.WriteFile(f, []byte(validBefore), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		f6 := filepath.Join(dir, "before6_ok.rules")
+		if err := os.WriteFile(f6, []byte(validBefore6), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		ufwBeforeRulesPath = f
+		ufwBefore6RulesPath = f6
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("all loopback rules present: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("missing 127.0.0.0/8 deny in before.rules → FAIL", func(t *testing.T) {
+		content := "-A ufw-before-input -i lo -j ACCEPT\n-A ufw-before-output -o lo -j ACCEPT\n"
+		f := filepath.Join(dir, "before_no127.rules")
+		if err := os.WriteFile(f, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		ufwBeforeRulesPath = f
+		ufwBefore6RulesPath = filepath.Join(dir, "no_before6b.rules")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("missing 127 deny: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("missing ::1 deny in before6.rules → FAIL", func(t *testing.T) {
+		f := filepath.Join(dir, "before_ok3.rules")
+		if err := os.WriteFile(f, []byte(validBefore), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		f6 := filepath.Join(dir, "before6_no_deny.rules")
+		before6NoDeny := "-A ufw6-before-input -i lo -j ACCEPT\n-A ufw6-before-output -o lo -j ACCEPT\n"
+		if err := os.WriteFile(f6, []byte(before6NoDeny), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		ufwBeforeRulesPath = f
+		ufwBefore6RulesPath = f6
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("missing ::1 deny: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// ── 3.5.1.5 UFW outbound ─────────────────────────────────────────────────────
+
+// TestRule3_5_1_5_UFWOutbound verifies rule 3.5.1.5.
+// No t.Parallel(): mutates package-level ufwDefaultPath and ufwUserRulesPath.
+func TestRule3_5_1_5_UFWOutbound(t *testing.T) {
+	dir := t.TempDir()
+	origDef := ufwDefaultPath
+	origUser := ufwUserRulesPath
+	t.Cleanup(func() {
+		ufwDefaultPath = origDef
+		ufwUserRulesPath = origUser
+	})
+
+	rule := ruleByID("3.5.1.5")
+
+	t.Run("no /etc/default/ufw → SKIP", func(t *testing.T) {
+		ufwDefaultPath = filepath.Join(dir, "no_ufw_default")
+		ufwUserRulesPath = filepath.Join(dir, "no_user.rules")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("no ufw default: want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("DEFAULT_OUTPUT_POLICY=ALLOW → PASS", func(t *testing.T) {
+		def := filepath.Join(dir, "ufw_default_allow")
+		if err := os.WriteFile(def, []byte("DEFAULT_INPUT_POLICY=\"DROP\"\nDEFAULT_OUTPUT_POLICY=ALLOW\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		ufwDefaultPath = def
+		ufwUserRulesPath = filepath.Join(dir, "no_user2.rules")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("output=ALLOW: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("DEFAULT_OUTPUT_POLICY=DROP, explicit allow-out in user.rules → PASS", func(t *testing.T) {
+		def := filepath.Join(dir, "ufw_default_drop")
+		if err := os.WriteFile(def, []byte("DEFAULT_OUTPUT_POLICY=\"DROP\"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		ufwDefaultPath = def
+		userRules := filepath.Join(dir, "user_with_allow_out.rules")
+		if err := os.WriteFile(userRules, []byte("-A ufw-user-output -j ACCEPT\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		ufwUserRulesPath = userRules
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("explicit allow-out: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("DEFAULT_OUTPUT_POLICY=DROP, no user rules → FAIL", func(t *testing.T) {
+		def := filepath.Join(dir, "ufw_default_drop2")
+		if err := os.WriteFile(def, []byte("DEFAULT_OUTPUT_POLICY=\"DROP\"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		ufwDefaultPath = def
+		userRules := filepath.Join(dir, "user_no_allow.rules")
+		if err := os.WriteFile(userRules, []byte("-A ufw-user-input -p tcp --dport 22 -j ACCEPT\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		ufwUserRulesPath = userRules
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("drop output, no allow-out: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// ── 1.2.1 Package manager repos ──────────────────────────────────────────────
+
+// TestRule1_2_1_PackageReposConfigured verifies rule 1.2.1.
+// No t.Parallel(): mutates package-level debianVersionPath, aptSourcesListPath,
+// aptSourcesListDPath.
+func TestRule1_2_1_PackageReposConfigured(t *testing.T) {
+	dir := t.TempDir()
+	origDebian := debianVersionPath
+	origList := aptSourcesListPath
+	origListD := aptSourcesListDPath
+	t.Cleanup(func() {
+		debianVersionPath = origDebian
+		aptSourcesListPath = origList
+		aptSourcesListDPath = origListD
+	})
+
+	rule := ruleByID("1.2.1")
+
+	t.Run("non-Debian system → SKIP", func(t *testing.T) {
+		debianVersionPath = filepath.Join(dir, "no_debian_version")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("non-debian: want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("Debian, sources.list has active line → PASS", func(t *testing.T) {
+		dv := filepath.Join(dir, "debian_version")
+		if err := os.WriteFile(dv, []byte("12\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		debianVersionPath = dv
+		sl := filepath.Join(dir, "sources.list")
+		if err := os.WriteFile(sl, []byte("# comment\ndeb http://archive.ubuntu.com/ubuntu jammy main\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		aptSourcesListPath = sl
+		aptSourcesListDPath = filepath.Join(dir, "no_sources.list.d")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("sources.list has active line: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("Debian, empty sources.list, .list file in sources.list.d → PASS", func(t *testing.T) {
+		dv := filepath.Join(dir, "debian_version2")
+		if err := os.WriteFile(dv, []byte("12\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		debianVersionPath = dv
+		sl := filepath.Join(dir, "sources_empty.list")
+		if err := os.WriteFile(sl, []byte("# only comments\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		aptSourcesListPath = sl
+		listD := filepath.Join(dir, "sources_list_d")
+		if err := os.MkdirAll(listD, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(listD, "ubuntu.list"), []byte("deb http://...\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		aptSourcesListDPath = listD
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("sources.list.d has .list file: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("Debian, no sources configured anywhere → FAIL", func(t *testing.T) {
+		dv := filepath.Join(dir, "debian_version3")
+		if err := os.WriteFile(dv, []byte("12\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		debianVersionPath = dv
+		aptSourcesListPath = filepath.Join(dir, "no_sources.list")
+		aptSourcesListDPath = filepath.Join(dir, "no_sources.list.d")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("no sources: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// ── 1.2.2 GPG keys ───────────────────────────────────────────────────────────
+
+// TestRule1_2_2_GPGKeysConfigured verifies rule 1.2.2.
+// No t.Parallel(): mutates package-level debianVersionPath, aptTrustedGpgPath,
+// aptTrustedGpgDPath, aptKeyringsPath.
+func TestRule1_2_2_GPGKeysConfigured(t *testing.T) {
+	dir := t.TempDir()
+	origDebian := debianVersionPath
+	origGpg := aptTrustedGpgPath
+	origGpgD := aptTrustedGpgDPath
+	origKeyrings := aptKeyringsPath
+	t.Cleanup(func() {
+		debianVersionPath = origDebian
+		aptTrustedGpgPath = origGpg
+		aptTrustedGpgDPath = origGpgD
+		aptKeyringsPath = origKeyrings
+	})
+
+	rule := ruleByID("1.2.2")
+
+	t.Run("non-Debian system → SKIP", func(t *testing.T) {
+		debianVersionPath = filepath.Join(dir, "no_debian_version")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("non-debian: want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("Debian, legacy trusted.gpg exists → PASS", func(t *testing.T) {
+		dv := filepath.Join(dir, "debian_version")
+		if err := os.WriteFile(dv, []byte("12\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		debianVersionPath = dv
+		gpg := filepath.Join(dir, "trusted.gpg")
+		if err := os.WriteFile(gpg, []byte("keydata"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		aptTrustedGpgPath = gpg
+		aptTrustedGpgDPath = filepath.Join(dir, "no_gpg.d")
+		aptKeyringsPath = filepath.Join(dir, "no_keyrings")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("trusted.gpg exists: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("Debian, key in trusted.gpg.d → PASS", func(t *testing.T) {
+		dv := filepath.Join(dir, "debian_version2")
+		if err := os.WriteFile(dv, []byte("12\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		debianVersionPath = dv
+		aptTrustedGpgPath = filepath.Join(dir, "no_trusted.gpg")
+		gpgD := filepath.Join(dir, "trusted.gpg.d")
+		if err := os.MkdirAll(gpgD, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(gpgD, "ubuntu-keyring.gpg"), []byte("key"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		aptTrustedGpgDPath = gpgD
+		aptKeyringsPath = filepath.Join(dir, "no_keyrings2")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("trusted.gpg.d has key: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("Debian, key in keyrings → PASS", func(t *testing.T) {
+		dv := filepath.Join(dir, "debian_version3")
+		if err := os.WriteFile(dv, []byte("12\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		debianVersionPath = dv
+		aptTrustedGpgPath = filepath.Join(dir, "no_trusted3.gpg")
+		aptTrustedGpgDPath = filepath.Join(dir, "no_gpg3.d")
+		keyrings := filepath.Join(dir, "keyrings")
+		if err := os.MkdirAll(keyrings, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(keyrings, "docker.gpg"), []byte("key"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		aptKeyringsPath = keyrings
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("keyrings has key: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("Debian, no keys anywhere → FAIL", func(t *testing.T) {
+		dv := filepath.Join(dir, "debian_version4")
+		if err := os.WriteFile(dv, []byte("12\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		debianVersionPath = dv
+		aptTrustedGpgPath = filepath.Join(dir, "no_trusted4.gpg")
+		aptTrustedGpgDPath = filepath.Join(dir, "no_gpg4.d")
+		aptKeyringsPath = filepath.Join(dir, "no_keyrings4")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("no keys: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// ── 3.6.1 Wireless interfaces ────────────────────────────────────────────────
+
+// TestRule3_6_1_WirelessDisabled verifies rule 3.6.1.
+// No t.Parallel(): mutates package-level sysClassNetPath.
+func TestRule3_6_1_WirelessDisabled(t *testing.T) {
+	dir := t.TempDir()
+	orig := sysClassNetPath
+	t.Cleanup(func() { sysClassNetPath = orig })
+
+	rule := ruleByID("3.6.1")
+
+	t.Run("/sys/class/net unreadable → SKIP", func(t *testing.T) {
+		sysClassNetPath = filepath.Join(dir, "no_sys_class_net")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("no sysfs: want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("no wireless interfaces → PASS", func(t *testing.T) {
+		netDir := filepath.Join(dir, "net_no_wireless")
+		if err := os.MkdirAll(filepath.Join(netDir, "eth0"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		sysClassNetPath = netDir
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("no wireless: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("wireless interface present but down (flags=0x1002) → PASS", func(t *testing.T) {
+		netDir := filepath.Join(dir, "net_wlan_down")
+		wlanDir := filepath.Join(netDir, "wlan0")
+		if err := os.MkdirAll(filepath.Join(wlanDir, "wireless"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(wlanDir, "flags"), []byte("0x1002\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		sysClassNetPath = netDir
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("wlan0 down: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("wireless interface UP (flags=0x1003) → FAIL", func(t *testing.T) {
+		netDir := filepath.Join(dir, "net_wlan_up")
+		wlanDir := filepath.Join(netDir, "wlan0")
+		if err := os.MkdirAll(filepath.Join(wlanDir, "wireless"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(wlanDir, "flags"), []byte("0x1003\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		sysClassNetPath = netDir
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("wlan0 up: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// ── 2.3.16 NIS server ────────────────────────────────────────────────────────
+
+// TestRule2_3_16_NISServerNotInstalled verifies rule 2.3.16.
+// No t.Parallel(): mutates package-level nisServerBinPaths.
+func TestRule2_3_16_NISServerNotInstalled(t *testing.T) {
+	dir := t.TempDir()
+	orig := nisServerBinPaths
+	t.Cleanup(func() { nisServerBinPaths = orig })
+
+	rule := ruleByID("2.3.16")
+
+	t.Run("ypserv not present → PASS", func(t *testing.T) {
+		nisServerBinPaths = []string{filepath.Join(dir, "no_ypserv")}
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("no ypserv: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("ypserv found → FAIL", func(t *testing.T) {
+		bin := filepath.Join(dir, "ypserv")
+		if err := os.WriteFile(bin, []byte("#!/bin/sh\n"), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		nisServerBinPaths = []string{bin}
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("ypserv present: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// ── 4.1.1.1 / 4.1.1.2 / 4.1.1.3 auditd.conf ────────────────────────────────
+
+// TestRule4_1_1_1_AuditLogStorageSize verifies rule 4.1.1.1.
+// No t.Parallel(): mutates package-level auditdConfPath.
+func TestRule4_1_1_1_AuditLogStorageSize(t *testing.T) {
+	dir := t.TempDir()
+	orig := auditdConfPath
+	t.Cleanup(func() { auditdConfPath = orig })
+
+	rule := ruleByID("4.1.1.1")
+	available := models.SecurityInfo{AuditRules: 5}
+	notAvail := models.SecurityInfo{AuditRules: -1}
+
+	t.Run("auditd not available → SKIP", func(t *testing.T) {
+		auditdConfPath = filepath.Join(dir, "no_auditd.conf")
+		got := rule.Check(notAvail, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("no auditd: want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("auditd.conf unreadable → SKIP", func(t *testing.T) {
+		auditdConfPath = filepath.Join(dir, "missing_auditd.conf")
+		got := rule.Check(available, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("missing conf: want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("max_log_file = 8 → PASS", func(t *testing.T) {
+		cf := filepath.Join(dir, "auditd_ok.conf")
+		if err := os.WriteFile(cf, []byte("# comment\nmax_log_file = 8\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		auditdConfPath = cf
+		got := rule.Check(available, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("max_log_file=8: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("max_log_file = 0 → FAIL", func(t *testing.T) {
+		cf := filepath.Join(dir, "auditd_zero.conf")
+		if err := os.WriteFile(cf, []byte("max_log_file = 0\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		auditdConfPath = cf
+		got := rule.Check(available, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("max_log_file=0: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("max_log_file not set → FAIL", func(t *testing.T) {
+		cf := filepath.Join(dir, "auditd_nokey.conf")
+		if err := os.WriteFile(cf, []byte("log_file = /var/log/audit/audit.log\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		auditdConfPath = cf
+		got := rule.Check(available, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("no max_log_file: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// TestRule4_1_1_2_AuditLogsNotDeleted verifies rule 4.1.1.2.
+// No t.Parallel(): mutates package-level auditdConfPath.
+func TestRule4_1_1_2_AuditLogsNotDeleted(t *testing.T) {
+	dir := t.TempDir()
+	orig := auditdConfPath
+	t.Cleanup(func() { auditdConfPath = orig })
+
+	rule := ruleByID("4.1.1.2")
+	available := models.SecurityInfo{AuditRules: 5}
+
+	t.Run("max_log_file_action = keep_logs → PASS", func(t *testing.T) {
+		cf := filepath.Join(dir, "auditd_keep.conf")
+		if err := os.WriteFile(cf, []byte("max_log_file_action = keep_logs\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		auditdConfPath = cf
+		got := rule.Check(available, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("keep_logs: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("max_log_file_action = rotate → FAIL", func(t *testing.T) {
+		cf := filepath.Join(dir, "auditd_rotate.conf")
+		if err := os.WriteFile(cf, []byte("max_log_file_action = rotate\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		auditdConfPath = cf
+		got := rule.Check(available, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("rotate: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("max_log_file_action = ignore → FAIL", func(t *testing.T) {
+		cf := filepath.Join(dir, "auditd_ignore.conf")
+		if err := os.WriteFile(cf, []byte("max_log_file_action = ignore\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		auditdConfPath = cf
+		got := rule.Check(available, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("ignore: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("max_log_file_action not set → FAIL", func(t *testing.T) {
+		cf := filepath.Join(dir, "auditd_noaction.conf")
+		if err := os.WriteFile(cf, []byte("max_log_file = 8\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		auditdConfPath = cf
+		got := rule.Check(available, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("no max_log_file_action: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// TestRule4_1_1_3_AuditDiskFull verifies rule 4.1.1.3.
+// No t.Parallel(): mutates package-level auditdConfPath.
+func TestRule4_1_1_3_AuditDiskFull(t *testing.T) {
+	dir := t.TempDir()
+	orig := auditdConfPath
+	t.Cleanup(func() { auditdConfPath = orig })
+
+	rule := ruleByID("4.1.1.3")
+	available := models.SecurityInfo{AuditRules: 5}
+
+	t.Run("space_left_action=email admin_space_left_action=halt → PASS", func(t *testing.T) {
+		cf := filepath.Join(dir, "auditd_halt.conf")
+		content := "space_left_action = email\nadmin_space_left_action = halt\n"
+		if err := os.WriteFile(cf, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		auditdConfPath = cf
+		got := rule.Check(available, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("email+halt: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("space_left_action=syslog (not safe) → FAIL", func(t *testing.T) {
+		cf := filepath.Join(dir, "auditd_syslog.conf")
+		content := "space_left_action = syslog\nadmin_space_left_action = halt\n"
+		if err := os.WriteFile(cf, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		auditdConfPath = cf
+		got := rule.Check(available, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("syslog space_left: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("admin_space_left_action=suspend (not halt/single) → FAIL", func(t *testing.T) {
+		cf := filepath.Join(dir, "auditd_suspend.conf")
+		content := "space_left_action = email\nadmin_space_left_action = suspend\n"
+		if err := os.WriteFile(cf, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		auditdConfPath = cf
+		got := rule.Check(available, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("suspend admin action: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
