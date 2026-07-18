@@ -1366,6 +1366,21 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				return checkFilePerm(ruleByID("1.7.6"), issueNetPath, 0o644, "chmod 644 /etc/issue.net")
 			}},
+		{ID: "1.7.7", Framework: cisBenchCIS, Level: 1, Section: "Banners",
+			Description: "Ensure /etc/motd is owned by root:root",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkFileOwnerRootRoot(ruleByID("1.7.7"), motdPath, "chown root:root /etc/motd")
+			}},
+		{ID: "1.7.8", Framework: cisBenchCIS, Level: 1, Section: "Banners",
+			Description: "Ensure /etc/issue is owned by root:root",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkFileOwnerRootRoot(ruleByID("1.7.8"), issuePath, "chown root:root /etc/issue")
+			}},
+		{ID: "1.7.9", Framework: cisBenchCIS, Level: 1, Section: "Banners",
+			Description: "Ensure /etc/issue.net is owned by root:root",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkFileOwnerRootRoot(ruleByID("1.7.9"), issueNetPath, "chown root:root /etc/issue.net")
+			}},
 
 		{ID: "3.2.5", Framework: cisBenchCIS, Level: 1, Section: cisCatNetwork,
 			Description: "Ensure broadcast ICMP requests are ignored",
@@ -3660,6 +3675,28 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Description: "Ensure /etc/sysctl.conf is owned by root:root",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				return checkFileOwnerRootRoot(ruleByID("6.1.32"), "/etc/sysctl.conf", "chown root:root /etc/sysctl.conf")
+			}},
+		{ID: "6.1.33", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
+			Description: "Ensure /etc/environment permissions are 644 or stricter",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("6.1.33")
+				return checkFilePerm(r, "/etc/environment", 0o644, "chmod 644 /etc/environment")
+			}},
+		{ID: "6.1.34", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
+			Description: "Ensure /etc/environment is owned by root:root",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkFileOwnerRootRoot(ruleByID("6.1.34"), "/etc/environment", "chown root:root /etc/environment")
+			}},
+		{ID: "6.1.35", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
+			Description: "Ensure /etc/profile permissions are 644 or stricter",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("6.1.35")
+				return checkFilePerm(r, "/etc/profile", 0o644, "chmod 644 /etc/profile")
+			}},
+		{ID: "6.1.36", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
+			Description: "Ensure /etc/profile is owned by root:root",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				return checkFileOwnerRootRoot(ruleByID("6.1.36"), "/etc/profile", "chown root:root /etc/profile")
 			}},
 
 		{ID: "6.2.1", StigID: "V-238408", Framework: cisBenchBOTH, Level: 1, Section: "Users",
