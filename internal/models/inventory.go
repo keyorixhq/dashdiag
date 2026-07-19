@@ -20,7 +20,7 @@ type Inventory struct {
 	Memory   InventoryMemory   `json:"memory"`
 	Drives   []InventoryDrive  `json:"drives,omitempty"`
 	NICs     []InventoryNIC    `json:"nics,omitempty"`
-	GPUs     []InventoryGPU   `json:"gpus,omitempty"`
+	GPUs     []InventoryGPU    `json:"gpus,omitempty"`
 	Cloud    *InventoryCloud   `json:"cloud,omitempty"`
 	Software InventorySoftware `json:"software"`
 }
