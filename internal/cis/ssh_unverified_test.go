@@ -62,9 +62,9 @@ func TestCISSSHDangerousCompiledDefaults(t *testing.T) {
 	// but the directives are commented out so the parser never overrides the
 	// pre-initialised dangerous compiled defaults.
 	dangerousDefaults := models.SecurityInfo{
-		SSHAuditSource:    "file",
-		SSHPasswordAuth:   true, // compiled default: yes
-		SSHTCPForwarding:  true, // compiled default: yes
+		SSHAuditSource:     "file",
+		SSHPasswordAuth:    true, // compiled default: yes
+		SSHTCPForwarding:   true, // compiled default: yes
 		SSHAgentForwarding: true, // compiled default: yes
 	}
 	rep := Evaluate(dangerousDefaults, ks, 1, false, "apt")

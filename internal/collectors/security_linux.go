@@ -144,6 +144,12 @@ func parseSSHConfig(info *models.SecurityInfo) {
 	}
 	if readAny {
 		info.SSHAuditSource = secTypeFile
+	} else {
+		// Neither sshd -T nor any config file was readable. This means there is no
+		// SSH evidence at all (container, minimal install, or permission denied on
+		// all paths). Mark unreadable so that analysis skips SSH checks rather than
+		// treating the pre-set dangerous compiled defaults (true) as real verdicts.
+		info.SSHConfigUnreadable = true
 	}
 }
 
