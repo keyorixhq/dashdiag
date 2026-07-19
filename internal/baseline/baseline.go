@@ -56,12 +56,39 @@ func baselineDir() string {
 	return filepath.Join(home, ".dsd", "baselines")
 }
 
+// safeHostname strips path-unsafe characters from a hostname before it is used
+// as a filename component. Bundles arriving via dsd replay carry a
+// manifest-supplied hostname that is attacker-controlled; letting it flow into
+// filepath.Join unsanitized allows writes outside ~/.dsd/baselines/.
+func safeHostname(h string) string {
+	safe := strings.Map(func(r rune) rune {
+		if r == '/' || r == '\\' || r == ':' || r == '\x00' {
+			return '_'
+		}
+		return r
+	}, h)
+	if safe == "" || safe == "." || safe == ".." {
+		return "unknown-host"
+	}
+	return safe
+}
+
 func latestPath(hostname string) string {
-	return filepath.Join(baselineDir(), hostname+"-latest.json")
+	dir := baselineDir()
+	full := filepath.Join(dir, safeHostname(hostname)+"-latest.json")
+	if !strings.HasPrefix(full, dir) {
+		return filepath.Join(dir, "unknown-host-latest.json")
+	}
+	return full
 }
 
 func prevPath(hostname string) string {
-	return filepath.Join(baselineDir(), hostname+"-prev.json")
+	dir := baselineDir()
+	full := filepath.Join(dir, safeHostname(hostname)+"-prev.json")
+	if !strings.HasPrefix(full, dir) {
+		return filepath.Join(dir, "unknown-host-prev.json")
+	}
+	return full
 }
 
 func SaveBaseline(snap *Snapshot) error {
@@ -74,7 +101,10 @@ func SaveBaseline(snap *Snapshot) error {
 		return fmt.Errorf("marshalling snapshot: %w", err)
 	}
 
-	tsFile := filepath.Join(dir, snap.Hostname+"-"+snap.Timestamp.Format("20060102-150405")+".json")
+	tsFile := filepath.Join(dir, safeHostname(snap.Hostname)+"-"+snap.Timestamp.Format("20060102-150405")+".json")
+	if !strings.HasPrefix(tsFile, dir) {
+		return fmt.Errorf("baseline path %q escapes baseline directory", tsFile)
+	}
 	tmp, err := os.CreateTemp(dir, ".snap-*.tmp")
 	if err != nil {
 		return fmt.Errorf("creating temp file: %w", err)
