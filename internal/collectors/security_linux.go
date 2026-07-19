@@ -105,10 +105,17 @@ func (c *SecurityCollector) Collect(ctx context.Context) (interface{}, error) {
 // Both paths feed the same parseSSHFileContent parser since sshd -T output
 // uses the same "key value" format as sshd_config.
 func parseSSHConfig(info *models.SecurityInfo) {
-	// Default safe values (OpenSSH modern defaults)
-	info.SSHPubkeyAuth = true   // on by default in modern OpenSSH
-	info.SSHStrictModes = true  // on by default
-	info.SSHIgnoreRhosts = true // on by default in modern OpenSSH
+	// Default values matching OpenSSH compiled defaults.
+	// "Safe" defaults (enabled features) are true; "dangerous" defaults that
+	// must be explicitly disabled are also true so a commented-out directive in
+	// sshd_config (which leaves the compiled default active) is never silently
+	// treated as the secure/disabled state by the file-parse fallback path.
+	info.SSHPubkeyAuth = true      // compiled default: yes
+	info.SSHStrictModes = true     // compiled default: yes
+	info.SSHIgnoreRhosts = true    // compiled default: yes
+	info.SSHPasswordAuth = true    // compiled default: yes — must be explicitly disabled
+	info.SSHTCPForwarding = true   // compiled default: yes — must be explicitly disabled
+	info.SSHAgentForwarding = true // compiled default: yes — must be explicitly disabled
 
 	// Try sshd -T first — gives the fully merged effective configuration.
 	// On RHEL 10 this requires root; non-root exits 0 but prints "Permission denied".
@@ -137,6 +144,12 @@ func parseSSHConfig(info *models.SecurityInfo) {
 	}
 	if readAny {
 		info.SSHAuditSource = secTypeFile
+	} else {
+		// Neither sshd -T nor any config file was readable. This means there is no
+		// SSH evidence at all (container, minimal install, or permission denied on
+		// all paths). Mark unreadable so that analysis skips SSH checks rather than
+		// treating the pre-set dangerous compiled defaults (true) as real verdicts.
+		info.SSHConfigUnreadable = true
 	}
 }
 
