@@ -71,7 +71,7 @@ func TestFirstConfigError(t *testing.T) {
 // guard in webConfigTest (line 18): an empty command slice in the cmds list is
 // silently skipped, not panicked on (c[0] would panic on an empty slice).
 func TestWebConfigTest_EmptyCommandGuard(t *testing.T) {
-	t.Parallel()
+	// no t.Parallel(): withFixtureSource mutates the global activeSource.
 	// cmds has one entry with zero elements; the guard fires and we skip to the
 	// end of the loop, returning (false, false, "").
 	withFixtureSource(t, func(_ *source.Bundle) {})
@@ -85,7 +85,7 @@ func TestWebConfigTest_EmptyCommandGuard(t *testing.T) {
 // guard in webVersion (line 64): an empty command slice is silently skipped,
 // and the function returns "" when no command succeeds.
 func TestWebVersion_EmptyCommandGuard(t *testing.T) {
-	t.Parallel()
+	// no t.Parallel(): withFixtureSource mutates the global activeSource.
 	withFixtureSource(t, func(_ *source.Bundle) {})
 	if got := webVersion(context.Background(), [][]string{{}}, "Apache/"); got != "" {
 		t.Errorf("empty command must be skipped, want empty result, got %q", got)

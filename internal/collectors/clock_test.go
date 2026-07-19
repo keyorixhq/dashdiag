@@ -92,7 +92,6 @@ func TestClockReplayReproducesCapturedSyncState(t *testing.T) {
 // clock.go:34.57,37.3 — the `if _, err := runCmd(ctx, "pgrep", "timed"); err == nil`
 // success branch, which sets Synced=true and Source="timed".
 func TestClockCollector_CollectDarwin_PgrepFound(t *testing.T) {
-	t.Parallel()
 	b := source.NewBundle()
 	b.PutCmd("pgrep", []string{"timed"}, "", 0)
 	prev := SetSource(source.NewReplay(b))
@@ -122,7 +121,6 @@ func TestClockCollector_CollectDarwin_PgrepFound(t *testing.T) {
 // clock.go:41.2,41.18 — the else branch when pgrep timed fails (timed not running),
 // which sets Synced=false and Source="unavailable".
 func TestClockCollector_CollectDarwin_PgrepMissing(t *testing.T) {
-	t.Parallel()
 	b := source.NewBundle()
 	b.PutCmd("pgrep", []string{"timed"}, "", 1) // non-zero exit → not running
 	prev := SetSource(source.NewReplay(b))
