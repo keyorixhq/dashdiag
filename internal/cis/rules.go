@@ -5130,7 +5130,7 @@ var securettyPath = "/etc/securetty"
 var pamSuPath = "/etc/pam.d/su"
 
 // pwqualityConfPath for pam_pwquality password complexity check (5.4.9).
-var pwqualityConfPath = "/etc/security/pwquality.conf"
+var pwqualityConfPath = "/etc/security/pwquality.conf" //nolint:gosec // G101 false positive — path, not credential
 
 // faillockConfPath for pam_faillock account lockout check (5.4.10).
 var faillockConfPath = "/etc/security/faillock.conf"
@@ -5139,7 +5139,7 @@ var faillockConfPath = "/etc/security/faillock.conf"
 var pamCommonAuthPath = "/etc/pam.d/common-auth"
 
 // pamCommonPasswordPath for password hashing (5.4.11) and reuse (5.4.12) checks.
-var pamCommonPasswordPath = "/etc/pam.d/common-password"
+var pamCommonPasswordPath = "/etc/pam.d/common-password" //nolint:gosec // G101 false positive — path, not credential
 
 // etcProfilePath, etcProfileDPath, etcBashrcPath for umask (5.5.3) and TMOUT (5.5.4) checks.
 var etcProfilePath = "/etc/profile"
@@ -5269,24 +5269,6 @@ var rsyncDefaultPath = "/etc/default/rsync"
 // logrotateConfPath and logrotateConfDPath for logrotate config check (4.3.1).
 var logrotateConfPath = "/etc/logrotate.conf"
 var logrotateConfDPath = "/etc/logrotate.d"
-
-// devShmPath and varTmpPath are the mount points checked by mount-option rules
-// (1.1.6-1.1.8 and 1.1.9-1.1.11). Package-level vars for test injection.
-var devShmPath = "/dev/shm"
-var varTmpPath = "/var/tmp"
-
-// Shared skip/error reason strings used across multiple CIS rules.
-const (
-	cisDebianOnly          = "rule applies to Debian/Ubuntu systems only"
-	cisAuditdNA            = "auditd not available"
-	cisAuditConfNA         = "auditd.conf not readable"
-	cisSudoersNA           = "sudoers not readable — run as root for full coverage"
-	cisInactiveRemediation = "set INACTIVE=30 in /etc/default/useradd"
-	cisPasswdUnreadable    = "could not read /etc/passwd"
-	cisGroupUnreadable     = "could not read /etc/group"
-	cisNoExistentHome      = "/nonexistent"
-	cisDevNullHome         = "/dev/null"
-)
 
 // checkLoginDefsField reads path (normally /etc/login.defs) for the first
 // uncommented "field value..." line and applies fails(days) to decide PASS/FAIL.
