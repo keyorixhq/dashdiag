@@ -182,6 +182,40 @@ func TestOptionsDefaults(t *testing.T) {
 	}
 }
 
+// TestValidateRemoteCmd guards THREAT_MODEL_CLI.md F-2: shell metacharacters in
+// --remote-cmd would execute on the remote host's shell. The default value must
+// be accepted; injected variants must be rejected before any SSH connection.
+func TestValidateRemoteCmd(t *testing.T) {
+	t.Parallel()
+	good := []string{
+		"dsd health --json",
+		"dsd health deep --json",
+		"/usr/local/bin/dsd health --json",
+	}
+	for _, cmd := range good {
+		if err := validateRemoteCmd(cmd); err != nil {
+			t.Errorf("validateRemoteCmd(%q) = %v, want nil", cmd, err)
+		}
+	}
+	bad := []string{
+		"dsd health; rm -rf /",
+		"dsd health | tee /tmp/out",
+		"dsd health & evil",
+		"dsd health && evil",
+		"`id`",
+		"$(whoami)",
+		"dsd health --json > /tmp/out",
+		"dsd health --json < /dev/null",
+		"dsd health\nrm -rf /",
+		"dsd health\rrm -rf /",
+	}
+	for _, cmd := range bad {
+		if err := validateRemoteCmd(cmd); err == nil {
+			t.Errorf("validateRemoteCmd(%q) = nil, want rejection", cmd)
+		}
+	}
+}
+
 // TestShellQuote guards the defense-in-depth quoting around the remote
 // chmod/exec command string: a path with a space or an embedded single quote
 // must round-trip safely inside a single-quoted shell argument.

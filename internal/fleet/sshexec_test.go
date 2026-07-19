@@ -210,7 +210,10 @@ echo '{"hostname":"'"$1"'","insights":[]}'
 	t.Setenv("PATH", dir)
 
 	hosts := []string{"web1", "-oProxyCommand=evil", "web2", "web3"}
-	results := Run(context.Background(), hosts, Options{Concurrency: 2})
+	results, err := Run(context.Background(), hosts, Options{Concurrency: 2})
+	if err != nil {
+		t.Fatalf("Run returned unexpected error: %v", err)
+	}
 
 	if len(results) != len(hosts) {
 		t.Fatalf("Run returned %d results, want %d", len(results), len(hosts))

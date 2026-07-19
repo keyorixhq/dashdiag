@@ -87,7 +87,10 @@ func runFleet(cmd *cobra.Command, args []string) error {
 	if !jsonOut {
 		fmt.Fprintf(os.Stderr, "Checking %d host(s)…\n", len(hosts))
 	}
-	results := fleet.Run(cmd.Context(), hosts, opts)
+	results, err := fleet.Run(cmd.Context(), hosts, opts)
+	if err != nil {
+		return err
+	}
 	summary := fleet.Summarize(results)
 
 	if jsonOut {

@@ -45,35 +45,65 @@ const maxLogoBytes = 512 * 1024
 
 // logoDataURI turns a logo reference into a self-contained data: URI (so the report
 // remains a single file that survives email and offline viewing). A path is read and
-// base64-embedded; an already-inline data:/http(s): URI passes through. Returns "" if
-// the logo is absent, unreadable, or too large — a missing logo is never fatal to a
-// report. Typed template.URL so html/template does not strip the data: URI.
-func logoDataURI(logo string) template.URL {
+// base64-embedded; an already-inline data:/https: URI passes through. Returns ("", nil) if
+// the logo is absent; returns ("", error) for rejected inputs (SVG, non-image data: URIs,
+// http:// URLs, unreadable or oversized files). A missing logo is never fatal to a report —
+// callers should log the error but continue rendering. Typed template.URL so html/template
+// does not strip the data: URI.
+func logoDataURI(logo string) (template.URL, error) {
 	logo = strings.TrimSpace(logo)
 	if logo == "" {
-		return ""
+		return "", nil
 	}
-	if strings.HasPrefix(logo, "data:") || strings.HasPrefix(logo, "http://") || strings.HasPrefix(logo, "https://") {
-		return template.URL(logo) //nolint:gosec // caller-supplied brand URI, self-contained report
+	// Reject plain http:// — breaks the self-contained single-file invariant and
+	// leaks report opens to the logo host. Only https:// is allowed as a URL.
+	if strings.HasPrefix(logo, "http://") {
+		return "", fmt.Errorf("http:// logo URLs are not supported; use https:// or a local file path")
 	}
-	data, err := os.ReadFile(logo) //nolint:gosec // operator-supplied brand asset path
-	if err != nil || len(data) == 0 || len(data) > maxLogoBytes {
-		return ""
+	if strings.HasPrefix(logo, "https://") {
+		return template.URL(logo), nil //nolint:gosec // operator-supplied HTTPS URI, self-contained report
 	}
+	// Validate data: URIs — only image/* MIME types are safe to embed.
+	// data:text/html or data:application/... can contain executable content.
+	if strings.HasPrefix(logo, "data:") {
+		if !strings.HasPrefix(logo, "data:image/") {
+			return "", fmt.Errorf("data: logo URI must use an image/* MIME type")
+		}
+		return template.URL(logo), nil //nolint:gosec // validated image/* data URI
+	}
+	// File path: clean the path to prevent directory traversal, then read and embed.
+	logo = filepath.Clean(logo)
 	mime := logoMIME(logo)
-	return template.URL(fmt.Sprintf("data:%s;base64,%s", mime, base64.StdEncoding.EncodeToString(data))) //nolint:gosec // self-generated data URI
+	// Only allow raster image types — SVG can contain executable JavaScript via
+	// <script> elements and event handlers, which execute when the report is opened.
+	switch mime {
+	case "image/png", "image/jpeg", "image/gif", "image/webp", "image/x-icon":
+		// allowed
+	default:
+		return "", fmt.Errorf("unsupported logo format %q: only PNG, JPEG, GIF, WEBP, ICO allowed (SVG rejected — can contain scripts)", filepath.Ext(logo))
+	}
+	data, err := os.ReadFile(logo) //nolint:gosec // operator-supplied brand asset path, cleaned above
+	if err != nil {
+		return "", fmt.Errorf("reading logo file: %w", err)
+	}
+	if len(data) == 0 || len(data) > maxLogoBytes {
+		return "", fmt.Errorf("logo file %q is empty or exceeds %d bytes", logo, maxLogoBytes)
+	}
+	return template.URL(fmt.Sprintf("data:%s;base64,%s", mime, base64.StdEncoding.EncodeToString(data))), nil //nolint:gosec // self-generated data URI
 }
 
 func logoMIME(path string) string {
 	switch strings.ToLower(filepath.Ext(path)) {
 	case ".jpg", ".jpeg":
 		return "image/jpeg"
-	case ".svg":
-		return "image/svg+xml"
 	case ".gif":
 		return "image/gif"
 	case ".webp":
 		return "image/webp"
+	case ".ico":
+		return "image/x-icon"
+	case ".svg":
+		return "image/svg+xml" // returned so the caller's switch can produce a useful error
 	default:
 		return "image/png"
 	}
@@ -82,6 +112,8 @@ func logoMIME(path string) string {
 // brandBarHTML renders the header brand bar (logo + company name) for reports built by
 // manual string assembly (the guest two-block report). Returns "" when unbranded.
 // Company is HTML-escaped; the logo URI is self-generated/operator-supplied.
+// Logo errors (SVG, non-image data: URIs, http:// URLs) are logged to stderr and the
+// logo is omitted — a bad logo never prevents the report from being generated.
 func brandBarHTML() string {
 	b := activeBrand()
 	if b.Company == "" && b.Logo == "" {
@@ -89,8 +121,13 @@ func brandBarHTML() string {
 	}
 	var sb strings.Builder
 	sb.WriteString(`<div class="brandbar">`)
-	if uri := logoDataURI(b.Logo); uri != "" {
-		fmt.Fprintf(&sb, `<img class="brand-logo" src="%s" alt="%s">`, uri, html.EscapeString(b.Company))
+	if b.Logo != "" {
+		uri, err := logoDataURI(b.Logo)
+		if err != nil {
+			fmt.Fprintf(os.Stderr, "dsd: logo rejected: %v\n", err)
+		} else if uri != "" {
+			fmt.Fprintf(&sb, `<img class="brand-logo" src="%s" alt="%s">`, uri, html.EscapeString(b.Company))
+		}
 	}
 	if b.Company != "" {
 		fmt.Fprintf(&sb, `<span class="brand-name">%s</span>`, html.EscapeString(b.Company))
