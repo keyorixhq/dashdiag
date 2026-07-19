@@ -5813,6 +5813,10 @@ func Evaluate(sec models.SecurityInfo, ks models.KernelSecurityInfo, level int, 
 
 		result := adaptRemediation(rule.Check(sec, ks), pkgMgr)
 
+		if refs := NIS2Refs(rule.ID); len(refs) > 0 {
+			result.NIS2Refs = refs
+		}
+
 		// SSH config-derived rules read fields that fall back to OpenSSH defaults
 		// when sshd_config couldn't be read (non-root: `sshd -T` needs root and
 		// sshd_config is mode 0600). In that state the verdict is unverified in
