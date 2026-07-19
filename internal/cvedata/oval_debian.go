@@ -377,8 +377,10 @@ func ScanUbuntuOVALPackages(ctx context.Context, ovalPath string) ([]OVALCVSSRes
 		for _, pkg := range entry.pkgs {
 			allComponents = append(allComponents, pkg.name)
 			installedEVR, ok := installed[strings.ToLower(pkg.name)]
-			if !ok {
-				continue // not installed
+			if !ok || installedEVR == "" || installedEVR == "(none)" {
+				// Not installed, or in config-files/half-installed dpkg state.
+				// Treat identically to "package absent" — do not suppress the CVE.
+				continue
 			}
 			// Version-aware: if a fixed version is known AND the installed
 			// version is already at or past it, the CVE is patched on this host.
