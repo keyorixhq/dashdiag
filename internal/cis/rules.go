@@ -28,6 +28,26 @@ const (
 	stigPassMaxDaysID = "V-238380" //nolint:gosec // G101: STIG rule identifier, not a credential
 )
 
+// CIS rule shared string constants — extracted to satisfy the no-duplicate-literal policy.
+// These strings appear in skip/fail reasons and path references throughout the rule set.
+const (
+	cisSkipSSHDirUnreadable     = "could not read /etc/ssh"
+	cisSkipSSHConfigUnreadable  = "sshd_config unreadable"
+	cisSkipDebianOnly           = "rule applies to Debian/Ubuntu systems only"
+	cisPathDevShm               = "/dev/shm"
+	cisPathVarTmp               = "/var/tmp"
+	cisSkipAuditdUnavailable    = "auditd not available"
+	cisSkipAuditdConfUnreadable = "auditd.conf not readable"
+	cisFixAuditBacklogGrub      = "add 'audit_backlog_limit=8192' to GRUB_CMDLINE_LINUX in /etc/default/grub and run update-grub"
+	cisSkipJournaldNotFound     = "journald config not found (systemd not installed)"
+	cisSkipSudoersUnreadable    = "sudoers not readable — run as root for full coverage"
+	cisFixInactiveUseradd       = "set INACTIVE=30 in /etc/default/useradd"
+	cisSkipPasswdUnreadable     = "could not read /etc/passwd"
+	cisSkipGroupUnreadable      = "could not read /etc/group"
+	cisHomeNonexistent          = "/nonexistent"
+	cisHomeDevNull              = "/dev/null"
+)
+
 // parseMaxStartups parses an sshd MaxStartups value ("start:rate:full" or a bare
 // "start") into its start, rate, and full limits. A bare value has no random-drop
 // throttling, so full == start and rate == 0. ok is false when the value can't be parsed.
@@ -500,7 +520,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				r := ruleByID("5.2.3")
 				entries, err := os.ReadDir(sshHostKeyDir) //nolint:gosec // package-level var
 				if err != nil {
-					return skipr(r, "could not read /etc/ssh")
+					return skipr(r, cisSkipSSHDirUnreadable)
 				}
 				var bad []string
 				found := false
@@ -534,7 +554,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				r := ruleByID("5.2.4")
 				entries, err := os.ReadDir(sshHostKeyDir) //nolint:gosec // package-level var
 				if err != nil {
-					return skipr(r, "could not read /etc/ssh")
+					return skipr(r, cisSkipSSHDirUnreadable)
 				}
 				var bad []string
 				found := false
@@ -795,7 +815,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("5.2.20")
 				if sec.SSHConfigUnreadable {
-					return skipr(r, "sshd_config unreadable")
+					return skipr(r, cisSkipSSHConfigUnreadable)
 				}
 				if sec.SSHPasswordAuth {
 					return failr(r, "PasswordAuthentication yes — password logins permitted over SSH",
@@ -808,7 +828,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("5.2.21")
 				if sec.SSHConfigUnreadable {
-					return skipr(r, "sshd_config unreadable")
+					return skipr(r, cisSkipSSHConfigUnreadable)
 				}
 				if !sec.SSHStrictModes {
 					return failr(r, "StrictModes no — SSH ignores file-permission checks on user keys and home dirs",
@@ -821,7 +841,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("5.2.22")
 				if sec.SSHConfigUnreadable {
-					return skipr(r, "sshd_config unreadable")
+					return skipr(r, cisSkipSSHConfigUnreadable)
 				}
 				if sec.SSHAgentForwarding {
 					return failr(r, "AllowAgentForwarding yes — SSH agent can be hijacked if this host is compromised",
@@ -834,7 +854,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("5.2.23")
 				if sec.SSHConfigUnreadable {
-					return skipr(r, "sshd_config unreadable")
+					return skipr(r, cisSkipSSHConfigUnreadable)
 				}
 				if sec.SSHProtocol1 {
 					return failr(r, "Protocol 1 is enabled — uses obsolete, broken cryptography",
@@ -847,7 +867,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("5.2.24")
 				if sec.SSHConfigUnreadable {
-					return skipr(r, "sshd_config unreadable")
+					return skipr(r, cisSkipSSHConfigUnreadable)
 				}
 				if !sec.SSHPubkeyAuth {
 					return failr(r, "PubkeyAuthentication no — public-key login disabled, only password auth available",
@@ -860,7 +880,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("5.2.25")
 				if sec.SSHConfigUnreadable {
-					return skipr(r, "sshd_config unreadable")
+					return skipr(r, cisSkipSSHConfigUnreadable)
 				}
 				if sec.SSHCiphers == "" {
 					return skipr(r, "Ciphers not available (run as root for sshd -T)")
@@ -880,7 +900,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("5.2.26")
 				if sec.SSHConfigUnreadable {
-					return skipr(r, "sshd_config unreadable")
+					return skipr(r, cisSkipSSHConfigUnreadable)
 				}
 				if sec.SSHMACs == "" {
 					return skipr(r, "MACs not available (run as root for sshd -T)")
@@ -901,7 +921,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("5.2.27")
 				if sec.SSHConfigUnreadable {
-					return skipr(r, "sshd_config unreadable")
+					return skipr(r, cisSkipSSHConfigUnreadable)
 				}
 				if sec.SSHKexAlgorithms == "" {
 					return skipr(r, "KexAlgorithms not available (run as root for sshd -T)")
@@ -930,7 +950,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				r := ruleByID("5.2.29")
 				entries, err := os.ReadDir(sshHostKeyDir) //nolint:gosec // package-level var
 				if err != nil {
-					return skipr(r, "could not read /etc/ssh")
+					return skipr(r, cisSkipSSHDirUnreadable)
 				}
 				var bad []string
 				found := false
@@ -968,7 +988,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				r := ruleByID("5.2.30")
 				entries, err := os.ReadDir(sshHostKeyDir) //nolint:gosec // package-level var
 				if err != nil {
-					return skipr(r, "could not read /etc/ssh")
+					return skipr(r, cisSkipSSHDirUnreadable)
 				}
 				var bad []string
 				found := false
@@ -1080,7 +1100,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("1.2.1")
 				if _, err := os.Stat(debianVersionPath); err != nil {
-					return skipr(r, "rule applies to Debian/Ubuntu systems only")
+					return skipr(r, cisSkipDebianOnly)
 				}
 				data, err := os.ReadFile(aptSourcesListPath) // #nosec G304 -- package-level var
 				if err == nil {
@@ -1109,7 +1129,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("1.2.2")
 				if _, err := os.Stat(debianVersionPath); err != nil {
-					return skipr(r, "rule applies to Debian/Ubuntu systems only")
+					return skipr(r, cisSkipDebianOnly)
 				}
 				if _, err := os.Stat(aptTrustedGpgPath); err == nil {
 					return pass(r)
@@ -1131,7 +1151,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("1.2.3")
 				if _, err := os.Stat(debianVersionPath); err != nil {
-					return skipr(r, "rule applies to Debian/Ubuntu systems only")
+					return skipr(r, cisSkipDebianOnly)
 				}
 				entries, err := os.ReadDir(aptConfDPath) //nolint:gosec // package-level var
 				if err != nil {
@@ -1165,7 +1185,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("1.2.4")
 				if _, err := os.Stat(debianVersionPath); err != nil {
-					return skipr(r, "rule applies to Debian/Ubuntu systems only")
+					return skipr(r, cisSkipDebianOnly)
 				}
 				for _, p := range unattendedUpgradesBinPaths {
 					if _, err := os.Stat(p); err == nil { //nolint:gosec // package-level var
@@ -1327,42 +1347,42 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 		{ID: "1.1.6", Framework: cisBenchCIS, Level: 1, Section: "Filesystem",
 			Description: "Ensure nodev option set on /dev/shm partition",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
-				return checkMountOption(ruleByID("1.1.6"), "/dev/shm", "nodev",
+				return checkMountOption(ruleByID("1.1.6"), cisPathDevShm, "nodev",
 					"add 'nodev' to /dev/shm mount options in /etc/fstab")
 			}},
 
 		{ID: "1.1.7", Framework: cisBenchCIS, Level: 1, Section: "Filesystem",
 			Description: "Ensure nosuid option set on /dev/shm partition",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
-				return checkMountOption(ruleByID("1.1.7"), "/dev/shm", "nosuid",
+				return checkMountOption(ruleByID("1.1.7"), cisPathDevShm, "nosuid",
 					"add 'nosuid' to /dev/shm mount options in /etc/fstab")
 			}},
 
 		{ID: "1.1.8", Framework: cisBenchCIS, Level: 1, Section: "Filesystem",
 			Description: "Ensure noexec option set on /dev/shm partition",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
-				return checkMountOption(ruleByID("1.1.8"), "/dev/shm", "noexec",
+				return checkMountOption(ruleByID("1.1.8"), cisPathDevShm, "noexec",
 					"add 'noexec' to /dev/shm mount options in /etc/fstab")
 			}},
 
 		{ID: "1.1.9", Framework: cisBenchCIS, Level: 1, Section: "Filesystem",
 			Description: "Ensure nodev option set on /var/tmp partition",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
-				return checkMountOption(ruleByID("1.1.9"), "/var/tmp", "nodev",
+				return checkMountOption(ruleByID("1.1.9"), cisPathVarTmp, "nodev",
 					"add 'nodev' to /var/tmp mount options in /etc/fstab")
 			}},
 
 		{ID: "1.1.10", Framework: cisBenchCIS, Level: 1, Section: "Filesystem",
 			Description: "Ensure nosuid option set on /var/tmp partition",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
-				return checkMountOption(ruleByID("1.1.10"), "/var/tmp", "nosuid",
+				return checkMountOption(ruleByID("1.1.10"), cisPathVarTmp, "nosuid",
 					"add 'nosuid' to /var/tmp mount options in /etc/fstab")
 			}},
 
 		{ID: "1.1.11", Framework: cisBenchCIS, Level: 1, Section: "Filesystem",
 			Description: "Ensure noexec option set on /var/tmp partition",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
-				return checkMountOption(ruleByID("1.1.11"), "/var/tmp", "noexec",
+				return checkMountOption(ruleByID("1.1.11"), cisPathVarTmp, "noexec",
 					"add 'noexec' to /var/tmp mount options in /etc/fstab")
 			}},
 
@@ -2013,7 +2033,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("3.5.1.2")
 				if _, err := os.Stat(debianVersionPath); err != nil {
-					return skipr(r, "rule applies to Debian/Ubuntu systems only")
+					return skipr(r, cisSkipDebianOnly)
 				}
 				for _, p := range netfilterPersistentPaths {
 					if _, err := os.Stat(p); err == nil {
@@ -2305,11 +2325,11 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("4.1.1.1")
 				if sec.AuditRules == -1 {
-					return skipr(r, "auditd not available")
+					return skipr(r, cisSkipAuditdUnavailable)
 				}
 				data, err := os.ReadFile(auditdConfPath) // #nosec G304 -- package-level var
 				if err != nil {
-					return skipr(r, "auditd.conf not readable")
+					return skipr(r, cisSkipAuditdConfUnreadable)
 				}
 				for line := range strings.SplitSeq(string(data), "\n") {
 					parts := strings.SplitN(strings.TrimSpace(line), "=", 2)
@@ -2339,11 +2359,11 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("4.1.1.2")
 				if sec.AuditRules == -1 {
-					return skipr(r, "auditd not available")
+					return skipr(r, cisSkipAuditdUnavailable)
 				}
 				data, err := os.ReadFile(auditdConfPath) // #nosec G304 -- package-level var
 				if err != nil {
-					return skipr(r, "auditd.conf not readable")
+					return skipr(r, cisSkipAuditdConfUnreadable)
 				}
 				for line := range strings.SplitSeq(string(data), "\n") {
 					parts := strings.SplitN(strings.TrimSpace(line), "=", 2)
@@ -2370,11 +2390,11 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("4.1.1.3")
 				if sec.AuditRules == -1 {
-					return skipr(r, "auditd not available")
+					return skipr(r, cisSkipAuditdUnavailable)
 				}
 				data, err := os.ReadFile(auditdConfPath) // #nosec G304 -- package-level var
 				if err != nil {
-					return skipr(r, "auditd.conf not readable")
+					return skipr(r, cisSkipAuditdConfUnreadable)
 				}
 				spaceLeft, adminSpaceLeft := "", ""
 				for line := range strings.SplitSeq(string(data), "\n") {
@@ -2410,7 +2430,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("4.1.1.4")
 				if sec.AuditRules == -1 {
-					return skipr(r, "auditd not available")
+					return skipr(r, cisSkipAuditdUnavailable)
 				}
 				data, err := os.ReadFile(procCmdlinePath) // #nosec G304 -- package-level var
 				if err != nil {
@@ -2424,16 +2444,16 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					n, parseErr := strconv.ParseInt(rest, 10, 64)
 					if parseErr != nil {
 						return failr(r, fmt.Sprintf("audit_backlog_limit=%q is not a valid integer", rest),
-							"add 'audit_backlog_limit=8192' to GRUB_CMDLINE_LINUX in /etc/default/grub and run update-grub")
+							cisFixAuditBacklogGrub)
 					}
 					if n < 8192 {
 						return failr(r, fmt.Sprintf("audit_backlog_limit=%d is below the CIS minimum of 8192", n),
-							"add 'audit_backlog_limit=8192' to GRUB_CMDLINE_LINUX in /etc/default/grub and run update-grub")
+							cisFixAuditBacklogGrub)
 					}
 					return pass(r)
 				}
 				return failr(r, "audit_backlog_limit not set in kernel command line (default 64 is too low)",
-					"add 'audit_backlog_limit=8192' to GRUB_CMDLINE_LINUX in /etc/default/grub and run update-grub")
+					cisFixAuditBacklogGrub)
 			}},
 
 		{ID: "4.1.1.5", Framework: cisBenchCIS, Level: 2, Section: "Audit",
@@ -2441,7 +2461,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("4.1.1.5")
 				if sec.AuditRules == -1 {
-					return skipr(r, "auditd not available")
+					return skipr(r, cisSkipAuditdUnavailable)
 				}
 				data, err := os.ReadFile(procCmdlinePath) // #nosec G304 -- package-level var
 				if err != nil {
@@ -2466,7 +2486,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("4.1.2")
 				if sec.AuditRules == -1 {
-					return skipr(r, "auditd not available")
+					return skipr(r, cisSkipAuditdUnavailable)
 				}
 				if sec.AuditRules == 0 {
 					// remediation is rewritten per package manager in Evaluate
@@ -2638,7 +2658,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					}
 				}
 				if len(lines) == 0 {
-					return skipr(r, "journald config not found (systemd not installed)")
+					return skipr(r, cisSkipJournaldNotFound)
 				}
 				for _, line := range lines {
 					line = strings.TrimSpace(line)
@@ -2684,7 +2704,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					}
 				}
 				if !anyConfig {
-					return skipr(r, "journald config not found (systemd not installed)")
+					return skipr(r, cisSkipJournaldNotFound)
 				}
 				if !hasCompress {
 					return failr(r, "Compress=yes not set in journald configuration",
@@ -2724,7 +2744,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					}
 				}
 				if !anyConfig {
-					return skipr(r, "journald config not found (systemd not installed)")
+					return skipr(r, cisSkipJournaldNotFound)
 				}
 				if !hasPersistent {
 					return failr(r, "Storage=persistent not set in journald configuration",
@@ -3060,7 +3080,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("5.3.4")
 				if sec.SudoersUnreadable {
-					return skipr(r, "sudoers not readable — run as root for full coverage")
+					return skipr(r, cisSkipSudoersUnreadable)
 				}
 				if len(sec.SudoNopasswd) == 0 {
 					return pass(r)
@@ -3075,7 +3095,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("5.3.2")
 				if sec.SudoersUnreadable {
-					return skipr(r, "sudoers not readable — run as root for full coverage")
+					return skipr(r, cisSkipSudoersUnreadable)
 				}
 				if !sec.SudoDefaultsPTY {
 					return failr(r, "Defaults use_pty not set in sudoers",
@@ -3089,7 +3109,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("5.3.3")
 				if sec.SudoersUnreadable {
-					return skipr(r, "sudoers not readable — run as root for full coverage")
+					return skipr(r, cisSkipSudoersUnreadable)
 				}
 				if !sec.SudoDefaultsLogfile {
 					return failr(r, "Defaults logfile= not configured in sudoers",
@@ -3206,17 +3226,17 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 						}
 						if n < 0 {
 							return failr(r, fmt.Sprintf("INACTIVE=%d — no automatic account lockout configured", n),
-								"set INACTIVE=30 in /etc/default/useradd")
+								cisFixInactiveUseradd)
 						}
 						if n > 30 {
 							return failr(r, fmt.Sprintf("INACTIVE=%d days (must be ≤ 30)", n),
-								"set INACTIVE=30 in /etc/default/useradd")
+								cisFixInactiveUseradd)
 						}
 						return pass(r)
 					}
 				}
 				return failr(r, "INACTIVE not set in /etc/default/useradd (no automatic lockout)",
-					"set INACTIVE=30 in /etc/default/useradd")
+					cisFixInactiveUseradd)
 			}},
 
 		{ID: "5.4.8", Framework: cisBenchCIS, Level: 1, Section: cisCatAuth,
@@ -3225,7 +3245,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				r := ruleByID("5.4.8")
 				data, err := os.ReadFile(etcPasswdPath) //nolint:gosec // package-level var
 				if err != nil {
-					return skipr(r, "could not read /etc/passwd")
+					return skipr(r, cisSkipPasswdUnreadable)
 				}
 				const uidMin = 1000
 				noInteractive := map[string]bool{
@@ -3590,7 +3610,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("5.3.5")
 				if sec.SudoersUnreadable {
-					return skipr(r, "sudoers not readable — run as root for full coverage")
+					return skipr(r, cisSkipSudoersUnreadable)
 				}
 				if sec.SudoTimestampNever {
 					return failr(r, "Defaults timestamp_timeout < 0 — sudo sessions never expire",
@@ -4022,7 +4042,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 		{ID: "1.1.24", Framework: cisBenchCIS, Level: 1, Section: "Filesystem",
 			Description: "Ensure /var/tmp is on a separate partition",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
-				return checkSeparateMountPoint(ruleByID("1.1.24"), "/var/tmp",
+				return checkSeparateMountPoint(ruleByID("1.1.24"), cisPathVarTmp,
 					"create a separate /var/tmp partition and add to /etc/fstab")
 			}},
 
@@ -4387,7 +4407,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				r := ruleByID("6.2.5")
 				data, err := os.ReadFile(etcPasswdPath)
 				if err != nil {
-					return skipr(r, "could not read /etc/passwd")
+					return skipr(r, cisSkipPasswdUnreadable)
 				}
 				seen := map[string]bool{}
 				var dups []string
@@ -4419,7 +4439,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				r := ruleByID("6.2.6")
 				data, err := os.ReadFile(etcGroupPath)
 				if err != nil {
-					return skipr(r, "could not read /etc/group")
+					return skipr(r, cisSkipGroupUnreadable)
 				}
 				seen := map[string]bool{}
 				var dups []string
@@ -4451,7 +4471,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				r := ruleByID("6.2.7")
 				data, err := os.ReadFile(etcPasswdPath)
 				if err != nil {
-					return skipr(r, "could not read /etc/passwd")
+					return skipr(r, cisSkipPasswdUnreadable)
 				}
 				seen := map[string]bool{}
 				var dups []string
@@ -4483,7 +4503,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				r := ruleByID("6.2.8")
 				data, err := os.ReadFile(etcGroupPath)
 				if err != nil {
-					return skipr(r, "could not read /etc/group")
+					return skipr(r, cisSkipGroupUnreadable)
 				}
 				seen := map[string]bool{}
 				var dups []string
@@ -4515,7 +4535,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				r := ruleByID("6.2.9")
 				data, err := os.ReadFile(etcPasswdPath)
 				if err != nil {
-					return skipr(r, "could not read /etc/passwd")
+					return skipr(r, cisSkipPasswdUnreadable)
 				}
 				var nonRoot []string
 				for line := range strings.SplitSeq(string(data), "\n") {
@@ -4578,7 +4598,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				r := ruleByID("6.2.11")
 				data, err := os.ReadFile(etcPasswdPath) // #nosec G304 -- hardcoded system path
 				if err != nil {
-					return skipr(r, "could not read /etc/passwd")
+					return skipr(r, cisSkipPasswdUnreadable)
 				}
 				var violations []string
 				for line := range strings.SplitSeq(string(data), "\n") {
@@ -4595,7 +4615,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 						continue
 					}
 					homeDir := fields[5]
-					if homeDir == "" || homeDir == "/nonexistent" || homeDir == "/dev/null" {
+					if homeDir == "" || homeDir == cisHomeNonexistent || homeDir == cisHomeDevNull {
 						continue
 					}
 					fi, statErr := os.Lstat(homeDir) // #nosec G304 -- from /etc/passwd, not user input
@@ -4626,7 +4646,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				r := ruleByID("6.2.12")
 				data, err := os.ReadFile(etcPasswdPath) // #nosec G304 -- hardcoded system path
 				if err != nil {
-					return skipr(r, "could not read /etc/passwd")
+					return skipr(r, cisSkipPasswdUnreadable)
 				}
 				var violations []string
 				for line := range strings.SplitSeq(string(data), "\n") {
@@ -4643,7 +4663,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 						continue
 					}
 					homeDir := fields[5]
-					if homeDir == "" || homeDir == "/nonexistent" || homeDir == "/dev/null" {
+					if homeDir == "" || homeDir == cisHomeNonexistent || homeDir == cisHomeDevNull {
 						continue
 					}
 					fi, statErr := os.Lstat(homeDir) // #nosec G304 -- from /etc/passwd, not user input
@@ -4670,7 +4690,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				r := ruleByID("6.2.13")
 				data, err := os.ReadFile(etcPasswdPath) // #nosec G304 -- hardcoded system path
 				if err != nil {
-					return skipr(r, "could not read /etc/passwd")
+					return skipr(r, cisSkipPasswdUnreadable)
 				}
 				var violations []string
 				checked := 0
@@ -4688,7 +4708,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 						continue
 					}
 					homeDir := fields[5]
-					if homeDir == "" || homeDir == "/nonexistent" || homeDir == "/dev/null" {
+					if homeDir == "" || homeDir == cisHomeNonexistent || homeDir == cisHomeDevNull {
 						continue
 					}
 					entries, rdErr := os.ReadDir(homeDir) // #nosec G304 -- path from /etc/passwd
@@ -4728,7 +4748,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				r := ruleByID("6.2.14")
 				data, err := os.ReadFile(etcPasswdPath) // #nosec G304 -- hardcoded system path
 				if err != nil {
-					return skipr(r, "could not read /etc/passwd")
+					return skipr(r, cisSkipPasswdUnreadable)
 				}
 				var found []string
 				accessible := 0
@@ -4746,7 +4766,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 						continue
 					}
 					homeDir := fields[5]
-					if homeDir == "" || homeDir == "/nonexistent" || homeDir == "/dev/null" {
+					if homeDir == "" || homeDir == cisHomeNonexistent || homeDir == cisHomeDevNull {
 						continue
 					}
 					if _, statErr := os.Stat(homeDir); statErr != nil { // #nosec G304
@@ -4776,7 +4796,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				r := ruleByID("6.2.15")
 				data, err := os.ReadFile(etcPasswdPath) // #nosec G304 -- hardcoded system path
 				if err != nil {
-					return skipr(r, "could not read /etc/passwd")
+					return skipr(r, cisSkipPasswdUnreadable)
 				}
 				var found []string
 				accessible := 0
@@ -4794,7 +4814,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 						continue
 					}
 					homeDir := fields[5]
-					if homeDir == "" || homeDir == "/nonexistent" || homeDir == "/dev/null" {
+					if homeDir == "" || homeDir == cisHomeNonexistent || homeDir == cisHomeDevNull {
 						continue
 					}
 					if _, statErr := os.Stat(homeDir); statErr != nil { // #nosec G304
@@ -4824,7 +4844,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				r := ruleByID("6.2.16")
 				data, err := os.ReadFile(etcPasswdPath) // #nosec G304 -- hardcoded system path
 				if err != nil {
-					return skipr(r, "could not read /etc/passwd")
+					return skipr(r, cisSkipPasswdUnreadable)
 				}
 				var found []string
 				accessible := 0
@@ -4842,7 +4862,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 						continue
 					}
 					homeDir := fields[5]
-					if homeDir == "" || homeDir == "/nonexistent" || homeDir == "/dev/null" {
+					if homeDir == "" || homeDir == cisHomeNonexistent || homeDir == cisHomeDevNull {
 						continue
 					}
 					if _, statErr := os.Stat(homeDir); statErr != nil { // #nosec G304
@@ -4872,7 +4892,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				r := ruleByID("6.2.17")
 				grpData, err := os.ReadFile(etcGroupPath) // #nosec G304 -- hardcoded system path
 				if err != nil {
-					return skipr(r, "could not read /etc/group")
+					return skipr(r, cisSkipGroupUnreadable)
 				}
 				knownGIDs := make(map[int]bool)
 				for line := range strings.SplitSeq(string(grpData), "\n") {
@@ -4891,7 +4911,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				}
 				pwData, err := os.ReadFile(etcPasswdPath) // #nosec G304 -- hardcoded system path
 				if err != nil {
-					return skipr(r, "could not read /etc/passwd")
+					return skipr(r, cisSkipPasswdUnreadable)
 				}
 				var missing []string
 				for line := range strings.SplitSeq(string(pwData), "\n") {
@@ -4926,7 +4946,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				r := ruleByID("6.2.18")
 				data, err := os.ReadFile(etcGroupPath) // #nosec G304 -- hardcoded system path
 				if err != nil {
-					return skipr(r, "could not read /etc/group")
+					return skipr(r, cisSkipGroupUnreadable)
 				}
 				for line := range strings.SplitSeq(string(data), "\n") {
 					line = strings.TrimSpace(line)
@@ -5018,7 +5038,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("V-238221")
 				if sec.SSHConfigUnreadable {
-					return skipr(r, "sshd_config unreadable")
+					return skipr(r, cisSkipSSHConfigUnreadable)
 				}
 				if sec.SSHClientAliveCountMax != 0 {
 					return failr(r,
