@@ -29,7 +29,7 @@ func NewVaultCollector() *VaultCollector { return &VaultCollector{} }
 func (c *VaultCollector) Name() string           { return "Vault" }
 func (c *VaultCollector) Timeout() time.Duration { return 8 * time.Second }
 
-func (c *VaultCollector) Collect(ctx context.Context) (interface{}, error) {
+func (c *VaultCollector) Collect(ctx context.Context) (any, error) {
 	info := &models.VaultInfo{Available: true}
 
 	// Probe HTTPS first, fall back to HTTP. Returns "" when :8200 is not reachable.
