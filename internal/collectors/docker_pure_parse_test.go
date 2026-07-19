@@ -43,7 +43,7 @@ func TestDockerExitLabel(t *testing.T) {
 		{0, "clean exit"},
 		{137, "OOM kill (SIGKILL)"},
 		{143, "graceful shutdown (SIGTERM)"},
-		{42, ""},  // unknown code → empty string
+		{42, ""}, // unknown code → empty string
 		{-1, ""}, // unknown code → empty string
 	}
 	for _, c := range cases {
@@ -64,12 +64,12 @@ func TestDetectPlaintextSecrets(t *testing.T) {
 		{[]string{"DB_PASSWORD=mysecret"}, []string{"DB_PASSWORD"}},
 		{[]string{"MY_TOKEN=abc"}, []string{"MY_TOKEN"}},
 		{[]string{"API_KEY=key123"}, []string{"API_KEY"}},
-		{[]string{"PATH=/usr/bin"}, []string{}},          // value starts with "/", skipped
-		{[]string{"ENABLE_FEATURE=true"}, []string{}},    // trivial value
-		{[]string{"EMPTY_SECRET="}, []string{}},           // empty value skipped
-		{[]string{"MALFORMED_NO_EQUALS"}, []string{}},     // no "=" separator
-		{[]string{"NORMAL_VAR=value"}, []string{}},        // no secret pattern in name
-		{[]string{"DB_PASSWORD=true"}, []string{}},        // trivial value even though name matches
+		{[]string{"PATH=/usr/bin"}, []string{}},       // value starts with "/", skipped
+		{[]string{"ENABLE_FEATURE=true"}, []string{}}, // trivial value
+		{[]string{"EMPTY_SECRET="}, []string{}},       // empty value skipped
+		{[]string{"MALFORMED_NO_EQUALS"}, []string{}}, // no "=" separator
+		{[]string{"NORMAL_VAR=value"}, []string{}},    // no secret pattern in name
+		{[]string{"DB_PASSWORD=true"}, []string{}},    // trivial value even though name matches
 		{
 			[]string{"A_PASSWORD=secret", "B_TOKEN=abc", "NORMAL=val"},
 			[]string{"A_PASSWORD", "B_TOKEN"},
@@ -104,7 +104,7 @@ func TestExtractJournalMessage(t *testing.T) {
 		{"May 19 14:05:46 host docker[123]: container exited", "container exited"},
 		{"no colon separator", ""},
 		{"", ""},
-		{"prefix: ", ""},             // TrimSpace of empty after colon
+		{"prefix: ", ""}, // TrimSpace of empty after colon
 		{"prefix:  padded message ", "padded message"}, // TrimSpace strips both ends
 	}
 	for _, c := range cases {
