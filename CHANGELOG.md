@@ -9,6 +9,43 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.20.1] - 2026-07-19
+
+### Fixed
+- HTML reports: SVG logos are now rejected at ingest (can embed `<script>`);
+  `data:` URIs validated as `image/*`; `http://` logos rejected (break
+  self-contained-report invariant); `filepath.Clean` applied to file logo paths.
+  (#879)
+- Fleet: `--remote-cmd` is now validated before any SSH connection is opened;
+  shell metacharacters (`;`, `|`, `&`, backtick, `$`, `<`, `>`, newlines) are
+  rejected to prevent remote-command injection. (#879)
+- `install.sh`: `chmod +x` moved to after checksum verification passes, so an
+  unverified binary is never made executable; temp dir is cleaned on all exit
+  paths. (#879)
+- `dsd cis`: 12 rule logic bugs corrected — false-OK verdicts, silent non-root
+  passes, wrong AND/OR semantics, incorrect SKIP/FAIL decisions. Affected rules:
+  1.6.2 (AppArmor cmdline token), 4.1.3 (audit AND semantics), 4.2.7 (rsyslog.d
+  recursion), 5.1.8/5.1.9 (cron/at deny-only), 5.2.18 (MaxStartups parse),
+  5.4.10 (pwquality malformed), 5.4.17 (all pam.d files), 5.5.2 (pam_wheel
+  control field + use_uid), 5.5.3 (all-unparseable PAM → SKIP), 6.2.2
+  (unreadable shadow → SKIP), 6.2.13–6.2.16 (zero-accessible-files → SKIP).
+  Also: exact `login.defs` field matching prevents prefix collisions;
+  `auditLineMatchesPattern` enforces word-boundary; `parseMaxStartups` was
+  reading `full` from the wrong position. (#880)
+- `dsd cis`: SSH rules 5.2.17, 5.2.20, 5.2.22 produced false-OK under non-root
+  (unreadable `sshd_config` fell through to PASS instead of SKIP). (#875)
+- `dsd mcp`: tool-invocation paths are now sanitized with `filepath.Clean` before
+  use; store scanner cap raised to 1 MiB to handle large JSONL entries; baseline
+  hostname traversal hardened. (#877)
+- `dsd cve`: `CompareDpkg` now treats `"(none)"` (dpkg sentinel for packages in
+  config-files or half-installed state) as lower than any real version, so a
+  `"(none)"` installed version is never considered "already patched". (#876)
+- `dsd health` (Vault): HTTP status code is now captured alongside the response
+  body; a non-JSON Vault response now reports WARN instead of silently
+  succeeding. (#878)
+
+---
+
 ## [1.20.0] - 2026-07-19
 
 ### Added
