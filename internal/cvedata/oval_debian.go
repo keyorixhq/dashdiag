@@ -321,7 +321,7 @@ func QueryInstalledDPKG(ctx context.Context) ([]InstalledPackage, error) {
 		return nil, fmt.Errorf("dpkg-query failed: %w", err)
 	}
 	var pkgs []InstalledPackage
-	for _, line := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+	for line := range strings.SplitSeq(strings.TrimSpace(string(out)), "\n") {
 		fields := strings.SplitN(line, "\t", 2)
 		if len(fields) < 1 || fields[0] == "" {
 			continue
