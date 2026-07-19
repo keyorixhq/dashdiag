@@ -6,7 +6,7 @@
   "Entropy": "OK",
   "FDLimits": "OK",
   "Firewall": "INFO",
-  "Hardening": "INFO",
+  "Hardening": "WARN",
   "HugePages": "INFO",
   "IO": "OK",
   "KernelSec": "INFO",

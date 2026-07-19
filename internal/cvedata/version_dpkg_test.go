@@ -50,3 +50,26 @@ func TestCompareDpkgRealTool(t *testing.T) {
 		}
 	}
 }
+
+// TestCompareDpkg_NoneVersion tests the dpkg sentinel "(none)", emitted by
+// dpkg-query for packages in config-files or half-installed state.
+// "(none)" must always compare as less than any real version so it is never
+// treated as "already patched" in a CVE suppression check.
+func TestCompareDpkg_NoneVersion(t *testing.T) {
+	cases := []struct {
+		a, b string
+		want int
+	}{
+		{"(none)", "1.0-1", -1},  // "(none)" < any real version
+		{"(none)", "0.0.1", -1},  // "(none)" < even very old versions
+		{"(none)", "3.0.13", -1}, // typical OVAL fixedIn version
+		{"1.0-1", "(none)", 1},   // real version > "(none)"
+		{"0.0.1", "(none)", 1},   // even very old real version > "(none)"
+		{"(none)", "(none)", 0},  // sentinel equals itself
+	}
+	for _, c := range cases {
+		if got := CompareDpkg(c.a, c.b); got != c.want {
+			t.Errorf("CompareDpkg(%q, %q) = %d, want %d", c.a, c.b, got, c.want)
+		}
+	}
+}

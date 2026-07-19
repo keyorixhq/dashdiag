@@ -20,7 +20,21 @@ import "strings"
 // CompareDpkg compares two Debian package versions and returns -1, 0, or 1
 // (a<b, a==b, a>b). It follows dpkg semantics: epoch (numeric, default 0), then
 // upstream_version, then debian_revision, the latter two via verrevcmp.
+//
+// "(none)" is a dpkg sentinel meaning "not installed" (config-files or
+// half-installed state). It has no meaningful version ordering — treat it as
+// lower than any real version so a "(none)" installed version is never
+// considered "already patched."
 func CompareDpkg(a, b string) int {
+	if a == "(none)" && b == "(none)" {
+		return 0
+	}
+	if a == "(none)" {
+		return -1
+	}
+	if b == "(none)" {
+		return 1
+	}
 	ea, ua, ra := splitDebVersion(a)
 	eb, ub, rb := splitDebVersion(b)
 	if ea != eb {
