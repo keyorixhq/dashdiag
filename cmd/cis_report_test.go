@@ -4,6 +4,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/keyorixhq/dashdiag/internal/cis"
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
 )
@@ -71,5 +72,60 @@ func TestPrintCISReportCleanNoTip(t *testing.T) {
 	}
 	if !strings.Contains(out, "5 pass") {
 		t.Errorf("the pass count should be shown, got:\n%s", out)
+	}
+}
+
+func TestPrintNIS2ReportFailOnlyFilter(t *testing.T) {
+	art := cis.NIS2Article21{ID: "Art.21(2)(b)", Title: "Incident handling"}
+	groups := []cis.NIS2ArticleGroup{
+		{
+			Article: art,
+			Status:  "PARTIAL",
+			Pass:    1, Fail: 1, Skipped: 1,
+			Results: []models.CISResult{
+				{ID: "4.1.2", Status: models.CISSkipped, Description: "auditd rules"},
+				{ID: "4.2.1", Status: models.CISFail, Description: "rsyslog installed", Finding: "not installed"},
+				{ID: "4.2.4", Status: models.CISPass, Description: "rsyslog not accepting remotes"},
+			},
+		},
+	}
+
+	outAll := captureStdout(t, func() { printNIS2Report(groups, false, output.ModePlain) })
+	if !strings.Contains(outAll, "auditd rules") {
+		t.Errorf("failOnly=false must show SKIP rules, got:\n%s", outAll)
+	}
+	if !strings.Contains(outAll, "rsyslog not accepting remotes") {
+		t.Errorf("failOnly=false must show PASS rules, got:\n%s", outAll)
+	}
+
+	outFail := captureStdout(t, func() { printNIS2Report(groups, true, output.ModePlain) })
+	if strings.Contains(outFail, "auditd rules") {
+		t.Errorf("failOnly=true must suppress SKIP rules, got:\n%s", outFail)
+	}
+	if strings.Contains(outFail, "rsyslog not accepting remotes") {
+		t.Errorf("failOnly=true must suppress PASS rules, got:\n%s", outFail)
+	}
+	if !strings.Contains(outFail, "rsyslog installed") {
+		t.Errorf("failOnly=true must still show FAIL rules, got:\n%s", outFail)
+	}
+	if !strings.Contains(outFail, "not installed") {
+		t.Errorf("failOnly=true must still show FAIL findings, got:\n%s", outFail)
+	}
+	// per-article summary counts must be unchanged (reflect full evaluation)
+	if !strings.Contains(outFail, "1 pass") || !strings.Contains(outFail, "1 fail") {
+		t.Errorf("per-article summary counts must be unchanged under failOnly, got:\n%s", outFail)
+	}
+}
+
+func TestPrintNIS2ReportUnmappedAlwaysShown(t *testing.T) {
+	groups := []cis.NIS2ArticleGroup{
+		{Article: cis.NIS2Article21{ID: "Art.21(2)(a)", Title: "Risk analysis"}, Status: "UNMAPPED"},
+	}
+	out := captureStdout(t, func() { printNIS2Report(groups, true, output.ModePlain) })
+	if !strings.Contains(out, "Art.21(2)(a)") {
+		t.Errorf("UNMAPPED articles must always show regardless of failOnly, got:\n%s", out)
+	}
+	if !strings.Contains(out, "organisational policy") {
+		t.Errorf("UNMAPPED articles must show their explanation, got:\n%s", out)
 	}
 }

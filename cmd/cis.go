@@ -103,12 +103,24 @@ func runCIS(cmd *cobra.Command, _ []string) error {
 
 	mode := output.DetectMode(plain, false, "")
 	if nis2Mode {
+		groups := cis.GroupByNIS2(report.Results)
 		if jsonOut {
+			if failOnly {
+				for i := range groups {
+					filtered := make([]models.CISResult, 0, groups[i].Fail)
+					for _, r := range groups[i].Results {
+						if r.Status == models.CISFail {
+							filtered = append(filtered, r)
+						}
+					}
+					groups[i].Results = filtered
+				}
+			}
 			enc := json.NewEncoder(os.Stdout)
 			enc.SetIndent("", "  ")
-			return enc.Encode(cis.GroupByNIS2(report.Results))
+			return enc.Encode(groups)
 		}
-		printNIS2Report(cis.GroupByNIS2(report.Results), mode)
+		printNIS2Report(groups, failOnly, mode)
 		return nil
 	}
 	if jsonOut {
@@ -183,13 +195,13 @@ func printCISReport(report models.CISReport, failOnly, stig bool, mode output.Ou
 	fmt.Println()
 }
 
-func printNIS2Report(groups []cis.NIS2ArticleGroup, mode output.OutputMode) {
+func printNIS2Report(groups []cis.NIS2ArticleGroup, failOnly bool, mode output.OutputMode) {
 	colour := mode == output.ModeHuman
 	fmt.Println()
 	fmt.Println("  NIS2 Directive — Article 21(2) Evidence")
 	fmt.Println()
 	for _, g := range groups {
-		printNIS2Article(g, colour, mode)
+		printNIS2Article(g, failOnly, colour, mode)
 	}
 	fmt.Printf("  Scope: %s\n", "Art.21(2) technical controls evidenced by existing CIS rules")
 	fmt.Printf("  Tip: %sdsd cis --nis2 --json%s for machine-readable output\n\n",
@@ -224,7 +236,7 @@ func nis2Icon(status string, mode output.OutputMode) string {
 	}
 }
 
-func printNIS2Article(g cis.NIS2ArticleGroup, colour bool, mode output.OutputMode) {
+func printNIS2Article(g cis.NIS2ArticleGroup, failOnly, colour bool, mode output.OutputMode) {
 	sc := nis2StatusColour(g.Status, colour)
 	icon := nis2Icon(g.Status, mode)
 	fmt.Printf("  %s %s%s%s — %s\n",
@@ -236,6 +248,9 @@ func printNIS2Article(g cis.NIS2ArticleGroup, colour bool, mode output.OutputMod
 		return
 	}
 	for _, r := range g.Results {
+		if failOnly && r.Status != models.CISFail {
+			continue
+		}
 		ruleIcon := cisIcon(r.Status, mode)
 		idPad := fmt.Sprintf("%-8s", r.ID)
 		fmt.Printf("         %s %s%s%s  %s\n",
