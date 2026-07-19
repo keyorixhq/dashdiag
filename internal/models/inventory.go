@@ -20,6 +20,8 @@ type Inventory struct {
 	Memory   InventoryMemory   `json:"memory"`
 	Drives   []InventoryDrive  `json:"drives,omitempty"`
 	NICs     []InventoryNIC    `json:"nics,omitempty"`
+	GPUs     []InventoryGPU    `json:"gpus,omitempty"`
+	Cloud    *InventoryCloud   `json:"cloud,omitempty"`
 	Software InventorySoftware `json:"software"`
 }
 
@@ -75,4 +77,24 @@ type InventoryNIC struct {
 type InventorySoftware struct {
 	PackageManager string `json:"package_manager,omitempty"`
 	PackageCount   int    `json:"package_count,omitempty"`
+}
+
+// InventoryGPU captures the identity facts of a GPU (what it is, not how it is running).
+type InventoryGPU struct {
+	Index       int     `json:"index"`
+	Name        string  `json:"name,omitempty"`
+	Vendor      string  `json:"vendor,omitempty"`
+	VRAMTotalGB float64 `json:"vram_total_gb,omitempty"`
+	DRMDriver   string  `json:"drm_driver,omitempty"`
+	MesaVersion string  `json:"mesa_version,omitempty"`
+	NoDriver    bool    `json:"no_driver,omitempty"` // detected in sysfs but driver not loaded
+}
+
+// InventoryCloud captures the cloud placement identity of the instance.
+// Only populated when the host is a cloud VM; nil on bare-metal.
+type InventoryCloud struct {
+	Provider     string `json:"provider"`
+	InstanceID   string `json:"instance_id,omitempty"`
+	InstanceType string `json:"instance_type,omitempty"`
+	Region       string `json:"region,omitempty"`
 }

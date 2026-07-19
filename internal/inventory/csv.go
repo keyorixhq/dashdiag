@@ -87,6 +87,8 @@ func writeCSV(dst io.Writer, inv models.Inventory) error {
 		add(p+"driver", n.Driver)
 	}
 
+	rows = appendGPUCloudRows(rows, inv)
+
 	add("software.package_manager", inv.Software.PackageManager)
 	addInt("software.package_count", inv.Software.PackageCount)
 
@@ -95,4 +97,41 @@ func writeCSV(dst io.Writer, inv models.Inventory) error {
 	}
 	w.Flush()
 	return w.Error()
+}
+
+func appendGPUCloudRows(rows [][]string, inv models.Inventory) [][]string {
+	add := func(k, v string) {
+		if v != "" {
+			rows = append(rows, []string{k, v})
+		}
+	}
+	addInt := func(k string, v int) {
+		if v != 0 {
+			rows = append(rows, []string{k, strconv.Itoa(v)})
+		}
+	}
+	addFloat := func(k string, v float64) {
+		if v != 0 {
+			rows = append(rows, []string{k, strconv.FormatFloat(v, 'f', -1, 64)})
+		}
+	}
+	for i, g := range inv.GPUs {
+		p := "gpu." + strconv.Itoa(i) + "."
+		addInt(p+"index", g.Index)
+		add(p+"name", g.Name)
+		add(p+"vendor", g.Vendor)
+		addFloat(p+"vram_total_gb", g.VRAMTotalGB)
+		add(p+"drm_driver", g.DRMDriver)
+		add(p+"mesa_version", g.MesaVersion)
+		if g.NoDriver {
+			rows = append(rows, []string{p + "no_driver", "true"})
+		}
+	}
+	if c := inv.Cloud; c != nil {
+		add("cloud.provider", c.Provider)
+		add("cloud.instance_id", c.InstanceID)
+		add("cloud.instance_type", c.InstanceType)
+		add("cloud.region", c.Region)
+	}
+	return rows
 }

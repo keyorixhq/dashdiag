@@ -27,7 +27,8 @@ nothing new or expensive is probed.
 
 Covers: host identity (hostname, OS, kernel, arch, machine-id), system
 vendor/model/serial, CPU, RAM + DIMM layout, physical drives (model/serial/
-capacity), NICs (MAC/driver), and package count.
+capacity), NICs (MAC/driver), GPUs (model/VRAM/driver), cloud placement
+(provider/instance-type/region), and package count.
 
 This is the technical-facts layer only — it does NOT supply the administrative
 layer (owner, asset tag, warranty, location, licences), which is not visible
@@ -50,16 +51,28 @@ func runInventory(cmd *cobra.Command, _ []string) error {
 	ctx, cancel := context.WithTimeout(cmd.Context(), 20*time.Second)
 	defer cancel()
 
-	// Reuse the hardware collector — same data the rest of dsd already gathers.
+	// Reuse collectors already run by dsd — hardware, GPU, and cloud metadata.
 	var hw *models.HardwareInfo
-	for r := range runner.RunAll(ctx, []runner.Collector{collectors.NewHardwareCollector()}) {
-		if v, ok := r.Data.(*models.HardwareInfo); ok {
+	var gpu *models.GPUInfo
+	var cloud *models.CloudInfo
+	cols := []runner.Collector{
+		collectors.NewHardwareCollector(),
+		collectors.NewGPUCollector(),
+		collectors.NewCloudMetaCollector(),
+	}
+	for r := range runner.RunAll(ctx, cols) {
+		switch v := r.Data.(type) {
+		case *models.HardwareInfo:
 			hw = v
+		case *models.GPUInfo:
+			gpu = v
+		case *models.CloudInfo:
+			cloud = v
 		}
 	}
 
 	collectedAt := time.Now().UTC().Format(time.RFC3339)
-	inv := inventory.Build(hw, platform.Detect(), version.Version, collectedAt)
+	inv := inventory.Build(hw, gpu, cloud, platform.Detect(), version.Version, collectedAt)
 
 	csvOut, _ := cmd.Flags().GetBool("csv")
 	var out string
