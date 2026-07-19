@@ -9,6 +9,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.22.0] - 2026-07-19
+
+### Added
+- `dsd cis --bsi`: BSI IT-Grundschutz Kompendium (Edition 2023) evidence report.
+  Maps the existing 327 CIS rules to 24 requirements across three building blocks —
+  SYS.1.3 (Linux/Unix servers), SYS.1.1 (General server), and OPS.1.1 (Operations).
+  Renders a requirement-grouped view with PASS/PARTIAL/FAIL/SKIP/UNMAPPED status per
+  requirement, grouped under building-block section headers. Six requirements with no
+  OS-level CIS equivalent (SYS.1.3.A16/A17 seccomp/grsecurity, SYS.1.1.A9/A33/A34/A36
+  AV/root-CA/LUKS/Secure-Boot) are correctly flagged UNMAPPED. `--bsi --json` emits a
+  `[]BSIReqGroup` schema; each `CISResult` gains a `bsi_refs` field. `--bsi --fail-only`
+  suppresses PASS/SKIP rows within each requirement group. Pure reporting layer over
+  existing checks — no new collectors. (#894)
+
+### Fixed
+- `dsd cis --nis2`: extracted seven NIS2 Article 21(2) ID string literals to named
+  constants, eliminating SonarCloud S1192 duplicate-literal warnings. No functional
+  change. (#895)
+
 ## [1.21.0] - 2026-07-19
 
 ### Added
