@@ -5116,7 +5116,6 @@ var procCmdlinePath = "/proc/cmdline"
 // nisServerBinPaths for NIS server check (2.3.16).
 var nisServerBinPaths = []string{"/usr/sbin/ypserv", "/usr/lib/yp/ypserv"}
 
-
 // sshHostKeyDir for SSH host key permission checks (5.2.3, 5.2.4).
 var sshHostKeyDir = "/etc/ssh"
 
