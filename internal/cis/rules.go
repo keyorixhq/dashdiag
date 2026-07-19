@@ -44,6 +44,7 @@ const (
 	cisFixInactiveUseradd       = "set INACTIVE=30 in /etc/default/useradd"
 	cisSkipPasswdUnreadable     = "could not read /etc/passwd"
 	cisSkipGroupUnreadable      = "could not read /etc/group"
+	cisSkipHomeDirsUnreadable   = "could not access any home directories — run as root for complete check"
 	cisHomeNonexistent          = "/nonexistent"
 	cisHomeDevNull              = "/dev/null"
 )
@@ -4779,7 +4780,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					}
 				}
 				if accessible == 0 {
-					return skipr(r, "could not access any home directories — run as root for complete check")
+					return skipr(r, cisSkipHomeDirsUnreadable)
 				}
 				if len(found) > 0 {
 					shown := found[:min(3, len(found))]
@@ -4827,7 +4828,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					}
 				}
 				if accessible == 0 {
-					return skipr(r, "could not access any home directories — run as root for complete check")
+					return skipr(r, cisSkipHomeDirsUnreadable)
 				}
 				if len(found) > 0 {
 					shown := found[:min(3, len(found))]
@@ -4875,7 +4876,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					}
 				}
 				if accessible == 0 {
-					return skipr(r, "could not access any home directories — run as root for complete check")
+					return skipr(r, cisSkipHomeDirsUnreadable)
 				}
 				if len(found) > 0 {
 					shown := found[:min(3, len(found))]
