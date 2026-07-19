@@ -9,6 +9,43 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.20.0] - 2026-07-19
+
+### Added
+- `dsd cis` — CIS Ubuntu 22.04 LTS Level 1/2 + DISA-STIG benchmark; 327 rules
+  across all benchmark sections: filesystem modules & mount options, kernel
+  hardening (ASLR, BPF, mmap, hardlinks, symlinks, dmesg, perf_event,
+  kptr_restrict, ptrace_scope, sysrq, SYN cookies, ARP hardening, and more),
+  network sysctls, services (NIS, LDAP, rsync, MTA local-only, NFS, etc.),
+  SSH hardening (crypto suites, MACs, KEX, ownership, bool flags), cron/at
+  permissions and access controls, auditd configuration and audit rules suite,
+  logging (rsyslog, journald), PAM/auth (faillock, pwquality, nullok, umask,
+  TMOUT, pam_faildelay), warning banners, file permissions and ownership (logs,
+  sudoers, cron, sshd, env files, gshadow, login.defs), user/group integrity
+  (dup UIDs/GIDs/names, root UID, PATH, home dir ownership, dot/forward/netrc
+  files), UFW firewall, AppArmor, and STIG-specific checks (V-238221
+  ClientAliveCountMax, V-238383 PASS_WARN_AGE, V-238384 pam_faildelay ≥ 4s).
+- `dsd mcp` — MCP server (JSON-RPC 2.0 over stdio); register with
+  `claude mcp add dsd -- dsd mcp`; exposes four tools (`dsd_health`,
+  `dsd_capture`, `dsd_replay`, `dsd_diff`) with a stable 1.x schema.
+- `dsd history` — run history showing each persisted snapshot with a per-run
+  drift marker (new WARN/CRIT findings vs. the previous run).
+- `dsd health --persist` — append a health snapshot to the local JSONL store
+  (`~/.dsd/store.jsonl`); auto-prunes to 365 entries per host.
+- `dsd diff --last` — diff the two most recent persisted health runs without
+  specifying explicit bundle paths.
+- `dsd fleet --report-html` — self-contained single-file HTML estate-health
+  report with executive summary, grouped issues by severity, and a per-host
+  table; inherits `--brand`/`--logo` for white-labelling.
+- `dsd migrate wave` — batch-certify N host pairs in one engagement, producing
+  a single HTML wave report (`--report-html`); accepts `--pairs-file`.
+- HashiCorp Vault health check: detects sealed, dev-mode (in-memory storage),
+  no-TLS, unreachable, and uninitialised states.
+- RHUI client-cert expiry check for RHEL PAYG cloud hosts: reads
+  `/etc/pki/rhui/` certs, degrades gracefully when run non-root.
+
+---
+
 ## [1.19.1] - 2026-07-15
 
 ### Fixed
