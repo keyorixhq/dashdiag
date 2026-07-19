@@ -52,7 +52,7 @@ func TestParseMaxStartups(t *testing.T) {
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
 			t.Parallel()
-			start, full, ok := parseMaxStartups(tc.in)
+			start, _, full, ok := parseMaxStartups(tc.in)
 			if start != tc.wantStart || full != tc.wantFull || ok != tc.wantOK {
 				t.Errorf("parseMaxStartups(%q) = (%d, %d, %v), want (%d, %d, %v)",
 					tc.in, start, full, ok, tc.wantStart, tc.wantFull, tc.wantOK)
@@ -221,15 +221,23 @@ func TestCheckLoginDefsField(t *testing.T) {
 			t.Errorf("want SKIP for missing file, got %s", got.Status)
 		}
 	})
-	t.Run("field present with no value defers to pass", func(t *testing.T) {
+	t.Run("bare keyword with no value fails", func(t *testing.T) {
 		t.Parallel()
-		// Line matches the prefix but has no second field — the predicate is
-		// never evaluated and the rule falls through to pass, matching the
-		// original inline implementation's behavior for a malformed line.
+		// A line that matches the field name but carries no value is misconfigured —
+		// the value is required and we cannot evaluate the threshold. Must FAIL.
 		got := checkLoginDefsField(r, write(t, "PASS_MAX_DAYS\n"), "PASS_MAX_DAYS", failsOver365,
-			"PASS_MAX_DAYS is %d", "fix", "not set", "add it")
-		if got.Status != models.CISPass {
-			t.Errorf("malformed line (no value) should fall through to PASS, got %s", got.Status)
+			"PASS_MAX_DAYS is %d", "fix-it", "not set", "add it")
+		if got.Status != models.CISFail {
+			t.Errorf("bare keyword with no value should FAIL, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+	t.Run("prefix-only field name does not match", func(t *testing.T) {
+		t.Parallel()
+		// PASS_MAX_DAYS_OLD should not satisfy a check for PASS_MAX_DAYS.
+		got := checkLoginDefsField(r, write(t, "PASS_MAX_DAYS_OLD\t30\n"), "PASS_MAX_DAYS", failsOver365,
+			"PASS_MAX_DAYS is %d", "fix", "PASS_MAX_DAYS not set", "add it")
+		if got.Status != models.CISFail || got.Finding != "PASS_MAX_DAYS not set" {
+			t.Errorf("PASS_MAX_DAYS_OLD should not satisfy PASS_MAX_DAYS check, got %s (%s)", got.Status, got.Finding)
 		}
 	})
 }
@@ -735,8 +743,10 @@ func TestRule6_2_2_NISEntryDetected(t *testing.T) {
 	}
 }
 
-func TestRule6_2_2_UnreadableFileSkipped(t *testing.T) {
+func TestRule6_2_2_UnreadableShadowSkips(t *testing.T) {
 	// No t.Parallel(): mutates the shared package-level legacyNISPaths var.
+	// Fix 4: an unreadable /etc/shadow must produce SKIP (not silent PASS) so
+	// non-root runs do not falsely certify no NIS entries in shadow.
 	dir := t.TempDir()
 	missing := filepath.Join(dir, "shadow_does_not_exist")
 	clean := filepath.Join(dir, "passwd")
@@ -753,8 +763,32 @@ func TestRule6_2_2_UnreadableFileSkipped(t *testing.T) {
 		t.Fatal("rule 6.2.2 has no Check func")
 	}
 	got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+	if got.Status != models.CISSkipped {
+		t.Errorf("unreadable shadow: want Skipped, got %s (%s)", got.Status, got.Finding)
+	}
+}
+
+func TestRule6_2_2_UnreadableNonShadowFilePass(t *testing.T) {
+	// No t.Parallel(): mutates the shared package-level legacyNISPaths var.
+	// An unreadable non-shadow file (e.g. /etc/group) with a clean passwd still passes.
+	dir := t.TempDir()
+	missingGroup := filepath.Join(dir, "group_does_not_exist")
+	clean := filepath.Join(dir, "passwd")
+	if err := os.WriteFile(clean, []byte("root:x:0:0:root:/root:/bin/bash\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	saved := legacyNISPaths
+	t.Cleanup(func() { legacyNISPaths = saved })
+	legacyNISPaths = []string{missingGroup, clean}
+
+	rule := ruleByID("6.2.2")
+	if rule.Check == nil {
+		t.Fatal("rule 6.2.2 has no Check func")
+	}
+	got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
 	if got.Status != models.CISPass {
-		t.Errorf("unreadable file + clean file: want Pass, got %s (%s)", got.Status, got.Finding)
+		t.Errorf("unreadable group + clean passwd: want Pass, got %s (%s)", got.Status, got.Finding)
 	}
 }
 
@@ -2047,7 +2081,9 @@ func TestRule5_1_8_CronAccess(t *testing.T) {
 			t.Errorf("cron.allow present: want Pass, got %s (%s)", res.Status, res.Finding)
 		}
 	})
-	t.Run("cron.deny present → pass", func(t *testing.T) {
+	t.Run("cron.deny only → fail (deny-only violates allowlist model)", func(t *testing.T) {
+		// Fix 6: CIS requires the allowlist model — cron.allow must exist and
+		// cron.deny must NOT. deny-only config must FAIL, not pass.
 		cronAllowPath = filepath.Join(dir, "cron.allow.missing")
 		denyFile := filepath.Join(dir, "cron.deny")
 		if err := os.WriteFile(denyFile, []byte("ALL\n"), 0o644); err != nil {
@@ -2056,8 +2092,8 @@ func TestRule5_1_8_CronAccess(t *testing.T) {
 		cronDenyPath = denyFile
 		report := Evaluate(models.SecurityInfo{}, models.KernelSecurityInfo{}, 1, false, "apt")
 		res := findResult(report)
-		if res.Status != models.CISPass {
-			t.Errorf("cron.deny present: want Pass, got %s (%s)", res.Status, res.Finding)
+		if res.Status != models.CISFail {
+			t.Errorf("cron.deny only: want Fail (allowlist model requires cron.allow), got %s (%s)", res.Status, res.Finding)
 		}
 	})
 }
@@ -2107,7 +2143,9 @@ func TestRule5_1_9_AtAccess(t *testing.T) {
 			t.Errorf("at.allow present: want Pass, got %s (%s)", res.Status, res.Finding)
 		}
 	})
-	t.Run("at.deny present → pass", func(t *testing.T) {
+	t.Run("at.deny only → fail (deny-only violates allowlist model)", func(t *testing.T) {
+		// Fix 6: CIS requires the allowlist model — at.allow must exist and
+		// at.deny must NOT. deny-only config must FAIL, not pass.
 		atAllowPath = filepath.Join(dir, "at.allow.missing")
 		denyFile := filepath.Join(dir, "at.deny")
 		if err := os.WriteFile(denyFile, []byte("ALL\n"), 0o644); err != nil {
@@ -2116,8 +2154,8 @@ func TestRule5_1_9_AtAccess(t *testing.T) {
 		atDenyPath = denyFile
 		report := Evaluate(models.SecurityInfo{}, models.KernelSecurityInfo{}, 1, false, "apt")
 		res := findResult(report)
-		if res.Status != models.CISPass {
-			t.Errorf("at.deny present: want Pass, got %s (%s)", res.Status, res.Finding)
+		if res.Status != models.CISFail {
+			t.Errorf("at.deny only: want Fail (allowlist model requires at.allow), got %s (%s)", res.Status, res.Finding)
 		}
 	})
 }
@@ -3009,14 +3047,16 @@ func TestCheckAuditRule_Rule4_1_3(t *testing.T) {
 		}
 	})
 
-	t.Run("rules.d has adjtimex rule → PASS", func(t *testing.T) {
+	t.Run("rules.d has all three patterns → PASS", func(t *testing.T) {
+		// Fix 1: AND semantics — all patterns must be present. The fixture must
+		// cover all three: adjtimex, clock_settime, settimeofday.
 		auditRulesFilePath = filepath.Join(dir, "no_audit2.rules")
 		rulesD := filepath.Join(dir, "rules_d_time")
 		if err := os.MkdirAll(rulesD, 0o755); err != nil {
 			t.Fatal(err)
 		}
 		if err := os.WriteFile(filepath.Join(rulesD, "50-time.rules"),
-			[]byte("-a always,exit -F arch=b64 -S adjtimex,settimeofday -k time-change\n"), 0o644); err != nil {
+			[]byte("-a always,exit -F arch=b64 -S adjtimex,settimeofday,clock_settime -k time-change\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
 		auditRulesDPath = rulesD
@@ -3026,8 +3066,9 @@ func TestCheckAuditRule_Rule4_1_3(t *testing.T) {
 		}
 	})
 
-	t.Run("audit.rules with clock_settime → PASS", func(t *testing.T) {
-		p := filepath.Join(dir, "audit_time.rules")
+	t.Run("only one pattern present → FAIL (AND semantics)", func(t *testing.T) {
+		// Fix 1: a single pattern (e.g. adjtimex) is not sufficient — all three required.
+		p := filepath.Join(dir, "audit_partial.rules")
 		if err := os.WriteFile(p, []byte("-a always,exit -F arch=b64 -S clock_settime -k time-change\n"), 0o644); err != nil {
 			t.Fatal(err)
 		}
@@ -3037,8 +3078,8 @@ func TestCheckAuditRule_Rule4_1_3(t *testing.T) {
 			t.Fatal(err)
 		}
 		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
-		if got.Status != models.CISPass {
-			t.Errorf("want Pass, got %s (%s)", got.Status, got.Finding)
+		if got.Status != models.CISFail {
+			t.Errorf("only clock_settime present: want Fail (all three required), got %s (%s)", got.Status, got.Finding)
 		}
 	})
 }
@@ -8735,29 +8776,29 @@ func TestRule5_4_16_PwqualityRetry(t *testing.T) {
 }
 
 // TestRule5_4_17_PAMNullok verifies rule 5.4.17.
-// No t.Parallel() — mutates pamCommonAuthPath and pamCommonPasswordPath.
+// No t.Parallel() — mutates pamDPath (Fix 9: now scans the whole /etc/pam.d/ dir).
 func TestRule5_4_17_PAMNullok(t *testing.T) {
-	dir := t.TempDir()
-	origAuth := pamCommonAuthPath
-	origPwd := pamCommonPasswordPath
-	t.Cleanup(func() {
-		pamCommonAuthPath = origAuth
-		pamCommonPasswordPath = origPwd
-	})
+	origPamD := pamDPath
+	t.Cleanup(func() { pamDPath = origPamD })
 
 	rule := ruleByID("5.4.17")
 
+	writeDir := func(t *testing.T, files map[string]string) string {
+		t.Helper()
+		d := t.TempDir()
+		for name, content := range files {
+			if err := os.WriteFile(filepath.Join(d, name), []byte(content), 0o644); err != nil {
+				t.Fatal(err)
+			}
+		}
+		return d
+	}
+
 	t.Run("no nullok in either file → PASS", func(t *testing.T) {
-		fAuth := filepath.Join(dir, "common-auth-clean")
-		fPwd := filepath.Join(dir, "common-password-clean")
-		if err := os.WriteFile(fAuth, []byte("auth required pam_unix.so\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(fPwd, []byte("password requisite pam_pwquality.so retry=3\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		pamCommonAuthPath = fAuth
-		pamCommonPasswordPath = fPwd
+		pamDPath = writeDir(t, map[string]string{
+			"common-auth":     "auth required pam_unix.so\n",
+			"common-password": "password requisite pam_pwquality.so retry=3\n",
+		})
 		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
 		if got.Status != models.CISPass {
 			t.Errorf("no nullok: want Pass, got %s (%s)", got.Status, got.Finding)
@@ -8765,16 +8806,10 @@ func TestRule5_4_17_PAMNullok(t *testing.T) {
 	})
 
 	t.Run("nullok in common-auth → FAIL", func(t *testing.T) {
-		fAuth := filepath.Join(dir, "common-auth-nullok")
-		fPwd := filepath.Join(dir, "common-password-clean2")
-		if err := os.WriteFile(fAuth, []byte("auth required pam_unix.so nullok\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(fPwd, []byte("password requisite pam_pwquality.so retry=3\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		pamCommonAuthPath = fAuth
-		pamCommonPasswordPath = fPwd
+		pamDPath = writeDir(t, map[string]string{
+			"common-auth":     "auth required pam_unix.so nullok\n",
+			"common-password": "password requisite pam_pwquality.so retry=3\n",
+		})
 		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
 		if got.Status != models.CISFail {
 			t.Errorf("nullok in auth: want Fail, got %s (%s)", got.Status, got.Finding)
@@ -8782,16 +8817,10 @@ func TestRule5_4_17_PAMNullok(t *testing.T) {
 	})
 
 	t.Run("nullok in common-password → FAIL", func(t *testing.T) {
-		fAuth := filepath.Join(dir, "common-auth-clean3")
-		fPwd := filepath.Join(dir, "common-password-nullok")
-		if err := os.WriteFile(fAuth, []byte("auth required pam_unix.so\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(fPwd, []byte("password [success=1 default=ignore] pam_unix.so nullok sha512\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		pamCommonAuthPath = fAuth
-		pamCommonPasswordPath = fPwd
+		pamDPath = writeDir(t, map[string]string{
+			"common-auth":     "auth required pam_unix.so\n",
+			"common-password": "password [success=1 default=ignore] pam_unix.so nullok sha512\n",
+		})
 		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
 		if got.Status != models.CISFail {
 			t.Errorf("nullok in password: want Fail, got %s (%s)", got.Status, got.Finding)
@@ -8799,28 +8828,42 @@ func TestRule5_4_17_PAMNullok(t *testing.T) {
 	})
 
 	t.Run("commented nullok → PASS", func(t *testing.T) {
-		fAuth := filepath.Join(dir, "common-auth-commented")
-		fPwd := filepath.Join(dir, "common-password-commented")
-		if err := os.WriteFile(fAuth, []byte("# auth required pam_unix.so nullok\nauth required pam_unix.so\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		if err := os.WriteFile(fPwd, []byte("password requisite pam_pwquality.so retry=3\n"), 0o644); err != nil {
-			t.Fatal(err)
-		}
-		pamCommonAuthPath = fAuth
-		pamCommonPasswordPath = fPwd
+		pamDPath = writeDir(t, map[string]string{
+			"common-auth":     "# auth required pam_unix.so nullok\nauth required pam_unix.so\n",
+			"common-password": "password requisite pam_pwquality.so retry=3\n",
+		})
 		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
 		if got.Status != models.CISPass {
 			t.Errorf("commented nullok: want Pass, got %s (%s)", got.Status, got.Finding)
 		}
 	})
 
-	t.Run("both files unreadable → PASS (no evidence of nullok)", func(t *testing.T) {
-		pamCommonAuthPath = filepath.Join(dir, "nonexistent-auth")
-		pamCommonPasswordPath = filepath.Join(dir, "nonexistent-pwd")
+	t.Run("empty pam.d dir → PASS (no nullok found)", func(t *testing.T) {
+		pamDPath = t.TempDir() // empty dir
 		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
 		if got.Status != models.CISPass {
-			t.Errorf("unreadable: want Pass (no nullok found), got %s (%s)", got.Status, got.Finding)
+			t.Errorf("empty pam.d: want Pass (no nullok found), got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("unreadable pam.d → SKIP", func(t *testing.T) {
+		pamDPath = filepath.Join(t.TempDir(), "nonexistent-pamd")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("unreadable pam.d: want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("nullok in other pam.d file (not just common-auth) → FAIL", func(t *testing.T) {
+		// Fix 9: the scan covers ALL files in /etc/pam.d/, not just 2.
+		pamDPath = writeDir(t, map[string]string{
+			"common-auth":     "auth required pam_unix.so\n",
+			"common-password": "password requisite pam_pwquality.so retry=3\n",
+			"sudo":            "auth required pam_unix.so nullok\n",
+		})
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("nullok in sudo pam file: want Fail, got %s (%s)", got.Status, got.Finding)
 		}
 	})
 }
