@@ -41,37 +41,67 @@ func TestActiveBrandOverrideAndEnvFallback(t *testing.T) {
 }
 
 func TestLogoDataURI(t *testing.T) {
-	if got := logoDataURI(""); got != "" {
-		t.Errorf("empty logo must yield empty URI, got %q", got)
+	t.Parallel()
+	// Empty logo → empty URI, no error.
+	got, err := logoDataURI("")
+	if got != "" || err != nil {
+		t.Errorf("empty logo must yield (\"\", nil), got (%q, %v)", got, err)
 	}
-	// Already-inline URIs pass through untouched.
-	if got := logoDataURI("data:image/png;base64,AAAA"); string(got) != "data:image/png;base64,AAAA" {
-		t.Errorf("data URI should pass through, got %q", got)
+	// image/* data URIs pass through untouched.
+	got, err = logoDataURI("data:image/png;base64,AAAA")
+	if string(got) != "data:image/png;base64,AAAA" || err != nil {
+		t.Errorf("data:image/ URI should pass through, got (%q, %v)", got, err)
 	}
-	if got := logoDataURI("https://x/logo.png"); string(got) != "https://x/logo.png" {
-		t.Errorf("http URI should pass through, got %q", got)
+	// Non-image data: URIs are rejected.
+	_, err = logoDataURI("data:text/html,<script>alert(1)</script>")
+	if err == nil {
+		t.Error("data:text/html URI must be rejected")
 	}
-	// A real file is embedded as a base64 data URI with the right MIME.
+	// https:// URIs pass through.
+	got, err = logoDataURI("https://x/logo.png")
+	if string(got) != "https://x/logo.png" || err != nil {
+		t.Errorf("https URI should pass through, got (%q, %v)", got, err)
+	}
+	// http:// URIs are rejected.
+	_, err = logoDataURI("http://x/logo.png")
+	if err == nil {
+		t.Error("http:// URI must be rejected")
+	}
+	// SVG files are rejected.
 	dir := t.TempDir()
-	png := filepath.Join(dir, "brand.png")
-	if err := os.WriteFile(png, []byte("\x89PNGfake"), 0o600); err != nil {
-		t.Fatal(err)
+	svg := filepath.Join(dir, "logo.svg")
+	if err2 := os.WriteFile(svg, []byte("<svg><script>alert(1)</script></svg>"), 0o600); err2 != nil {
+		t.Fatal(err2)
 	}
-	got := string(logoDataURI(png))
-	if !strings.HasPrefix(got, "data:image/png;base64,") {
+	_, err = logoDataURI(svg)
+	if err == nil {
+		t.Error("SVG logo must be rejected")
+	}
+	// A real PNG file is embedded as a base64 data URI with the right MIME.
+	png := filepath.Join(dir, "brand.png")
+	if err2 := os.WriteFile(png, []byte("\x89PNGfake"), 0o600); err2 != nil {
+		t.Fatal(err2)
+	}
+	got, err = logoDataURI(png)
+	if err != nil {
+		t.Fatalf("valid PNG logo returned error: %v", err)
+	}
+	if !strings.HasPrefix(string(got), "data:image/png;base64,") {
 		t.Errorf("file logo should embed as data:image/png, got %q", got)
 	}
-	// Missing file → empty (never fatal to a report).
-	if got := logoDataURI(filepath.Join(dir, "nope.png")); got != "" {
-		t.Errorf("missing logo must yield empty URI, got %q", got)
+	// Missing file → error.
+	_, err = logoDataURI(filepath.Join(dir, "nope.png"))
+	if err == nil {
+		t.Error("missing logo file must return an error")
 	}
-	// Oversized file → skipped.
+	// Oversized file → error.
 	big := filepath.Join(dir, "big.png")
-	if err := os.WriteFile(big, make([]byte, maxLogoBytes+1), 0o600); err != nil {
-		t.Fatal(err)
+	if err2 := os.WriteFile(big, make([]byte, maxLogoBytes+1), 0o600); err2 != nil {
+		t.Fatal(err2)
 	}
-	if got := logoDataURI(big); got != "" {
-		t.Errorf("oversized logo must be skipped, got %d bytes of URI", len(got))
+	_, err = logoDataURI(big)
+	if err == nil {
+		t.Error("oversized logo must return an error")
 	}
 }
 
@@ -114,9 +144,11 @@ func TestLogoMIME(t *testing.T) {
 	}{
 		{"logo.jpg", "image/jpeg"},
 		{"logo.JPEG", "image/jpeg"},
-		{"logo.svg", "image/svg+xml"},
+		{"logo.svg", "image/svg+xml"}, // returned so caller's switch produces a useful error
 		{"logo.gif", "image/gif"},
 		{"logo.webp", "image/webp"},
+		{"logo.ico", "image/x-icon"},
+		{"logo.ICO", "image/x-icon"},
 		{"logo.png", "image/png"},
 		{"logo.bmp", "image/png"}, // unrecognized ext -> default
 		{"logo", "image/png"},     // no ext -> default

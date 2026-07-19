@@ -108,7 +108,14 @@ func buildHTML(snap *baseline.Snapshot, insights []models.Insight, elapsed time.
 
 	if b := activeBrand(); b.Company != "" || b.Logo != "" {
 		data.BrandName = b.Company
-		data.BrandLogo = logoDataURI(b.Logo)
+		if b.Logo != "" {
+			uri, err := logoDataURI(b.Logo)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "dsd: logo rejected: %v\n", err)
+			} else {
+				data.BrandLogo = uri
+			}
+		}
 	}
 
 	switch {

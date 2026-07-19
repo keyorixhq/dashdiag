@@ -96,7 +96,6 @@ download() {
         wget -q --https-only --show-progress "$URL" -O "$TMPFILE" || die "Download failed: $URL" # NOSONAR -- shelldre:S6506
     fi
 
-    chmod +x "$TMPFILE"
     echo "$TMPFILE"
 }
 
@@ -247,12 +246,17 @@ main() {
     info "Version: ${VERSION}  Platform: ${PLATFORM}  Prefix: ${PREFIX}"
 
     TMPFILE="$(download)"
+    # TMPDIR is set by download(); register cleanup now so any subsequent die()
+    # or set -e exit removes the temp directory, not leaving a partial/unverified
+    # binary behind.
+    trap 'rm -rf "$TMPDIR"' EXIT
     verify_checksum "$TMPFILE"
     verify_signature
+    # Make executable only after checksum (and optional signature) are verified —
+    # an unverified binary must never be executable on disk.
+    chmod +x "$TMPFILE"
     install_binary "$TMPFILE"
     verify_install
-
-    rm -rf "$TMPDIR" 2>/dev/null || true
 }
 
 main "$@"
