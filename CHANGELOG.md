@@ -9,6 +9,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.21.0] - 2026-07-19
+
+### Added
+- `dsd cis --nis2`: NIS2 Directive Article 21(2) evidence report. Maps all 327
+  existing CIS rules to the 10 Article 21(2) sub-items and renders an
+  article-grouped view with PASS/PARTIAL/FAIL/SKIP/UNMAPPED status per article.
+  Articles (a) risk analysis, (c) business continuity, and (f) effectiveness
+  assessment are correctly flagged UNMAPPED — no OS-level technical controls
+  exist for organisational requirements. Articles (b) incident handling,
+  (d) supply chain, (e) acquisition security, (g) cyber hygiene, (h) cryptography,
+  (i) access control, and (j) secured communications are fully mapped. `--nis2
+  --json` emits a `[]NIS2ArticleGroup` schema; each `CISResult` gains a
+  `nis2_refs` field. `--nis2 --fail-only` suppresses PASS/SKIP rows within each
+  article group while keeping per-article summary counts accurate. Compatible with
+  `--stig` (NIS2 refs annotated from CIS ID before the STIG ID swap). (#892)
+
 ## [1.20.1] - 2026-07-19
 
 ### Fixed
