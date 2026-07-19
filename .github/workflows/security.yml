@@ -108,3 +108,37 @@ jobs:
           # (health --cve WARNs at >=7.0): don't hard-fail a PR on low/moderate
           # noise, reserve the gate for genuinely serious new dependencies.
           fail-on-severity: high
+
+  # GitHub Actions workflow misconfig scanning.  DashDiag is a CLI binary so
+  # Trivy's container-image and OS-package scanning don't apply here — those
+  # surfaces are covered by govulncheck and osv-scanner on the Go module graph.
+  # What Trivy adds is the misconfig ruleset for workflow files: expression
+  # injection via ${{ github.event.*.body }} in run: steps, pull_request_target
+  # with untrusted code checkout, and similar CI supply-chain risks that neither
+  # Scorecard (which only checks pinned deps and token permissions) nor our
+  # custom Semgrep rules cover.  Scoped to .github/ so it scans nothing else.
+  trivy-misconfig:
+    name: Trivy (GH Actions misconfigs)
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      security-events: write  # upload SARIF to the Security tab
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+
+      - name: Scan workflow files for misconfigurations
+        uses: aquasecurity/trivy-action@a9c7b0f06e461e9d4b4d1711f154ee024b8d7ab8 # v0.36.0
+        with:
+          scan-type: fs
+          scan-ref: .github/
+          scanners: misconfig
+          format: sarif
+          output: trivy-misconfig.sarif
+          severity: HIGH,CRITICAL
+          exit-code: '1'
+
+      - name: Upload results to Security tab
+        if: always()  # upload even when the scan finds issues (exit-code 1)
+        uses: github/codeql-action/upload-sarif@99df26d4f13ea111d4ec1a7dddef6063f76b97e9 # v4.37.0
+        with:
+          sarif_file: trivy-misconfig.sarif
