@@ -294,3 +294,40 @@ func TestScanUbuntuOVALPackages_VersionAware_VersionPreference(t *testing.T) {
 		t.Errorf("got %d results, want 0 (version-bearing criterion wins; bash 9.0 >= fixedIn 5.0): %+v", len(results), results)
 	}
 }
+
+// TestScanUbuntuOVALPackages_VersionAware_NoneVersion verifies that a package
+// reported as version "(none)" by dpkg-query (config-files or half-installed
+// dpkg state) is NOT suppressed as "already patched" — it must be treated
+// identically to an absent package and skipped without reporting.
+//
+// The bug: CompareDpkg("(none)", "3.0.13") previously returned 1 (installed >=
+// fixed → suppress) because '(' has debOrder value 296, which exceeds the
+// digit-phase value for any leading digit. This caused false CVE suppression.
+func TestScanUbuntuOVALPackages_VersionAware_NoneVersion(t *testing.T) {
+	// bash reported at "(none)" — config-files or half-installed state.
+	// OVAL says fixed at 5.0. Must NOT be suppressed as patched.
+	fakeDpkgQuery(t, "bash\t(none)")
+	const feed = `<?xml version="1.0"?>
+<oval_definitions>
+  <definitions>
+    <definition class="vulnerability">
+      <metadata>
+        <reference source="CVE" ref_id="CVE-2031-NONE"/>
+        <advisory><severity>high</severity></advisory>
+      </metadata>
+      <criteria>
+        <criterion comment="bash DPKG is earlier than 5.0"/>
+      </criteria>
+    </definition>
+  </definitions>
+</oval_definitions>`
+	results, err := ScanUbuntuOVALPackages(context.Background(), writeFixture(t, "ubuntu-none.xml", feed))
+	if err != nil {
+		t.Fatalf("ScanUbuntuOVALPackages: %v", err)
+	}
+	// "(none)" must be treated as "not installed" — skip the package entirely,
+	// which means zero results (not a false suppression, not a false report).
+	if len(results) != 0 {
+		t.Errorf("got %d results, want 0: package with version (none) must not be reported (treated as absent): %+v", len(results), results)
+	}
+}
