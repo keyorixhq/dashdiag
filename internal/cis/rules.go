@@ -5110,6 +5110,9 @@ var auditRulesFilePath = "/etc/audit/audit.rules"
 // auditdConfPath for auditd configuration checks (4.1.1.1–4.1.1.3).
 var auditdConfPath = "/etc/audit/auditd.conf"
 
+// procCmdlinePath for kernel command-line parameter checks (4.1.1.4).
+var procCmdlinePath = "/proc/cmdline"
+
 // nisServerBinPaths for NIS server check (2.3.16).
 var nisServerBinPaths = []string{"/usr/sbin/ypserv", "/usr/lib/yp/ypserv"}
 
