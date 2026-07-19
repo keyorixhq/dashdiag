@@ -29,7 +29,7 @@ func NewVaultCollector() *VaultCollector { return &VaultCollector{} }
 func (c *VaultCollector) Name() string           { return "Vault" }
 func (c *VaultCollector) Timeout() time.Duration { return 8 * time.Second }
 
-func (c *VaultCollector) Collect(ctx context.Context) (interface{}, error) {
+func (c *VaultCollector) Collect(ctx context.Context) (any, error) {
 	info := &models.VaultInfo{Available: true}
 
 	// Probe HTTPS first, fall back to HTTP. Returns "" when :8200 is not reachable.
@@ -70,16 +70,22 @@ func vaultProbeBase(ctx context.Context, info *models.VaultInfo) string {
 }
 
 func vaultFetchHealth(ctx context.Context, base string, info *models.VaultInfo) {
-	body, _, err := httpGetCached(ctx, base+"/v1/sys/health")
+	body, statusCode, err := httpGetCached(ctx, base+"/v1/sys/health")
 	if err != nil || len(body) == 0 {
 		return
 	}
+	// Record the HTTP status regardless of whether the body parses. A non-zero
+	// code means the server responded; analysis uses this to distinguish
+	// "unreachable" from "wrong/proxied response".
+	info.HTTPStatus = statusCode
 	var h struct {
 		Initialized bool   `json:"initialized"`
 		Sealed      bool   `json:"sealed"`
 		Version     string `json:"version"`
 	}
 	if json.Unmarshal(body, &h) != nil {
+		// Body arrived but was not valid Vault JSON — proxy page, wrong port, etc.
+		// Leave StatusRead=false so analysis can emit WARN instead of INFO.
 		return
 	}
 	info.StatusRead = true

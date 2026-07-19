@@ -20,6 +20,13 @@ import (
 // the global active source via SetSource and parallel tests would race.
 func seedVaultFixture(t *testing.T, dialOk bool, healthBody, sealBody string) {
 	t.Helper()
+	seedVaultFixtureWithCode(t, dialOk, healthBody, 200, sealBody)
+}
+
+// seedVaultFixtureWithCode is like seedVaultFixture but allows specifying the
+// HTTP status code for the health endpoint (e.g. 503 for a proxy error page).
+func seedVaultFixtureWithCode(t *testing.T, dialOk bool, healthBody string, healthCode int, sealBody string) {
+	t.Helper()
 	cached := map[string][]byte{}
 
 	if dialOk {
@@ -29,7 +36,7 @@ func seedVaultFixture(t *testing.T, dialOk bool, healthBody, sealBody string) {
 	}
 
 	if healthBody != "" {
-		encoded, _ := json.Marshal(httpGetResult{Body: []byte(healthBody), Code: 200})
+		encoded, _ := json.Marshal(httpGetResult{Body: []byte(healthBody), Code: healthCode})
 		cached["http/https://127.0.0.1:8200/v1/sys/health"] = encoded
 	}
 	if sealBody != "" {
@@ -103,6 +110,52 @@ func TestVaultCollect_ReachableAPIFails(t *testing.T) {
 	}
 	if info.StatusRead {
 		t.Error("StatusRead = true, want false when body is not valid vault JSON")
+	}
+	// HTTP status must be captured even when the body was unparseable.
+	if info.HTTPStatus != 200 {
+		t.Errorf("HTTPStatus = %d, want 200", info.HTTPStatus)
+	}
+}
+
+// TestVaultCollect_ProxyIntercept503: a load balancer returns HTTP 503 with an
+// HTML body. The collector must set HTTPStatus=503 and leave StatusRead=false so
+// the analysis layer can emit WARN instead of INFO.
+func TestVaultCollect_ProxyIntercept503(t *testing.T) {
+	seedVaultFixtureWithCode(t, true, "<html>503 Service Unavailable</html>", 503, "")
+
+	raw, err := NewVaultCollector().Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.VaultInfo)
+	if !info.Reachable {
+		t.Error("Reachable = false, want true when port responds")
+	}
+	if info.StatusRead {
+		t.Error("StatusRead = true, want false when body is HTML not Vault JSON")
+	}
+	if info.HTTPStatus != 503 {
+		t.Errorf("HTTPStatus = %d, want 503", info.HTTPStatus)
+	}
+}
+
+// TestVaultCollect_HTTPStatusOnSuccess: a healthy Vault response must populate
+// HTTPStatus with the actual HTTP code (200 for active, but Vault also uses
+// 429/501/503 for standby/uninitialised/sealed — the status code is always set).
+func TestVaultCollect_HTTPStatusOnSuccess(t *testing.T) {
+	health := `{"initialized":true,"sealed":false,"version":"1.15.0"}`
+	seedVaultFixture(t, true, health, "")
+
+	raw, err := NewVaultCollector().Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.VaultInfo)
+	if !info.StatusRead {
+		t.Error("StatusRead = false, want true for valid Vault JSON")
+	}
+	if info.HTTPStatus != 200 {
+		t.Errorf("HTTPStatus = %d, want 200", info.HTTPStatus)
 	}
 }
 
