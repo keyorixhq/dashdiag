@@ -117,6 +117,10 @@ func parseDarwinSSHFile(path string, info *models.SecurityInfo) {
 			if n, err := strconv.Atoi(val); err == nil {
 				info.SSHClientAliveInterval = n
 			}
+		case "clientalivecountmax":
+			if n, err := strconv.Atoi(val); err == nil {
+				info.SSHClientAliveCountMax = n
+			}
 		}
 	}
 }

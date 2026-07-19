@@ -18,6 +18,7 @@ type SecurityInfo struct {
 	SSHPermitEmptyPwd      bool     `json:"ssh_permit_empty_passwords,omitempty"` // must be no
 	SSHStrictModes         bool     `json:"ssh_strict_modes"`                     // should be yes (default yes)
 	SSHClientAliveInterval int      `json:"ssh_client_alive_interval,omitempty"`  // idle timeout seconds
+	SSHClientAliveCountMax int      `json:"ssh_client_alive_count_max,omitempty"` // max unresponsive intervals; STIG: must be 0
 	// Additional CIS/STIG fields
 	SSHIgnoreRhosts  bool   `json:"ssh_ignore_rhosts"`             // should be yes (default yes)
 	SSHHostbasedAuth bool   `json:"ssh_hostbased_auth,omitempty"`  // should be no
