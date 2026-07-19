@@ -8667,3 +8667,226 @@ func TestRule5_4_15_PwqualityMinclass(t *testing.T) {
 		}
 	})
 }
+
+// TestRule5_4_16_PwqualityRetry verifies rule 5.4.16.
+// No t.Parallel() — mutates pamCommonPasswordPath.
+func TestRule5_4_16_PwqualityRetry(t *testing.T) {
+	dir := t.TempDir()
+	origPath := pamCommonPasswordPath
+	t.Cleanup(func() { pamCommonPasswordPath = origPath })
+
+	rule := ruleByID("5.4.16")
+
+	t.Run("missing file → SKIP", func(t *testing.T) {
+		pamCommonPasswordPath = filepath.Join(dir, "nonexistent")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("missing file: want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("pam_pwquality.so retry=3 → PASS", func(t *testing.T) {
+		f := filepath.Join(dir, "pwq_retry3.conf")
+		if err := os.WriteFile(f, []byte("password requisite pam_pwquality.so retry=3 minlen=14\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		pamCommonPasswordPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("retry=3: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("pam_pwquality.so retry=1 → PASS", func(t *testing.T) {
+		f := filepath.Join(dir, "pwq_retry1.conf")
+		if err := os.WriteFile(f, []byte("password requisite pam_pwquality.so retry=1\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		pamCommonPasswordPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("retry=1: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("pam_pwquality.so retry=4 → FAIL", func(t *testing.T) {
+		f := filepath.Join(dir, "pwq_retry4.conf")
+		if err := os.WriteFile(f, []byte("password requisite pam_pwquality.so retry=4\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		pamCommonPasswordPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("retry=4: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("pam_pwquality.so without retry= → FAIL", func(t *testing.T) {
+		f := filepath.Join(dir, "pwq_no_retry.conf")
+		if err := os.WriteFile(f, []byte("password requisite pam_pwquality.so minlen=14\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		pamCommonPasswordPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("no retry=: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// TestRule5_4_17_PAMNullok verifies rule 5.4.17.
+// No t.Parallel() — mutates pamCommonAuthPath and pamCommonPasswordPath.
+func TestRule5_4_17_PAMNullok(t *testing.T) {
+	dir := t.TempDir()
+	origAuth := pamCommonAuthPath
+	origPwd := pamCommonPasswordPath
+	t.Cleanup(func() {
+		pamCommonAuthPath = origAuth
+		pamCommonPasswordPath = origPwd
+	})
+
+	rule := ruleByID("5.4.17")
+
+	t.Run("no nullok in either file → PASS", func(t *testing.T) {
+		fAuth := filepath.Join(dir, "common-auth-clean")
+		fPwd := filepath.Join(dir, "common-password-clean")
+		if err := os.WriteFile(fAuth, []byte("auth required pam_unix.so\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(fPwd, []byte("password requisite pam_pwquality.so retry=3\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		pamCommonAuthPath = fAuth
+		pamCommonPasswordPath = fPwd
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("no nullok: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("nullok in common-auth → FAIL", func(t *testing.T) {
+		fAuth := filepath.Join(dir, "common-auth-nullok")
+		fPwd := filepath.Join(dir, "common-password-clean2")
+		if err := os.WriteFile(fAuth, []byte("auth required pam_unix.so nullok\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(fPwd, []byte("password requisite pam_pwquality.so retry=3\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		pamCommonAuthPath = fAuth
+		pamCommonPasswordPath = fPwd
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("nullok in auth: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("nullok in common-password → FAIL", func(t *testing.T) {
+		fAuth := filepath.Join(dir, "common-auth-clean3")
+		fPwd := filepath.Join(dir, "common-password-nullok")
+		if err := os.WriteFile(fAuth, []byte("auth required pam_unix.so\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(fPwd, []byte("password [success=1 default=ignore] pam_unix.so nullok sha512\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		pamCommonAuthPath = fAuth
+		pamCommonPasswordPath = fPwd
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("nullok in password: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("commented nullok → PASS", func(t *testing.T) {
+		fAuth := filepath.Join(dir, "common-auth-commented")
+		fPwd := filepath.Join(dir, "common-password-commented")
+		if err := os.WriteFile(fAuth, []byte("# auth required pam_unix.so nullok\nauth required pam_unix.so\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(fPwd, []byte("password requisite pam_pwquality.so retry=3\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		pamCommonAuthPath = fAuth
+		pamCommonPasswordPath = fPwd
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("commented nullok: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("both files unreadable → PASS (no evidence of nullok)", func(t *testing.T) {
+		pamCommonAuthPath = filepath.Join(dir, "nonexistent-auth")
+		pamCommonPasswordPath = filepath.Join(dir, "nonexistent-pwd")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("unreadable: want Pass (no nullok found), got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}
+
+// TestRuleV238384_PAMFaildelay verifies STIG rule V-238384.
+// No t.Parallel() — mutates pamCommonAuthPath.
+func TestRuleV238384_PAMFaildelay(t *testing.T) {
+	dir := t.TempDir()
+	origPath := pamCommonAuthPath
+	t.Cleanup(func() { pamCommonAuthPath = origPath })
+
+	rule := ruleByID("V-238384")
+
+	t.Run("unreadable file → SKIP", func(t *testing.T) {
+		pamCommonAuthPath = filepath.Join(dir, "nonexistent")
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("unreadable: want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("pam_faildelay.so delay=4000000 → PASS", func(t *testing.T) {
+		f := filepath.Join(dir, "auth-delay4m.conf")
+		if err := os.WriteFile(f, []byte("auth optional pam_faildelay.so delay=4000000\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		pamCommonAuthPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("delay=4000000: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("pam_faildelay.so delay=8000000 → PASS", func(t *testing.T) {
+		f := filepath.Join(dir, "auth-delay8m.conf")
+		if err := os.WriteFile(f, []byte("auth optional pam_faildelay.so delay=8000000\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		pamCommonAuthPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISPass {
+			t.Errorf("delay=8000000: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("pam_faildelay.so delay=2000000 → FAIL", func(t *testing.T) {
+		f := filepath.Join(dir, "auth-delay2m.conf")
+		if err := os.WriteFile(f, []byte("auth optional pam_faildelay.so delay=2000000\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		pamCommonAuthPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("delay=2000000: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("pam_faildelay.so absent → FAIL", func(t *testing.T) {
+		f := filepath.Join(dir, "auth-no-delay.conf")
+		if err := os.WriteFile(f, []byte("auth required pam_unix.so\nauth required pam_faillock.so\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		pamCommonAuthPath = f
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISFail {
+			t.Errorf("no pam_faildelay: want Fail, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+}

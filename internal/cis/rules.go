@@ -3477,6 +3477,67 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					"add 'minclass = 4' to /etc/security/pwquality.conf")
 			}},
 
+		// ── 5.4.16-5.4.17 pam_pwquality retry + PAM nullok ───────────────────
+
+		{ID: "5.4.16", Framework: cisBenchCIS, Level: 1, Section: cisCatAuth,
+			Description: "Ensure pam_pwquality is configured with retry ≤ 3",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.4.16")
+				data, err := os.ReadFile(pamCommonPasswordPath) // #nosec G304 -- package-level var
+				if err != nil {
+					return skipr(r, "/etc/pam.d/common-password not readable")
+				}
+				for line := range strings.SplitSeq(string(data), "\n") {
+					line = strings.TrimSpace(line)
+					if strings.HasPrefix(line, "#") || !strings.Contains(line, "pam_pwquality.so") {
+						continue
+					}
+					for field := range strings.FieldsSeq(line) {
+						rest, ok := strings.CutPrefix(field, "retry=")
+						if !ok {
+							continue
+						}
+						n, parseErr := strconv.Atoi(rest)
+						if parseErr != nil {
+							continue
+						}
+						if n > 3 {
+							return failr(r, fmt.Sprintf("pam_pwquality retry=%d exceeds CIS maximum of 3", n),
+								"set 'retry=3' on the pam_pwquality.so line in /etc/pam.d/common-password")
+						}
+						return pass(r)
+					}
+				}
+				return failr(r, "pam_pwquality.so with retry= not found in /etc/pam.d/common-password",
+					"add 'retry=3' to the pam_pwquality.so line in /etc/pam.d/common-password")
+			}},
+
+		{ID: "5.4.17", Framework: cisBenchCIS, Level: 1, Section: cisCatAuth,
+			Description: "Ensure PAM does not permit login with null passwords (nullok absent)",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("5.4.17")
+				for _, path := range []string{pamCommonAuthPath, pamCommonPasswordPath} {
+					data, err := os.ReadFile(path) // #nosec G304 -- package-level var
+					if err != nil {
+						continue
+					}
+					for line := range strings.SplitSeq(string(data), "\n") {
+						line = strings.TrimSpace(line)
+						if strings.HasPrefix(line, "#") {
+							continue
+						}
+						for field := range strings.FieldsSeq(line) {
+							if field == "nullok" {
+								return failr(r,
+									fmt.Sprintf("'nullok' found in %s — empty passwords permitted via PAM", path),
+									"remove 'nullok' from all PAM configuration files in /etc/pam.d/")
+							}
+						}
+					}
+				}
+				return pass(r)
+			}},
+
 		{ID: "5.3.5", Framework: cisBenchCIS, Level: 1, Section: cisCatAuth,
 			Description: "Ensure sudo authentication timeout is 15 minutes or less",
 			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
@@ -4896,6 +4957,41 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					func(days int) bool { return days < 7 },
 					"PASS_WARN_AGE is %d (must be ≥ 7)", "set PASS_WARN_AGE 7 in /etc/login.defs",
 					"PASS_WARN_AGE not set in /etc/login.defs", "add PASS_WARN_AGE 7 to /etc/login.defs")
+			}},
+
+		// V-238384: Authentication delay — pam_faildelay ≥ 4 000 000 µs (4 seconds)
+		{ID: "V-238384", Framework: cisBenchSTIG, Level: 1, Section: cisCatAuth,
+			Description: "The OS must implement a delay of at least 4 seconds between failed logon attempts",
+			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
+				r := ruleByID("V-238384")
+				data, err := os.ReadFile(pamCommonAuthPath) // #nosec G304 -- package-level var
+				if err != nil {
+					return skipr(r, "/etc/pam.d/common-auth not readable")
+				}
+				for line := range strings.SplitSeq(string(data), "\n") {
+					line = strings.TrimSpace(line)
+					if strings.HasPrefix(line, "#") || !strings.Contains(line, "pam_faildelay.so") {
+						continue
+					}
+					for field := range strings.FieldsSeq(line) {
+						rest, ok := strings.CutPrefix(field, "delay=")
+						if !ok {
+							continue
+						}
+						n, parseErr := strconv.Atoi(rest)
+						if parseErr != nil {
+							continue
+						}
+						if n < 4000000 {
+							return failr(r,
+								fmt.Sprintf("pam_faildelay delay=%d µs is below STIG minimum of 4 000 000 µs (4 s)", n),
+								"set 'delay=4000000' on the pam_faildelay.so line in /etc/pam.d/common-auth")
+						}
+						return pass(r)
+					}
+				}
+				return failr(r, "pam_faildelay.so not configured in /etc/pam.d/common-auth",
+					"add 'auth optional pam_faildelay.so delay=4000000' to /etc/pam.d/common-auth")
 			}},
 	}
 }
