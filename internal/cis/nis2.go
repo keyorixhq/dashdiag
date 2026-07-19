@@ -1,0 +1,520 @@
+package cis
+
+import "github.com/keyorixhq/dashdiag/internal/models"
+
+// NIS2Article21 describes one sub-item of NIS2 Directive Article 21(2).
+type NIS2Article21 struct {
+	ID    string // e.g. "Art.21(2)(b)"
+	Title string // short label e.g. "Incident handling"
+	Scope string // one-line scope note from the Directive
+}
+
+// NIS2Articles lists all 10 sub-items of Article 21(2) in directive order.
+// Articles (a), (c), (f) have zero CIS OS-level mappings and produce UNMAPPED
+// groups; they are included so the report always presents all 10 items.
+var NIS2Articles = []NIS2Article21{
+	{
+		ID:    "Art.21(2)(a)",
+		Title: "Risk analysis",
+		Scope: "Policies on risk analysis and information system security",
+	},
+	{
+		ID:    "Art.21(2)(b)",
+		Title: "Incident handling",
+		Scope: "Detection, reporting and response to cybersecurity incidents",
+	},
+	{
+		ID:    "Art.21(2)(c)",
+		Title: "Business continuity",
+		Scope: "Backup management, disaster recovery and crisis management",
+	},
+	{
+		ID:    "Art.21(2)(d)",
+		Title: "Supply chain security",
+		Scope: "Security in the supply chain including software and third-party components",
+	},
+	{
+		ID:    "Art.21(2)(e)",
+		Title: "Security in acquisition",
+		Scope: "Security in network and information systems acquisition, development and maintenance",
+	},
+	{
+		ID:    "Art.21(2)(f)",
+		Title: "Assess effectiveness",
+		Scope: "Policies and procedures to assess cybersecurity risk management measure effectiveness",
+	},
+	{
+		ID:    "Art.21(2)(g)",
+		Title: "Cyber hygiene",
+		Scope: "Basic cyber hygiene practices and cybersecurity training",
+	},
+	{
+		ID:    "Art.21(2)(h)",
+		Title: "Cryptography",
+		Scope: "Policies and procedures regarding the use of cryptography and encryption",
+	},
+	{
+		ID:    "Art.21(2)(i)",
+		Title: "Access control",
+		Scope: "Human resources security, access control policies and asset management",
+	},
+	{
+		ID:    "Art.21(2)(j)",
+		Title: "Secured communications",
+		Scope: "MFA, secured voice/video/text communications and secured emergency communications",
+	},
+}
+
+// NIS2ArticleByID returns the NIS2Article21 for the given ID (e.g. "Art.21(2)(b)").
+func NIS2ArticleByID(id string) (NIS2Article21, bool) {
+	for _, a := range NIS2Articles {
+		if a.ID == id {
+			return a, true
+		}
+	}
+	return NIS2Article21{}, false
+}
+
+// nis2Mapping maps each CIS rule ID to the set of NIS2 Article 21(2) sub-items
+// it satisfies. A rule may appear under multiple articles.
+//
+// Articles (a), (c), (f) have no OS-level CIS rule mapping and are omitted here.
+var nis2Mapping = map[string][]string{
+	// -------------------------------------------------------------------------
+	// Art.21(2)(b) — Incident Handling
+	// Audit subsystem configuration (section 4.1.x)
+	// -------------------------------------------------------------------------
+	"4.1.1.1": {"Art.21(2)(b)"},
+	"4.1.1.2": {"Art.21(2)(b)"},
+	"4.1.1.3": {"Art.21(2)(b)"},
+	"4.1.1.4": {"Art.21(2)(b)"},
+	"4.1.1.5": {"Art.21(2)(b)"},
+	"4.1.2":   {"Art.21(2)(b)"},
+	"4.1.3":   {"Art.21(2)(b)"},
+	"4.1.4":   {"Art.21(2)(b)"},
+	"4.1.5":   {"Art.21(2)(b)"},
+	"4.1.6":   {"Art.21(2)(b)"},
+	"4.1.7":   {"Art.21(2)(b)"},
+	"4.1.8":   {"Art.21(2)(b)"},
+	"4.1.9":   {"Art.21(2)(b)"},
+	"4.1.10":  {"Art.21(2)(b)"},
+	"4.1.11":  {"Art.21(2)(b)"},
+	"4.1.12":  {"Art.21(2)(b)"},
+	"4.1.13":  {"Art.21(2)(b)"},
+	"4.1.14":  {"Art.21(2)(b)"},
+	"4.1.15":  {"Art.21(2)(b)"},
+	"4.1.16":  {"Art.21(2)(b)"},
+	"4.1.17":  {"Art.21(2)(b)"},
+	// Logging configuration (section 4.2.x / 4.3.x)
+	"4.2.1":   {"Art.21(2)(b)"},
+	"4.2.2":   {"Art.21(2)(b)"},
+	"4.2.2.2": {"Art.21(2)(b)"},
+	"4.2.2.3": {"Art.21(2)(b)"},
+	"4.2.3":   {"Art.21(2)(b)"},
+	"4.2.4":   {"Art.21(2)(b)"},
+	"4.2.5":   {"Art.21(2)(b)"},
+	"4.2.6":   {"Art.21(2)(b)"},
+	"4.2.7":   {"Art.21(2)(b)"},
+	"4.3.1":   {"Art.21(2)(b)"},
+
+	// -------------------------------------------------------------------------
+	// Art.21(2)(d) — Supply Chain Security
+	// Package integrity and update channels (section 1.2.x)
+	// -------------------------------------------------------------------------
+	"1.2.1": {"Art.21(2)(d)"},
+	"1.2.2": {"Art.21(2)(d)"},
+	"1.2.3": {"Art.21(2)(d)"},
+	"1.2.4": {"Art.21(2)(d)"},
+	// File integrity monitoring (section 1.3.x)
+	"1.3.1": {"Art.21(2)(d)"},
+	"1.3.2": {"Art.21(2)(d)"},
+
+	// -------------------------------------------------------------------------
+	// Art.21(2)(e) — Security in Acquisition/Development
+	// Filesystem module controls (section 1.1.1.x)
+	// -------------------------------------------------------------------------
+	"1.1.1.1": {"Art.21(2)(e)"},
+	"1.1.1.2": {"Art.21(2)(e)"},
+	"1.1.1.3": {"Art.21(2)(e)"},
+	"1.1.1.4": {"Art.21(2)(e)"},
+	"1.1.1.5": {"Art.21(2)(e)"},
+	"1.1.1.6": {"Art.21(2)(e)"},
+	"1.1.1.7": {"Art.21(2)(e)"},
+	// Kernel hardening / attack surface reduction (section 1.5.x)
+	"1.5.1":  {"Art.21(2)(e)"},
+	"1.5.2":  {"Art.21(2)(e)"},
+	"1.5.3":  {"Art.21(2)(e)"},
+	"1.5.4":  {"Art.21(2)(e)"},
+	"1.5.5":  {"Art.21(2)(e)"},
+	"1.5.6":  {"Art.21(2)(e)"},
+	"1.5.7":  {"Art.21(2)(e)"},
+	"1.5.8":  {"Art.21(2)(e)"},
+	"1.5.9":  {"Art.21(2)(e)"},
+	"1.5.10": {"Art.21(2)(e)"},
+	"1.5.11": {"Art.21(2)(e)"},
+	"1.5.12": {"Art.21(2)(e)"},
+	"1.5.14": {"Art.21(2)(e)"},
+	"1.5.15": {"Art.21(2)(e)"},
+	"1.5.16": {"Art.21(2)(e)"},
+	"1.5.17": {"Art.21(2)(e)"},
+	"1.5.18": {"Art.21(2)(e)"},
+	// Mandatory Access Control (section 1.6.x)
+	"1.6.1": {"Art.21(2)(e)"},
+	"1.6.2": {"Art.21(2)(e)"},
+	"1.6.3": {"Art.21(2)(e)"},
+	"1.6.4": {"Art.21(2)(e)"},
+	// Uncommon/dangerous network protocols disabled (section 3.4.x)
+	"3.4.1": {"Art.21(2)(e)"},
+	"3.4.2": {"Art.21(2)(e)"},
+	"3.4.3": {"Art.21(2)(e)"},
+	"3.4.4": {"Art.21(2)(e)"},
+	"3.4.5": {"Art.21(2)(e)"},
+	// Wireless disabled (section 3.6.x)
+	"3.6.1": {"Art.21(2)(e)"},
+
+	// -------------------------------------------------------------------------
+	// Art.21(2)(g) — Cyber Hygiene
+	// Time synchronization (section 2.1.x)
+	// -------------------------------------------------------------------------
+	"2.1.1": {"Art.21(2)(g)"},
+	"2.1.2": {"Art.21(2)(g)"},
+	// Legacy/risky client software removed (section 2.2.x)
+	"2.2.1": {"Art.21(2)(g)"},
+	"2.2.2": {"Art.21(2)(g)"},
+	"2.2.3": {"Art.21(2)(g)"},
+	"2.2.4": {"Art.21(2)(g)"},
+	"2.2.5": {"Art.21(2)(g)"},
+	// Unnecessary server daemons not installed (section 2.3.x)
+	"2.3.1":  {"Art.21(2)(g)"},
+	"2.3.2":  {"Art.21(2)(g)"},
+	"2.3.3":  {"Art.21(2)(g)"},
+	"2.3.4":  {"Art.21(2)(g)"},
+	"2.3.5":  {"Art.21(2)(g)"},
+	"2.3.6":  {"Art.21(2)(g)"},
+	"2.3.7":  {"Art.21(2)(g)"},
+	"2.3.8":  {"Art.21(2)(g)"},
+	"2.3.9":  {"Art.21(2)(g)"},
+	"2.3.10": {"Art.21(2)(g)"},
+	"2.3.11": {"Art.21(2)(g)"},
+	"2.3.12": {"Art.21(2)(g)"},
+	"2.3.13": {"Art.21(2)(g)"},
+	"2.3.14": {"Art.21(2)(g)"},
+	"2.3.15": {"Art.21(2)(g)"},
+	"2.3.16": {"Art.21(2)(g)"},
+	// Network hardening — no source routing, no redirects, etc. (section 3.1.x–3.3.x)
+	"3.1.1":  {"Art.21(2)(g)"},
+	"3.1.2":  {"Art.21(2)(g)"},
+	"3.1.3":  {"Art.21(2)(g)"},
+	"3.2.1":  {"Art.21(2)(g)"},
+	"3.2.2":  {"Art.21(2)(g)"},
+	"3.2.3":  {"Art.21(2)(g)"},
+	"3.2.4":  {"Art.21(2)(g)"},
+	"3.2.5":  {"Art.21(2)(g)"},
+	"3.2.6":  {"Art.21(2)(g)"},
+	"3.2.7":  {"Art.21(2)(g)"},
+	"3.2.8":  {"Art.21(2)(g)"},
+	"3.2.9":  {"Art.21(2)(g)"},
+	"3.2.10": {"Art.21(2)(g)"},
+	"3.2.11": {"Art.21(2)(g)"},
+	"3.2.12": {"Art.21(2)(g)"},
+	"3.2.13": {"Art.21(2)(g)"},
+	"3.2.14": {"Art.21(2)(g)"},
+	"3.2.15": {"Art.21(2)(g)"},
+	"3.2.16": {"Art.21(2)(g)"},
+	"3.2.17": {"Art.21(2)(g)"},
+	"3.2.18": {"Art.21(2)(g)"},
+	"3.2.22": {"Art.21(2)(g)"},
+	"3.2.23": {"Art.21(2)(g)"},
+	"3.2.24": {"Art.21(2)(g)"},
+	"3.2.25": {"Art.21(2)(g)"},
+	"3.2.26": {"Art.21(2)(g)"},
+	"3.2.27": {"Art.21(2)(g)"},
+	"3.2.28": {"Art.21(2)(g)"},
+	"3.2.29": {"Art.21(2)(g)"},
+	"3.2.30": {"Art.21(2)(g)"},
+	"3.2.31": {"Art.21(2)(g)"},
+	"3.2.32": {"Art.21(2)(g)"},
+	"3.2.33": {"Art.21(2)(g)"},
+	"3.2.34": {"Art.21(2)(g)"},
+	"3.2.35": {"Art.21(2)(g)"},
+	"3.2.36": {"Art.21(2)(g)"},
+	"3.2.37": {"Art.21(2)(g)"},
+	"3.2.38": {"Art.21(2)(g)"},
+	"3.2.39": {"Art.21(2)(g)"},
+	"3.3.1":  {"Art.21(2)(g)"},
+	"3.3.2":  {"Art.21(2)(g)"},
+	// SSH general hardening — non-crypto, non-auth rules (section 5.2.x selected)
+	"5.2.2":  {"Art.21(2)(g)"},
+	"5.2.6":  {"Art.21(2)(g)"},
+	"5.2.7":  {"Art.21(2)(g)"},
+	"5.2.8":  {"Art.21(2)(g)"},
+	"5.2.9":  {"Art.21(2)(g)"},
+	"5.2.10": {"Art.21(2)(g)"},
+	"5.2.11": {"Art.21(2)(g)"},
+	"5.2.12": {"Art.21(2)(g)"},
+	"5.2.13": {"Art.21(2)(g)"},
+	"5.2.15": {"Art.21(2)(g)"},
+	"5.2.18": {"Art.21(2)(g)"},
+	"5.2.19": {"Art.21(2)(g)"},
+	"5.2.21": {"Art.21(2)(g)"},
+	"5.2.22": {"Art.21(2)(g)"},
+	"5.2.23": {"Art.21(2)(g)"},
+	"5.2.24": {"Art.21(2)(g)"},
+	"5.2.28": {"Art.21(2)(g)"},
+	"5.2.29": {"Art.21(2)(g)"},
+	"5.2.30": {"Art.21(2)(g)"},
+	// Password quality — basic hygiene rules (section 5.4.x selected)
+	"5.4.1":  {"Art.21(2)(g)"},
+	"5.4.9":  {"Art.21(2)(g)"},
+	"5.4.15": {"Art.21(2)(g)"},
+	"5.4.16": {"Art.21(2)(g)"},
+	"5.4.17": {"Art.21(2)(g)"},
+	// Warning banners — user awareness (section 1.7.x)
+	"1.7.1": {"Art.21(2)(g)"},
+	"1.7.2": {"Art.21(2)(g)"},
+	"1.7.3": {"Art.21(2)(g)"},
+	"1.7.4": {"Art.21(2)(g)"},
+	"1.7.5": {"Art.21(2)(g)"},
+	"1.7.6": {"Art.21(2)(g)"},
+	"1.7.7": {"Art.21(2)(g)"},
+	"1.7.8": {"Art.21(2)(g)"},
+	"1.7.9": {"Art.21(2)(g)"},
+
+	// -------------------------------------------------------------------------
+	// Art.21(2)(h) — Cryptography
+	// SSH cipher/MAC/KEX algorithms (section 5.2.x selected)
+	// -------------------------------------------------------------------------
+	"5.2.3":  {"Art.21(2)(h)"},
+	"5.2.4":  {"Art.21(2)(h)"},
+	"5.2.5":  {"Art.21(2)(h)"},
+	"5.2.25": {"Art.21(2)(h)"},
+	"5.2.26": {"Art.21(2)(h)"},
+	"5.2.27": {"Art.21(2)(h)"},
+	// Password hashing algorithm — also (g); primary home is (h)
+	"5.4.11": {"Art.21(2)(h)", "Art.21(2)(g)"},
+	// GRUB boot security — protects key material at boot (section 1.4.x)
+	"1.4.1": {"Art.21(2)(h)"},
+	"1.4.2": {"Art.21(2)(h)"},
+
+	// -------------------------------------------------------------------------
+	// Art.21(2)(i) — Access Control and Asset Management
+	// Cron/at scheduling access control (section 5.1.x)
+	// -------------------------------------------------------------------------
+	"5.1.1":  {"Art.21(2)(i)"},
+	"5.1.2":  {"Art.21(2)(i)"},
+	"5.1.3":  {"Art.21(2)(i)"},
+	"5.1.4":  {"Art.21(2)(i)"},
+	"5.1.5":  {"Art.21(2)(i)"},
+	"5.1.6":  {"Art.21(2)(i)"},
+	"5.1.7":  {"Art.21(2)(i)"},
+	"5.1.8":  {"Art.21(2)(i)"},
+	"5.1.9":  {"Art.21(2)(i)"},
+	"5.1.10": {"Art.21(2)(i)"},
+	"5.1.11": {"Art.21(2)(i)"},
+	"5.1.12": {"Art.21(2)(i)"},
+	"5.1.13": {"Art.21(2)(i)"},
+	"5.1.14": {"Art.21(2)(i)"},
+	"5.1.15": {"Art.21(2)(i)"},
+	"5.1.16": {"Art.21(2)(i)"},
+	"5.1.17": {"Art.21(2)(i)"},
+	"5.1.18": {"Art.21(2)(i)"},
+	"5.1.19": {"Art.21(2)(i)"},
+	"5.1.20": {"Art.21(2)(i)"},
+	"5.1.21": {"Art.21(2)(i)"},
+	"5.1.22": {"Art.21(2)(i)"},
+	"5.1.23": {"Art.21(2)(i)"},
+	// Sudo — privilege escalation control (section 5.3.x)
+	"5.3.1": {"Art.21(2)(i)"},
+	"5.3.2": {"Art.21(2)(i)"},
+	"5.3.3": {"Art.21(2)(i)"},
+	"5.3.4": {"Art.21(2)(i)"},
+	"5.3.5": {"Art.21(2)(i)"},
+	// Password aging and account management (section 5.4.x selected)
+	"5.4.2": {"Art.21(2)(i)"},
+	"5.4.3": {"Art.21(2)(i)"},
+	"5.4.4": {"Art.21(2)(i)"},
+	"5.4.5": {"Art.21(2)(i)"},
+	"5.4.6": {"Art.21(2)(i)"},
+	"5.4.7": {"Art.21(2)(i)"},
+	"5.4.8": {"Art.21(2)(i)"},
+	// SSH privilege rules — also (j); primary home is (i)
+	"5.2.14": {"Art.21(2)(i)", "Art.21(2)(j)"},
+	"5.2.16": {"Art.21(2)(i)", "Art.21(2)(g)"},
+	// File permissions — system file asset protection (section 6.1.x)
+	"6.1.1":  {"Art.21(2)(i)"},
+	"6.1.2":  {"Art.21(2)(i)"},
+	"6.1.3":  {"Art.21(2)(i)"},
+	"6.1.4":  {"Art.21(2)(i)"},
+	"6.1.5":  {"Art.21(2)(i)"},
+	"6.1.6":  {"Art.21(2)(i)"},
+	"6.1.7":  {"Art.21(2)(i)"},
+	"6.1.8":  {"Art.21(2)(i)"},
+	"6.1.9":  {"Art.21(2)(i)"},
+	"6.1.10": {"Art.21(2)(i)"},
+	"6.1.11": {"Art.21(2)(i)"},
+	"6.1.12": {"Art.21(2)(i)"},
+	"6.1.13": {"Art.21(2)(i)"},
+	"6.1.14": {"Art.21(2)(i)"},
+	"6.1.15": {"Art.21(2)(i)"},
+	"6.1.16": {"Art.21(2)(i)"},
+	"6.1.17": {"Art.21(2)(i)"},
+	"6.1.18": {"Art.21(2)(i)"},
+	"6.1.19": {"Art.21(2)(i)"},
+	"6.1.20": {"Art.21(2)(i)"},
+	"6.1.21": {"Art.21(2)(i)"},
+	"6.1.22": {"Art.21(2)(i)"},
+	"6.1.23": {"Art.21(2)(i)"},
+	"6.1.24": {"Art.21(2)(i)"},
+	"6.1.25": {"Art.21(2)(i)"},
+	"6.1.26": {"Art.21(2)(i)"},
+	"6.1.27": {"Art.21(2)(i)"},
+	"6.1.28": {"Art.21(2)(i)"},
+	"6.1.29": {"Art.21(2)(i)"},
+	"6.1.30": {"Art.21(2)(i)"},
+	"6.1.31": {"Art.21(2)(i)"},
+	"6.1.32": {"Art.21(2)(i)"},
+	"6.1.33": {"Art.21(2)(i)"},
+	"6.1.34": {"Art.21(2)(i)"},
+	"6.1.35": {"Art.21(2)(i)"},
+	"6.1.36": {"Art.21(2)(i)"},
+	"6.1.37": {"Art.21(2)(i)"},
+	"6.1.38": {"Art.21(2)(i)"},
+	// User account integrity (section 6.2.x)
+	"6.2.1":  {"Art.21(2)(i)"},
+	"6.2.2":  {"Art.21(2)(i)"},
+	"6.2.3":  {"Art.21(2)(i)"},
+	"6.2.4":  {"Art.21(2)(i)"},
+	"6.2.5":  {"Art.21(2)(i)"},
+	"6.2.6":  {"Art.21(2)(i)"},
+	"6.2.7":  {"Art.21(2)(i)"},
+	"6.2.8":  {"Art.21(2)(i)"},
+	"6.2.9":  {"Art.21(2)(i)"},
+	"6.2.10": {"Art.21(2)(i)"},
+	"6.2.11": {"Art.21(2)(i)"},
+	"6.2.12": {"Art.21(2)(i)"},
+	"6.2.13": {"Art.21(2)(i)"},
+	"6.2.14": {"Art.21(2)(i)"},
+	"6.2.15": {"Art.21(2)(i)"},
+	"6.2.16": {"Art.21(2)(i)"},
+	"6.2.17": {"Art.21(2)(i)"},
+	"6.2.18": {"Art.21(2)(i)"},
+	// Firewall — network access control (section 3.5.x)
+	"3.5.1":   {"Art.21(2)(i)"},
+	"3.5.1.1": {"Art.21(2)(i)"},
+	"3.5.1.2": {"Art.21(2)(i)"},
+	"3.5.1.3": {"Art.21(2)(i)"},
+	"3.5.1.4": {"Art.21(2)(i)"},
+	"3.5.1.5": {"Art.21(2)(i)"},
+	"3.5.1.6": {"Art.21(2)(i)"},
+	"3.5.1.7": {"Art.21(2)(i)"},
+
+	// -------------------------------------------------------------------------
+	// Art.21(2)(j) — Secured Communications / MFA
+	// SSH auth controls — key-only auth is the strongest available MFA substitute
+	// on Linux (section 5.2.x selected)
+	// -------------------------------------------------------------------------
+	// 5.2.14 already entered above with dual refs (i) + (j)
+	"5.2.17": {"Art.21(2)(j)"},
+	"5.2.20": {"Art.21(2)(j)"},
+	// PAM account lockout — brute-force protection (section 5.4.x selected)
+	"5.4.10": {"Art.21(2)(j)"},
+	"5.4.13": {"Art.21(2)(j)"},
+	"5.4.14": {"Art.21(2)(j)"},
+	// PAM password complexity — also (g); primary home is (j)
+	"5.4.12": {"Art.21(2)(j)", "Art.21(2)(g)"},
+	// Session controls (section 5.5.x)
+	"5.5.1": {"Art.21(2)(j)"},
+	"5.5.2": {"Art.21(2)(j)"},
+	"5.5.3": {"Art.21(2)(j)"},
+	"5.5.4": {"Art.21(2)(j)"},
+}
+
+// NIS2Refs returns the NIS2 Article 21(2) sub-item IDs that the given CIS rule
+// ID maps to. Returns nil when the rule has no NIS2 mapping.
+func NIS2Refs(cisID string) []string {
+	return nis2Mapping[cisID]
+}
+
+// NIS2ArticleGroup aggregates CISResults that belong to one NIS2 article.
+type NIS2ArticleGroup struct {
+	Article NIS2Article21
+	Status  string // "PASS" | "PARTIAL" | "FAIL" | "SKIP" | "UNMAPPED"
+	Pass    int
+	Fail    int
+	Manual  int
+	Skipped int
+	Results []models.CISResult
+}
+
+// GroupByNIS2 groups a slice of CISResults by their NIS2Refs, returning one
+// NIS2ArticleGroup per article in NIS2Articles order.
+//
+// Status derivation:
+//   - UNMAPPED — no results map to this article at all
+//   - FAIL     — one or more failures and zero passes (all failing)
+//   - PARTIAL  — has both passes and failures (mixed)
+//   - PASS     — at least one pass and zero failures
+//   - SKIP     — no passes or failures, but some skipped/manual results
+func GroupByNIS2(results []models.CISResult) []NIS2ArticleGroup {
+	// Build a per-article bucket from results that carry NIS2Refs.
+	type bucket struct {
+		pass    int
+		fail    int
+		manual  int
+		skipped int
+		results []models.CISResult
+	}
+	buckets := make(map[string]*bucket, len(NIS2Articles))
+	for _, a := range NIS2Articles {
+		buckets[a.ID] = &bucket{}
+	}
+
+	for _, r := range results {
+		for _, ref := range r.NIS2Refs {
+			b, ok := buckets[ref]
+			if !ok {
+				continue
+			}
+			b.results = append(b.results, r)
+			switch r.Status {
+			case models.CISPass:
+				b.pass++
+			case models.CISFail:
+				b.fail++
+			case models.CISManual:
+				b.manual++
+			case models.CISSkipped, models.CISNotApplicable:
+				b.skipped++
+			}
+		}
+	}
+
+	groups := make([]NIS2ArticleGroup, 0, len(NIS2Articles))
+	for _, a := range NIS2Articles {
+		b := buckets[a.ID]
+		g := NIS2ArticleGroup{
+			Article: a,
+			Pass:    b.pass,
+			Fail:    b.fail,
+			Manual:  b.manual,
+			Skipped: b.skipped,
+			Results: b.results,
+		}
+
+		switch {
+		case len(b.results) == 0:
+			g.Status = "UNMAPPED"
+		case b.fail > 0 && b.pass > 0:
+			g.Status = "PARTIAL"
+		case b.fail > 0:
+			g.Status = "FAIL"
+		case b.pass > 0:
+			g.Status = "PASS"
+		default:
+			g.Status = "SKIP"
+		}
+
+		groups = append(groups, g)
+	}
+	return groups
+}

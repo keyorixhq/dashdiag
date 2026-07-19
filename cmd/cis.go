@@ -42,6 +42,7 @@ func init() {
 	cisCmd.Flags().Int("level", 1, "benchmark level (1 or 2)")
 	cisCmd.Flags().Bool("fail-only", false, "show only FAIL results")
 	cisCmd.Flags().Bool("stig", false, "run DISA STIG checks instead of CIS")
+	cisCmd.Flags().Bool("nis2", false, "show NIS2 Article 21(2) evidence grouping")
 	// --plain and --json: global, no local declaration needed
 }
 
@@ -69,6 +70,7 @@ func runCIS(cmd *cobra.Command, _ []string) error {
 	jsonOut, _ := cmd.Flags().GetBool("json")
 	stig, _ := cmd.Flags().GetBool("stig")
 	failOnly, _ := cmd.Flags().GetBool("fail-only")
+	nis2Mode, _ := cmd.Flags().GetBool("nis2")
 	level, _ := cmd.Flags().GetInt("level")
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -99,13 +101,33 @@ func runCIS(cmd *cobra.Command, _ []string) error {
 	report.Hostname, _ = os.Hostname()
 	report.Profile = cisProfileName(prof.Distro, level, stig)
 
+	mode := output.DetectMode(plain, false, "")
+	if nis2Mode {
+		groups := cis.GroupByNIS2(report.Results)
+		if jsonOut {
+			if failOnly {
+				for i := range groups {
+					filtered := make([]models.CISResult, 0, groups[i].Fail)
+					for _, r := range groups[i].Results {
+						if r.Status == models.CISFail {
+							filtered = append(filtered, r)
+						}
+					}
+					groups[i].Results = filtered
+				}
+			}
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			return enc.Encode(groups)
+		}
+		printNIS2Report(groups, failOnly, mode)
+		return nil
+	}
 	if jsonOut {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")
 		return enc.Encode(report)
 	}
-
-	mode := output.DetectMode(plain, false, "")
 	printCISReport(report, failOnly, stig, mode)
 	return nil
 }
@@ -171,6 +193,99 @@ func printCISReport(report models.CISReport, failOnly, stig bool, mode output.Ou
 		fmt.Println()
 	}
 	fmt.Println()
+}
+
+func printNIS2Report(groups []cis.NIS2ArticleGroup, failOnly bool, mode output.OutputMode) {
+	colour := mode == output.ModeHuman
+	fmt.Println()
+	fmt.Println("  NIS2 Directive — Article 21(2) Evidence")
+	fmt.Println()
+	for _, g := range groups {
+		printNIS2Article(g, failOnly, colour, mode)
+	}
+	fmt.Printf("  Scope: %s\n", "Art.21(2) technical controls evidenced by existing CIS rules")
+	fmt.Printf("  Tip: %sdsd cis --nis2 --json%s for machine-readable output\n\n",
+		bold(colour), resetColour(colour))
+}
+
+func nis2StatusColour(status string, colour bool) string {
+	switch status {
+	case "FAIL":
+		return red(colour)
+	case "PARTIAL":
+		return colourFor(models.CISFail, colour)
+	case "PASS":
+		return green(colour)
+	default:
+		return dim(colour)
+	}
+}
+
+func nis2Icon(status string, mode output.OutputMode) string {
+	switch status {
+	case "PASS":
+		return asciiOr("ok  ", "✅  ", mode)
+	case "FAIL":
+		return asciiOr("fail", "❌  ", mode)
+	case "PARTIAL":
+		return asciiOr("warn", "⚠️  ", mode)
+	case "SKIP":
+		return asciiOr("skip", "⏭️  ", mode)
+	default:
+		return asciiOr("n/a ", "—   ", mode)
+	}
+}
+
+func printNIS2Article(g cis.NIS2ArticleGroup, failOnly, colour bool, mode output.OutputMode) {
+	sc := nis2StatusColour(g.Status, colour)
+	icon := nis2Icon(g.Status, mode)
+	fmt.Printf("  %s %s%s%s — %s\n",
+		icon, sc, g.Article.ID, resetColour(colour), g.Article.Title)
+	if g.Status == "UNMAPPED" {
+		fmt.Printf("         %sNo OS-level technical controls — requires organisational policy evidence%s\n",
+			dim(colour), resetColour(colour))
+		fmt.Println()
+		return
+	}
+	for _, r := range g.Results {
+		if failOnly && r.Status != models.CISFail {
+			continue
+		}
+		ruleIcon := cisIcon(r.Status, mode)
+		idPad := fmt.Sprintf("%-8s", r.ID)
+		fmt.Printf("         %s %s%s%s  %s\n",
+			ruleIcon, colourFor(r.Status, colour), idPad, resetColour(colour), r.Description)
+		if r.Status == models.CISFail {
+			if r.Finding != "" {
+				fmt.Printf("                    %sfinding:%s %s\n", dim(colour), resetColour(colour), r.Finding)
+			}
+			if r.Remediation != "" {
+				fmt.Printf("                    %sto fix: %s %s\n", dim(colour), resetColour(colour), r.Remediation)
+			}
+		}
+	}
+	printNIS2Summary(g, colour)
+	fmt.Println()
+}
+
+func printNIS2Summary(g cis.NIS2ArticleGroup, colour bool) {
+	parts := make([]string, 0, 4)
+	if g.Pass > 0 {
+		parts = append(parts, fmt.Sprintf("%s%d pass%s", green(colour), g.Pass, resetColour(colour)))
+	}
+	if g.Fail > 0 {
+		parts = append(parts, fmt.Sprintf("%s%d fail%s", red(colour), g.Fail, resetColour(colour)))
+	}
+	if g.Manual > 0 {
+		parts = append(parts, fmt.Sprintf("%d manual", g.Manual))
+	}
+	if g.Skipped > 0 {
+		parts = append(parts, fmt.Sprintf("%s%d skipped%s", dim(colour), g.Skipped, resetColour(colour)))
+	}
+	if len(parts) > 0 {
+		fmt.Printf("         %d controls: %s\n",
+			g.Pass+g.Fail+g.Manual+g.Skipped, strings.Join(parts, "  "))
+	}
 }
 
 func cisIcon(s models.CISStatus, mode output.OutputMode) string {
