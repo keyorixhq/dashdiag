@@ -2,6 +2,10 @@ package cvedata
 
 import "strings"
 
+// dpkgNotInstalled is the dpkg sentinel value for packages in config-files or
+// half-installed state that have no meaningful version to compare.
+const dpkgNotInstalled = "(none)"
+
 // Debian/Ubuntu version comparison. dpkg uses a DIFFERENT algorithm than RPM's
 // rpmvercmp (version.go) — most notably its character ordering puts '~' before
 // everything (including end-of-string, for pre-releases), then plain end-of-string,
@@ -26,13 +30,13 @@ import "strings"
 // lower than any real version so a "(none)" installed version is never
 // considered "already patched."
 func CompareDpkg(a, b string) int {
-	if a == "(none)" && b == "(none)" {
+	if a == dpkgNotInstalled && b == dpkgNotInstalled {
 		return 0
 	}
-	if a == "(none)" {
+	if a == dpkgNotInstalled {
 		return -1
 	}
-	if b == "(none)" {
+	if b == dpkgNotInstalled {
 		return 1
 	}
 	ea, ua, ra := splitDebVersion(a)

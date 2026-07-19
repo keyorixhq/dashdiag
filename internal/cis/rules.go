@@ -1389,7 +1389,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 		{ID: "1.1.12", Framework: cisBenchCIS, Level: 2, Section: "Filesystem",
 			Description: "Ensure /var/log directory is on its own filesystem",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
-				return checkSeparateMountPoint(ruleByID("1.1.12"), "/var/log",
+				return checkSeparateMountPoint(ruleByID("1.1.12"), varLogPath,
 					"create a separate /var/log partition and add to /etc/fstab")
 			}},
 
@@ -4056,21 +4056,21 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 		{ID: "1.1.26", Framework: cisBenchCIS, Level: 2, Section: "Filesystem",
 			Description: "Ensure nodev option set on /var/log partition",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
-				return checkMountOption(ruleByID("1.1.26"), "/var/log", "nodev",
+				return checkMountOption(ruleByID("1.1.26"), varLogPath, "nodev",
 					"add 'nodev' to /var/log mount options in /etc/fstab")
 			}},
 
 		{ID: "1.1.27", Framework: cisBenchCIS, Level: 2, Section: "Filesystem",
 			Description: "Ensure nosuid option set on /var/log partition",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
-				return checkMountOption(ruleByID("1.1.27"), "/var/log", "nosuid",
+				return checkMountOption(ruleByID("1.1.27"), varLogPath, "nosuid",
 					"add 'nosuid' to /var/log mount options in /etc/fstab")
 			}},
 
 		{ID: "1.1.28", Framework: cisBenchCIS, Level: 2, Section: "Filesystem",
 			Description: "Ensure noexec option set on /var/log partition",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
-				return checkMountOption(ruleByID("1.1.28"), "/var/log", "noexec",
+				return checkMountOption(ruleByID("1.1.28"), varLogPath, "noexec",
 					"add 'noexec' to /var/log mount options in /etc/fstab")
 			}},
 		{ID: "1.1.29", Framework: cisBenchCIS, Level: 2, Section: "Filesystem",
@@ -4226,12 +4226,12 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Description: "Ensure /etc/audit/auditd.conf permissions are 640 or stricter",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("6.1.21")
-				return checkFilePerm(r, "/etc/audit/auditd.conf", 0o640, "chmod 640 /etc/audit/auditd.conf")
+				return checkFilePerm(r, auditdConfPath, 0o640, "chmod 640 /etc/audit/auditd.conf")
 			}},
 		{ID: "6.1.22", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
 			Description: "Ensure /etc/audit/auditd.conf is owned by root:root",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
-				return checkFileOwnerRootRoot(ruleByID("6.1.22"), "/etc/audit/auditd.conf", "chown root:root /etc/audit/auditd.conf")
+				return checkFileOwnerRootRoot(ruleByID("6.1.22"), auditdConfPath, "chown root:root /etc/audit/auditd.conf")
 			}},
 		{ID: "6.1.23", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
 			Description: "Ensure /etc/hosts permissions are configured (644 or more restrictive)",
@@ -4292,34 +4292,34 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Description: "Ensure /etc/environment permissions are 644 or stricter",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("6.1.33")
-				return checkFilePerm(r, "/etc/environment", 0o644, "chmod 644 /etc/environment")
+				return checkFilePerm(r, etcEnvironmentPath, 0o644, "chmod 644 /etc/environment")
 			}},
 		{ID: "6.1.34", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
 			Description: "Ensure /etc/environment is owned by root:root",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
-				return checkFileOwnerRootRoot(ruleByID("6.1.34"), "/etc/environment", "chown root:root /etc/environment")
+				return checkFileOwnerRootRoot(ruleByID("6.1.34"), etcEnvironmentPath, "chown root:root /etc/environment")
 			}},
 		{ID: "6.1.35", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
 			Description: "Ensure /etc/profile permissions are 644 or stricter",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("6.1.35")
-				return checkFilePerm(r, "/etc/profile", 0o644, "chmod 644 /etc/profile")
+				return checkFilePerm(r, etcProfilePath, 0o644, "chmod 644 /etc/profile")
 			}},
 		{ID: "6.1.36", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
 			Description: "Ensure /etc/profile is owned by root:root",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
-				return checkFileOwnerRootRoot(ruleByID("6.1.36"), "/etc/profile", "chown root:root /etc/profile")
+				return checkFileOwnerRootRoot(ruleByID("6.1.36"), etcProfilePath, "chown root:root /etc/profile")
 			}},
 		{ID: "6.1.37", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
 			Description: "Ensure /etc/login.defs permissions are 644 or stricter",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("6.1.37")
-				return checkFilePerm(r, "/etc/login.defs", 0o644, "chmod 644 /etc/login.defs")
+				return checkFilePerm(r, loginDefsPath, 0o644, "chmod 644 /etc/login.defs")
 			}},
 		{ID: "6.1.38", Framework: cisBenchCIS, Level: 1, Section: cisCatFiles,
 			Description: "Ensure /etc/login.defs is owned by root:root",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
-				return checkFileOwnerRootRoot(ruleByID("6.1.38"), "/etc/login.defs", "chown root:root /etc/login.defs")
+				return checkFileOwnerRootRoot(ruleByID("6.1.38"), loginDefsPath, "chown root:root /etc/login.defs")
 			}},
 
 		{ID: "6.2.1", StigID: "V-238408", Framework: cisBenchBOTH, Level: 1, Section: "Users",
