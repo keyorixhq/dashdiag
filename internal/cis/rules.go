@@ -5817,6 +5817,9 @@ func Evaluate(sec models.SecurityInfo, ks models.KernelSecurityInfo, level int, 
 		if refs := NIS2Refs(rule.ID); len(refs) > 0 {
 			result.NIS2Refs = refs
 		}
+		if refs := BSIRefs(rule.ID); len(refs) > 0 {
+			result.BSIRefs = refs
+		}
 
 		// SSH config-derived rules read fields that fall back to OpenSSH defaults
 		// when sshd_config couldn't be read (non-root: `sshd -T` needs root and
