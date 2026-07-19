@@ -43,6 +43,7 @@ func init() {
 	cisCmd.Flags().Bool("fail-only", false, "show only FAIL results")
 	cisCmd.Flags().Bool("stig", false, "run DISA STIG checks instead of CIS")
 	cisCmd.Flags().Bool("nis2", false, "show NIS2 Article 21(2) evidence grouping")
+	cisCmd.Flags().Bool("bsi", false, "show BSI IT-Grundschutz Kompendium evidence grouping (SYS.1.3 / SYS.1.1 / OPS.1.1)")
 	// --plain and --json: global, no local declaration needed
 }
 
@@ -71,6 +72,7 @@ func runCIS(cmd *cobra.Command, _ []string) error {
 	stig, _ := cmd.Flags().GetBool("stig")
 	failOnly, _ := cmd.Flags().GetBool("fail-only")
 	nis2Mode, _ := cmd.Flags().GetBool("nis2")
+	bsiMode, _ := cmd.Flags().GetBool("bsi")
 	level, _ := cmd.Flags().GetInt("level")
 	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
 	defer cancel()
@@ -102,6 +104,27 @@ func runCIS(cmd *cobra.Command, _ []string) error {
 	report.Profile = cisProfileName(prof.Distro, level, stig)
 
 	mode := output.DetectMode(plain, false, "")
+	if bsiMode {
+		groups := cis.GroupByBSI(report.Results)
+		if jsonOut {
+			if failOnly {
+				for i := range groups {
+					filtered := make([]models.CISResult, 0, groups[i].Fail)
+					for _, r := range groups[i].Results {
+						if r.Status == models.CISFail {
+							filtered = append(filtered, r)
+						}
+					}
+					groups[i].Results = filtered
+				}
+			}
+			enc := json.NewEncoder(os.Stdout)
+			enc.SetIndent("", "  ")
+			return enc.Encode(groups)
+		}
+		printBSIReport(groups, failOnly, mode)
+		return nil
+	}
 	if nis2Mode {
 		groups := cis.GroupByNIS2(report.Results)
 		if jsonOut {
@@ -269,6 +292,106 @@ func printNIS2Article(g cis.NIS2ArticleGroup, failOnly, colour bool, mode output
 }
 
 func printNIS2Summary(g cis.NIS2ArticleGroup, colour bool) {
+	parts := make([]string, 0, 4)
+	if g.Pass > 0 {
+		parts = append(parts, fmt.Sprintf("%s%d pass%s", green(colour), g.Pass, resetColour(colour)))
+	}
+	if g.Fail > 0 {
+		parts = append(parts, fmt.Sprintf("%s%d fail%s", red(colour), g.Fail, resetColour(colour)))
+	}
+	if g.Manual > 0 {
+		parts = append(parts, fmt.Sprintf("%d manual", g.Manual))
+	}
+	if g.Skipped > 0 {
+		parts = append(parts, fmt.Sprintf("%s%d skipped%s", dim(colour), g.Skipped, resetColour(colour)))
+	}
+	if len(parts) > 0 {
+		fmt.Printf("         %d controls: %s\n",
+			g.Pass+g.Fail+g.Manual+g.Skipped, strings.Join(parts, "  "))
+	}
+}
+
+func printBSIReport(groups []cis.BSIReqGroup, failOnly bool, mode output.OutputMode) {
+	colour := mode == output.ModeHuman
+	fmt.Println()
+	fmt.Println("  BSI IT-Grundschutz Kompendium — Technische Prüfpunkte")
+	fmt.Println()
+	currentBaustein := ""
+	for _, g := range groups {
+		if g.Baustein.ID != currentBaustein {
+			currentBaustein = g.Baustein.ID
+			fmt.Printf("  ── %s %s ──\n", g.Baustein.ID, strings.ToUpper(g.Baustein.English))
+			fmt.Println()
+		}
+		printBSIReq(g, failOnly, colour, mode)
+	}
+	fmt.Printf("  Scope: SYS.1.3 + SYS.1.1 + OPS.1.1 — OS-level technical controls evidenced by existing CIS rules\n")
+	fmt.Printf("  Tip: %sdsd cis --bsi --json%s for machine-readable output\n\n",
+		bold(colour), resetColour(colour))
+}
+
+func bsiStatusColour(status string, colour bool) string {
+	switch status {
+	case "FAIL":
+		return red(colour)
+	case "PARTIAL":
+		return colourFor(models.CISFail, colour)
+	case "PASS":
+		return green(colour)
+	default:
+		return dim(colour)
+	}
+}
+
+func bsiIcon(status string, mode output.OutputMode) string {
+	switch status {
+	case "PASS":
+		return asciiOr("ok  ", "✅  ", mode)
+	case "FAIL":
+		return asciiOr("fail", "❌  ", mode)
+	case "PARTIAL":
+		return asciiOr("warn", "⚠️  ", mode)
+	case "SKIP":
+		return asciiOr("skip", "⏭️  ", mode)
+	default:
+		return asciiOr("n/a ", "—   ", mode)
+	}
+}
+
+func printBSIReq(g cis.BSIReqGroup, failOnly, colour bool, mode output.OutputMode) {
+	sc := bsiStatusColour(g.Status, colour)
+	icon := bsiIcon(g.Status, mode)
+	levelTag := fmt.Sprintf("[%s]", g.Req.Level)
+	fmt.Printf("  %s %s%s %s%s — %s\n",
+		icon, sc, levelTag, g.Req.ID, resetColour(colour), g.Req.English)
+	if g.Status == "UNMAPPED" {
+		fmt.Printf("         %sNo automated OS-level check — manual evidence required%s\n",
+			dim(colour), resetColour(colour))
+		fmt.Println()
+		return
+	}
+	for _, r := range g.Results {
+		if failOnly && r.Status != models.CISFail {
+			continue
+		}
+		ruleIcon := cisIcon(r.Status, mode)
+		idPad := fmt.Sprintf("%-8s", r.ID)
+		fmt.Printf("         %s %s%s%s  %s\n",
+			ruleIcon, colourFor(r.Status, colour), idPad, resetColour(colour), r.Description)
+		if r.Status == models.CISFail {
+			if r.Finding != "" {
+				fmt.Printf("                    %sfinding:%s %s\n", dim(colour), resetColour(colour), r.Finding)
+			}
+			if r.Remediation != "" {
+				fmt.Printf("                    %sto fix: %s %s\n", dim(colour), resetColour(colour), r.Remediation)
+			}
+		}
+	}
+	printBSISummary(g, colour)
+	fmt.Println()
+}
+
+func printBSISummary(g cis.BSIReqGroup, colour bool) {
 	parts := make([]string, 0, 4)
 	if g.Pass > 0 {
 		parts = append(parts, fmt.Sprintf("%s%d pass%s", green(colour), g.Pass, resetColour(colour)))

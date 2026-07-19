@@ -22,6 +22,7 @@ type CISResult struct {
 	Finding     string    `json:"finding,omitempty"`     // what was actually found
 	Remediation string    `json:"remediation,omitempty"` // how to fix it
 	NIS2Refs    []string  `json:"nis2_refs,omitempty"`   // NIS2 Article 21(2) sub-items that this rule covers
+	BSIRefs     []string  `json:"bsi_refs,omitempty"`    // BSI IT-Grundschutz requirement IDs that this rule covers
 }
 
 // CISReport is the full output of a compliance scan.
