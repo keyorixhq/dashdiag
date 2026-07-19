@@ -19,9 +19,10 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/platform"
 )
 
-// Build assembles the Inventory. hw may be nil (e.g. on non-Linux); identity
-// fields are still populated where possible.
-func Build(hw *models.HardwareInfo, profile platform.Profile, toolVersion, collectedAt string) models.Inventory {
+// Build assembles the Inventory. hw, gpu, and cloud may be nil (e.g. on
+// non-Linux or when a section is unavailable); identity fields are still
+// populated where possible.
+func Build(hw *models.HardwareInfo, gpu *models.GPUInfo, cloud *models.CloudInfo, profile platform.Profile, toolVersion, collectedAt string) models.Inventory {
 	host, _ := os.Hostname()
 	inv := models.Inventory{
 		CollectedAt: collectedAt,
@@ -74,6 +75,39 @@ func Build(hw *models.HardwareInfo, profile platform.Profile, toolVersion, colle
 	// carries neither drive capacity nor serial).
 	inv.System.Serial = readDMI("product_serial")
 	inv.Drives = readBlockDevices("/sys/block")
+
+	if gpu != nil {
+		for i, d := range gpu.Devices {
+			inv.GPUs = append(inv.GPUs, models.InventoryGPU{
+				Index:       i,
+				Name:        d.Name,
+				Vendor:      d.Vendor,
+				VRAMTotalGB: d.VRAMTotalGB,
+				DRMDriver:   d.DRMDriver,
+				MesaVersion: d.MesaVersion,
+			})
+		}
+		// GPUs detected in sysfs but without a loaded driver are still hardware.
+		baseIdx := len(gpu.Devices)
+		for i, nd := range gpu.NoDriver {
+			inv.GPUs = append(inv.GPUs, models.InventoryGPU{
+				Index:    baseIdx + i,
+				Name:     nd.Name,
+				Vendor:   nd.Vendor,
+				NoDriver: true,
+			})
+		}
+	}
+
+	if cloud != nil && cloud.Available {
+		inv.Cloud = &models.InventoryCloud{
+			Provider:     cloud.Provider,
+			InstanceID:   cloud.InstanceID,
+			InstanceType: cloud.InstanceType,
+			Region:       cloud.Region,
+		}
+	}
+
 	return inv
 }
 

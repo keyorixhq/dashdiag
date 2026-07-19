@@ -87,6 +87,26 @@ func writeCSV(dst io.Writer, inv models.Inventory) error {
 		add(p+"driver", n.Driver)
 	}
 
+	for i, g := range inv.GPUs {
+		p := "gpu." + strconv.Itoa(i) + "."
+		addInt(p+"index", g.Index)
+		add(p+"name", g.Name)
+		add(p+"vendor", g.Vendor)
+		addFloat(p+"vram_total_gb", g.VRAMTotalGB)
+		add(p+"drm_driver", g.DRMDriver)
+		add(p+"mesa_version", g.MesaVersion)
+		if g.NoDriver {
+			rows = append(rows, []string{p + "no_driver", "true"})
+		}
+	}
+
+	if c := inv.Cloud; c != nil {
+		add("cloud.provider", c.Provider)
+		add("cloud.instance_id", c.InstanceID)
+		add("cloud.instance_type", c.InstanceType)
+		add("cloud.region", c.Region)
+	}
+
 	add("software.package_manager", inv.Software.PackageManager)
 	addInt("software.package_count", inv.Software.PackageCount)
 

@@ -20,7 +20,7 @@ func TestBuild_FromHardwareInfo(t *testing.T) {
 		}},
 		NICs: []models.HardwareNIC{{Name: "eno1", MAC: "aa:bb:cc:dd:ee:ff", SpeedMbps: 1000, Driver: "igb"}},
 	}
-	inv := Build(hw, platform.Profile{Distro: "ubuntu", DistroVersion: "24.04", PackageManager: "apt"},
+	inv := Build(hw, nil, nil, platform.Profile{Distro: "ubuntu", DistroVersion: "24.04", PackageManager: "apt"},
 		"v1.2.3", "2026-06-05T00:00:00Z")
 
 	if inv.Tool != "dsd" || inv.ToolVersion != "v1.2.3" {
@@ -48,7 +48,7 @@ func TestBuild_FromHardwareInfo(t *testing.T) {
 
 func TestBuild_NilHardware(t *testing.T) {
 	// Must not panic when hw is nil (non-Linux path).
-	inv := Build(nil, platform.Profile{Distro: "darwin"}, "v0", "t")
+	inv := Build(nil, nil, nil, platform.Profile{Distro: "darwin"}, "v0", "t")
 	if inv.Host.Arch == "" {
 		t.Error("arch should still be populated from runtime")
 	}
@@ -128,7 +128,7 @@ func TestBuild_FiltersPseudoNICs(t *testing.T) {
 		{Name: "sit0", MAC: "00:00:00:00"},
 		{Name: "ip6tnl0", MAC: "00:00:00:00:00:00:00:00:00:00:00:00:00:00:00:00"},
 	}}
-	inv := Build(hw, platform.Profile{}, "v0", "t")
+	inv := Build(hw, nil, nil, platform.Profile{}, "v0", "t")
 	if len(inv.NICs) != 1 || inv.NICs[0].Name != "eth0" {
 		t.Errorf("expected only eth0, got %+v", inv.NICs)
 	}
@@ -391,6 +391,84 @@ func TestToCSV_MemorySlotsAndNICs(t *testing.T) {
 		"memory.slot.1.locator,DIMM_A2",
 		"nic.0.name,eth0", "nic.0.mac,aa:bb:cc:dd:ee:ff", "nic.0.speed_mbps,1000", "nic.0.driver,igb",
 		"nic.1.name,eth1", "nic.1.driver,ixgbe",
+	} {
+		if !strings.Contains(csv, want) {
+			t.Errorf("CSV missing %q\n%s", want, csv)
+		}
+	}
+}
+
+func TestBuild_GPUSection(t *testing.T) {
+	t.Parallel()
+	gpu := &models.GPUInfo{
+		Devices: []models.GPUDevice{
+			{Index: 0, Name: "Radeon RX 7900 XTX", Vendor: "amd", VRAMTotalGB: 24, DRMDriver: "amdgpu", MesaVersion: "24.3.1"},
+		},
+		NoDriver: []models.GPUDetected{
+			{Name: "NVIDIA GeForce GT 710", Vendor: "nvidia"},
+		},
+	}
+	inv := Build(nil, gpu, nil, platform.Profile{}, "v0", "t")
+	if len(inv.GPUs) != 2 {
+		t.Fatalf("expected 2 GPU entries (1 device + 1 no-driver), got %d: %+v", len(inv.GPUs), inv.GPUs)
+	}
+	g0 := inv.GPUs[0]
+	if g0.Name != "Radeon RX 7900 XTX" || g0.Vendor != "amd" || g0.VRAMTotalGB != 24 || g0.DRMDriver != "amdgpu" || g0.NoDriver {
+		t.Errorf("gpu[0] = %+v", g0)
+	}
+	g1 := inv.GPUs[1]
+	if g1.Name != "NVIDIA GeForce GT 710" || !g1.NoDriver {
+		t.Errorf("gpu[1] (no-driver) = %+v", g1)
+	}
+}
+
+func TestBuild_CloudSection(t *testing.T) {
+	t.Parallel()
+	cloud := &models.CloudInfo{
+		Available:    true,
+		Provider:     "aws",
+		InstanceID:   "i-0abc123",
+		InstanceType: "c6i.large",
+		Region:       "us-east-1",
+	}
+	inv := Build(nil, nil, cloud, platform.Profile{}, "v0", "t")
+	if inv.Cloud == nil {
+		t.Fatal("cloud section must be populated when cloud.Available=true")
+	}
+	if inv.Cloud.Provider != "aws" || inv.Cloud.InstanceID != "i-0abc123" || inv.Cloud.Region != "us-east-1" {
+		t.Errorf("cloud = %+v", inv.Cloud)
+	}
+}
+
+func TestBuild_CloudUnavailable(t *testing.T) {
+	t.Parallel()
+	cloud := &models.CloudInfo{Available: false, Provider: ""}
+	inv := Build(nil, nil, cloud, platform.Profile{}, "v0", "t")
+	if inv.Cloud != nil {
+		t.Errorf("cloud section must be nil when cloud.Available=false, got %+v", inv.Cloud)
+	}
+}
+
+func TestToCSV_GPUAndCloud(t *testing.T) {
+	t.Parallel()
+	inv := models.Inventory{
+		CollectedAt: "2026-06-05T00:00:00Z", Tool: "dsd", ToolVersion: "v1",
+		GPUs: []models.InventoryGPU{
+			{Index: 0, Name: "Radeon RX 7900 XTX", Vendor: "amd", VRAMTotalGB: 24, DRMDriver: "amdgpu", MesaVersion: "24.3.1"},
+			{Index: 1, Name: "GT 710", Vendor: "nvidia", NoDriver: true},
+		},
+		Cloud: &models.InventoryCloud{
+			Provider: "aws", InstanceID: "i-0abc", InstanceType: "c6i.large", Region: "us-east-1",
+		},
+	}
+	csv, err := ToCSV(inv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{
+		"gpu.0.name,Radeon RX 7900 XTX", "gpu.0.vendor,amd", "gpu.0.vram_total_gb,24", "gpu.0.drm_driver,amdgpu", "gpu.0.mesa_version,24.3.1",
+		"gpu.1.name,GT 710", "gpu.1.no_driver,true",
+		"cloud.provider,aws", "cloud.instance_id,i-0abc", "cloud.instance_type,c6i.large", "cloud.region,us-east-1",
 	} {
 		if !strings.Contains(csv, want) {
 			t.Errorf("CSV missing %q\n%s", want, csv)
