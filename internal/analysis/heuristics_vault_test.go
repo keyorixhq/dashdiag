@@ -1,6 +1,7 @@
 package analysis
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -16,6 +17,9 @@ func TestCheckVault(t *testing.T) {
 		{"not available is silent", models.VaultInfo{Available: false}, ""},
 		{"not reachable is WARN", models.VaultInfo{Available: true, Reachable: false}, "WARN"},
 		{"reachable but API unreadable is INFO", models.VaultInfo{Available: true, Reachable: true, StatusRead: false}, "INFO"},
+		// HTTPStatus > 0 means the server responded but with non-Vault JSON (proxy, wrong port) → WARN.
+		{"reachable, HTTPStatus set, StatusRead false is WARN", models.VaultInfo{Available: true, Reachable: true, StatusRead: false, HTTPStatus: 503}, "WARN"},
+		{"reachable, HTTPStatus 200, StatusRead false is WARN", models.VaultInfo{Available: true, Reachable: true, StatusRead: false, HTTPStatus: 200}, "WARN"},
 		{"healthy vault is clean", models.VaultInfo{
 			Available: true, Reachable: true, StatusRead: true,
 			Initialized: true, Sealed: false, DevMode: false, TLSEnabled: true,
@@ -47,6 +51,24 @@ func TestCheckVault(t *testing.T) {
 			t.Parallel()
 			assertLevel(t, checkVault(tt.v), tt.want)
 		})
+	}
+}
+
+func TestCheckVaultProxyIntercept(t *testing.T) {
+	t.Parallel()
+	// HTTPStatus=503, StatusRead=false: load balancer returned HTML, not Vault JSON.
+	// Must emit WARN with the HTTP status code in the finding text.
+	insights := checkVault(models.VaultInfo{
+		Available: true, Reachable: true, StatusRead: false, HTTPStatus: 503,
+	})
+	if len(insights) != 1 {
+		t.Fatalf("expected 1 insight, got %d: %+v", len(insights), insights)
+	}
+	if insights[0].Level != "WARN" {
+		t.Errorf("Level = %q, want WARN", insights[0].Level)
+	}
+	if !strings.Contains(insights[0].Message, "503") {
+		t.Errorf("finding does not mention HTTP status 503: %q", insights[0].Message)
 	}
 }
 
