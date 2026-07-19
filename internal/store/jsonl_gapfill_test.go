@@ -98,9 +98,10 @@ func TestClose_SyncError(t *testing.T) {
 	}
 }
 
-// TestHistory_ScannerError covers the sc.Err() != nil branch in History:
-// a line longer than the 64 KB scanner buffer limit triggers bufio.ErrTooLong,
-// which History must surface as a non-nil error rather than silently skipping it.
+// TestHistory_ScannerError covers the ErrTooLong branch in History:
+// a line larger than the 1 MiB scanner cap triggers bufio.ErrTooLong, which
+// History must handle gracefully — logging a warning and returning whatever
+// entries were collected before the oversized line rather than aborting.
 func TestHistory_ScannerError(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -111,14 +112,21 @@ func TestHistory_ScannerError(t *testing.T) {
 	}
 	defer func() { _ = s.Close() }()
 
-	// Write a line that exceeds the 64 KB scanner buffer (65 KB of JSON-like content).
-	longLine := `{"hostname":"h","verdict":"OK","value":"` + strings.Repeat("x", 65*1024) + `"}`
-	if err := os.WriteFile(storePath, []byte(longLine+"\n"), 0o600); err != nil {
+	// Write one valid line followed by a line that exceeds the 1 MiB scanner cap.
+	// Entry JSON fields: "host" (Hostname), "verdict" (Verdict).
+	validLine := `{"host":"h","verdict":"OK"}` + "\n"
+	oversizedLine := `{"host":"h","verdict":"WARN","value":"` + strings.Repeat("x", maxLineSizeBytes+1) + `"}` + "\n"
+	content := validLine + oversizedLine
+	if err := os.WriteFile(storePath, []byte(content), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	_, histErr := s.History(context.Background(), "h", 10)
-	if histErr == nil {
-		t.Error("History must return an error when scanner hits a line exceeding the buffer limit")
+	entries, histErr := s.History(context.Background(), "h", 10)
+	if histErr != nil {
+		t.Errorf("History must not return an error on oversized line (skip-and-warn), got: %v", histErr)
+	}
+	// The valid line before the oversized one must still be returned.
+	if len(entries) != 1 {
+		t.Errorf("expected 1 entry from partial read, got %d", len(entries))
 	}
 }
 
