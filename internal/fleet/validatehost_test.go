@@ -52,7 +52,10 @@ func TestValidateHost_AcceptsLegitimate(t *testing.T) {
 // TestRun_InvalidHostNeverReachesSSH confirms a bad host short-circuits to an
 // ERROR result instead of being shelled out.
 func TestRun_InvalidHostNeverReachesSSH(t *testing.T) {
-	res := Run(t.Context(), []string{"-oProxyCommand=evil"}, Options{})
+	res, err := Run(t.Context(), []string{"-oProxyCommand=evil"}, Options{})
+	if err != nil {
+		t.Fatalf("Run returned unexpected error: %v", err)
+	}
 	if len(res) != 1 {
 		t.Fatalf("got %d results, want 1", len(res))
 	}

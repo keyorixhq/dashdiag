@@ -63,7 +63,14 @@ func buildFleetHTML(report FleetReport) (string, error) {
 	b := activeBrand()
 	if b.Company != "" || b.Logo != "" {
 		report.BrandName = b.Company
-		report.BrandLogo = logoDataURI(b.Logo)
+		if b.Logo != "" {
+			uri, err := logoDataURI(b.Logo)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "dsd: logo rejected: %v\n", err)
+			} else {
+				report.BrandLogo = uri
+			}
+		}
 	}
 	var buf bytes.Buffer
 	if err := fleetHTMLTmpl.Execute(&buf, report); err != nil {
