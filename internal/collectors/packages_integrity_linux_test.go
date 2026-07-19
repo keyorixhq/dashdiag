@@ -2,6 +2,7 @@ package collectors
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"testing"
 
@@ -74,7 +75,7 @@ func TestPkgIntegrityAPT_DpkgBrokenPackages(t *testing.T) {
 func TestPkgIntegrityDNF_TenOrMoreBrokenPackages(t *testing.T) {
 	var dnfCheckOut strings.Builder
 	for i := range 11 {
-		dnfCheckOut.WriteString("broken-pkg-" + strings.Repeat("x", i) + ": requires missing-dep\n")
+		fmt.Fprintf(&dnfCheckOut, "broken-pkg-%s: requires missing-dep\n", strings.Repeat("x", i))
 	}
 	fake := fakeRunSource{run: func(name string, args []string) source.Result {
 		if name == "dnf" && len(args) > 0 && args[0] == "check" {

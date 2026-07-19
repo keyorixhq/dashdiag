@@ -431,6 +431,9 @@ func authLogSourceLines(ctx context.Context, journalArgs ...string) (lines []str
 	for scanner.Scan() {
 		out = append(out, scanner.Text())
 	}
+	if err := scanner.Err(); err != nil {
+		return out, false
+	}
 	return out, false
 }
 
@@ -523,6 +526,9 @@ func parseProcNetTCP(path string, info *models.SecurityInfo) {
 				Expected: isExpectedPort(port),
 			})
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		_ = err // best-effort; port list may be incomplete
 	}
 	if !hasRoot || os.Getuid() != 0 {
 		info.PortsNeedRoot = true
@@ -665,6 +671,9 @@ func parseSudoersFile(path string, info *models.SecurityInfo) {
 			}
 			info.SudoNopasswd = append(info.SudoNopasswd, user)
 		}
+	}
+	if err := scanner.Err(); err != nil {
+		_ = err // best-effort; sudoers list may be incomplete
 	}
 }
 
@@ -902,7 +911,7 @@ func selinuxDeepDiagnosisGate(info *models.SecurityInfo) bool {
 // port type — a proactive check that catches a labeling gap before SELinux
 // ever logs a denial for it (the service just hasn't (re)bound under
 // enforcement since the gap appeared).
-func parseSELinuxUnlabeledPorts(ctx context.Context, listening []models.PortEntry) []models.SELinuxUnlabeledPort {
+func parseSELinuxUnlabeledPorts(_ context.Context, listening []models.PortEntry) []models.SELinuxUnlabeledPort {
 	out, err := runCmdTimeout(5*time.Second, "semanage", secTypePort, "-l")
 	if err != nil {
 		return nil // semanage unavailable (not installed / no policy-utils) — unknown, not "unlabeled"
@@ -2118,6 +2127,9 @@ func parseAVCGroups(ctx context.Context, window time.Duration) []models.SELinuxA
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		scanAVCLine(scanner.Text(), groups, cutoff)
+	}
+	if err := scanner.Err(); err != nil {
+		_ = err // best-effort; process denials collected so far
 	}
 
 	if len(groups) == 0 {
