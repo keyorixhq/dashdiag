@@ -208,6 +208,7 @@ func TestParseSSHDuration(t *testing.T) {
 }
 
 func TestSSHIgnoresComments(t *testing.T) {
+	t.Parallel()
 	config := `
 # This is a comment
 PermitRootLogin yes
@@ -219,5 +220,34 @@ PermitRootLogin yes
 	}
 	if info.SSHPasswordAuth {
 		t.Error("commented-out PasswordAuthentication no should not disable password auth")
+	}
+}
+
+// TestSSHDangerousDefaultsNotClearedByComments guards the false-OK class fixed in
+// the 2026-07-19 guard sweep. parseSSHConfig pre-initialises PasswordAuthentication,
+// AllowTcpForwarding, and AllowAgentForwarding to true (their OpenSSH compiled
+// defaults) before calling parseSSHFileContent. A config where those lines are
+// commented out must leave the pre-set true value intact — a comment is not an
+// explicit "no".
+func TestSSHDangerousDefaultsNotClearedByComments(t *testing.T) {
+	t.Parallel()
+	config := `# PasswordAuthentication yes
+# AllowTcpForwarding yes
+# AllowAgentForwarding yes
+`
+	info := models.SecurityInfo{
+		SSHPasswordAuth:    true,
+		SSHTCPForwarding:   true,
+		SSHAgentForwarding: true,
+	}
+	parseSSHFileContent(config, &info)
+	if !info.SSHPasswordAuth {
+		t.Error("commented PasswordAuthentication must not clear the pre-set dangerous default")
+	}
+	if !info.SSHTCPForwarding {
+		t.Error("commented AllowTcpForwarding must not clear the pre-set dangerous default")
+	}
+	if !info.SSHAgentForwarding {
+		t.Error("commented AllowAgentForwarding must not clear the pre-set dangerous default")
 	}
 }
