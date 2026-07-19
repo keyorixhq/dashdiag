@@ -108,7 +108,8 @@ func renderStoryFromHistory(history []*baseline.Snapshot) string {
 	var sb strings.Builder
 	fmt.Fprintf(&sb, "System health — %d snapshots — %s to %s on %s\n",
 		n, start, end, hostname)
-	sb.WriteString(strings.Repeat("─", 56) + "\n")
+	sb.WriteString(strings.Repeat("─", 56))
+	sb.WriteString("\n")
 
 	if len(events) == 0 && len(currentIssues) == 0 {
 		sb.WriteString("All checks remained healthy throughout this period.")
@@ -130,7 +131,8 @@ func renderStoryFromHistory(history []*baseline.Snapshot) string {
 	if len(currentIssues) > 0 {
 		sb.WriteString("\nCurrent issues:\n")
 		for _, issue := range currentIssues {
-			sb.WriteString(issue + "\n")
+			sb.WriteString(issue)
+			sb.WriteString("\n")
 		}
 	} else if len(events) > 0 {
 		sb.WriteString("\nAll checks currently healthy.\n")
