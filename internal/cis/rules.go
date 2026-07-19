@@ -740,6 +740,9 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Description: "Ensure SSH AllowTcpForwarding is disabled",
 			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("5.2.17")
+				if sec.SSHConfigUnreadable {
+					return skipr(r, "sshd_config unreadable")
+				}
 				if sec.SSHTCPForwarding {
 					return failr(r, "AllowTcpForwarding yes — can be used to pivot through this host",
 						"set AllowTcpForwarding no in /etc/ssh/sshd_config")
