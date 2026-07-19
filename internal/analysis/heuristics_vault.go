@@ -1,6 +1,8 @@
 package analysis
 
 import (
+	"fmt"
+
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
@@ -24,6 +26,17 @@ func checkVault(v models.VaultInfo) []models.Insight {
 	}
 
 	if !v.StatusRead {
+		// Distinguish: server responded (HTTPStatus > 0) with a non-Vault body
+		// (proxy interception, wrong port) vs. no parseable response at all.
+		if v.HTTPStatus > 0 {
+			return []models.Insight{insight("WARN", "Vault",
+				fmt.Sprintf("Vault health endpoint returned HTTP %d but response was not valid Vault JSON — check for proxy interception or wrong port", v.HTTPStatus),
+				[]string{
+					"note: a load balancer or reverse proxy may be intercepting the request",
+					"to inspect: curl -sk https://127.0.0.1:8200/v1/sys/health",
+				},
+			)}
+		}
 		return []models.Insight{insight("INFO", "Vault",
 			"Vault is up but its API could not be read — health state unverified",
 			[]string{
