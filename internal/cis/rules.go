@@ -2,6 +2,7 @@ package cis
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"os/user"
 	"path/filepath"
@@ -48,22 +49,26 @@ const (
 )
 
 // parseMaxStartups parses an sshd MaxStartups value ("start:rate:full" or a bare
-// "start") into its start and full limits. A bare value has no random-drop
-// throttling, so full == start. ok is false when the value can't be parsed.
-func parseMaxStartups(v string) (start, full int, ok bool) {
+// "start") into its start, rate, and full limits. A bare value has no random-drop
+// throttling, so full == start and rate == 0. ok is false when the value can't be parsed.
+func parseMaxStartups(v string) (start, rate, full int, ok bool) {
 	parts := strings.Split(strings.TrimSpace(v), ":")
 	s, err := strconv.Atoi(parts[0])
 	if err != nil {
-		return 0, 0, false
+		return 0, 0, 0, false
 	}
 	if len(parts) < 3 {
-		return s, s, true
+		return s, 0, s, true
+	}
+	r, err := strconv.Atoi(parts[1])
+	if err != nil {
+		return 0, 0, 0, false
 	}
 	f, err := strconv.Atoi(parts[2])
 	if err != nil {
-		return 0, 0, false
+		return 0, 0, 0, false
 	}
-	return s, f, true
+	return s, r, f, true
 }
 
 // CISRules is the full benchmark rule set: CIS Ubuntu 22.04 LTS L1+L2
@@ -769,6 +774,9 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Description: "Ensure SSH MaxStartups is configured",
 			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("5.2.18")
+				if sec.SSHConfigUnreadable {
+					return skipr(r, "sshd_config not readable — run as root")
+				}
 				// `sshd -T` always emits MaxStartups (compiled default 10:30:100),
 				// so presence alone is not compliance — the value must be within
 				// CIS limits (start ≤ 10, full ≤ 60). The OpenSSH default 10:30:100
@@ -777,7 +785,11 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					return failr(r, "MaxStartups not set (default 10:30:100 allows 100 unauthenticated connections)",
 						"set MaxStartups 10:30:60 in /etc/ssh/sshd_config")
 				}
-				if start, full, ok := parseMaxStartups(sec.SSHMaxStartups); ok && (start > 10 || full > 60) {
+				start, _, full, ok := parseMaxStartups(sec.SSHMaxStartups)
+				if !ok {
+					return skipr(r, fmt.Sprintf("MaxStartups value %q could not be parsed", sec.SSHMaxStartups))
+				}
+				if start > 10 || full > 60 {
 					return failr(r, fmt.Sprintf("MaxStartups %s exceeds CIS limit (start ≤ 10, full ≤ 60)", sec.SSHMaxStartups),
 						"set MaxStartups 10:30:60 in /etc/ssh/sshd_config")
 				}
@@ -1489,7 +1501,21 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					if strings.HasPrefix(line, "#") || !strings.HasPrefix(line, "GRUB_CMDLINE_LINUX=") {
 						continue
 					}
-					if strings.Contains(line, "apparmor=1") && strings.Contains(line, "security=apparmor") {
+					// Extract the cmdline value (strip surrounding quotes).
+					val := strings.TrimPrefix(line, "GRUB_CMDLINE_LINUX=")
+					val = strings.Trim(val, `"'`)
+					// Token-split so "apparmor=10" does not satisfy "apparmor=1".
+					tokens := strings.Fields(val)
+					hasAA, hasSec := false, false
+					for _, tok := range tokens {
+						if tok == "apparmor=1" {
+							hasAA = true
+						}
+						if tok == "security=apparmor" {
+							hasSec = true
+						}
+					}
+					if hasAA && hasSec {
 						return pass(r)
 					}
 					return failr(r,
@@ -2954,26 +2980,32 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Description: "Ensure permissions on all logfiles are configured (no world-read/write)",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("4.2.7")
-				entries, err := os.ReadDir(varLogPath) //nolint:gosec // package-level var
-				if err != nil {
+				if _, err := os.Stat(varLogPath); err != nil { //nolint:gosec // package-level var
 					return skipr(r, "/var/log not readable")
 				}
 				var bad []string
-				for _, e := range entries {
-					if e.IsDir() {
-						continue
-					}
-					fi, err := e.Info()
+				walkErr := filepath.WalkDir(varLogPath, func(path string, d fs.DirEntry, err error) error {
 					if err != nil {
-						continue
+						return nil // skip unreadable dirs/files
+					}
+					if d.IsDir() {
+						return nil
+					}
+					fi, siErr := d.Info()
+					if siErr != nil {
+						return nil
 					}
 					if fi.Mode().Perm()&0o006 != 0 {
-						bad = append(bad, fmt.Sprintf("%s (%04o)", e.Name(), fi.Mode().Perm()))
+						bad = append(bad, path)
 					}
-				}
+					return nil
+				})
+				_ = walkErr
 				if len(bad) > 0 {
+					shown := bad[:min(3, len(bad))]
 					return failr(r,
-						fmt.Sprintf("log files with world-read/write permissions: %s", strings.Join(bad, ", ")),
+						fmt.Sprintf("%d log file(s) have world-readable/writable permissions: %s",
+							len(bad), strings.Join(shown, ", ")),
 						"chmod go-rw /var/log/*.log")
 				}
 				return pass(r)
@@ -3292,14 +3324,18 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 						}
 						parts := strings.SplitN(line, "=", 2)
 						if len(parts) == 2 && strings.TrimSpace(parts[0]) == "deny" {
-							n, parseErr := strconv.Atoi(strings.TrimSpace(parts[1]))
-							if parseErr == nil && n > 0 && n <= 5 {
-								return pass(r)
-							}
-							if parseErr == nil {
-								return failr(r, fmt.Sprintf("faillock deny = %d exceeds CIS maximum of 5", n),
+							denyStr := strings.TrimSpace(parts[1])
+							n, parseErr := strconv.Atoi(denyStr)
+							if parseErr != nil {
+								// deny value is present but non-integer (e.g. "disabled") — misconfigured
+								return failr(r, fmt.Sprintf("faillock deny value %q is not a valid integer", denyStr),
 									"set 'deny = 5' in /etc/security/faillock.conf")
 							}
+							if n > 0 && n <= 5 {
+								return pass(r)
+							}
+							return failr(r, fmt.Sprintf("faillock deny = %d exceeds CIS maximum of 5", n),
+								"set 'deny = 5' in /etc/security/faillock.conf")
 						}
 					}
 				}
@@ -3539,9 +3575,17 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Description: "Ensure PAM does not permit login with null passwords (nullok absent)",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("5.4.17")
-				for _, path := range []string{pamCommonAuthPath, pamCommonPasswordPath} {
-					data, err := os.ReadFile(path) // #nosec G304 -- package-level var
-					if err != nil {
+				entries, err := os.ReadDir(pamDPath) //nolint:gosec // package-level var
+				if err != nil {
+					return skipr(r, "/etc/pam.d not readable")
+				}
+				for _, entry := range entries {
+					if entry.IsDir() {
+						continue
+					}
+					path := filepath.Join(pamDPath, entry.Name()) //nolint:gosec
+					data, rdErr := os.ReadFile(path)              //nolint:gosec
+					if rdErr != nil {
 						continue
 					}
 					for line := range strings.SplitSeq(string(data), "\n") {
@@ -3614,11 +3658,20 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					if strings.HasPrefix(line, "#") || line == "" {
 						continue
 					}
-					if strings.Contains(line, "pam_wheel.so") && strings.Contains(line, "use_uid") {
-						return pass(r)
+					// PAM line format: type control module [options]
+					// Control must be "required" or "requisite" — "optional" does not restrict.
+					fields := strings.Fields(line)
+					if len(fields) >= 3 &&
+						(fields[1] == "required" || fields[1] == "requisite") &&
+						strings.Contains(fields[2], "pam_wheel.so") {
+						for _, f := range fields[3:] {
+							if f == "use_uid" {
+								return pass(r)
+							}
+						}
 					}
 				}
-				return failr(r, "pam_wheel.so use_uid not found in /etc/pam.d/su",
+				return failr(r, "pam_wheel.so use_uid not found in /etc/pam.d/su with required/requisite control",
 					"add 'auth required pam_wheel.so use_uid' to /etc/pam.d/su to restrict su to wheel group")
 			}},
 
@@ -3685,15 +3738,20 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					return failr(r, "umask not configured in /etc/login.defs, /etc/profile, /etc/profile.d/*.sh, or /etc/bash.bashrc",
 						"add 'umask 027' to /etc/profile or a /etc/profile.d/*.sh drop-in")
 				}
+				anyValid := false
 				for _, val := range allVals {
 					ok, valid := isRestrictive(val)
 					if !valid {
 						continue
 					}
+					anyValid = true
 					if !ok {
 						return failr(r, fmt.Sprintf("umask %s is less restrictive than 027", val),
 							"set 'umask 027' in /etc/profile or /etc/login.defs (UMASK 027)")
 					}
+				}
+				if len(allVals) > 0 && !anyValid {
+					return skipr(r, "umask values found but none were parseable as octal (variable references?)")
 				}
 				return pass(r)
 			}},
@@ -3826,31 +3884,45 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			}},
 
 		{ID: "5.1.8", Framework: cisBenchCIS, Level: 1, Section: "Cron",
-			Description: "Ensure cron is restricted to authorized users (/etc/cron.allow or /etc/cron.deny)",
+			Description: "Ensure cron is restricted to authorized users (/etc/cron.allow, not /etc/cron.deny)",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("5.1.8")
-				if _, err := os.Stat(cronAllowPath); err == nil {
-					return pass(r)
+				_, errAllow := os.Stat(cronAllowPath)
+				_, errDeny := os.Stat(cronDenyPath)
+				switch {
+				case errAllow == nil && errDeny != nil:
+					return pass(r) // allow exists, no deny — correct allowlist model
+				case errAllow == nil && errDeny == nil:
+					return failr(r, "both /etc/cron.allow and /etc/cron.deny exist; only cron.allow should be present",
+						"remove /etc/cron.deny — the allowlist model requires only /etc/cron.allow")
+				case errAllow != nil && errDeny == nil:
+					return failr(r, "/etc/cron.deny exists without /etc/cron.allow — use allowlist model",
+						"create /etc/cron.allow with authorized users and remove /etc/cron.deny")
+				default:
+					return failr(r, "neither /etc/cron.allow nor /etc/cron.deny exists",
+						"create /etc/cron.allow with authorized users (one per line)")
 				}
-				if _, err := os.Stat(cronDenyPath); err == nil {
-					return pass(r)
-				}
-				return failr(r, "neither /etc/cron.allow nor /etc/cron.deny exists",
-					"create /etc/cron.allow with authorized users (one per line)")
 			}},
 
 		{ID: "5.1.9", Framework: cisBenchCIS, Level: 1, Section: "Cron",
-			Description: "Ensure at is restricted to authorized users (/etc/at.allow or /etc/at.deny)",
+			Description: "Ensure at is restricted to authorized users (/etc/at.allow, not /etc/at.deny)",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("5.1.9")
-				if _, err := os.Stat(atAllowPath); err == nil {
-					return pass(r)
+				_, errAllow := os.Stat(atAllowPath)
+				_, errDeny := os.Stat(atDenyPath)
+				switch {
+				case errAllow == nil && errDeny != nil:
+					return pass(r) // allow exists, no deny — correct allowlist model
+				case errAllow == nil && errDeny == nil:
+					return failr(r, "both /etc/at.allow and /etc/at.deny exist; only at.allow should be present",
+						"remove /etc/at.deny — the allowlist model requires only /etc/at.allow")
+				case errAllow != nil && errDeny == nil:
+					return failr(r, "/etc/at.deny exists without /etc/at.allow — use allowlist model",
+						"create /etc/at.allow with authorized users and remove /etc/at.deny")
+				default:
+					return failr(r, "neither /etc/at.allow nor /etc/at.deny exists",
+						"create /etc/at.allow with authorized users (one per line)")
 				}
-				if _, err := os.Stat(atDenyPath); err == nil {
-					return pass(r)
-				}
-				return failr(r, "neither /etc/at.allow nor /etc/at.deny exists",
-					"create /etc/at.allow with authorized users (one per line)")
 			}},
 		{ID: "5.1.10", Framework: cisBenchCIS, Level: 1, Section: "Cron",
 			Description: "Ensure /etc/crontab is owned by root:root",
@@ -4269,9 +4341,13 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 			Description: "Ensure no legacy '+' entries in /etc/passwd, /etc/shadow, /etc/group",
 			Check: func(_ models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
 				r := ruleByID("6.2.2")
+				var shadowUnreadable bool
 				for _, path := range legacyNISPaths {
 					data, err := os.ReadFile(path) // #nosec G304
 					if err != nil {
+						if strings.Contains(path, "shadow") {
+							shadowUnreadable = true
+						}
 						continue
 					}
 					for line := range strings.SplitSeq(string(data), "\n") {
@@ -4280,6 +4356,9 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 								fmt.Sprintf("remove the '+' line from %s", path))
 						}
 					}
+				}
+				if shadowUnreadable {
+					return skipr(r, "/etc/shadow not readable — run as root for complete NIS entry check")
 				}
 				return pass(r)
 			}},
@@ -4614,6 +4693,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					return skipr(r, cisSkipPasswdUnreadable)
 				}
 				var violations []string
+				checked := 0
 				for line := range strings.SplitSeq(string(data), "\n") {
 					line = strings.TrimSpace(line)
 					if line == "" || strings.HasPrefix(line, "#") {
@@ -4635,6 +4715,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					if rdErr != nil {
 						continue
 					}
+					checked++
 					for _, e := range entries {
 						if !strings.HasPrefix(e.Name(), ".") || e.IsDir() {
 							continue
@@ -4648,6 +4729,9 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 								fmt.Sprintf("%s/%s (%04o)", homeDir, e.Name(), fi.Mode().Perm()))
 						}
 					}
+				}
+				if checked == 0 {
+					return skipr(r, "could not read any home directories — run as root for complete check")
 				}
 				if len(violations) > 0 {
 					shown := violations[:min(3, len(violations))]
@@ -4667,6 +4751,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					return skipr(r, cisSkipPasswdUnreadable)
 				}
 				var found []string
+				accessible := 0
 				for line := range strings.SplitSeq(string(data), "\n") {
 					line = strings.TrimSpace(line)
 					if line == "" || strings.HasPrefix(line, "#") {
@@ -4684,10 +4769,17 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					if homeDir == "" || homeDir == cisHomeNonexistent || homeDir == cisHomeDevNull {
 						continue
 					}
+					if _, statErr := os.Stat(homeDir); statErr != nil { // #nosec G304
+						continue // home dir not accessible
+					}
+					accessible++
 					fwd := filepath.Join(homeDir, ".forward")
 					if _, statErr := os.Stat(fwd); statErr == nil { // #nosec G304
 						found = append(found, fmt.Sprintf("%s (%s)", fields[0], fwd))
 					}
+				}
+				if accessible == 0 {
+					return skipr(r, "could not access any home directories — run as root for complete check")
 				}
 				if len(found) > 0 {
 					shown := found[:min(3, len(found))]
@@ -4707,6 +4799,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					return skipr(r, cisSkipPasswdUnreadable)
 				}
 				var found []string
+				accessible := 0
 				for line := range strings.SplitSeq(string(data), "\n") {
 					line = strings.TrimSpace(line)
 					if line == "" || strings.HasPrefix(line, "#") {
@@ -4724,10 +4817,17 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					if homeDir == "" || homeDir == cisHomeNonexistent || homeDir == cisHomeDevNull {
 						continue
 					}
+					if _, statErr := os.Stat(homeDir); statErr != nil { // #nosec G304
+						continue // home dir not accessible
+					}
+					accessible++
 					netrc := filepath.Join(homeDir, ".netrc")
 					if _, statErr := os.Stat(netrc); statErr == nil { // #nosec G304
 						found = append(found, fmt.Sprintf("%s (%s)", fields[0], netrc))
 					}
+				}
+				if accessible == 0 {
+					return skipr(r, "could not access any home directories — run as root for complete check")
 				}
 				if len(found) > 0 {
 					shown := found[:min(3, len(found))]
@@ -4747,6 +4847,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					return skipr(r, cisSkipPasswdUnreadable)
 				}
 				var found []string
+				accessible := 0
 				for line := range strings.SplitSeq(string(data), "\n") {
 					line = strings.TrimSpace(line)
 					if line == "" || strings.HasPrefix(line, "#") {
@@ -4764,10 +4865,17 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					if homeDir == "" || homeDir == cisHomeNonexistent || homeDir == cisHomeDevNull {
 						continue
 					}
+					if _, statErr := os.Stat(homeDir); statErr != nil { // #nosec G304
+						continue // home dir not accessible
+					}
+					accessible++
 					rhosts := filepath.Join(homeDir, ".rhosts")
 					if _, statErr := os.Stat(rhosts); statErr == nil { // #nosec G304
 						found = append(found, fmt.Sprintf("%s (%s)", fields[0], rhosts))
 					}
+				}
+				if accessible == 0 {
+					return skipr(r, "could not access any home directories — run as root for complete check")
 				}
 				if len(found) > 0 {
 					shown := found[:min(3, len(found))]
@@ -5164,6 +5272,10 @@ var pamCommonAuthPath = "/etc/pam.d/common-auth"
 // pamCommonPasswordPath for password hashing (5.4.11) and reuse (5.4.12) checks.
 var pamCommonPasswordPath = "/etc/pam.d/common-password" //nolint:gosec // G101 false positive — path, not credential
 
+// pamDPath is the PAM configuration directory scanned by rule 5.4.17 (nullok check).
+// Package-level var for test injection.
+var pamDPath = "/etc/pam.d"
+
 // etcProfilePath, etcProfileDPath, etcBashrcPath for umask (5.5.3) and TMOUT (5.5.4) checks.
 var etcProfilePath = "/etc/profile"
 var etcProfileDPath = "/etc/profile.d"
@@ -5307,20 +5419,24 @@ func checkLoginDefsField(r Rule, path, field string, fails func(days int) bool, 
 		return skipr(r, fmt.Sprintf("could not read %s", path))
 	}
 	for line := range strings.SplitSeq(string(data), "\n") {
-		if strings.HasPrefix(strings.TrimSpace(line), "#") {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 			continue
 		}
-		if strings.HasPrefix(line, field) {
-			fields := strings.Fields(line)
-			if len(fields) >= 2 {
-				days := 0
-				fmt.Sscanf(fields[1], "%d", &days) //nolint:errcheck
-				if fails(days) {
-					return failr(r, fmt.Sprintf(failFmt, days), failFix)
-				}
-			}
-			return pass(r)
+		lineFields := strings.Fields(trimmed)
+		if len(lineFields) == 0 || lineFields[0] != field {
+			continue
 		}
+		// Matched field name exactly — now check that a value is present.
+		if len(lineFields) < 2 {
+			return failr(r, fmt.Sprintf("%s has no value", field), failFix)
+		}
+		days := 0
+		fmt.Sscanf(lineFields[1], "%d", &days) //nolint:errcheck
+		if fails(days) {
+			return failr(r, fmt.Sprintf(failFmt, days), failFix)
+		}
+		return pass(r)
 	}
 	return failr(r, notSetFinding, notSetFix)
 }
@@ -5562,6 +5678,26 @@ func checkRemovableMediaOption(r Rule, option string) models.CISResult {
 // line matching any of patterns. It reads all *.rules files in auditRulesDPath
 // and auditRulesFilePath. Returns SKIP when no audit rule files are readable
 // (auditd not installed / non-Linux).
+// auditLineMatchesPattern checks if line contains pattern at a word boundary.
+// A plain strings.Contains is insufficient because "-w /etc/passwd" would also
+// match "-w /etc/passwd-". We require that the character immediately following
+// the pattern (if any) is a space, tab, comma (for comma-separated syscall lists),
+// or end of string.
+func auditLineMatchesPattern(line, pattern string) bool {
+	idx := strings.Index(line, pattern)
+	if idx < 0 {
+		return false
+	}
+	after := idx + len(pattern)
+	if after < len(line) {
+		next := line[after]
+		if next != ' ' && next != '\t' && next != ',' {
+			return false
+		}
+	}
+	return true
+}
+
 func checkAuditRule(r Rule, patterns []string, fix string) models.CISResult {
 	var lines []string
 
@@ -5590,18 +5726,25 @@ func checkAuditRule(r Rule, patterns []string, fix string) models.CISResult {
 		return skipr(r, "no audit rule files found (auditd not configured)")
 	}
 
+	// ALL patterns must be found — OR semantics would pass a rule that only
+	// partially covers the required watch set (e.g. /etc/passwd but not /etc/shadow).
 	for _, pattern := range patterns {
+		found := false
 		for _, line := range lines {
-			line = strings.TrimSpace(line)
-			if strings.HasPrefix(line, "#") || line == "" {
+			trimmed := strings.TrimSpace(line)
+			if trimmed == "" || strings.HasPrefix(trimmed, "#") {
 				continue
 			}
-			if strings.Contains(line, pattern) {
-				return pass(r)
+			if auditLineMatchesPattern(trimmed, pattern) {
+				found = true
+				break
 			}
 		}
+		if !found {
+			return failr(r, fmt.Sprintf("audit rule not found: %s", pattern), fix)
+		}
 	}
-	return failr(r, fmt.Sprintf("required audit rule pattern not found: %s", patterns[0]), fix)
+	return pass(r)
 }
 
 // ruleByID returns the Rule struct for the given ID by scanning CISRules.

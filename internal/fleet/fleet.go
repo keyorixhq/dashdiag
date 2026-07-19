@@ -109,11 +109,32 @@ func ValidateHost(host string) error {
 	return nil
 }
 
+// validateRemoteCmd rejects shell metacharacters that would allow command
+// injection on the remote host's shell. The command is passed as a single
+// string argument to ssh, which hands it to the remote shell for execution;
+// unquoted metacharacters therefore run on the remote host.
+func validateRemoteCmd(cmd string) error {
+	const forbidden = ";|&`$<>\n\r"
+	for _, ch := range forbidden {
+		if strings.ContainsRune(cmd, ch) {
+			return fmt.Errorf("--remote-cmd contains forbidden shell character %q", ch)
+		}
+	}
+	if strings.Contains(cmd, "$(") {
+		return fmt.Errorf("--remote-cmd contains command substitution")
+	}
+	return nil
+}
+
 // Run executes the health command on every host with bounded concurrency and
 // returns results in input order. Hosts failing ValidateHost are returned as
-// ERROR results without ever reaching ssh/scp.
-func Run(ctx context.Context, hosts []string, opts Options) []Result {
+// ERROR results without ever reaching ssh/scp. Returns an error immediately
+// if --remote-cmd contains shell metacharacters.
+func Run(ctx context.Context, hosts []string, opts Options) ([]Result, error) {
 	opts = opts.withDefaults()
+	if err := validateRemoteCmd(opts.RemoteCmd); err != nil {
+		return nil, err
+	}
 	results := make([]Result, len(hosts))
 	sem := make(chan struct{}, opts.Concurrency)
 	done := make(chan int, len(hosts))
@@ -135,7 +156,7 @@ func Run(ctx context.Context, hosts []string, opts Options) []Result {
 	for range hosts {
 		<-done
 	}
-	return results
+	return results, nil
 }
 
 func runHost(ctx context.Context, host string, opts Options) Result {
