@@ -123,7 +123,7 @@ func TestBSIGroupStatusDerivation(t *testing.T) {
 			want: "SKIP",
 		},
 		{
-			name: "no results → UNMAPPED",
+			name:    "no results → UNMAPPED",
 			results: []models.CISResult{},
 			want:    "UNMAPPED",
 		},
