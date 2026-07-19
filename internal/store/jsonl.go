@@ -4,11 +4,14 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"sync"
 )
+
+const maxLineSizeBytes = 1 << 20 // 1 MiB
 
 // JSONLStore is an append-only JSONL file store. Concurrent Append calls within
 // a process are safe (mutex-guarded). Cross-process safety relies on the OS
@@ -83,7 +86,7 @@ func ReadAll(path, hostname string, n int) ([]Entry, error) {
 
 	var matches []Entry
 	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 64*1024), 64*1024)
+	sc.Buffer(make([]byte, 64*1024), maxLineSizeBytes)
 	for sc.Scan() {
 		var e Entry
 		if err := json.Unmarshal(sc.Bytes(), &e); err != nil {
@@ -94,6 +97,10 @@ func ReadAll(path, hostname string, n int) ([]Entry, error) {
 		}
 	}
 	if err := sc.Err(); err != nil {
+		if errors.Is(err, bufio.ErrTooLong) {
+			fmt.Fprintf(os.Stderr, "dsd: store: oversized line in %s skipped (line > %d bytes)\n", path, maxLineSizeBytes)
+			return matches, nil // return what we have
+		}
 		return nil, fmt.Errorf("store: scanning %s: %w", path, err)
 	}
 

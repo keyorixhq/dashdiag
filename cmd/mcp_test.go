@@ -10,6 +10,7 @@ package cmd
 import (
 	"context"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -23,7 +24,7 @@ func TestToolCaptureRequiresOutPath(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for empty out_path, got nil")
 	}
-	if err.Error() != "dsd_capture: out_path is required" {
+	if !strings.Contains(err.Error(), "dsd_capture") || !strings.Contains(err.Error(), "out_path") {
 		t.Errorf("unexpected error message: %q", err.Error())
 	}
 }
@@ -60,7 +61,7 @@ func TestToolReplayRequiresBundlePath(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for empty bundle_path, got nil")
 	}
-	if err.Error() != "dsd_replay: bundle_path is required" {
+	if !strings.Contains(err.Error(), "dsd_replay") || !strings.Contains(err.Error(), "bundle_path") {
 		t.Errorf("unexpected error message: %q", err.Error())
 	}
 }

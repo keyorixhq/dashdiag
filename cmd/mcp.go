@@ -23,7 +23,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"os"
+	"path/filepath"
 	"runtime"
+	"strings"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -94,6 +96,21 @@ type mcpDiffInput struct {
 	CurrentPath  string `json:"current_path"  jsonschema:"path to the current (after) bundle"`
 }
 
+// safeBundlePath rejects paths that contain traversal sequences. MCP is
+// stdio-only and the caller is a trusted local process, so we allow any
+// absolute or relative path — we only block ".." components that could escape
+// an expected directory.
+func safeBundlePath(raw string) (string, error) {
+	if raw == "" {
+		return "", fmt.Errorf("path must not be empty")
+	}
+	cleaned := filepath.Clean(raw)
+	if strings.Contains(cleaned, "..") {
+		return "", fmt.Errorf("path must not contain traversal sequences")
+	}
+	return cleaned, nil
+}
+
 // ── tool handlers ──────────────────────────────────────────────────────────
 
 // toolHealth runs the full health pipeline and returns the JSON verdict.
@@ -123,8 +140,9 @@ func toolHealth(_ context.Context, _ *mcp.CallToolRequest, in mcpHealthInput) (
 func toolCapture(_ context.Context, _ *mcp.CallToolRequest, in mcpCaptureInput) (
 	*mcp.CallToolResult, mcpCaptureOutput, error,
 ) {
-	if in.OutPath == "" {
-		return nil, mcpCaptureOutput{}, fmt.Errorf("dsd_capture: out_path is required")
+	outPath, err := safeBundlePath(in.OutPath)
+	if err != nil {
+		return nil, mcpCaptureOutput{}, fmt.Errorf("dsd_capture: invalid out_path: %w", err)
 	}
 	if in.Identifiers {
 		in.Sanitize = true
@@ -164,17 +182,17 @@ func toolCapture(_ context.Context, _ *mcp.CallToolRequest, in mcpCaptureInput) 
 	if in.Sanitize {
 		b.Sanitize(source.SanitizeOptions{Identifiers: in.Identifiers})
 	}
-	if err := b.SaveTarball(in.OutPath); err != nil {
+	if err := b.SaveTarball(outPath); err != nil {
 		return nil, mcpCaptureOutput{}, fmt.Errorf("dsd_capture: writing bundle: %w", err)
 	}
 
-	fi, err := os.Stat(in.OutPath)
+	fi, statErr := os.Stat(outPath)
 	var sz int64
-	if err == nil {
+	if statErr == nil {
 		sz = fi.Size()
 	}
 	return nil, mcpCaptureOutput{
-		BundlePath: in.OutPath,
+		BundlePath: outPath,
 		Host:       host,
 		CapturedAt: b.Manifest.Created,
 		Bytes:      sz,
@@ -186,10 +204,11 @@ func toolCapture(_ context.Context, _ *mcp.CallToolRequest, in mcpCaptureInput) 
 func toolReplay(_ context.Context, _ *mcp.CallToolRequest, in mcpReplayInput) (
 	*mcp.CallToolResult, any, error,
 ) {
-	if in.BundlePath == "" {
-		return nil, nil, fmt.Errorf("dsd_replay: bundle_path is required")
+	bundlePath, err := safeBundlePath(in.BundlePath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("dsd_replay: invalid bundle_path: %w", err)
 	}
-	b, err := loadBundle(in.BundlePath)
+	b, err := loadBundle(bundlePath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("dsd_replay: loading bundle: %w", err)
 	}
@@ -208,14 +227,19 @@ func toolReplay(_ context.Context, _ *mcp.CallToolRequest, in mcpReplayInput) (
 func toolDiff(_ context.Context, _ *mcp.CallToolRequest, in mcpDiffInput) (
 	*mcp.CallToolResult, any, error,
 ) {
-	if in.BaselinePath == "" || in.CurrentPath == "" {
-		return nil, nil, fmt.Errorf("dsd_diff: baseline_path and current_path are required")
+	baselinePath, err := safeBundlePath(in.BaselinePath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("dsd_diff: invalid baseline_path: %w", err)
 	}
-	base, err := loadBundle(in.BaselinePath)
+	currentPath, err := safeBundlePath(in.CurrentPath)
+	if err != nil {
+		return nil, nil, fmt.Errorf("dsd_diff: invalid current_path: %w", err)
+	}
+	base, err := loadBundle(baselinePath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("dsd_diff: loading baseline: %w", err)
 	}
-	current, err := loadBundle(in.CurrentPath)
+	current, err := loadBundle(currentPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("dsd_diff: loading current: %w", err)
 	}
