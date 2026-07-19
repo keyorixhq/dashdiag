@@ -23,6 +23,27 @@ permissions:
 # without anyone remembering to bump go.mod.
 
 jobs:
+  # Fast compile gate — runs before every job that builds Go code.  A compile
+  # error is caught here in ~25 s (warm cache) and cancels all downstream jobs
+  # before they spin up, saving ~60 runner-minutes per red PR.  Jobs that don't
+  # compile Go (dco, shellcheck, semgrep) are excluded so they keep giving
+  # instant feedback in parallel.
+  preflight:
+    name: Preflight (compile gate)
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
+      - uses: actions/setup-go@924ae3a1cded613372ab5595356fb5720e22ba16 # v6
+        with:
+          go-version: '1.26'
+          cache: true
+      - name: Compile all packages (all GOOS/GOARCH targets)
+        run: |
+          go build ./...
+          GOOS=linux  GOARCH=arm64 CGO_ENABLED=0 go build -o /dev/null ./cmd/dsd
+          GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -o /dev/null ./cmd/dsd
+          GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -o /dev/null ./cmd/dsd
+
   # Every commit on a PR must carry a Signed-off-by trailer (DCO v1.1).
   # Co-founders and external contributors: use `git commit --signoff` (or -s).
   # To fix a branch: `git rebase --signoff origin/main`.
@@ -50,6 +71,7 @@ jobs:
 
   test:
     name: Test (${{ matrix.os }})
+    needs: [preflight]
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -90,14 +112,6 @@ jobs:
           fi
           echo "Coverage: ${TOTAL}% ✓"
 
-      - name: Build all platforms
-        if: matrix.os == 'ubuntu-24.04'
-        run: |
-          GOOS=linux  GOARCH=amd64 CGO_ENABLED=0 go build -o /dev/null ./cmd/dsd
-          GOOS=linux  GOARCH=arm64 CGO_ENABLED=0 go build -o /dev/null ./cmd/dsd
-          GOOS=darwin GOARCH=amd64 CGO_ENABLED=0 go build -o /dev/null ./cmd/dsd
-          GOOS=darwin GOARCH=arm64 CGO_ENABLED=0 go build -o /dev/null ./cmd/dsd
-
   # Replay hermeticity guard: capture once, replay the SAME bundle twice, and assert
   # the rendered JSON is byte-identical (modulo volatile timestamp/duration). Two
   # replays of one bundle MUST match — a difference means a collector reads live
@@ -106,6 +120,7 @@ jobs:
   # binary runs once per process — no in-process source-swapping under -race.
   replay-hermetic:
     name: Replay hermeticity (double-replay diff)
+    needs: [preflight]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -172,6 +187,7 @@ jobs:
   # under replay. See fixtures/replay-fidelity/README.md.
   replay-fidelity:
     name: Replay fidelity (cross-env golden)
+    needs: [preflight]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -186,6 +202,7 @@ jobs:
   # locally / pre-push — nothing gated PRs. This is the PR security gate.
   lint:
     name: Lint + gosec (golangci-lint)
+    needs: [preflight]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -216,6 +233,7 @@ jobs:
   # before it lands in a customer audit — faster to fix than after the fact.
   license-gate:
     name: License allowlist (go-licenses)
+    needs: [preflight]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -234,6 +252,7 @@ jobs:
   # release and asserts dsd actually installs + runs, on both arches.
   install-smoke:
     name: Install one-liner (${{ matrix.platform }})
+    needs: [preflight]
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -335,6 +354,7 @@ jobs:
   # reproduce here); this job guards the broader class on every push.
   nonroot-invariant:
     name: Non-root verdict invariant
+    needs: [preflight]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -358,6 +378,7 @@ jobs:
   # recurring blind spot.
   alpine-musl-smoke:
     name: Alpine (musl/busybox) honesty smoke
+    needs: [preflight]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
@@ -382,6 +403,7 @@ jobs:
   # DETECTS the throttling.
   container-cgroupns-smoke:
     name: Container honesty smoke (cgroupns=host throttle)
+    needs: [preflight]
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@9c091bb21b7c1c1d1991bb908d89e4e9dddfe3e0 # v7
