@@ -9,6 +9,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.23.0] - 2026-07-24
+
+### Added
+- `dsd inventory`: GPU identity (name, vendor, VRAM, DRM driver, Mesa version) for all
+  detected GPUs including sysfs-detected devices with no driver loaded. Cloud placement
+  (provider, instance type, region) populated from the cloud metadata collector on
+  AWS/Azure/GCP; `cloud` section absent on bare-metal. Both sections reuse collectors
+  already run by `dsd` — no new probes, no new network calls. CSV renderer gains
+  `gpu.N.*` and `cloud.*` flat keys. (#898)
+
+### Fixed
+- `dsd cis --bsi`: extracted BSI IT-Grundschutz requirement ID string literals to named
+  constants, eliminating SonarCloud S1192 duplicate-literal warnings. No functional
+  change. (#897)
+
+---
+
 ## [1.22.0] - 2026-07-19
 
 ### Added
