@@ -384,7 +384,7 @@ Requires: Linux kernel 4.18+ or macOS 12+. Single binary, no dependencies.
 
 ## Built by
 
-[Keyorix SL](https://keyorix.io) — Madrid, Spain.
+[Keyorix SL](https://keyorix.io) — Valencia, Spain.
 
 ---
 
