@@ -600,6 +600,28 @@ deferred by choice.** No open, un-actioned SSDLC gap remains.
 
 ---
 
+## Candidate features (gated on a real request)
+
+### `--export` / CMDB inventory feed (candidate — gated on a real request)
+
+DashDiag already collects hardware inventory (disk model/serial/capacity, CPU,
+DIMM layout, installed software) as a byproduct of diagnosis — on every run, on
+every box — then discards it. An export flag could emit this already-collected
+inventory in a format an external CMDB can ingest.
+
+- **Additive integration, not a CMDB product.** Feeds the *technical-facts*
+  columns only (model / serial / specs / installed software). Does NOT supply the
+  administrative layer (owner, asset tag, warranty date, physical location,
+  licence entitlements) — none of that is visible from the box.
+- **Cheap.** Data is already collected — a serialisation/format question, not
+  a new collector pass.
+- **Gate:** no build until a real customer requests it and names the target CMDB
+  (ServiceNow, Snipe-IT, NetBox, Lansweeper, …). Format varies per system; wrong
+  guess = throwaway work. Origin: Yuri (ex-MS IT manager, built a homemade Access
+  CMDB) — see ADR-0002 §"Adjacent candidate — CMDB inventory feed".
+
+---
+
 ## Notes / cross-refs
 - Hardware-validation gaps (server-grade ECC/IPMI/NUMA, ARM, x86 metal, SteamOS, vSphere)
   are tracked in `docs/PLATFORM_COVERAGE.md` under "Known validation gaps" — also demand-gated.
