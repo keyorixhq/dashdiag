@@ -34,7 +34,11 @@ func LargestDirs(ctx context.Context, mount string) (*models.Details, error) {
 	skipped := 0
 	for _, child := range children {
 		full := filepath.Join(mount, child.Name())
-		out, err := runCmd(ctx, "du", "-sh", full)
+		// -x: do not cross filesystem boundaries. Without it, a child that is a
+		// separate mount (e.g. /mnt on a host where /mnt/data is a different disk)
+		// reports the entire remote filesystem's size instead of its mountpoint
+		// overhead, making it appear as a giant consumer of the scanned filesystem.
+		out, err := runCmd(ctx, "du", "-xsh", full)
 		if err != nil {
 			// A permission-denied child (another user's home dir, a service's
 			// private data dir) is silently invisible here — count it rather
