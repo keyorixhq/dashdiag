@@ -764,9 +764,20 @@ func checkLVMRaid(l models.LVMInfo) []models.Insight {
 			[]string{"to inspect: vgs -o vg_name,vg_size,vg_free,vg_attr"}))
 	}
 	if l.LVReadFailed {
-		out = append(out, insight("INFO", "LVM",
+		// WARN (not INFO) when VGs are present: unverified thin-pool health on an active
+		// LVM host means exhaustion can go undetected. On hosts with no VGs this stays
+		// informational — but VGReadFailed would have fired before this anyway.
+		lvReadLevel := "INFO"
+		if len(l.VGs) > 0 {
+			lvReadLevel = "WARN"
+		}
+		out = append(out, insight(lvReadLevel, "LVM",
 			"LVM logical-volume state could NOT be verified — `lvs` failed; thin-pool/snapshot usage not checked",
-			[]string{"to inspect: lvs -o lv_name,vg_name,lv_attr,data_percent,metadata_percent"}))
+			[]string{
+				"to inspect: lvs -o lv_name,vg_name,lv_attr,data_percent,metadata_percent",
+				"note: run as root if permission denied",
+				"note: a full thin pool can also cause lvs itself to error — check pool health immediately",
+			}))
 	}
 
 	return out

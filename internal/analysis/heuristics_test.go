@@ -857,6 +857,39 @@ func TestCheckLVMSnapshots(t *testing.T) {
 	}
 }
 
+func TestCheckLVMThinPoolExhausted(t *testing.T) {
+	// A fully-exhausted thin pool (100%) must trigger CRIT — this is the scenario
+	// where Proxmox VMs freeze silently and I/O errors propagate to guests.
+	info := models.LVMInfo{
+		ThinPools: []models.LVMThinPool{
+			{Name: "data", VG: "pve", DataPct: 100, MetaPct: 3, SizeGB: 50},
+		},
+	}
+	insights := checkLVM(info)
+	assertLevel(t, insights, "CRIT")
+}
+
+func TestCheckLVMReadFailedWithVGs(t *testing.T) {
+	// LVReadFailed on a host with active VGs must be WARN, not INFO — unverified
+	// thin pool health on a running LVM host is dangerous (§ LVReadFailed escalation).
+	info := models.LVMInfo{
+		VGs: []models.LVMVG{
+			{Name: "pve", SizeGB: 100, FreeGB: 2, FreePct: 2, HasMountedLV: true},
+		},
+		LVReadFailed: true,
+	}
+	insights := checkLVM(info)
+	assertLevel(t, insights, "WARN")
+}
+
+func TestCheckLVMReadFailedNoVGs(t *testing.T) {
+	// LVReadFailed with no VGs (LVM tools present but no VGs) stays INFO — the
+	// host is essentially an LVM-less system that happens to have lvm2 installed.
+	info := models.LVMInfo{LVReadFailed: true}
+	insights := checkLVM(info)
+	assertLevel(t, insights, "INFO")
+}
+
 func TestCheckLVMEmpty(t *testing.T) {
 	// No LVM configured — should produce no insights
 	insights := checkLVM(models.LVMInfo{})
