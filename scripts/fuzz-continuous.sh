@@ -58,7 +58,13 @@ discover_targets() {
 # local build cache ($GOCACHE/fuzz) and is never written into the source tree.
 # So any diff here is, by construction, an actual failing input worth a human
 # looking at — there's no separate "just growing the corpus" case to handle.
+#
+# Optional args: func pkg logfile — when supplied, the PR body and any comment
+# include the crash summary and reproduce command for that specific target.
+# Called without args as a safety-net sweep at end of rotation (no-op if clean).
 publish_crashers() {
+  local func="${1:-}" pkg="${2:-}" logfile="${3:-}"
+
   # Same reason this isn't `git status --porcelain ... | grep -q .`: grep -q
   # exits on its first match, which can SIGPIPE git status while it's still
   # writing (multiple changed files) — under this script's `set -o pipefail`,
@@ -69,6 +75,7 @@ publish_crashers() {
     return 0
   fi
   alert "new fuzz crash reproducer(s) found — opening/updating PR on $CORPUS_BRANCH"
+
   # Re-sync to the LATEST origin/main first. sync_repo only runs once per full
   # rotation (up to ~11h), so the checkout a crash is found against can be
   # badly stale by the time this runs. Basing the corpus branch on a stale
@@ -83,14 +90,52 @@ publish_crashers() {
   git reset --hard "$REMOTE/main" -q
   git checkout -B "$CORPUS_BRANCH" -q
   git add -- '*/testdata/fuzz/*'
-  git commit -q -m "test(fuzz): crash reproducer(s) from continuous fuzzing ($(date -u +%F))"
+  git commit -q --signoff -m "test(fuzz): crash reproducer(s) from continuous fuzzing ($(date -u +%F))"
   git push -f -u "$REMOTE" "$CORPUS_BRANCH" -q
+
+  # Build PR title/body and comment text with crash context when available.
+  if [[ -n "$func" && -n "$pkg" && -n "$logfile" ]]; then
+    reproduce_cmd="go test -run=^${func}\$ ${pkg}"
+    summary="$(grep -m8 -E 'FAIL|panic:|--- FAIL|Fatalf|\.go:[0-9]+' "$logfile" | head -c 1500 || true)"
+    pr_title="fuzz(crash): $func — crash reproducer"
+    pr_body="## Fuzz crash: \`$func\`
+
+**Package:** \`$pkg\`
+
+**Reproduce:**
+\`\`\`
+$reproduce_cmd
+\`\`\`
+
+**Failure:**
+\`\`\`
+${summary:-see log on the fuzz box}
+\`\`\`
+
+Each file under \`*/testdata/fuzz/\` in this PR is a crashing input found by the continuous fuzz rig. Fix the bug, add coverage, then merge this PR to lock the regression test in permanently."
+    comment_body="**New crash ($(date -u +%FT%TZ)):** \`$func\` in \`$pkg\`
+\`\`\`
+${summary:-see log on the fuzz box}
+\`\`\`
+Reproduce: \`$reproduce_cmd\`"
+  else
+    pr_title="test(fuzz): crash reproducer(s) from continuous fuzzing"
+    pr_body="Auto-opened by the continuous-fuzzing rig (scripts/fuzz-continuous.sh). Each file under \`*/testdata/fuzz/\` here is an input that made a FuzzXxx target fail — reproduce locally with \`go test -run=<FuzzName> ./<package>/\`. Nothing here auto-merges; review like any other PR."
+    comment_body="Additional crash reproducer(s) added ($(date -u +%FT%TZ))."
+  fi
+
   if ! gh pr view "$CORPUS_BRANCH" >/dev/null 2>&1; then
     gh pr create --head "$CORPUS_BRANCH" --base main \
-      --title "test(fuzz): crash reproducer(s) from continuous fuzzing" \
-      --body "Auto-opened by the continuous-fuzzing rig (scripts/fuzz-continuous.sh). Each file under */testdata/fuzz/ here is an input that made a FuzzXxx target fail — reproduce locally with \`go test -run=<FuzzName> ./<package>/\`. Nothing here auto-merges; review like any other PR." \
+      --title "$pr_title" \
+      --body "$pr_body" \
       >/dev/null || true
+  else
+    pr_number="$(gh pr view "$CORPUS_BRANCH" --json number --jq '.number' 2>/dev/null || true)"
+    if [[ -n "$pr_number" ]]; then
+      gh pr comment "$pr_number" --body "$comment_body" >/dev/null || true
+    fi
   fi
+
   git checkout main -q
 }
 
@@ -130,7 +175,7 @@ while true; do
     logfile="/tmp/fuzz-$(echo "$name" | tr -cd 'A-Za-z0-9_').log"
     if ! go test -run=NONE -fuzz="^${name}\$" -fuzztime="$FUZZTIME" "$pkg" > "$logfile" 2>&1; then
       alert "CRASH: $name ($pkg) on $(hostname) — log at $logfile. Reproduce with: go test -run=$name $pkg"
-      publish_crashers # commit the reproducer immediately, don't wait for end of rotation
+      publish_crashers "$name" "$pkg" "$logfile" # commit the reproducer immediately, don't wait for end of rotation
     fi
   done
   publish_crashers # safety net — no-op if the loop above already published
