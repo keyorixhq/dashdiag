@@ -9,6 +9,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [1.23.1] - 2026-07-29
+
+### Fixed
+- `dsd health`: LVM thin pool `lvs` read failures now escalate to WARN (was INFO)
+  when the host has active VGs — a full thin pool can itself cause `lvs` I/O
+  errors, so the tool that would catch exhaustion was being silenced by the
+  exhaustion. Disk drilldown's largest-directories scan now stays on one
+  filesystem (`du -xsh`) instead of crossing mountpoints, which previously
+  misattributed an entire separately-mounted volume's size to the mountpoint
+  directory. (#911)
+
+### Changed
+- Fuzz corpus CI: crash-triggered runs now open (or comment on) a GitHub PR with
+  the failing target, a reproduce command, and a failure snippet, instead of
+  silently committing the crasher. (#909)
+
+---
+
 ## [1.23.0] - 2026-07-24
 
 ### Added
