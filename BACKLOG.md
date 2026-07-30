@@ -12,6 +12,12 @@ production incidents people would actually diagnose.
 
 ---
 
+## Infrastructure / Ops
+
+- [ ] **Deploy fuzzing VM fix — update vCD VMs after keyorix PR #1220 merges (2026-07-29).** Script fix (`notify-on-crash.sh`) auto-arrives via `git reset --hard origin/main` on the next rotation cycle; three manual steps per VM: (1) add `GH_TOKEN=<pat>` to `/etc/keyorix-fuzz/config.env` (PAT scopes: Contents Read + Pull requests Read+Write); (2) `rm /opt/keyorix-fuzz/state/notified-*` (clears stale dedup markers written during the silent-failure period — crashes attempted but never reported); (3) `systemctl restart keyorix-fuzz.service` to load the new env var. Without this, crash PRs continue to fail silently.
+
+---
+
 ## DESIGN NOTE: Cloud-PAYG-update-infra health — the four-question model
 
 **This is a concept formalization, NOT a build authorization.** It writes down the shared
