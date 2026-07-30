@@ -626,3 +626,6 @@ inventory in a format an external CMDB can ingest.
 - Hardware-validation gaps (server-grade ECC/IPMI/NUMA, ARM, x86 metal, SteamOS, vSphere)
   are tracked in `docs/PLATFORM_COVERAGE.md` under "Known validation gaps" — also demand-gated.
 - Cross-platform fix-hint bug (systemd hints on non-systemd hosts) is BUG-053/054 in `BUGS.md`.
+- Cyclomatic-complexity refactor candidates (lizard, CCN>15, 124 functions) are tracked in
+  `docs/COMPLEXITY_CANDIDATES.md` — worst outlier is `buildHealthCollectors`
+  (`cmd/health.go:667`, CCN 78). Worklist for opportunistic refactor, not a dedicated sweep.
