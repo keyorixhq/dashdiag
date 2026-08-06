@@ -23,13 +23,65 @@ permissions:
 # without anyone remembering to bump go.mod.
 
 jobs:
+  # Diff-aware skip gate. A docs-only PR (README/CHANGELOG/docs/** etc.) can't
+  # change anything the jobs below check, so there's no reason to run an
+  # 8-way-effective test matrix, two replay-hermeticity passes, and four
+  # Docker/QEMU smoke jobs for it. ALLOWLIST, never denylist:
+  #   - An unrecognized new top-level file/dir just means the full suite runs
+  #     (safe-but-wasteful). A denylist would silently skip tests the moment
+  #     someone adds a new directory and forgets to update the filter (unsafe).
+  #   - Gates downstream jobs via job-level `if:`, never `on.pull_request.
+  #     paths-ignore`. A workflow that never triggers produces NO check-run,
+  #     so branch protection shows the PR stuck on "required check pending"
+  #     forever; a job skipped via `if:` still reports a check-run with
+  #     conclusion "skipped", which branch protection treats as satisfying a
+  #     required check. Verified against this repo's actual required checks
+  #     (`gh api repos/keyorixhq/dashdiag/branches/main/protection -q
+  #     '.required_status_checks.contexts'`, 2026-08-06) before wiring this up.
+  # Only gates pull_request events — push (post-merge to main) always runs the
+  # full suite as a safety net.
+  changes:
+    name: Detect docs-only diff
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read # to list the PR's changed files
+    outputs:
+      docs_only: ${{ steps.filter.outputs.docs_only }}
+    steps:
+      - id: filter
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
+            --paginate --jq '.[].filename')
+          # Docs/metadata that cannot affect build, test, lint, or smoke-test
+          # outcomes. Keep in sync with security.yml/sonarcloud.yml/codeql.yml —
+          # GitHub Actions can't share job outputs across separate workflows.
+          if [ -z "$changed" ] || echo "$changed" | grep -vE '^(README\.md|CONTRIBUTING\.md|CHANGELOG\.md|COMPATIBILITY\.md|GETTING_STARTED\.md|PRIVACY\.md|SECURITY\.md|BACKLOG\.md|BUGS\.md|LICENSE|DCO|docs/)' > /dev/null; then
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "docs_only=true" >> "$GITHUB_OUTPUT"
+          fi
+
   # Fast compile gate — runs before every job that builds Go code.  A compile
   # error is caught here in ~25 s (warm cache) and cancels all downstream jobs
   # before they spin up, saving ~60 runner-minutes per red PR.  Jobs that don't
   # compile Go (dco, shellcheck, semgrep) are excluded so they keep giving
   # instant feedback in parallel.
+  #
+  # needs: [changes] + the if: below means a docs-only PR skips preflight AND
+  # every job that needs: [preflight] — GitHub Actions cascades a skip through
+  # the needs chain, so none of those downstream jobs need their own gate.
   preflight:
     name: Preflight (compile gate)
+    needs: [changes]
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -46,7 +98,8 @@ jobs:
 
   # Every commit on a PR must carry a Signed-off-by trailer (DCO v1.1).
   # Co-founders and external contributors: use `git commit --signoff` (or -s).
-  # To fix a branch: `git rebase --signoff origin/main`.
+  # To fix a branch: `git rebase --signoff origin/main`. Not gated on docs_only —
+  # a docs-only PR's commits still need sign-off.
   dco:
     name: DCO sign-off
     runs-on: ubuntu-24.04
@@ -222,6 +275,8 @@ jobs:
   # the rule that catches its class.
   semgrep:
     name: Semgrep (custom + p/golang)
+    needs: [changes]
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -335,7 +390,9 @@ jobs:
 
   # Static lint of the install front door — cheap guard against the shell-scripting
   # bug class that produced the #123 P0 (a stdout/stderr mix-up that aborted every
-  # install). shellcheck is preinstalled on GitHub ubuntu runners.
+  # install). shellcheck is preinstalled on GitHub ubuntu runners. Deliberately NOT
+  # gated on the docs_only skip above — this runs in seconds, so gating it would
+  # add complexity for no measurable savings.
   shellcheck:
     name: Shellcheck install.sh
     runs-on: ubuntu-24.04

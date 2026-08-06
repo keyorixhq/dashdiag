@@ -26,7 +26,44 @@ permissions:
   contents: read
 
 jobs:
+  # Diff-aware skip gate — same mechanism and allowlist as ci.yml's `changes`
+  # job (kept in sync there; see that file for the full rationale on why this
+  # is an allowlist gated via job-level `if:`, never `paths-ignore`). Only
+  # `security` (govulncheck) and `gitleaks` are required branch-protection
+  # checks in this file — verified via `gh api repos/keyorixhq/dashdiag/
+  # branches/main/protection -q '.required_status_checks.contexts'`
+  # (2026-08-06) — but every job here is gated for consistency and to save
+  # runner time regardless. Only gates pull_request events; schedule/push
+  # always run the full suite.
+  changes:
+    name: Detect docs-only diff
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read # to list the PR's changed files
+    outputs:
+      docs_only: ${{ steps.filter.outputs.docs_only }}
+    steps:
+      - id: filter
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
+            --paginate --jq '.[].filename')
+          if [ -z "$changed" ] || echo "$changed" | grep -vE '^(README\.md|CONTRIBUTING\.md|CHANGELOG\.md|COMPATIBILITY\.md|GETTING_STARTED\.md|PRIVACY\.md|SECURITY\.md|BACKLOG\.md|BUGS\.md|LICENSE|DCO|docs/)' > /dev/null; then
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "docs_only=true" >> "$GITHUB_OUTPUT"
+          fi
+
   security:
+    needs: [changes]
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -55,6 +92,8 @@ jobs:
   # marketplace Action, matching govulncheck's own pattern — one less
   # third-party Action, and we already know exactly what command runs.
   gitleaks:
+    needs: [changes]
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -74,6 +113,8 @@ jobs:
   # vulnerable even if DashDiag doesn't call the affected symbol. Same
   # schedule and trigger as govulncheck so a newly published CVE fires both.
   osv-scanner:
+    needs: [changes]
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -96,7 +137,8 @@ jobs:
   # exception to that pattern in this file, for lack of an alternative.
   # PR-only: there's no head/base pair to diff outside a pull_request event.
   dependency-review:
-    if: github.event_name == 'pull_request'
+    needs: [changes]
+    if: github.event_name == 'pull_request' && needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -119,6 +161,8 @@ jobs:
   # custom Semgrep rules cover.  Scoped to .github/ so it scans nothing else.
   trivy-misconfig:
     name: Trivy (GH Actions misconfigs)
+    needs: [changes]
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -126,6 +170,18 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
+      # Known failure mode, seen in a sibling repo: `format: sarif` +
+      # `exit-code: '1'` in ONE step is riskier than it looks. Trivy logs an
+      # unrelated scan-target error (e.g. a chart/template that can't render
+      # without external values) as a mere warning under the default table
+      # formatter, but the SARIF formatter can route that same internal error
+      # through a different code path into a hard non-zero exit with NO
+      # findings printed — opaque, and easy to mistake for "scan itself is
+      # broken." Not hit here (this scan targets .github/ directly, not a
+      # templated surface), but if this job ever goes red with no visible
+      # findings, split back into a non-blocking SARIF-upload step and a
+      # separate blocking table-format step before assuming the scanner is
+      # broken — don't just merge/iterate against a red build blind.
       - name: Scan workflow files for misconfigurations
         uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
         with:
