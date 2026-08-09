@@ -7,10 +7,8 @@ on:
     branches: [main]
 
 # Least privilege: every job here only reads the repo (tests, lint, smoke,
-# shellcheck) — none write contents, comment, or upload. Scoped at the top so a
-# new job can't silently inherit a broad default token.
-permissions:
-  contents: read
+# shellcheck) — none write contents, comment, or upload. Scoped per-job (not at
+# workflow level) so a new job can't silently inherit a broad default token.
 
 # Every setup-go step below uses `go-version: '1.26'` (floating minor), NOT
 # go-version-file: go.mod (exact patch). A go.mod-pinned patch silently goes
@@ -83,6 +81,8 @@ jobs:
     needs: [changes]
     if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -103,6 +103,8 @@ jobs:
   dco:
     name: DCO sign-off
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -140,6 +142,8 @@ jobs:
     needs: [changes, preflight]
     if: always() && (needs.preflight.result == 'success' || needs.preflight.result == 'skipped')
     runs-on: ${{ matrix.os }}
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -194,6 +198,8 @@ jobs:
     name: Replay hermeticity (double-replay diff)
     needs: [preflight]
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -261,6 +267,8 @@ jobs:
     name: Replay fidelity (cross-env golden)
     needs: [preflight]
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -276,6 +284,8 @@ jobs:
     name: Lint + gosec (golangci-lint)
     needs: [preflight]
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -297,6 +307,8 @@ jobs:
     needs: [changes]
     if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - run: pipx install semgrep
@@ -309,6 +321,8 @@ jobs:
     name: License allowlist (go-licenses)
     needs: [preflight]
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -333,6 +347,8 @@ jobs:
     needs: [changes, preflight]
     if: always() && (needs.preflight.result == 'success' || needs.preflight.result == 'skipped')
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     strategy:
       fail-fast: false
       matrix:
@@ -422,6 +438,8 @@ jobs:
   shellcheck:
     name: Shellcheck install.sh
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - run: shellcheck install.sh scripts/check-nonroot-invariant.sh scripts/alpine-smoke.sh scripts/check-replay-fidelity.sh scripts/container-honesty-smoke.sh scripts/fuzz-continuous.sh
@@ -439,6 +457,8 @@ jobs:
     name: Non-root verdict invariant
     needs: [preflight]
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -463,6 +483,8 @@ jobs:
     name: Alpine (musl/busybox) honesty smoke
     needs: [preflight]
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
@@ -488,6 +510,8 @@ jobs:
     name: Container honesty smoke (cgroupns=host throttle)
     needs: [preflight]
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
