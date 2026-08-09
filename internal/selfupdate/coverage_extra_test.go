@@ -117,8 +117,9 @@ func TestDownloadToTemp_CopyError(t *testing.T) {
 // TestSaveCache_WriteFileFails covers the os.WriteFile error branch in
 // saveCache: MkdirAll succeeds, but the ".tmp" staging path is itself a
 // pre-existing directory, so WriteFile fails.
+// no t.Parallel(): mutates package-level cachePath, matching the convention
+// in TestDownloadToTemp_CloseError below (package-level closeFile).
 func TestSaveCache_WriteFileFails(t *testing.T) {
-	t.Parallel()
 	dir := t.TempDir()
 	target := filepath.Join(dir, "update-check.json")
 	// Pre-create the ".tmp" staging path as a directory so WriteFile fails.
