@@ -247,9 +247,8 @@ func TestPrintSummaryPlainHealthy(t *testing.T) {
 	}
 }
 
-// TestPrintSummaryWithInfoInsight covers the INFO-level bucketing branch —
-// only reachable alongside a CRIT/WARN insight (INFO alone doesn't trigger
-// the printInsightGroup path; the healthy branch would short-circuit first).
+// TestPrintSummaryWithInfoInsight covers the INFO-level bucketing branch
+// alongside a CRIT/WARN insight.
 func TestPrintSummaryWithInfoInsight(t *testing.T) {
 	r := NewRenderer(output.ModeHuman)
 	insights := []models.Insight{
@@ -259,5 +258,23 @@ func TestPrintSummaryWithInfoInsight(t *testing.T) {
 	out := captureStdout(t, func() { r.PrintSummary(insights, 0) })
 	if !strings.Contains(out, "power-on years") {
 		t.Errorf("expected INFO insight rendered in summary, got %q", out)
+	}
+}
+
+// TestPrintSummaryInfoOnlyNotDropped guards against the false-clean renderer
+// bug: a run with zero CRIT/WARN still prints the healthy line (the verdict IS
+// clean), but must NOT silently drop INFO-level disclosures such as "could not
+// measure" insights just because the top-line verdict short-circuits first.
+func TestPrintSummaryInfoOnlyNotDropped(t *testing.T) {
+	r := NewRenderer(output.ModeHuman)
+	insights := []models.Insight{
+		{Level: "INFO", Check: "Memory", Message: "RAM usage check skipped — cgroup memory usage could not be read"},
+	}
+	out := captureStdout(t, func() { r.PrintSummary(insights, 0) })
+	if !strings.Contains(out, "System healthy") {
+		t.Errorf("expected the healthy line (no CRIT/WARN present), got %q", out)
+	}
+	if !strings.Contains(out, "RAM usage check skipped") {
+		t.Errorf("INFO-only insight must still be printed, not dropped by the healthy short-circuit, got %q", out)
 	}
 }

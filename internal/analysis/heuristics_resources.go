@@ -146,7 +146,11 @@ func checkMemory(mem models.MemoryInfo, thresh Thresholds, ctrCtx platform.Conta
 	// false-OK (idle container, busy host masks nothing) or false-WARN (busy host,
 	// idle container) in either direction. Skip rather than guess.
 	ramUnmeasurable := ctrCtx.InContainer && ctrCtx.MemLimitMB > 0 && !mem.CgroupMemMeasured
-	if l := levelPct(mem.UsedPct, thresh.RAMWarnPct, thresh.RAMCritPct); l != "" && !ramUnmeasurable {
+	if ramUnmeasurable {
+		out = append(out, insight("INFO", "Memory",
+			"RAM usage check skipped — cgroup memory usage could not be read in this container, so host /proc/meminfo can't be validly scored against the container's memory limit",
+			[]string{"note: needs the memory controller mounted and readable (memory.current on cgroup v2, memory.usage_in_bytes on v1)"}))
+	} else if l := levelPct(mem.UsedPct, thresh.RAMWarnPct, thresh.RAMCritPct); l != "" {
 		var memHints []string
 		if runtime.GOOS == "darwin" {
 			memHints = []string{"to inspect: vm_stat", "to inspect: top -l 1 | grep PhysMem", "to inspect: ps aux -m | head -10"}

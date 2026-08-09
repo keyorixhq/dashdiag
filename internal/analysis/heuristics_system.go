@@ -1270,8 +1270,13 @@ func checkLaunchd(l models.LaunchdInfo) []models.Insight {
 // root login via SSH, sessions idle > 8h, unusual concurrent session count.
 // Silent when only the current user is logged in normally.
 func checkSessions(s models.SessionsInfo) []models.Insight {
+	if !s.Checked {
+		return []models.Insight{insight("INFO", "Sessions",
+			"active session check skipped — the `w` command is unavailable or failed, so logged-in sessions could not be enumerated",
+			[]string{"to inspect: which w"})}
+	}
 	if s.TotalCount == 0 {
-		return nil // w not available or no sessions — skip silently
+		return nil // measured, and genuinely nobody is logged in
 	}
 	var out []models.Insight
 

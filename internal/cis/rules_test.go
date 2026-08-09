@@ -3757,7 +3757,10 @@ func TestRule6_2_11_HomeDirOwnership(t *testing.T) {
 		}
 	})
 
-	t.Run("home dir does not exist → PASS (no violations)", func(t *testing.T) {
+	// No account's home directory was stat-able (the only account's home is
+	// absent), so nothing was actually verified — this must SKIP, not report a
+	// false-clean PASS for zero accounts checked.
+	t.Run("home dir does not exist and nothing else checked → SKIP", func(t *testing.T) {
 		p := filepath.Join(dir, "passwd_nodir_6211")
 		content := "testuser:x:1001:1001::/nonexistent/no_home_dir:/bin/bash\n"
 		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
@@ -3765,8 +3768,34 @@ func TestRule6_2_11_HomeDirOwnership(t *testing.T) {
 		}
 		etcPasswdPath = p
 		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status != models.CISSkipped {
+			t.Errorf("absent home, none accessible: want Skip, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	// A second account with an accessible, correctly-owned home directory keeps
+	// the rule real (accessible > 0), so the absent-home account is simply not a
+	// violation for this rule (ownership can't be checked for a home that isn't
+	// there) rather than making the whole run SKIP.
+	t.Run("home dir does not exist but another account is checked → PASS", func(t *testing.T) {
+		uid := os.Getuid()
+		if uid < 1000 || uid >= 65534 {
+			t.Skip("current uid outside the rule's checked UID range (1000-65533)")
+		}
+		homeDir := filepath.Join(dir, "goodowner_home_6211")
+		if err := os.MkdirAll(homeDir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+		p := filepath.Join(dir, "passwd_mixed_6211")
+		content := fmt.Sprintf("nohome:x:1001:1001::/nonexistent/no_home_dir:/bin/bash\ngooduser:x:%d:%d::%s:/bin/bash\n",
+			uid, os.Getgid(), homeDir)
+		if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		etcPasswdPath = p
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
 		if got.Status != models.CISPass {
-			t.Errorf("absent home: want Pass, got %s (%s)", got.Status, got.Finding)
+			t.Errorf("one absent + one accessible-and-owned: want Pass, got %s (%s)", got.Status, got.Finding)
 		}
 	})
 

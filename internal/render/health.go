@@ -1523,7 +1523,12 @@ func (r *Renderer) PrintSummary(insights []models.Insight, elapsed time.Duration
 		} else {
 			fmt.Fprintf(os.Stdout, "OK: All checks passed%s\n", timing)
 		}
-		return 0
+		// A "healthy" verdict (no CRIT/WARN) is not the same as "nothing to show" —
+		// INFO includes "could not measure" disclosures (e.g. checkMemory's
+		// unmeasurable-cgroup case) that must never be silently dropped just because
+		// the top-line verdict is clean.
+		r.printInsightGroup(infos)
+		return exitCodeFromInsights(insights)
 	}
 
 	r.printInsightGroup(crits)
