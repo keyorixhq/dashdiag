@@ -145,8 +145,10 @@ func TestBuildWaveHTML_YearZero(t *testing.T) {
 	}
 }
 
+// Not parallel: os.Chdir mutates the process-wide working directory, which
+// would race any parallel sibling reading a relative path (see
+// TestGenerateWaveHTMLReport_WriteFails below, same pattern).
 func TestGenerateWaveHTMLReport(t *testing.T) {
-	t.Parallel()
 	dir := t.TempDir()
 	orig, err := os.Getwd()
 	if err != nil {

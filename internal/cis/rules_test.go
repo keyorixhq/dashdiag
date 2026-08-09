@@ -1376,6 +1376,12 @@ func TestRule5_3_1_SudoNotFound(t *testing.T) {
 	}
 }
 
+// No t.Parallel() on the subtests: the parent modifies package-level
+// sudoBinPaths, matching the convention in TestRule5_3_1_SudoFound /
+// TestRule5_3_1_SudoNotFound above. Moving the mutation into each subtest
+// instead would not fix this — all 4 subtests would then concurrently write
+// the identical value to the same package var, which is still a real data
+// race (go test -race flags concurrent writes regardless of value equality).
 func TestRule5_3_1_RemediationAdaptsToPackageManager(t *testing.T) {
 	saved := sudoBinPaths
 	t.Cleanup(func() { sudoBinPaths = saved })
@@ -1391,7 +1397,6 @@ func TestRule5_3_1_RemediationAdaptsToPackageManager(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.pkgMgr, func(t *testing.T) {
-			t.Parallel()
 			report := Evaluate(models.SecurityInfo{}, models.KernelSecurityInfo{}, 1, false, tc.pkgMgr)
 			var r models.CISResult
 			for _, res := range report.Results {
