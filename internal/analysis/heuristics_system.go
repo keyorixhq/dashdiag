@@ -934,8 +934,14 @@ func checkJournalActivity(logs models.LogsInfo) []models.Insight {
 }
 
 func checkEntropy(e models.EntropyInfo) []models.Insight {
+	// Deliberate, not a gap: Available=false only ever comes from the non-Linux
+	// stub (entropy_notlinux.go) — genuinely not applicable off-Linux. A real
+	// Linux read failure never reaches this function at all: EntropyCollector.
+	// Collect() returns a Go error in that case, which the runner surfaces as
+	// checks[].status=="ERROR" with the failure message, not as Available=false.
+	// So this is not the same class of silent-skip PR #921 fixed elsewhere.
 	if !e.Available {
-		return nil // not measured on this platform
+		return nil // not applicable on this platform
 	}
 	if e.EntropyBits < 64 {
 		return []models.Insight{insight("CRIT", "Entropy",
@@ -1130,6 +1136,10 @@ func checkMTE(m models.MTEInfo) []models.Insight {
 }
 
 func checkPressure(p models.PressureInfo) []models.Insight {
+	// Deliberate, not a gap: PSI absence is overwhelmingly a legitimate "not
+	// applicable on this kernel" state (pre-4.20, or PSI disabled at build/boot)
+	// — disclosing it would add INFO noise on every older-kernel run for a
+	// failure mode that essentially does not occur. Left silent on purpose.
 	if !p.Available {
 		return nil
 	}

@@ -227,6 +227,16 @@ func checkSUSESubscription(s models.SUSEConnectInfo) []models.Insight {
 }
 
 func checkRHELSubscription(s models.SUSEConnectInfo) []models.Insight {
+	// subscription-manager printed something that matched none of the known
+	// patterns (current/expired/not registered) — the raw text landed in Status
+	// unparsed. Don't let that silently read as "current" via the default case
+	// below; disclose that the status could not be determined.
+	if s.StatusUnverified {
+		return []models.Insight{insight("INFO", fwCatSubscription,
+			"RHEL/Oracle subscription status could not be determined — subscription-manager output did not match a known pattern",
+			[]string{"to inspect: subscription-manager status"},
+		)}
+	}
 	switch s.Status {
 	case "unregistered-rhui":
 		// RHUI/PAYG cloud image (AWS/Azure/GCP): "not registered" is the normal

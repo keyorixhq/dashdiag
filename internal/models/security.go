@@ -257,4 +257,9 @@ type SUSEConnectInfo struct {
 	Registered  bool   `json:"registered"`
 	ExpiresDays int    `json:"expires_days"` // -1=unknown, 0=expired, >0=days remaining
 	Status      string `json:"status"`       // ACTIVE, EXPIRED, evaluation, attached, detached
+	// StatusUnverified is true when `subscription-manager status` ran but its
+	// output matched none of the recognized patterns (current/expired/not
+	// registered) — Status then holds the raw unparsed text, which must NOT be
+	// read as "current" just because it fell through to no explicit case.
+	StatusUnverified bool `json:"status_unverified,omitempty"`
 }

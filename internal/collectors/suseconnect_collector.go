@@ -123,8 +123,11 @@ func collectRHELSubscription(ctx context.Context, info *models.SUSEConnectInfo) 
 		info.Registered = false
 		info.Status = unregisteredStatus()
 	default:
+		// Output didn't match any known pattern — don't let it read as "current"
+		// (checkRHELSubscription's default case) just because nothing matched.
 		info.Registered = false
 		info.Status = strings.TrimSpace(out)
+		info.StatusUnverified = true
 	}
 	return info
 }
