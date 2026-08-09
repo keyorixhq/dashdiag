@@ -97,6 +97,45 @@ func TestBuildHTML_HealthyVerdict(t *testing.T) {
 	}
 }
 
+// A collector that errored (INFO status/level) must render with its own
+// "info" class in both the Check Results table and the Issues list — not
+// silently collapse into the "ok"/"warn" styling the way the markdown
+// report's table used to collapse INFO to "✅ OK". The verdict itself stays
+// HEALTHY (mirrors PrintSummary's deliberate CRIT/WARN-only top line).
+func TestBuildHTML_FailedCollectorRendersAsInfo(t *testing.T) {
+	t.Parallel()
+	snap := &baseline.Snapshot{
+		Hostname:  "host1",
+		Timestamp: time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC),
+		Checks: []baseline.CheckResult{
+			{Name: "CPU Load", Status: "OK", Value: "5% load"},
+			{Name: "Sessions", Status: "INFO", Value: "check could not run — permission denied"},
+		},
+	}
+	insights := []models.Insight{
+		{Check: "Sessions", Level: "INFO", Message: "check could not run — permission denied"},
+	}
+	html, err := buildHTML(snap, insights, time.Second, nil)
+	if err != nil {
+		t.Fatalf("buildHTML: %v", err)
+	}
+	if !strings.Contains(html, "HEALTHY") {
+		t.Errorf("expected HEALTHY verdict — INFO must not affect the pass/fail verdict")
+	}
+	if !strings.Contains(html, `<span class="st info">INFO</span>`) {
+		t.Errorf("expected the Sessions row styled with the info status class, got:\n%s", html)
+	}
+	if got := strings.Count(html, `<span class="st ok">OK</span>`); got != 1 {
+		t.Errorf("expected exactly 1 OK row (CPU Load only), got %d:\n%s", got, html)
+	}
+	if !strings.Contains(html, `<div class="issue info">`) {
+		t.Errorf("expected the Sessions insight in the Issues section with the info class, got:\n%s", html)
+	}
+	if !strings.Contains(html, "check could not run — permission denied") {
+		t.Errorf("expected the collector-failure message to be visible, got:\n%s", html)
+	}
+}
+
 func TestGenerateHTMLReport_NilSnap(t *testing.T) {
 	t.Parallel()
 	if _, err := GenerateHTMLReport(nil, nil, 0, nil); err == nil {
