@@ -22,8 +22,8 @@ on:
     branches: [main]
 
 # govulncheck/gitleaks only read the tree; no SARIF upload, no repo writes.
-permissions:
-  contents: read
+# Scoped per-job (not at workflow level) so a new job can't silently inherit a
+# broad default token.
 
 jobs:
   # Diff-aware skip gate — same mechanism and allowlist as ci.yml's `changes`
@@ -65,6 +65,8 @@ jobs:
     needs: [changes]
     if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       # TEMPORARY pin to 1.26.5 (normally floats '1.26' — see ci.yml's top note).
@@ -95,6 +97,8 @@ jobs:
     needs: [changes]
     if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with: {fetch-depth: 0} # full history — gitleaks detect needs every commit, not just HEAD
@@ -116,6 +120,8 @@ jobs:
     needs: [changes]
     if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0

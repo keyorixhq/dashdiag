@@ -13,10 +13,6 @@ on:
   schedule:
     - cron: '0 9 * * 1' # Monday 09:00 UTC — same cadence as security.yml
 
-permissions:
-  contents: read
-  pull-requests: read # SonarCloud PR decoration (inline annotations on diffs)
-
 jobs:
   # Diff-aware skip gate — same mechanism and allowlist as ci.yml's `changes`
   # job (keep the allowlist in sync there; not a required branch-protection
@@ -25,6 +21,9 @@ jobs:
   changes:
     name: Detect docs-only diff
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read # to list the PR's changed files
     outputs:
       docs_only: ${{ steps.filter.outputs.docs_only }}
     steps:
@@ -49,6 +48,9 @@ jobs:
     needs: [changes]
     if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read # SonarCloud PR decoration (inline annotations on diffs)
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
