@@ -82,6 +82,7 @@ var guardedUnverifiedSignals = map[string]string{
 	"GPUDevice.Unreadable":              "analysis (gpu all-zero/unreadable → not OK); see memory gpu-allzero-falseok-deferred",
 	"NFSMount.ServerReachable":          "analysis (NFS reachability heuristic, net deep)",
 	"CloudInitInfo.StatusUnverified":    "analysis/firmware_cloudinit_unverified_test.go",
+	"SUSEConnectInfo.StatusUnverified":  "analysis/heuristics_round7_test.go TestCheckRHELSubscription_StatusUnverified + collectors/suseconnect_collector_test.go (unparseable subscription-manager output → INFO, not silent 'current')",
 	"SteamOSInfo.UpdateServerReachable": "analysis/steamos_test.go + heuristics_round9_test.go",
 	"ServiceResult.Reachable":           "service-collector heuristic (DEGRADED when unreachable; analysis/heuristics_round9_test.go)",
 	"VaultInfo.Reachable":               "analysis/heuristics_vault.go checkVault (!Reachable → WARN, never silent OK)",

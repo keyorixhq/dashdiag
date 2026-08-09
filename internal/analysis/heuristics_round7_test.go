@@ -39,6 +39,28 @@ func TestCheckRHELSubscription(t *testing.T) {
 	assertLevel(t, checkRHELSubscription(models.SUSEConnectInfo{Status: "unregistered-rhui"}), "")
 }
 
+// TestCheckRHELSubscription_StatusUnverified covers the three states the
+// collector can hand analysis: parsed as current (silent), parsed as a known
+// non-current status (handled by the switch, unaffected by StatusUnverified),
+// and genuinely unparseable output (StatusUnverified=true — must disclose,
+// never silently read as "current").
+func TestCheckRHELSubscription_StatusUnverified(t *testing.T) {
+	tests := []struct {
+		name string
+		s    models.SUSEConnectInfo
+		want string
+	}{
+		{"parsed as current is silent", models.SUSEConnectInfo{Status: "current", StatusUnverified: false}, ""},
+		{"parsed as a known non-current status is unaffected", models.SUSEConnectInfo{Status: "expired", StatusUnverified: false}, "CRIT"},
+		{"unparseable output discloses INFO, not silent 'current'", models.SUSEConnectInfo{Status: "some garbled locale-specific text", StatusUnverified: true}, "INFO"},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			assertLevel(t, checkRHELSubscription(tt.s), tt.want)
+		})
+	}
+}
+
 func TestCheckUbuntuPro(t *testing.T) {
 	assertLevel(t, checkUbuntuPro(models.SUSEConnectInfo{Status: "attached"}), "")
 	assertLevel(t, checkUbuntuPro(models.SUSEConnectInfo{Status: "detached"}), "INFO")

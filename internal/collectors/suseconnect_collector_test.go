@@ -211,6 +211,24 @@ func TestCollectRHELSubscription_UnknownOutput(t *testing.T) {
 	if info.Registered || info.Status != "some weird future status" {
 		t.Errorf("info = %+v, want registered=false/'some weird future status'", info)
 	}
+	// The raw text landed in Status unparsed — StatusUnverified must be set so
+	// analysis doesn't read this as a silent "current" via its default case.
+	if !info.StatusUnverified {
+		t.Errorf("info = %+v, want StatusUnverified=true for unrecognized output", info)
+	}
+}
+
+// TestCollectRHELSubscription_Current_NotUnverified guards the inverse: a
+// cleanly-matched "current" status must NOT set StatusUnverified.
+func TestCollectRHELSubscription_Current_NotUnverified(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("subscription-manager", []string{"status"}, "Overall Status: Current\n", 0)
+	})
+	info := &models.SUSEConnectInfo{}
+	collectRHELSubscription(context.Background(), info)
+	if info.StatusUnverified {
+		t.Errorf("info = %+v, want StatusUnverified=false for a cleanly-parsed 'current' status", info)
+	}
 }
 
 func TestCollectUbuntuPro_Attached(t *testing.T) {
