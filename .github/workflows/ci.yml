@@ -122,9 +122,23 @@ jobs:
           [ "$FAIL" -eq 0 ] && echo "✅ All PR commits carry Signed-off-by"
           exit $FAIL
 
+  # needs: [changes, preflight] (not just [preflight]) + `if: always() && (...
+  # == 'success' || ... == 'skipped')` — NOT a bare needs-cascade skip like the
+  # other preflight-gated jobs below. A matrix job that's skipped at the job
+  # level (own `if:` false, or cascaded through a skipped `needs:`) never
+  # expands its matrix — GitHub Actions posts exactly ONE check-run using the
+  # unexpanded template name ("Test (${{ matrix.os }})"), not one per OS. That
+  # never matches the required-status-check contexts ("Test (ubuntu-22.04)"
+  # etc.), so branch protection reports those required checks as permanently
+  # "expected" and a docs-only PR can never merge — caught 2026-08-09 when a
+  # real docs-only PR hit exactly this after the diff-gate shipped. Fix: keep
+  # the job itself always running (matrix expands normally, one named
+  # check-run per OS) and gate every STEP instead — steps all skip in ~2s per
+  # OS on a docs-only diff, no full checkout/build/test.
   test:
     name: Test (${{ matrix.os }})
-    needs: [preflight]
+    needs: [changes, preflight]
+    if: always() && (needs.preflight.result == 'success' || needs.preflight.result == 'skipped')
     runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
@@ -133,13 +147,16 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        if: needs.changes.outputs.docs_only != 'true'
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        if: needs.changes.outputs.docs_only != 'true'
         with:
           go-version: '1.26' # floating minor, not go.mod's exact patch — see note below
           cache: true
 
       - name: Format check
+        if: needs.changes.outputs.docs_only != 'true'
         run: |
           if [ -n "$(gofmt -l .)" ]; then
             echo "Files need formatting:"
@@ -148,13 +165,15 @@ jobs:
           fi
 
       - name: Vet
+        if: needs.changes.outputs.docs_only != 'true'
         run: go vet ./...
 
       - name: Test with race detector
+        if: needs.changes.outputs.docs_only != 'true'
         run: go test -race -count=1 -timeout 180s ./...
 
       - name: Coverage floor (≥96%)
-        if: matrix.os == 'ubuntu-24.04'
+        if: needs.changes.outputs.docs_only != 'true' && matrix.os == 'ubuntu-24.04'
         run: |
           go test -race -coverprofile=coverage.out -covermode=atomic ./...
           TOTAL=$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $3}' | tr -d '%')
@@ -305,9 +324,14 @@ jobs:
   # #123) slipped through because install.sh had ZERO automated coverage. This
   # runs THIS branch's install.sh in a clean container against the latest
   # release and asserts dsd actually installs + runs, on both arches.
+  # Same always()-run / per-step-gate shape as the `test` job above, and for
+  # the identical reason: a job-level skip on a matrix job collapses to one
+  # unexpanded check-run, which permanently starves the required
+  # "Install one-liner (linux/amd64)"/"(linux/arm64)" contexts on a docs-only PR.
   install-smoke:
     name: Install one-liner (${{ matrix.platform }})
-    needs: [preflight]
+    needs: [changes, preflight]
+    if: always() && (needs.preflight.result == 'success' || needs.preflight.result == 'skipped')
     runs-on: ubuntu-24.04
     strategy:
       fail-fast: false
@@ -315,13 +339,15 @@ jobs:
         platform: [linux/amd64, linux/arm64]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        if: needs.changes.outputs.docs_only != 'true'
 
       # arm64 needs emulation on an amd64 runner.
       - name: Set up QEMU
-        if: matrix.platform != 'linux/amd64'
+        if: needs.changes.outputs.docs_only != 'true' && matrix.platform != 'linux/amd64'
         uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4
 
       - name: Install via install.sh in a clean container (curl, default prefix)
+        if: needs.changes.outputs.docs_only != 'true'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -340,7 +366,7 @@ jobs:
       # minimal images. Arch-independent script logic, so amd64-only to skip slow
       # emulated arm64.
       - name: Install via wget-only path (no curl on the box)
-        if: matrix.platform == 'linux/amd64'
+        if: needs.changes.outputs.docs_only != 'true' && matrix.platform == 'linux/amd64'
         run: |
           docker run --rm --platform ${{ matrix.platform }} \
             -v "$PWD/install.sh:/tmp/install.sh:ro" debian:13 sh -c '
@@ -357,7 +383,7 @@ jobs:
       # then assert: default => non-zero exit AND nothing installed; --no-verify =>
       # installs. Without this guard the old silent skip-and-continue could regress.
       - name: Install fails closed when it cannot verify (and --no-verify overrides)
-        if: matrix.platform == 'linux/amd64'
+        if: needs.changes.outputs.docs_only != 'true' && matrix.platform == 'linux/amd64'
         run: |
           docker run --rm --platform ${{ matrix.platform }} \
             -v "$PWD/install.sh:/tmp/install.sh:ro" debian:13 sh -c '
@@ -376,7 +402,7 @@ jobs:
       # main() read the prefix positionally, so `--prefix` landed in ./--prefix/bin.
       # Guard the documented form so it can't silently regress again.
       - name: Install with documented --prefix flag (custom root)
-        if: matrix.platform == 'linux/amd64'
+        if: needs.changes.outputs.docs_only != 'true' && matrix.platform == 'linux/amd64'
         run: |
           docker run --rm --platform ${{ matrix.platform }} \
             -v "$PWD/install.sh:/tmp/install.sh:ro" debian:13 sh -c '
