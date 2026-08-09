@@ -119,7 +119,7 @@ func TestDockerFirewalldZoneTrustedSuppressesWarn(t *testing.T) {
 // On Proxmox VE root SSH is required for cluster management — surface it as
 // INFO, not a false CRIT on the operator's own management session.
 func TestSessionsRootSSHPVEExemption(t *testing.T) {
-	pve := models.SessionsInfo{TotalCount: 1, RootSSH: true, IsPVE: true}
+	pve := models.SessionsInfo{Checked: true, TotalCount: 1, RootSSH: true, IsPVE: true}
 	got := checkSessions(pve)
 	if fpHasLevel(got, "CRIT") {
 		t.Errorf("root SSH on PVE must not CRIT, got %+v", got)
@@ -129,7 +129,7 @@ func TestSessionsRootSSHPVEExemption(t *testing.T) {
 	}
 
 	// Non-PVE host: root SSH is still CRIT.
-	nonPVE := models.SessionsInfo{TotalCount: 1, RootSSH: true, IsPVE: false}
+	nonPVE := models.SessionsInfo{Checked: true, TotalCount: 1, RootSSH: true, IsPVE: false}
 	if got := checkSessions(nonPVE); !fpHasLevel(got, "CRIT") {
 		t.Errorf("root SSH on a non-PVE host should CRIT, got %+v", got)
 	}

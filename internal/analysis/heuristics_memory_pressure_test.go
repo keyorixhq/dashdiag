@@ -33,9 +33,9 @@ func TestCheckMemory(t *testing.T) {
 		// ceiling (TotalGB) — that would be comparing two different things and produce
 		// a false-OK (idle container, busy host) or false-WARN (busy host, idle
 		// container) depending on which way host pressure happens to point.
-		{"memory-limited container with unmeasured cgroup usage skips RAM check even at CRIT host usage",
+		{"memory-limited container with unmeasured cgroup usage skips RAM scoring even at CRIT host usage, but discloses it as INFO rather than staying silent",
 			models.MemoryInfo{UsedPct: defaultThresh.RAMCritPct, TotalGB: 2, FreeGB: 0.1, CgroupMemMeasured: false},
-			inLimitedCtrUnmeasured, ""},
+			inLimitedCtrUnmeasured, "INFO"},
 		{"memory-limited container with MEASURED cgroup usage scores normally",
 			models.MemoryInfo{UsedPct: defaultThresh.RAMCritPct, TotalGB: 2, FreeGB: 0.1, CgroupMemMeasured: true},
 			inLimitedCtrUnmeasured, "CRIT"},

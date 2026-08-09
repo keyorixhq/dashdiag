@@ -104,11 +104,16 @@ func ociVNICInsights(o models.OCIInfo) []models.Insight {
 }
 
 // ociRecognitionLine summarises what dsd verified clean, asserting only the
-// things it actually checked.
+// things it actually checked. If none of the four sub-checks ran at all, it
+// says so rather than defaulting to "no issues found" for a host where
+// nothing was actually verified.
 func ociRecognitionLine(o models.OCIInfo) string {
 	shape := o.Shape
 	if shape == "" {
 		shape = "instance"
+	}
+	if !o.IMDSChecked && !o.AgentChecked && !o.TimeSyncChecked && !o.VNICChecked {
+		return fmt.Sprintf("OCI %s — guest-side posture could not be verified: IMDS, cloud agent, time sync, and VNICs were all unreachable or unreadable", shape)
 	}
 	var parts []string
 	if o.IMDSChecked && !o.IMDSv1Open {

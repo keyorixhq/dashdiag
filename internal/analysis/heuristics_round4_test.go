@@ -305,11 +305,12 @@ func TestCheckSessions(t *testing.T) {
 		s    models.SessionsInfo
 		want string
 	}{
-		{"no sessions is silent", models.SessionsInfo{TotalCount: 0}, ""},
-		{"normal session is clean", models.SessionsInfo{TotalCount: 1}, ""},
-		{"root via SSH is CRIT", models.SessionsInfo{TotalCount: 1, RootSSH: true}, "CRIT"},
-		{"long-idle session is WARN", models.SessionsInfo{TotalCount: 1, LongIdle: []string{"bob"}}, "WARN"},
-		{"many concurrent is WARN", models.SessionsInfo{TotalCount: 6}, "WARN"},
+		{"no sessions is silent", models.SessionsInfo{Checked: true, TotalCount: 0}, ""},
+		{"normal session is clean", models.SessionsInfo{Checked: true, TotalCount: 1}, ""},
+		{"root via SSH is CRIT", models.SessionsInfo{Checked: true, TotalCount: 1, RootSSH: true}, "CRIT"},
+		{"long-idle session is WARN", models.SessionsInfo{Checked: true, TotalCount: 1, LongIdle: []string{"bob"}}, "WARN"},
+		{"many concurrent is WARN", models.SessionsInfo{Checked: true, TotalCount: 6}, "WARN"},
+		{"w unavailable is INFO, not silent", models.SessionsInfo{Checked: false, TotalCount: 0}, "INFO"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

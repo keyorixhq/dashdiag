@@ -38,6 +38,7 @@ func (c *SessionsCollector) Collect(ctx context.Context) (any, error) {
 	// PVE requires root SSH for cluster management; record it so the root-SSH
 	// finding can be exempted (matching checkSecurity's PermitRootLogin handling).
 	info.IsPVE = IsPVEHost()
+	info.Checked = true
 	return info, nil
 }
 

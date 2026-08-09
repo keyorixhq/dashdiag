@@ -20,4 +20,5 @@ type SessionsInfo struct {
 	RootSSH     bool      `json:"root_ssh"`            // root logged in via SSH
 	LongIdle    []string  `json:"long_idle,omitempty"` // users idle > 8 hours
 	IsPVE       bool      `json:"is_pve,omitempty"`    // host is Proxmox VE — root SSH is expected
+	Checked     bool      `json:"checked"`             // true when `w` ran successfully; false means sessions could not be enumerated at all
 }
