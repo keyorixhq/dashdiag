@@ -12,6 +12,7 @@ import (
 func TestCheckSessions_UniqueIPs(t *testing.T) {
 	t.Parallel()
 	s := models.SessionsInfo{
+		Checked:     true,
 		TotalCount:  2,
 		RemoteCount: 2,
 		UniqueIPs:   []string{"10.0.0.1", "10.0.0.2"},

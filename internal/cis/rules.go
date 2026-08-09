@@ -4602,6 +4602,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					return skipr(r, cisSkipPasswdUnreadable)
 				}
 				var violations []string
+				accessible := 0
 				for line := range strings.SplitSeq(string(data), "\n") {
 					line = strings.TrimSpace(line)
 					if line == "" || strings.HasPrefix(line, "#") {
@@ -4627,10 +4628,14 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					if !ok {
 						continue
 					}
+					accessible++
 					if st.Uid != uint32(uid) {
 						violations = append(violations,
 							fmt.Sprintf("%s (home=%s, owner uid=%d, expected=%d)", fields[0], homeDir, st.Uid, uid))
 					}
+				}
+				if accessible == 0 {
+					return skipr(r, cisSkipHomeDirsUnreadable)
 				}
 				if len(violations) > 0 {
 					shown := violations[:min(3, len(violations))]
@@ -4650,6 +4655,7 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					return skipr(r, cisSkipPasswdUnreadable)
 				}
 				var violations []string
+				accessible := 0
 				for line := range strings.SplitSeq(string(data), "\n") {
 					line = strings.TrimSpace(line)
 					if line == "" || strings.HasPrefix(line, "#") {
@@ -4671,10 +4677,14 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					if statErr != nil {
 						continue
 					}
+					accessible++
 					if perm := fi.Mode().Perm(); perm&0022 != 0 {
 						violations = append(violations,
 							fmt.Sprintf("%s (home=%s, mode=%04o)", fields[0], homeDir, perm))
 					}
+				}
+				if accessible == 0 {
+					return skipr(r, cisSkipHomeDirsUnreadable)
 				}
 				if len(violations) > 0 {
 					shown := violations[:min(3, len(violations))]
