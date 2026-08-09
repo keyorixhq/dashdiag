@@ -19,8 +19,42 @@ permissions:
   contents: read
 
 jobs:
+  # Diff-aware skip gate — same mechanism and allowlist as ci.yml's `changes`
+  # job (keep the allowlist in sync there; not a required branch-protection
+  # check today, but gated for consistency and runner-time savings). Only
+  # gates pull_request events; push/schedule always run the full analysis —
+  # the schedule trigger exists specifically to catch a newly published CodeQL
+  # query on unchanged code, so it must never be skipped.
+  changes:
+    name: Detect docs-only diff
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      pull-requests: read # to list the PR's changed files
+    outputs:
+      docs_only: ${{ steps.filter.outputs.docs_only }}
+    steps:
+      - id: filter
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
+            --paginate --jq '.[].filename')
+          if [ -z "$changed" ] || echo "$changed" | grep -vE '^(README\.md|CONTRIBUTING\.md|CHANGELOG\.md|COMPATIBILITY\.md|GETTING_STARTED\.md|PRIVACY\.md|SECURITY\.md|BACKLOG\.md|BUGS\.md|LICENSE|DCO|docs/)' > /dev/null; then
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "docs_only=true" >> "$GITHUB_OUTPUT"
+          fi
+
   analyze:
     name: Analyze (go)
+    needs: [changes]
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-24.04
     permissions:
       security-events: write # upload findings to code scanning

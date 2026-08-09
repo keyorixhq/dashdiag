@@ -18,7 +18,36 @@ permissions:
   pull-requests: read # SonarCloud PR decoration (inline annotations on diffs)
 
 jobs:
+  # Diff-aware skip gate — same mechanism and allowlist as ci.yml's `changes`
+  # job (keep the allowlist in sync there; not a required branch-protection
+  # check today, but gated for consistency and runner-time savings). Only
+  # gates pull_request events; push/schedule always run the full analysis.
+  changes:
+    name: Detect docs-only diff
+    runs-on: ubuntu-24.04
+    outputs:
+      docs_only: ${{ steps.filter.outputs.docs_only }}
+    steps:
+      - id: filter
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          if [ "${{ github.event_name }}" != "pull_request" ]; then
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          changed=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
+            --paginate --jq '.[].filename')
+          if [ -z "$changed" ] || echo "$changed" | grep -vE '^(README\.md|CONTRIBUTING\.md|CHANGELOG\.md|COMPATIBILITY\.md|GETTING_STARTED\.md|PRIVACY\.md|SECURITY\.md|BACKLOG\.md|BUGS\.md|LICENSE|DCO|docs/)' > /dev/null; then
+            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "docs_only=true" >> "$GITHUB_OUTPUT"
+          fi
+
   sonarcloud:
+    needs: [changes]
+    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-24.04
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
@@ -33,8 +62,11 @@ jobs:
         # dimension (otherwise it stays blank, as in a manual scan without CI).
         run: go test -coverprofile=coverage.out -covermode=set ./...
 
+      # sonarcloud-github-action is deprecated and archived (2025-10-22, read-only);
+      # its own README calls sonarqube-scan-action "a drop-in replacement." Migrated
+      # 2026-08-06 — same SONAR_TOKEN/args contract, no config change needed.
       - name: Analyze with SonarCloud
-        uses: SonarSource/sonarcloud-github-action@ffc3010689be73b8e5ae0c57ce35968afd7909e8 # v5.0.0
+        uses: SonarSource/sonarqube-scan-action@22918119ff8e1ca75a623e15c8296b6ea4fbe28f # v8.2.1
         env:
           SONAR_TOKEN: ${{ secrets.SONAR_TOKEN }}
         with:
