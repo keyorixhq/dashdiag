@@ -5,7 +5,7 @@ go 1.26.4
 require (
 	github.com/charmbracelet/bubbletea v1.3.10
 	github.com/charmbracelet/lipgloss v1.1.0
-	github.com/modelcontextprotocol/go-sdk v1.6.1
+	github.com/modelcontextprotocol/go-sdk v1.7.0
 	github.com/prometheus-community/pro-bing v0.9.1
 	github.com/shirou/gopsutil/v3 v3.24.5
 	github.com/skip2/go-qrcode v0.0.0-20200617195104-da1b6568686e
@@ -59,4 +59,5 @@ require (
 	golang.org/x/oauth2 v0.35.0 // indirect
 	golang.org/x/sys v0.47.0 // indirect
 	golang.org/x/text v0.40.0 // indirect
+	golang.org/x/time v0.15.0 // indirect
 )
