@@ -22,8 +22,11 @@ on:
     branches: [main]
 
 # govulncheck/gitleaks only read the tree; no SARIF upload, no repo writes.
-# Scoped per-job (not at workflow level) so a new job can't silently inherit a
-# broad default token.
+# Set at both levels: top-level is the floor (OSSF Scorecard Token-Permissions
+# requires it explicitly); each job also carries its own block as
+# defense-in-depth.
+permissions:
+  contents: read
 
 jobs:
   # Diff-aware skip gate — same mechanism and allowlist as ci.yml's `changes`

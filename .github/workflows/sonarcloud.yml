@@ -13,6 +13,11 @@ on:
   schedule:
     - cron: '0 9 * * 1' # Monday 09:00 UTC — same cadence as security.yml
 
+# Top-level is the floor (OSSF Scorecard Token-Permissions requires it
+# explicitly); each job also carries its own block as defense-in-depth.
+permissions:
+  contents: read
+
 jobs:
   # Diff-aware skip gate — same mechanism and allowlist as ci.yml's `changes`
   # job (keep the allowlist in sync there; not a required branch-protection
