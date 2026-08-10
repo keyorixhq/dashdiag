@@ -17,9 +17,11 @@ import (
 // TestApply_ChmodFails exercises the os.Chmod error branch in Apply: the
 // staged temp file exists and the checksum matches, but chmod is injected to
 // return an error, so Apply must return before renaming.
+//
+// no t.Parallel(): mutates package-level signingPublicKey, executable, and
+// osChmod, matching the convention in coverage_extra_test.go (package-level
+// cachePath / closeFile).
 func TestApply_ChmodFails(t *testing.T) {
-	t.Parallel()
-
 	oldKey := signingPublicKey
 	signingPublicKey = ""
 	defer func() { signingPublicKey = oldKey }()
