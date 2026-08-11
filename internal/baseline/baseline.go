@@ -241,7 +241,12 @@ func ComputeDiff(before, after *Snapshot) []DiffEntry {
 		beforeMap[c.Name] = c
 	}
 
-	statusOrder := map[string]int{"OK": 0, "INFO": 0, "WARN": 1, "CRIT": 2}
+	// Reuse statusRank (not a second, locally-defined ordering) so a collector
+	// that starts/stops erroring (OK<->INFO) ranks correctly relative to OK
+	// instead of tying with it. A prior local `statusOrder` map here scored
+	// INFO the same as OK (0), which made an INFO->OK recovery register as
+	// "degraded" (equal rank -> Improved=false) — same fail-open class as the
+	// --report table collapsing INFO to OK, just in the diff engine.
 
 	var degraded, improved, unchanged []DiffEntry
 	seen := make(map[string]bool, len(after.Checks))
@@ -255,11 +260,12 @@ func ComputeDiff(before, after *Snapshot) []DiffEntry {
 		}
 		switch {
 		case !existed:
-			// A brand-new check. A new problem (WARN/CRIT) is a degraded change;
-			// a new healthy check is just added coverage, not a status change —
-			// flagging it as "->OK degraded" (the old zero-value bug) was wrong.
+			// A brand-new check. A new problem (WARN/CRIT) — or a newly-erroring
+			// collector (INFO) — is a degraded change; a new healthy check is just
+			// added coverage, not a status change — flagging it as "->OK degraded"
+			// (the old zero-value bug) was wrong.
 			d.StatusChange = "new->" + ac.Status
-			if statusOrder[ac.Status] > 0 {
+			if statusRank(ac.Status) > 0 {
 				d.Changed = true
 				degraded = append(degraded, d)
 			} else {
@@ -268,7 +274,7 @@ func ComputeDiff(before, after *Snapshot) []DiffEntry {
 		default:
 			d.StatusChange = bc.Status + "->" + ac.Status
 			d.Changed = bc.Status != ac.Status
-			d.Improved = statusOrder[ac.Status] < statusOrder[bc.Status]
+			d.Improved = statusRank(ac.Status) < statusRank(bc.Status)
 			switch {
 			case d.Changed && !d.Improved:
 				degraded = append(degraded, d)
@@ -285,7 +291,7 @@ func ComputeDiff(before, after *Snapshot) []DiffEntry {
 	// after.Checks) hid real drift, e.g. a previously-CRIT mount no longer
 	// reported. Vanished healthy checks are benign and left out to avoid noise.
 	for _, bc := range before.Checks {
-		if seen[bc.Name] || statusOrder[bc.Status] == 0 {
+		if seen[bc.Name] || statusRank(bc.Status) == 0 {
 			continue
 		}
 		degraded = append(degraded, DiffEntry{

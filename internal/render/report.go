@@ -60,14 +60,22 @@ func buildMarkdown(snap *baseline.Snapshot, insights []models.Insight, elapsed t
 		fmt.Fprintf(&b, "\n")
 	}
 
-	// Issues — CRIT first, then WARN
+	// Issues — CRIT first, then WARN, then INFO disclosures (a collector that
+	// errored, an unmeasurable value, etc.). INFO isn't a pass/fail verdict
+	// change (kept out of the Summary's healthy/not-healthy line above, same as
+	// PrintSummary in health.go), but it must never be silently dropped from
+	// the report the way it used to be — a check that completely failed to run
+	// showed as "✅ OK" here with zero trace anywhere in the document.
 	actionable := filterActionable(insights)
 	if len(actionable) > 0 {
 		fmt.Fprintf(&b, "## Issues\n\n")
 		for _, ins := range actionable {
 			icon := "⚠️"
-			if ins.Level == "CRIT" {
+			switch ins.Level {
+			case "CRIT":
 				icon = "🔴"
+			case "INFO":
+				icon = "ℹ️"
 			}
 			fmt.Fprintf(&b, "### %s %s — %s\n\n", icon, ins.Level, ins.Check)
 			fmt.Fprintf(&b, "%s\n\n", ins.Message)
@@ -99,7 +107,13 @@ func buildMarkdown(snap *baseline.Snapshot, insights []models.Insight, elapsed t
 	//
 	// Deterministic, worst-first order: snap.Checks comes back in map/iteration
 	// order (different every run, which reads as unstable in a client report).
-	// Sort CRIT → WARN → OK, alphabetical within each rank.
+	// Sort CRIT → WARN → INFO → OK, alphabetical within each rank. INFO covers
+	// a collector that errored (or an unmeasurable value) — check.Status is set
+	// from the snapshot's worst insight (baseline.BuildSnapshot), so it's never
+	// anything the switch below doesn't already name; the explicit "default"
+	// case is reserved for the real OK/absent-insight case, not as a catch-all
+	// for statuses this switch forgot (guarded repo-wide by
+	// status_switch_governance_test.go's TestNoStatusSwitchSwallowsALevel).
 	type checkRow struct {
 		name, status string
 		rank         int
@@ -108,9 +122,11 @@ func buildMarkdown(snap *baseline.Snapshot, insights []models.Insight, elapsed t
 	for _, check := range snap.Checks {
 		switch check.Status {
 		case "CRIT":
-			rows = append(rows, checkRow{check.Name, "🔴 CRIT", 2})
+			rows = append(rows, checkRow{check.Name, "🔴 CRIT", 3})
 		case "WARN":
-			rows = append(rows, checkRow{check.Name, "⚠️ WARN", 1})
+			rows = append(rows, checkRow{check.Name, "⚠️ WARN", 2})
+		case "INFO":
+			rows = append(rows, checkRow{check.Name, "ℹ️ INFO", 1})
 		default:
 			rows = append(rows, checkRow{check.Name, "✅ OK", 0})
 		}
@@ -182,16 +198,21 @@ func pluralY(n int) string {
 	return "ies"
 }
 
+// filterActionable returns the insights worth surfacing in a report's Issues
+// section: CRIT/WARN findings plus INFO disclosures (collector errors,
+// unmeasurable values) — everything except a plain OK. Shared by the markdown
+// and HTML report renderers.
 func filterActionable(insights []models.Insight) []models.Insight {
+	rank := map[string]int{"CRIT": 0, "WARN": 1, "INFO": 2}
 	var out []models.Insight
 	for _, ins := range insights {
-		if ins.Level == "CRIT" || ins.Level == "WARN" {
+		if _, ok := rank[ins.Level]; ok {
 			out = append(out, ins)
 		}
 	}
 	sort.Slice(out, func(i, j int) bool {
 		if out[i].Level != out[j].Level {
-			return out[i].Level == "CRIT"
+			return rank[out[i].Level] < rank[out[j].Level]
 		}
 		return out[i].Check < out[j].Check
 	})

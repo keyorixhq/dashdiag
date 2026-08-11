@@ -1,13 +1,16 @@
 package render
 
 import (
+	"errors"
 	"os"
 	"strings"
 	"testing"
 	"time"
 
+	"github.com/keyorixhq/dashdiag/internal/analysis"
 	"github.com/keyorixhq/dashdiag/internal/baseline"
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/platform"
 	"github.com/keyorixhq/dashdiag/internal/runner"
 )
 
@@ -154,5 +157,99 @@ func TestReport_QualifiedCheckCritShowsInTable(t *testing.T) {
 	}
 	if strings.Contains(tbl, "| Network | ✅ OK |") {
 		t.Errorf("Network rendered as OK despite a DNS CRIT (false-OK regression)\n%s", tbl)
+	}
+}
+
+// Table-driven over the full pipeline (analysis.ApplyThresholds ->
+// baseline.BuildSnapshot -> buildMarkdown) per collector state: succeeded,
+// failed (a Go error — surfaced as INFO by analysis.ApplyThresholds since
+// commit 9aba5194), and not-applicable (nil data, nil error). Before this
+// change, --report collapsed the "failed" case to "✅ OK" in the table, left
+// it out of the Issues section entirely, and counted it as healthy in the
+// Summary — indistinguishable from both "succeeded" and "not-applicable" in
+// every part of the document.
+func TestReport_FailedVsNotApplicableVsOK(t *testing.T) {
+	t.Parallel()
+	thresh := analysis.DefaultThresholds(platform.CloudEnvironment(0))
+	noCloud := platform.CloudEnvironment(0)
+
+	cases := []struct {
+		name         string
+		results      []runner.Result
+		wantTableHas []string
+		wantTableNot []string
+		wantIssueHas []string
+	}{
+		{
+			name: "all succeed",
+			results: []runner.Result{
+				{Name: "CPU Load", Data: &models.CPUInfo{}},
+			},
+			wantTableHas: []string{"| CPU Load | ✅ OK |"},
+			wantTableNot: []string{"ℹ️ INFO"},
+		},
+		{
+			name: "one collector failed",
+			results: []runner.Result{
+				{Name: "CPU Load", Data: &models.CPUInfo{}},
+				{Name: "Sessions", Data: nil, Err: errors.New("reading utmp: permission denied")},
+			},
+			wantTableHas: []string{"| CPU Load | ✅ OK |", "| Sessions | ℹ️ INFO |"},
+			wantTableNot: []string{"| Sessions | ✅ OK |"},
+			wantIssueHas: []string{"check could not run", "permission denied"},
+		},
+		{
+			name: "one collector not applicable",
+			results: []runner.Result{
+				{Name: "CPU Load", Data: &models.CPUInfo{}},
+				{Name: "BIND", Data: nil, Err: nil},
+			},
+			wantTableHas: []string{"| CPU Load | ✅ OK |"},
+			wantTableNot: []string{"BIND"},
+		},
+		{
+			name: "mixed: OK, failed, and not-applicable together",
+			results: []runner.Result{
+				{Name: "CPU Load", Data: &models.CPUInfo{}},
+				{Name: "Sessions", Data: nil, Err: errors.New("reading utmp: permission denied")},
+				{Name: "BIND", Data: nil, Err: nil},
+			},
+			wantTableHas: []string{"| CPU Load | ✅ OK |", "| Sessions | ℹ️ INFO |"},
+			wantTableNot: []string{"| Sessions | ✅ OK |", "BIND"},
+			wantIssueHas: []string{"check could not run"},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			insights := analysis.ApplyThresholds(c.results, thresh, noCloud, platform.ContainerContext{})
+			snap := baseline.BuildSnapshot(c.results, insights)
+			md := buildMarkdown(snap, insights, time.Second, nil)
+
+			// The Summary must never claim a clean pass is the same thing as
+			// "nothing to show" — but per health.go:1520-1531's deliberate
+			// design (do not change), the top-line stays keyed on CRIT/WARN
+			// only; a collector failure (INFO) must be visible elsewhere in
+			// the document instead, which the table/Issues assertions below
+			// cover.
+			if !strings.Contains(md, "All checks passed") {
+				t.Errorf("expected the healthy summary line (no CRIT/WARN present)\n%s", md)
+			}
+			for _, want := range c.wantTableHas {
+				if !strings.Contains(md, want) {
+					t.Errorf("table missing %q\n--- report ---\n%s", want, md)
+				}
+			}
+			for _, notWant := range c.wantTableNot {
+				if strings.Contains(md, notWant) {
+					t.Errorf("report should not contain %q\n--- report ---\n%s", notWant, md)
+				}
+			}
+			for _, want := range c.wantIssueHas {
+				if !strings.Contains(md, want) {
+					t.Errorf("Issues section missing %q\n--- report ---\n%s", want, md)
+				}
+			}
+		})
 	}
 }

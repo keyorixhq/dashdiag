@@ -253,6 +253,45 @@ func TestComputeDiff_Improved(t *testing.T) {
 	}
 }
 
+// A collector's INFO status (it errored, or a value went unmeasurable) must
+// rank strictly between OK and WARN — not tie with OK. A prior local
+// statusOrder map here scored INFO==OK, so OK->INFO only "degraded" by the
+// tie-breaks-to-degraded default (fragile) and INFO->OK (a collector
+// recovering) was misclassified as degraded instead of improved.
+func TestComputeDiff_InfoRanksBetweenOKAndWarn(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name         string
+		before       string
+		after        string
+		wantChanged  bool
+		wantImproved bool
+	}{
+		{"starts erroring", "OK", "INFO", true, false},
+		{"recovers from error", "INFO", "OK", true, true},
+		{"error escalates to WARN", "INFO", "WARN", true, false},
+		{"WARN downgrades to disclosure-only", "WARN", "INFO", true, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			before := &Snapshot{Checks: []CheckResult{{Name: "chk", Status: c.before}}}
+			after := &Snapshot{Checks: []CheckResult{{Name: "chk", Status: c.after}}}
+			diff := ComputeDiff(before, after)
+			if len(diff) != 1 {
+				t.Fatalf("expected 1 diff entry, got %d", len(diff))
+			}
+			d := diff[0]
+			if d.Changed != c.wantChanged {
+				t.Errorf("Changed: got %v, want %v", d.Changed, c.wantChanged)
+			}
+			if d.Improved != c.wantImproved {
+				t.Errorf("%s->%s: Improved: got %v, want %v", c.before, c.after, d.Improved, c.wantImproved)
+			}
+		})
+	}
+}
+
 func TestComputeDiff_Ordering(t *testing.T) {
 	before := &Snapshot{Checks: []CheckResult{
 		{Name: "cpu", Status: "OK"},
