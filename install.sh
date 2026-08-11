@@ -8,6 +8,12 @@
 # checksums.txt and the install FAILS CLOSED if it cannot verify (no checksums,
 # no entry for this platform, or no hashing tool). Pass --no-verify to override
 # (installs UNVERIFIED — not recommended).
+#
+# Authenticity: when the `minisign` tool is available, checksums.txt's release
+# signature is also checked (best-effort by default — most boxes lack
+# minisign, so a missing tool or signature only warns). Pass
+# --require-signature to fail closed instead, holding the initial install to
+# the same standard `dsd update` always enforces.
 
 set -e
 
@@ -57,10 +63,10 @@ fetch_latest_version() {
     # and on network errors; covers transient GitHub API / CDN hiccups.
     if command -v curl >/dev/null 2>&1; then
         if [ -n "${GITHUB_TOKEN:-}" ]; then
-            VERSION="$(curl -fsSL --retry 3 --retry-delay 5 --proto '=https' -H "Authorization: token ${GITHUB_TOKEN}" "$_url" \
+            VERSION="$(curl -fsSL --retry 3 --retry-delay 5 --proto '=https' --proto-redir '=https' -H "Authorization: token ${GITHUB_TOKEN}" "$_url" \
                 | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')"
         else
-            VERSION="$(curl -fsSL --retry 3 --retry-delay 5 --proto '=https' "$_url" \
+            VERSION="$(curl -fsSL --retry 3 --retry-delay 5 --proto '=https' --proto-redir '=https' "$_url" \
                 | grep '"tag_name"' | head -1 | sed 's/.*"tag_name": *"\([^"]*\)".*/\1/')"
         fi
     elif command -v wget >/dev/null 2>&1; then
@@ -91,7 +97,7 @@ download() {
     info "Downloading dsd ${VERSION} (${PLATFORM})..."
 
     if command -v curl >/dev/null 2>&1; then
-        curl -fsSL --retry 3 --retry-delay 5 --proto '=https' --progress-bar "$URL" -o "$TMPFILE" || die "Download failed: $URL"
+        curl -fsSL --retry 3 --retry-delay 5 --proto '=https' --proto-redir '=https' --progress-bar "$URL" -o "$TMPFILE" || die "Download failed: $URL"
     else
         wget -q --https-only --show-progress "$URL" -O "$TMPFILE" || die "Download failed: $URL" # NOSONAR -- shelldre:S6506
     fi
@@ -122,7 +128,7 @@ verify_checksum() {
     SUMS_FILE="${TMPDIR}/checksums.txt"
 
     if command -v curl >/dev/null 2>&1; then
-        curl -fsSL --retry 3 --retry-delay 5 --proto '=https' "$SUMS_URL" -o "$SUMS_FILE" 2>/dev/null || { unverified "Could not fetch checksums.txt from the release"; return; }
+        curl -fsSL --retry 3 --retry-delay 5 --proto '=https' --proto-redir '=https' "$SUMS_URL" -o "$SUMS_FILE" 2>/dev/null || { unverified "Could not fetch checksums.txt from the release"; return; }
     else
         wget -qO "$SUMS_FILE" --https-only "$SUMS_URL" 2>/dev/null || { unverified "Could not fetch checksums.txt from the release"; return; } # NOSONAR -- shelldre:S6506
     fi
@@ -146,13 +152,16 @@ verify_checksum() {
     fi
 }
 
-# ── verify signature (best-effort authenticity) ───────────────────────────────
+# ── verify signature (best-effort authenticity, or enforced with --require-signature) ──
 # Authenticity layer on top of the checksum (integrity): a minisign signature
 # over checksums.txt that a compromised origin can't forge. Inert until a key is
-# pinned. Best-effort in shell — needs the `minisign` tool, which most boxes lack;
-# the in-binary `dsd update` verifier is the always-on, fail-closed path. A
-# signature that is present AND verifiable-as-bad aborts; a missing signature or
-# missing tool only warns (the checksum already guaranteed integrity).
+# pinned. Best-effort in shell by default — needs the `minisign` tool, which most
+# boxes lack; the in-binary `dsd update` verifier is the always-on, fail-closed
+# path for later updates. A signature that is present AND verifiable-as-bad
+# always aborts; a missing signature or missing tool only warns UNLESS
+# --require-signature was passed, in which case both fail closed too — for
+# environments (CI, high-trust deployments) that want the initial install held
+# to the same standard as `dsd update`.
 verify_signature() {
     [ -n "$MINISIGN_PUBKEY" ] || return 0          # signing not configured — inert
     [ -f "$SUMS_FILE" ] || return 0                # no checksums.txt to verify against
@@ -160,14 +169,14 @@ verify_signature() {
     SIG_URL="https://github.com/${REPO}/releases/download/${VERSION}/checksums.txt.minisig"
     SIG_FILE="${SUMS_FILE}.minisig"                # minisign -Vm looks for <file>.minisig
     if command -v curl >/dev/null 2>&1; then
-        curl -fsSL --retry 3 --retry-delay 5 --proto '=https' "$SIG_URL" -o "$SIG_FILE" 2>/dev/null || { warn "no release signature found -- verified checksum only"; return 0; }
+        curl -fsSL --retry 3 --retry-delay 5 --proto '=https' --proto-redir '=https' "$SIG_URL" -o "$SIG_FILE" 2>/dev/null || { signature_unenforced "no release signature found"; return; }
     else
-        wget -qO "$SIG_FILE" --https-only "$SIG_URL" 2>/dev/null || { warn "no release signature found -- verified checksum only"; return 0; } # NOSONAR -- shelldre:S6506
+        wget -qO "$SIG_FILE" --https-only "$SIG_URL" 2>/dev/null || { signature_unenforced "no release signature found"; return; } # NOSONAR -- shelldre:S6506
     fi
 
     if ! command -v minisign >/dev/null 2>&1; then
-        warn "release signature present but 'minisign' is not installed -- verified checksum only (to verify authenticity: minisign -Vm checksums.txt -P '$MINISIGN_PUBKEY')"
-        return 0
+        signature_unenforced "release signature present but 'minisign' is not installed (to verify authenticity: minisign -Vm checksums.txt -P '$MINISIGN_PUBKEY')"
+        return
     fi
 
     if minisign -Vm "$SUMS_FILE" -P "$MINISIGN_PUBKEY" >/dev/null 2>&1; then
@@ -175,6 +184,21 @@ verify_signature() {
     else
         die "Release signature verification FAILED -- refusing to install (possible tampering)"
     fi
+}
+
+# Called when signature verification could not proceed at all (no minisig
+# published, or no minisign tool) — as opposed to a signature that was checked
+# and failed, which always dies regardless of this function. Default: warn and
+# fall back to checksum-only, since minisign is absent on most boxes and every
+# install would otherwise break. --require-signature: die instead, same
+# fail-closed contract verify_checksum's unverified() already gives --no-verify's
+# opposite number.
+signature_unenforced() {
+    local msg="$1"
+    if [ "$REQUIRE_SIGNATURE" = "1" ]; then
+        die "$msg -- refusing to install without a verified signature (--require-signature)."
+    fi
+    warn "$msg -- verified checksum only"
 }
 
 # ── install ───────────────────────────────────────────────────────────────────
@@ -223,20 +247,24 @@ main() {
     #   vX.Y.Z                        pin a release (positional, leading 'v' + digit)
     #   DIR                           bare positional install root
     #   --no-verify                   install even if integrity can't be verified
+    #   --require-signature           fail closed if the release signature can't be checked
     VERSION=""
     PREFIX=""
     NO_VERIFY=0
+    REQUIRE_SIGNATURE=0
     while [ $# -gt 0 ]; do
         case "$1" in # NOSONAR — shift-loop arg parsing; $1 changes each iteration, local extraction is not applicable
-            --prefix)    [ -n "$2" ] || die "--prefix requires a directory"; PREFIX="$2"; shift 2 ;; # NOSONAR
-            --prefix=*)  PREFIX="${1#--prefix=}"; shift ;;
-            --no-verify) NO_VERIFY=1; shift ;;
-            v[0-9]*)     VERSION="$1"; shift ;;
-            -*)          die "Unknown option: $1" ;; # NOSONAR
-            *)           PREFIX="$1"; shift ;;
+            --prefix)           [ -n "$2" ] || die "--prefix requires a directory"; PREFIX="$2"; shift 2 ;; # NOSONAR
+            --prefix=*)         PREFIX="${1#--prefix=}"; shift ;;
+            --no-verify)        NO_VERIFY=1; shift ;;
+            --require-signature) REQUIRE_SIGNATURE=1; shift ;;
+            v[0-9]*)            VERSION="$1"; shift ;;
+            -*)                 die "Unknown option: $1" ;; # NOSONAR
+            *)                  PREFIX="$1"; shift ;;
         esac
     done
     PREFIX="${PREFIX:-/usr/local}"
+    [ "$NO_VERIFY" = "1" ] && [ "$REQUIRE_SIGNATURE" = "1" ] && die "--no-verify and --require-signature are contradictory"
 
     printf '\n'
     info "DashDiag (dsd) installer"

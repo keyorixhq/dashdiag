@@ -29,7 +29,7 @@ func TestVerifyMinisign_MoreErrorPaths(t *testing.T) {
 		lines := strings.Split(sig, "\n")
 		lines[1] = "AAAA" // decodes to 3 bytes, far short of 74
 		bad := strings.Join(lines, "\n")
-		if err := verifyMinisign(pub, file, []byte(bad)); err == nil {
+		if _, err := verifyMinisign(pub, file, []byte(bad)); err == nil {
 			t.Fatal("expected error for wrong-length signature payload")
 		}
 	})
@@ -45,7 +45,7 @@ func TestVerifyMinisign_MoreErrorPaths(t *testing.T) {
 		raw[0], raw[1] = 'X', 'X' // corrupt the 2-byte algo tag
 		lines[1] = base64.StdEncoding.EncodeToString(raw)
 		bad := strings.Join(lines, "\n")
-		if err := verifyMinisign(pub, file, []byte(bad)); err == nil {
+		if _, err := verifyMinisign(pub, file, []byte(bad)); err == nil {
 			t.Fatal("expected error for unsupported algorithm tag")
 		}
 	})
@@ -56,7 +56,7 @@ func TestVerifyMinisign_MoreErrorPaths(t *testing.T) {
 		lines := strings.Split(sig, "\n")
 		lines[3] = "not-base64!!!"
 		bad := strings.Join(lines, "\n")
-		if err := verifyMinisign(pub, file, []byte(bad)); err == nil {
+		if _, err := verifyMinisign(pub, file, []byte(bad)); err == nil {
 			t.Fatal("expected error for invalid global signature base64")
 		}
 	})

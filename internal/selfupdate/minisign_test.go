@@ -61,21 +61,25 @@ func TestVerifyMinisign(t *testing.T) {
 
 	t.Run("prehashed valid", func(t *testing.T) {
 		pub, sig := signMinisign(t, file, "timestamp:1 file:checksums.txt", true)
-		if err := verifyMinisign(pub, file, []byte(sig)); err != nil {
+		comment, err := verifyMinisign(pub, file, []byte(sig))
+		if err != nil {
 			t.Fatalf("valid prehashed signature rejected: %v", err)
+		}
+		if comment != "timestamp:1 file:checksums.txt" {
+			t.Errorf("returned comment = %q, want the verified trusted comment", comment)
 		}
 	})
 
 	t.Run("legacy raw valid", func(t *testing.T) {
 		pub, sig := signMinisign(t, file, "x", false)
-		if err := verifyMinisign(pub, file, []byte(sig)); err != nil {
+		if _, err := verifyMinisign(pub, file, []byte(sig)); err != nil {
 			t.Fatalf("valid legacy signature rejected: %v", err)
 		}
 	})
 
 	t.Run("tampered file rejected", func(t *testing.T) {
 		pub, sig := signMinisign(t, file, "x", true)
-		if err := verifyMinisign(pub, []byte("evil  dsd-linux-amd64\n"), []byte(sig)); err == nil {
+		if _, err := verifyMinisign(pub, []byte("evil  dsd-linux-amd64\n"), []byte(sig)); err == nil {
 			t.Fatal("tampered file accepted")
 		}
 	})
@@ -83,7 +87,7 @@ func TestVerifyMinisign(t *testing.T) {
 	t.Run("wrong key rejected", func(t *testing.T) {
 		_, sig := signMinisign(t, file, "x", true)
 		otherPub, _ := signMinisign(t, file, "x", true) // a different keypair's pub line
-		if err := verifyMinisign(otherPub, file, []byte(sig)); err == nil {
+		if _, err := verifyMinisign(otherPub, file, []byte(sig)); err == nil {
 			t.Fatal("signature from a different key accepted")
 		}
 	})
@@ -91,7 +95,7 @@ func TestVerifyMinisign(t *testing.T) {
 	t.Run("tampered trusted comment rejected", func(t *testing.T) {
 		pub, sig := signMinisign(t, file, "original", true)
 		bad := strings.Replace(sig, "trusted comment: original", "trusted comment: forged", 1)
-		if err := verifyMinisign(pub, file, []byte(bad)); err == nil {
+		if _, err := verifyMinisign(pub, file, []byte(bad)); err == nil {
 			t.Fatal("forged trusted comment accepted")
 		}
 	})
@@ -99,7 +103,7 @@ func TestVerifyMinisign(t *testing.T) {
 	t.Run("garbage signature rejected", func(t *testing.T) {
 		pub, _ := signMinisign(t, file, "x", true)
 		for _, bad := range []string{"", "not base64", "untrusted comment: x\n!!!\ntrusted comment: y\n!!!\n"} {
-			if err := verifyMinisign(pub, file, []byte(bad)); err == nil {
+			if _, err := verifyMinisign(pub, file, []byte(bad)); err == nil {
 				t.Fatalf("garbage signature %q accepted", bad)
 			}
 		}
@@ -107,17 +111,43 @@ func TestVerifyMinisign(t *testing.T) {
 
 	t.Run("empty key is an error (inert guard handled by caller)", func(t *testing.T) {
 		_, sig := signMinisign(t, file, "x", true)
-		if err := verifyMinisign("", file, []byte(sig)); err == nil {
+		if _, err := verifyMinisign("", file, []byte(sig)); err == nil {
 			t.Fatal("empty public key accepted")
 		}
 	})
+}
+
+// TestTrustedCommentNamesRelease covers the anti-rollback field-match: the
+// release tag must appear as a whole whitespace-delimited field, not merely
+// as a substring (so tag "v1.2" cannot match a comment naming "v1.20").
+func TestTrustedCommentNamesRelease(t *testing.T) {
+	cases := []struct {
+		name    string
+		comment string
+		tag     string
+		want    bool
+	}{
+		{"real release.yml format", "dsd v1.23.4 checksums", "v1.23.4", true},
+		{"tag missing entirely", "dsd v1.23.4 checksums", "v1.23.5", false},
+		{"prefix substring must not match", "dsd v1.20.0 checksums", "v1.2", false},
+		{"empty comment never matches", "", "v1.23.4", false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := trustedCommentNamesRelease(c.comment, c.tag); got != c.want {
+				t.Errorf("trustedCommentNamesRelease(%q, %q) = %v, want %v", c.comment, c.tag, got, c.want)
+			}
+		})
+	}
 }
 
 // TestVerifyChecksumsSignature covers the updater's release-authenticity gate:
 // inert with no key, fail-closed on a missing or bad signature, pass on a valid one.
 func TestVerifyChecksumsSignature(t *testing.T) {
 	sums := []byte("abc  dsd-linux-amd64\n")
-	pub, sig := signMinisign(t, sums, "file:checksums.txt", true)
+	// Trusted comment matches the real release workflow's `-t "dsd <tag> checksums"`
+	// format (.github/workflows/release.yml) — signedRel below is tagged "v1" to match.
+	pub, sig := signMinisign(t, sums, "dsd v1 checksums", true)
 
 	mux := http.NewServeMux()
 	mux.HandleFunc("/sig", func(w http.ResponseWriter, _ *http.Request) { fmt.Fprint(w, sig) })
@@ -125,6 +155,12 @@ func TestVerifyChecksumsSignature(t *testing.T) {
 	defer srv.Close()
 
 	signedRel := &Release{TagName: "v1", Assets: []Asset{
+		{Name: "checksums.txt.minisig", URL: srv.URL + "/sig"},
+	}}
+	// otherRel points at the SAME valid signature but claims a different release —
+	// the rollback/replay scenario: a validly-signed older release's artifacts
+	// presented as if they were this one.
+	otherRel := &Release{TagName: "v2", Assets: []Asset{
 		{Name: "checksums.txt.minisig", URL: srv.URL + "/sig"},
 	}}
 	unsignedRel := &Release{TagName: "v1", Assets: []Asset{}}
@@ -148,6 +184,11 @@ func TestVerifyChecksumsSignature(t *testing.T) {
 	t.Run("key set, tampered checksums rejected", func(t *testing.T) {
 		if err := verifyChecksumsSignatureKey(ctx, pub, signedRel, []byte("evil  dsd-linux-amd64\n")); err == nil {
 			t.Fatal("tampered checksums.txt accepted")
+		}
+	})
+	t.Run("anti-rollback: a validly-signed different release is rejected", func(t *testing.T) {
+		if err := verifyChecksumsSignatureKey(ctx, pub, otherRel, sums); err == nil {
+			t.Fatal("signature valid for v1 was accepted while installing v2 (rollback/replay not blocked)")
 		}
 	})
 }

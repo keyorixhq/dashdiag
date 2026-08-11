@@ -18,6 +18,7 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/collectors"
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/runner"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 const (
@@ -223,7 +224,7 @@ func procComm(procRoot string, pid int) string {
 // parallel batch (same constraint as the t.Setenv("HOME") tests elsewhere in
 // this codebase).
 var runCmd = func(ctx context.Context, name string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, name, args...)
+	cmd := exec.CommandContext(ctx, source.ResolveTrustedTool(name), args...)
 	cmd.Env = append(os.Environ(), "LC_ALL=C", "LANG=C")
 	var out bytes.Buffer
 	cmd.Stdout = &out
