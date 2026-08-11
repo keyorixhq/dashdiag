@@ -97,6 +97,21 @@ var guardedUnverifiedSignals = map[string]string{
 		"non-root, needs CAP_SYS_ADMIN — left RebootPending's false zero value indistinguishable from a " +
 		"genuinely clean host; now → INFO 'could not verify', never a silent 'Transactional: OK')",
 
+	// CIS benchmark — CISSkipped alone conflated "confirmed not applicable"
+	// (rsync not installed) with "could not verify" (sshd_config unreadable,
+	// non-root) across ~59 of ~132 skip sites in internal/cis/rules.go. Both
+	// now carry Unverified; cmd/cis.go's renderers give it a distinct ❓ icon
+	// and print the Finding (previously discarded for every skip, genuine or
+	// not); the NIS2/BSI rollups (internal/cis/nis2.go, bsi.go) use it to
+	// avoid reporting a plain "PASS" on compliance evidence for an
+	// article/requirement where some sibling rules were never actually
+	// checked.
+	"CISResult.Unverified": "cmd/cis_test.go TestCisIcon (❓ vs ⏭️, and Finding is printed for both) + " +
+		"internal/cis/rules_test.go (unverifiedr sites) + internal/cis/nis2_test.go/bsi_test.go (rollup Status " +
+		"is \"UNVERIFIED\" not \"PASS\" when Pass>0 and a sibling is unverified)",
+	"CISReport.Unverified": "internal/cis/rules_test.go TestEvaluate (tally of CISResult.Unverified==true results, " +
+		"surfaced in cmd/cis.go's summary line as \"N unverified\" distinct from \"N skipped\")",
+
 	// Hardware RAID controller CLIs are root-only; unread output must never read healthy.
 	"HWRaidInfo.NeedsRoot":  "analysis/heuristics_hwraid_test.go (TestCheckHWRaidHonestDegradation: controller CLI root-gated → INFO 're-run as root', never a clean OK or WARN/CRIT over unread state)",
 	"HWRaidInfo.ReadFailed": "analysis/heuristics_hwraid_test.go (TestCheckHWRaidHonestDegradation: CLI output unparseable → INFO 'treat as UNVERIFIED, not healthy')",

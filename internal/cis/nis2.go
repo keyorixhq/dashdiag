@@ -447,32 +447,41 @@ func NIS2Refs(cisID string) []string {
 
 // NIS2ArticleGroup aggregates CISResults that belong to one NIS2 article.
 type NIS2ArticleGroup struct {
-	Article NIS2Article21
-	Status  string // "PASS" | "PARTIAL" | "FAIL" | "SKIP" | "UNMAPPED"
-	Pass    int
-	Fail    int
-	Manual  int
-	Skipped int
-	Results []models.CISResult
+	Article    NIS2Article21
+	Status     string // "PASS" | "UNVERIFIED" | "PARTIAL" | "FAIL" | "SKIP" | "UNMAPPED"
+	Pass       int
+	Fail       int
+	Manual     int
+	Skipped    int
+	Unverified int // subset of Skipped where CISResult.Unverified is true
+	Results    []models.CISResult
 }
 
 // GroupByNIS2 groups a slice of CISResults by their NIS2Refs, returning one
 // NIS2ArticleGroup per article in NIS2Articles order.
 //
 // Status derivation:
-//   - UNMAPPED — no results map to this article at all
-//   - FAIL     — one or more failures and zero passes (all failing)
-//   - PARTIAL  — has both passes and failures (mixed)
-//   - PASS     — at least one pass and zero failures
-//   - SKIP     — no passes or failures, but some skipped/manual results
+//   - UNMAPPED   — no results map to this article at all
+//   - FAIL       — one or more failures and zero passes (all failing)
+//   - PARTIAL    — has both passes and failures (mixed)
+//   - UNVERIFIED — at least one pass, zero failures, but some sibling rules
+//     could not be checked at all (permission denied, unreadable) — a plain
+//     PASS here would be a false-clean verdict on compliance evidence: the
+//     article "passed" on what little could be seen, not on everything it
+//     covers. Checked before PASS so it takes priority.
+//   - PASS       — at least one pass, zero failures, everything else that
+//     applies was genuinely verified (skips, if any, are all confirmed
+//     not-applicable, not unverified)
+//   - SKIP       — no passes or failures, but some skipped/manual results
 func GroupByNIS2(results []models.CISResult) []NIS2ArticleGroup {
 	// Build a per-article bucket from results that carry NIS2Refs.
 	type bucket struct {
-		pass    int
-		fail    int
-		manual  int
-		skipped int
-		results []models.CISResult
+		pass       int
+		fail       int
+		manual     int
+		skipped    int
+		unverified int
+		results    []models.CISResult
 	}
 	buckets := make(map[string]*bucket, len(NIS2Articles))
 	for _, a := range NIS2Articles {
@@ -495,6 +504,9 @@ func GroupByNIS2(results []models.CISResult) []NIS2ArticleGroup {
 				b.manual++
 			case models.CISSkipped, models.CISNotApplicable:
 				b.skipped++
+				if r.Unverified {
+					b.unverified++
+				}
 			}
 		}
 	}
@@ -503,12 +515,13 @@ func GroupByNIS2(results []models.CISResult) []NIS2ArticleGroup {
 	for _, a := range NIS2Articles {
 		b := buckets[a.ID]
 		g := NIS2ArticleGroup{
-			Article: a,
-			Pass:    b.pass,
-			Fail:    b.fail,
-			Manual:  b.manual,
-			Skipped: b.skipped,
-			Results: b.results,
+			Article:    a,
+			Pass:       b.pass,
+			Fail:       b.fail,
+			Manual:     b.manual,
+			Skipped:    b.skipped,
+			Unverified: b.unverified,
+			Results:    b.results,
 		}
 
 		switch {
@@ -518,6 +531,8 @@ func GroupByNIS2(results []models.CISResult) []NIS2ArticleGroup {
 			g.Status = "PARTIAL"
 		case b.fail > 0:
 			g.Status = "FAIL"
+		case b.pass > 0 && b.unverified > 0:
+			g.Status = "UNVERIFIED"
 		case b.pass > 0:
 			g.Status = "PASS"
 		default:

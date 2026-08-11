@@ -590,14 +590,15 @@ func BSIRefs(cisID string) []string {
 
 // BSIReqGroup holds all CIS results evaluated against one BSI requirement.
 type BSIReqGroup struct {
-	Req      BSIRequirement
-	Baustein BSIBaustein
-	Status   string // "PASS"|"PARTIAL"|"FAIL"|"SKIP"|"UNMAPPED"
-	Pass     int
-	Fail     int
-	Manual   int
-	Skipped  int
-	Results  []models.CISResult
+	Req        BSIRequirement
+	Baustein   BSIBaustein
+	Status     string // "PASS"|"UNVERIFIED"|"PARTIAL"|"FAIL"|"SKIP"|"UNMAPPED"
+	Pass       int
+	Fail       int
+	Manual     int
+	Skipped    int
+	Unverified int // subset of Skipped where CISResult.Unverified is true
+	Results    []models.CISResult
 }
 
 // GroupByBSI groups CIS evaluation results by BSI IT-Grundschutz requirement.
@@ -637,6 +638,9 @@ func GroupByBSI(results []models.CISResult) []BSIReqGroup {
 					g.Manual++
 				default:
 					g.Skipped++
+					if r.Unverified {
+						g.Unverified++
+					}
 				}
 			}
 			switch {
@@ -644,6 +648,12 @@ func GroupByBSI(results []models.CISResult) []BSIReqGroup {
 				g.Status = "FAIL"
 			case g.Fail > 0:
 				g.Status = "PARTIAL"
+			case g.Pass > 0 && g.Unverified > 0:
+				// A plain PASS here would be a false-clean verdict: this
+				// requirement "passed" on what little could be checked, not
+				// on everything it covers — see GroupByNIS2's doc comment
+				// for the same reasoning (this mirrors it).
+				g.Status = "UNVERIFIED"
 			case g.Pass > 0:
 				g.Status = "PASS"
 			default:

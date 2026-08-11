@@ -23,18 +23,28 @@ type CISResult struct {
 	Remediation string    `json:"remediation,omitempty"` // how to fix it
 	NIS2Refs    []string  `json:"nis2_refs,omitempty"`   // NIS2 Article 21(2) sub-items that this rule covers
 	BSIRefs     []string  `json:"bsi_refs,omitempty"`    // BSI IT-Grundschutz requirement IDs that this rule covers
+	// Unverified is true when Status==CISSkipped because the check itself
+	// could not be completed (unreadable file, permission denied, unparseable
+	// output) — the compliance state is genuinely unknown, not confirmed
+	// absent/not-applicable. CISSkipped alone conflates the two; a plain
+	// "prerequisite not met" skip (rsync not installed, no MTA present) leaves
+	// this false. Distinguishing the two matters because a NIS2/BSI rollup
+	// with pass>0 must not report a clean PASS for a group where some sibling
+	// rules were never actually checked.
+	Unverified bool `json:"unverified,omitempty"`
 }
 
 // CISReport is the full output of a compliance scan.
 type CISReport struct {
-	Framework string      `json:"framework"` // CIS or STIG
-	Profile   string      `json:"profile"`   // e.g. "Ubuntu 22.04 LTS Level 1"
-	OS        string      `json:"os"`
-	Hostname  string      `json:"hostname"`
-	Results   []CISResult `json:"results"`
-	Pass      int         `json:"pass"`
-	Fail      int         `json:"fail"`
-	Manual    int         `json:"manual"`
-	NA        int         `json:"not_applicable"`
-	Skipped   int         `json:"skipped"`
+	Framework  string      `json:"framework"` // CIS or STIG
+	Profile    string      `json:"profile"`   // e.g. "Ubuntu 22.04 LTS Level 1"
+	OS         string      `json:"os"`
+	Hostname   string      `json:"hostname"`
+	Results    []CISResult `json:"results"`
+	Pass       int         `json:"pass"`
+	Fail       int         `json:"fail"`
+	Manual     int         `json:"manual"`
+	NA         int         `json:"not_applicable"`
+	Skipped    int         `json:"skipped"`
+	Unverified int         `json:"unverified"` // subset of Skipped where CISResult.Unverified is true
 }

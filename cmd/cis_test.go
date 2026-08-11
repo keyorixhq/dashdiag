@@ -51,18 +51,24 @@ func TestCisProfileName(t *testing.T) {
 func TestCisIcon(t *testing.T) {
 	// --plain must emit an ASCII token per status, not leak the human emoji.
 	cases := []struct {
-		status models.CISStatus
+		name   string
+		result models.CISResult
 		want   string
 	}{
-		{models.CISPass, "OK"},
-		{models.CISFail, "CRIT"},
-		{models.CISManual, "INFO"},
-		{models.CISSkipped, "SKIP"},
-		{models.CISStatus("weird"), "-"},
+		{"pass", models.CISResult{Status: models.CISPass}, "OK"},
+		{"fail", models.CISResult{Status: models.CISFail}, "CRIT"},
+		{"manual", models.CISResult{Status: models.CISManual}, "INFO"},
+		{"skipped, genuinely not applicable", models.CISResult{Status: models.CISSkipped}, "SKIP"},
+		// A genuine skip and an unverified skip share Status==CISSkipped but
+		// must render distinctly — the whole point of the Unverified field.
+		{"skipped, unverified", models.CISResult{Status: models.CISSkipped, Unverified: true}, "UNVERIFIED"},
+		{"unknown status", models.CISResult{Status: models.CISStatus("weird")}, "-"},
 	}
 	for _, c := range cases {
-		if got := strings.TrimSpace(cisIcon(c.status, output.ModePlain)); got != c.want {
-			t.Errorf("cisIcon(%v) = %q, want %q", c.status, got, c.want)
-		}
+		t.Run(c.name, func(t *testing.T) {
+			if got := strings.TrimSpace(cisIcon(c.result, output.ModePlain)); got != c.want {
+				t.Errorf("cisIcon(%+v) = %q, want %q", c.result, got, c.want)
+			}
+		})
 	}
 }

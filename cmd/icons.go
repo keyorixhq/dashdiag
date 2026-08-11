@@ -42,6 +42,8 @@ func asciiOr(level, emoji string, mode output.OutputMode) string {
 		token = "OFF"
 	case "unknown":
 		token = "-"
+	case "unverified":
+		token = "UNVERIFIED"
 	default:
 		token = output.StatusIcon(level, mode)
 	}
