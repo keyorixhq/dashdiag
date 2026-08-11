@@ -35,3 +35,16 @@ func skipr(r Rule, reason string) models.CISResult {
 		Section: r.Section, Description: r.Description,
 		Status: models.CISSkipped, Finding: reason}
 }
+
+// unverifiedr is skipr's sibling for the OTHER shape of "skip": the check
+// could not be completed (unreadable file, permission denied, unparseable
+// output), so the compliance state is genuinely unknown — not confirmed
+// absent/not-applicable the way a plain skipr (e.g. "rsync not installed")
+// is. Status stays CISSkipped (no wire-format break for existing consumers
+// filtering on Status=="SKIP"); Unverified=true is what lets the renderer and
+// the NIS2/BSI rollups tell the two apart.
+func unverifiedr(r Rule, reason string) models.CISResult {
+	return models.CISResult{ID: r.ID, Framework: r.Framework, Level: r.Level,
+		Section: r.Section, Description: r.Description,
+		Status: models.CISSkipped, Finding: reason, Unverified: true}
+}
