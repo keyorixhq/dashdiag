@@ -59,7 +59,7 @@ func checkVMware(v models.VMwareInfo) []models.Insight {
 	// read nothing. Don't let the all-clean INFO below imply ballooning/host-swap/
 	// host caps were verified — surface that they could NOT be checked.
 	if v.ToolsRunning && !v.StatAvailable {
-		out = append(out, insight("INFO", catVMware,
+		out = append(out, unverifiedInsight("INFO", catVMware,
 			"VMware resource-pressure stats unavailable (vmware-toolbox-cmd stat failed) — ballooning / host-swap / host caps NOT verified",
 			[]string{
 				"to inspect: vmware-toolbox-cmd stat balloon",

@@ -842,7 +842,7 @@ func checkFirewall(f models.FirewallInfo) []models.Insight {
 			)}
 		}
 		if f.StatusReason != "" {
-			return []models.Insight{insight("INFO", secCatFirewall,
+			return []models.Insight{unverifiedInsight("INFO", secCatFirewall,
 				"firewall state not verified — "+f.StatusReason,
 				[]string{"to inspect: nft list ruleset", "to inspect: iptables -L -n   (run as root)"},
 			)}
@@ -987,7 +987,7 @@ func checkAuditd(a models.AuditInfo) []models.Insight {
 			}))
 	}
 	if a.AuditLogSizeUnreadable {
-		out = append(out, insight("INFO", secCatAuditd,
+		out = append(out, unverifiedInsight("INFO", secCatAuditd,
 			"audit log size not verified — /var/log/audit/audit.log is unreadable (re-run as root)",
 			[]string{"to inspect: sudo ls -lh /var/log/audit/"}))
 	} else if a.AuditLogSizeGB > 10 {
