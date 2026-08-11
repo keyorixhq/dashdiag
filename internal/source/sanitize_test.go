@@ -76,6 +76,16 @@ func TestRedactSecrets(t *testing.T) {
 			mustKeep:   []string{"postgresql://admin:", "@db.internal:5432/mydb"},
 			wantN:      1,
 		},
+		{
+			// The keyword regex previously required the operator immediately
+			// after the bare keyword, so a suffixed env-var name never matched
+			// — SECRET_KEY_BASE was written to a sanitized bundle in the clear.
+			name:       "suffixed keyword env vars (SECRET_KEY_BASE, DJANGO_SECRET_KEY)",
+			in:         "SECRET_KEY_BASE=abc123def456\nDJANGO_SECRET_KEY: 'topsecretvalue'\nDB_HOST=db.local",
+			mustRedact: []string{"abc123def456", "topsecretvalue"},
+			mustKeep:   []string{"SECRET_KEY_BASE=", "DJANGO_SECRET_KEY:", "DB_HOST=db.local"},
+			wantN:      2,
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {

@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 func goldenDir() string {
@@ -12,8 +13,20 @@ func goldenDir() string {
 	return filepath.Join(home, ".dsd", "golden")
 }
 
+// goldenPath sanitizes name the same way baseline hostnames are (SafeHostname)
+// before it reaches a filename — `dsd baseline save/diff <name>` only cobra-
+// validates the ARGUMENT COUNT (ExactArgs(1)), never the content, so a name of
+// "../../../../home/victim/.ssh/evil" would otherwise escape goldenDir() on
+// save (an attacker-chosen write path) or on load (reading an arbitrary file
+// and returning its content as if it were a golden Snapshot). The belt-and-
+// suspenders HasPrefix check mirrors latestPath/prevPath below.
 func goldenPath(name string) string {
-	return filepath.Join(goldenDir(), name+".json")
+	dir := goldenDir()
+	full := filepath.Join(dir, SafeHostname(name)+".json")
+	if !strings.HasPrefix(full, dir) {
+		return filepath.Join(dir, "unknown-golden.json")
+	}
+	return full
 }
 
 // SaveGolden saves a snapshot as a named golden baseline.
@@ -43,7 +56,7 @@ func SaveGolden(snap *Snapshot, name string) error {
 
 // LoadGolden loads a named golden baseline.
 func LoadGolden(name string) (*Snapshot, error) {
-	data, err := os.ReadFile(goldenPath(name)) // #nosec G304 -- name comes from CLI arg, validated by cobra
+	data, err := os.ReadFile(goldenPath(name)) // #nosec G304 -- goldenPath sanitizes name (SafeHostname) before it reaches a path
 	if err != nil {
 		return nil, fmt.Errorf("golden baseline %q not found — run 'dsd baseline save %s' first", name, name)
 	}

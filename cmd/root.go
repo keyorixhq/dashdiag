@@ -1,8 +1,10 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
+	"syscall"
 
 	"github.com/keyorixhq/dashdiag/internal/platform"
 	"github.com/keyorixhq/dashdiag/internal/render"
@@ -29,7 +31,7 @@ var rootCmd = &cobra.Command{
 		}
 		// --out: redirect stdout to file for any command
 		if outPath != "" {
-			f, err := os.Create(outPath) // #nosec G304
+			f, err := createOutFile(outPath)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "dsd: --out: %v\n", err)
 				os.Exit(1)
@@ -41,6 +43,24 @@ var rootCmd = &cobra.Command{
 	RunE: runHealth,
 	Version: fmt.Sprintf("%s (commit %s, built %s)",
 		version.Version, version.Commit, version.Built),
+}
+
+// createOutFile opens outPath for --out's stdout redirect, refusing to follow
+// an existing symlink there. os.Create alone follows symlinks: if dsd runs
+// privileged (root, or a service account) and an attacker pre-creates a
+// symlink at a predictable/shared --out path pointing at a file they don't
+// own (e.g. a config file, another user's data), a plain os.Create would
+// silently truncate and overwrite the SYMLINK'S TARGET, not the symlink
+// itself. syscall.O_NOFOLLOW makes the open() itself refuse a symlink
+// atomically (no separate Lstat-then-open TOCTOU window) while still letting
+// a re-run overwrite dsd's own prior REGULAR-file output at the same path —
+// the common case.
+func createOutFile(outPath string) (*os.File, error) {
+	f, err := os.OpenFile(outPath, os.O_RDWR|os.O_CREATE|os.O_TRUNC|syscall.O_NOFOLLOW, 0o644) // #nosec G304 -- outPath is a user-supplied CLI flag by design; O_NOFOLLOW blocks symlink-follow
+	if errors.Is(err, syscall.ELOOP) {
+		return nil, fmt.Errorf("refusing to write through a symlink at %q", outPath)
+	}
+	return f, err
 }
 
 // Backlog: --share flag — upload snapshot to dashdiag.sh, return shareable URL.

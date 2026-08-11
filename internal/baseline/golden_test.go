@@ -3,6 +3,7 @@ package baseline
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -37,6 +38,57 @@ func TestGolden_SaveLoadRoundTrip(t *testing.T) {
 	}
 	if len(loaded.Checks) != 1 || loaded.Checks[0].Name != "cpu" {
 		t.Errorf("checks mismatch: got %+v", loaded.Checks)
+	}
+}
+
+// TestGolden_NameTraversalSanitized is the regression guard for a path-
+// traversal write/read: `dsd baseline save/diff <name>` only cobra-validates
+// the argument COUNT (ExactArgs(1)), never the content, so name previously
+// flowed straight into filepath.Join(goldenDir(), name+".json") unsanitized.
+// A name of "../../../../tmp/evil" could write (SaveGolden) or read
+// (LoadGolden) outside ~/.dsd/golden — SaveGolden.os.WriteFile truncates, and
+// LoadGolden would return an arbitrary file's content as if it were a golden
+// Snapshot (it happens to fail JSON parsing here, but the read itself already
+// succeeded, which is the point being guarded).
+func TestGolden_NameTraversalSanitized(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+
+	snap := &Snapshot{Hostname: "h", Version: "v1", Timestamp: time.Now().UTC().Truncate(time.Second)}
+	maliciousName := "../../../../../../../../tmp/evil"
+
+	if err := SaveGolden(snap, maliciousName); err != nil {
+		t.Fatalf("SaveGolden: %v", err)
+	}
+
+	// The file must land inside ~/.dsd/golden, under the sanitized name — a
+	// slash surviving anywhere in the on-disk filename means sanitization was
+	// bypassed.
+	gdir := filepath.Join(dir, ".dsd", "golden")
+	entries, err := os.ReadDir(gdir)
+	if err != nil {
+		t.Fatalf("ReadDir golden dir: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("want exactly 1 file in the golden dir, got %d: %+v", len(entries), entries)
+	}
+	if strings.ContainsAny(entries[0].Name(), `/\`) {
+		t.Errorf("on-disk filename %q still contains a path separator — traversal not blocked", entries[0].Name())
+	}
+
+	// No file must exist anywhere outside the golden dir as a result of this save.
+	if _, err := os.Stat(filepath.Join(dir, "tmp", "evil.json")); err == nil {
+		t.Error("SaveGolden wrote outside ~/.dsd/golden — traversal escaped")
+	}
+
+	// LoadGolden with the same malicious name must read back the sanitized
+	// file (round-trips successfully), never anything outside the golden dir.
+	loaded, err := LoadGolden(maliciousName)
+	if err != nil {
+		t.Fatalf("LoadGolden(%q): %v", maliciousName, err)
+	}
+	if loaded.Hostname != "h" {
+		t.Errorf("round-trip mismatch: got %+v", loaded)
 	}
 }
 
