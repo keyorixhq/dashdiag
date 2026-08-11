@@ -17,7 +17,7 @@ func checkRabbitMQ(r models.RabbitMQInfo) []models.Insight {
 	}
 
 	if !r.DiagnosticsRead {
-		return []models.Insight{insight("INFO", mqCatRabbitMQ,
+		return []models.Insight{unverifiedInsight("INFO", mqCatRabbitMQ,
 			"RabbitMQ's AMQP port is up, but diagnostics could not be read",
 			[]string{
 				"note: run dsd as root or the rabbitmq user (needs the Erlang cookie) for alarm and node checks",
@@ -30,7 +30,7 @@ func checkRabbitMQ(r models.RabbitMQInfo) []models.Insight {
 	// so the alarm state — the headline publisher-blocking signal — was never read.
 	// Surfacing this as WARN keeps a failed alarms read from passing as a clean broker.
 	if !r.AlarmsRead {
-		return []models.Insight{insight("WARN", mqCatRabbitMQ,
+		return []models.Insight{unverifiedInsight("WARN", mqCatRabbitMQ,
 			"RabbitMQ is up but its resource-alarm state could not be read — a publisher-blocking memory/disk alarm cannot be ruled out",
 			[]string{
 				mqInspectAlarms,

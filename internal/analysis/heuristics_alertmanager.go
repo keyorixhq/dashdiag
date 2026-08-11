@@ -21,7 +21,7 @@ func checkAlertmanager(a models.AlertmanagerInfo) []models.Insight {
 	}
 
 	if !a.StatusRead {
-		return []models.Insight{insight("INFO", "Alertmanager",
+		return []models.Insight{unverifiedInsight("INFO", "Alertmanager",
 			"Alertmanager is up, but its status API could not be read",
 			[]string{
 				"note: /api/v2/status must be reachable (a reverse proxy or auth may block it)",

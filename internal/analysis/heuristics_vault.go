@@ -37,7 +37,7 @@ func checkVault(v models.VaultInfo) []models.Insight {
 				},
 			)}
 		}
-		return []models.Insight{insight("INFO", "Vault",
+		return []models.Insight{unverifiedInsight("INFO", "Vault",
 			"Vault is up but its API could not be read — health state unverified",
 			[]string{
 				"note: /v1/sys/health must be reachable (a firewall or proxy may block it)",

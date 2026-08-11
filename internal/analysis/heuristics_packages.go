@@ -115,7 +115,7 @@ func checkPackageUpdates(pkg models.PackagesInfo) []models.Insight {
 		if reason == "" {
 			reason = "the package manager's security query failed"
 		}
-		return []models.Insight{insight("INFO", "Packages",
+		return []models.Insight{unverifiedInsight("INFO", "Packages",
 			"could not verify security updates: "+reason,
 			[]string{"note: this is an unverified result, not a clean bill of health"},
 		)}
@@ -136,7 +136,7 @@ func checkPackageUpdates(pkg models.PackagesInfo) []models.Insight {
 		if refresh != "" {
 			hints = append([]string{"to refresh: " + refresh + "  then re-run dsd"}, hints...)
 		}
-		return []models.Insight{insight("INFO", "Packages", reason, hints)}
+		return []models.Insight{unverifiedInsight("INFO", "Packages", reason, hints)}
 	}
 
 	if pkg.SecurityUpdates == 0 {
@@ -337,7 +337,7 @@ func checkCVEHealth(r models.CVEAllResult) []models.Insight {
 		if reason == "" {
 			reason = "no supported package manager"
 		}
-		return []models.Insight{insight("INFO", "CVE",
+		return []models.Insight{unverifiedInsight("INFO", "CVE",
 			"CVE scan unavailable: "+reason,
 			[]string{"run `dsd cve --all` for details, or install a supported scanner"},
 		)}
@@ -412,7 +412,7 @@ func checkPackageIntegrity(pi models.PackageIntegrity) []models.Insight {
 	if pi.VerifyLocked {
 		// The integrity check couldn't run because the package manager was locked by
 		// another process — report it as unverified, never a silent clean (false-OK).
-		out = append(out, insight("INFO", "Packages",
+		out = append(out, unverifiedInsight("INFO", "Packages",
 			"could not verify package integrity — the package manager was locked by another process",
 			[]string{"to run manually: zypper verify   (after any running zypper/packagekit finishes)"},
 		))
@@ -433,7 +433,7 @@ func checkPackageIntegrity(pi models.PackageIntegrity) []models.Insight {
 		// timing out the probe (e.g. a live-USB overlay), or a permission issue —
 		// NOT necessarily a broken cache. Report "couldn't verify" (INFO), not a
 		// "may be corrupted" WARN, per the couldn't-run ≠ broken principle.
-		out = append(out, insight("INFO", "Packages",
+		out = append(out, unverifiedInsight("INFO", "Packages",
 			"could not verify the shared library cache — ldconfig -p did not complete (slow/overlay fs or permissions); not necessarily a problem",
 			[]string{"to check manually: ldconfig -p | head -20", "to rebuild if needed: sudo ldconfig"},
 		))
@@ -452,7 +452,7 @@ func checkTLS(tls models.TLSInfo) []models.Insight {
 	// endpoint, garbled PEM). Surface as WARN so a "0 expired" verdict is never
 	// mistaken for "all healthy" when some certs were never actually evaluated.
 	for _, u := range tls.Uncheckable {
-		out = append(out, insight("WARN", "TLS",
+		out = append(out, unverifiedInsight("WARN", "TLS",
 			fmt.Sprintf("certificate could not be checked: %s (%s)", u.Path, u.Error),
 			[]string{fmt.Sprintf("to inspect: openssl x509 -in %s -noout -dates", u.Path)},
 		))

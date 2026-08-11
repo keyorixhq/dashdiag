@@ -112,6 +112,22 @@ var guardedUnverifiedSignals = map[string]string{
 	"CISReport.Unverified": "internal/cis/rules_test.go TestEvaluate (tally of CISResult.Unverified==true results, " +
 		"surfaced in cmd/cis.go's summary line as \"N unverified\" distinct from \"N skipped\")",
 
+	// Insight.Unverified — the analysis-layer signal that a Level downgrade
+	// (usually to INFO) reflects "couldn't measure this" rather than a genuine
+	// finding. Set via analysis.unverifiedInsight() at every call site gated
+	// on one of the model-level signals already registered above (NeedsRoot,
+	// *Unreadable, *ReadFailed, etc.) — this registry line covers the shared
+	// mechanism; the per-field lines above already point at each site's test.
+	// Consumed by internal/baseline: BuildSnapshot copies it onto
+	// CheckResult.Unverified, and ComputeDiff forces Improved=false on any
+	// diff where either side is Unverified — see baseline_unverified_test.go.
+	// Before this, a WARN/CRIT that became unmeasurable on a re-run (e.g.
+	// non-root) read as a false "->INFO, Improved=true" recovery in
+	// `dsd health --diff`, `dsd baseline diff`, and the MCP dsd_diff tool.
+	"Insight.Unverified": "internal/baseline/baseline_unverified_test.go (ComputeDiff never marks an " +
+		"unverified transition Improved) + internal/analysis/heuristics_unverified_insight_test.go " +
+		"(unverifiedInsight sites carry Unverified through to the Insight)",
+
 	// Hardware RAID controller CLIs are root-only; unread output must never read healthy.
 	"HWRaidInfo.NeedsRoot":  "analysis/heuristics_hwraid_test.go (TestCheckHWRaidHonestDegradation: controller CLI root-gated → INFO 're-run as root', never a clean OK or WARN/CRIT over unread state)",
 	"HWRaidInfo.ReadFailed": "analysis/heuristics_hwraid_test.go (TestCheckHWRaidHonestDegradation: CLI output unparseable → INFO 'treat as UNVERIFIED, not healthy')",

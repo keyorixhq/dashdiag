@@ -81,7 +81,7 @@ func checkContainerGuest(v models.ContainerGuestInfo) []models.Insight {
 	// false — old kernel / controller not mounted) are the signals unverified; say so
 	// rather than letting the summary imply "no throttling or OOM-kills".
 	if v.InContainer && !v.CgroupV2 && !v.CgroupV1Measured {
-		out = append(out, insight("INFO", catContainerGuest,
+		out = append(out, unverifiedInsight("INFO", catContainerGuest,
 			"CPU-throttle and OOM-kill could not be read on this cgroup v1 host — those signals are unverified",
 			[]string{"note: needs the cpu + memory v1 controllers mounted and a kernel exposing memory.oom_control"}))
 	}

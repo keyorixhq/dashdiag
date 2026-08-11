@@ -54,7 +54,7 @@ func checkCron(c models.CronInfo) []models.Insight {
 	} else if !c.FailureScanOK {
 		// Neither journalctl nor any /var/log/cron* file could be read — recent job
 		// failures can't be ruled out, so don't pass as a clean "no failures".
-		out = append(out, insight("INFO", "Cron",
+		out = append(out, unverifiedInsight("INFO", "Cron",
 			"cron failure history not readable — recent job failures could be hidden",
 			[]string{
 				"to inspect: journalctl -u crond --since '24 hours ago'  (run as root?)",

@@ -20,7 +20,7 @@ func webConfigVerdict(server string, configTested, configValid bool, configError
 			})}
 	}
 	if !configTested {
-		return []models.Insight{insight("INFO", server,
+		return []models.Insight{unverifiedInsight("INFO", server,
 			server+" is running; its config was not validated (the config test needs root to read the config)",
 			[]string{"to inspect: re-run the config test as root"},
 		)}

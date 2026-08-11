@@ -17,7 +17,7 @@ func checkKafka(k models.KafkaInfo) []models.Insight {
 	}
 
 	if !k.MetricsRead {
-		return []models.Insight{insight("INFO", "Kafka",
+		return []models.Insight{unverifiedInsight("INFO", "Kafka",
 			"Kafka's broker port is up, but topic metadata could not be read",
 			[]string{
 				"note: the kafka CLI must reach the bootstrap server (SSL/SASL auth may be required)",
@@ -45,7 +45,7 @@ func checkKafka(k models.KafkaInfo) []models.Insight {
 	// query failed, so redundancy was never verified. Surface it (INFO) rather than
 	// let a 0 from an unread query pass as "no under-replication".
 	if !k.UnderReplicatedRead {
-		out = append(out, insight("INFO", "Kafka",
+		out = append(out, unverifiedInsight("INFO", "Kafka",
 			"offline-partition state was read, but under-replicated partition state could not be — redundancy is unverified",
 			[]string{
 				"to inspect: kafka-topics.sh --bootstrap-server localhost:9092 --describe --under-replicated-partitions",
