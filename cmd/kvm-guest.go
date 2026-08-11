@@ -75,6 +75,12 @@ func runKVMGuest(cmd *cobra.Command, _ []string) error {
 		return result.Err
 	}
 
+	// BUG-022 class: honour the 0/1/2 exit contract. Uses the SAME insight
+	// source (analysis.KVMGuestInsights) kvmGuestConcerns already scores the
+	// printed verdict from — not recordResultSeverity's generic ApplyThresholds
+	// path, which doesn't know about KVMGuestInfo.
+	recordWorstInsight(analysis.KVMGuestInsights(*info))
+
 	if mode == output.ModeJSON {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")

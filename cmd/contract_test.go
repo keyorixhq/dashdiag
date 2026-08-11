@@ -27,12 +27,11 @@ var exitCodeContract = map[string]string{
 	"logs": "gates", "hardware": "gates", "thermal": "gates", "gpu": "gates",
 	"cron": "gates", "cve": "gates", "fleet": "gates", "steamos": "gates",
 	"tls": "gates", "db": "gates", "containerd": "gates",
+	"kvm": "gates", "kvm-guest": "gates",
 
 	// Should gate but not wired yet — tracked follow-up (these can produce findings).
 	"cis":       "todo: compliance pass/fail not yet mapped to the exit code",
-	"kvm":       "todo: VM error diagnostics not yet wired",
 	"vmware":    "todo: guest-config findings not yet wired to the exit code",
-	"kvm-guest": "todo: guest-config findings not yet wired to the exit code",
 	"guest":     "todo: guest/tenant findings not yet wired to the exit code",
 	"aws":       "todo: EC2 guest-config findings not yet wired to the exit code",
 	"azure":     "todo: Azure guest-config findings not yet wired to the exit code",
