@@ -93,9 +93,10 @@ func printDiskReport(info *models.DiskInfo, lvmInfo *models.LVMInfo, mode output
 	}
 }
 
-// diskHasUnverifiedReads reports whether any ZFS/LVM read failed (so the summary
-// must not claim a clean "healthy" — the reads that failed were never checked). Keyed
-// on the same *ReadFailed flags dsd health folds to INFO, so the two agree non-root.
+// diskHasUnverifiedReads reports whether any ZFS/LVM read or per-drive SMART read
+// failed (so the summary must not claim a clean "healthy" — the reads that failed
+// were never checked). Keyed on the same *ReadFailed flags and SMART.Error dsd
+// health folds to INFO, so the two agree non-root.
 func diskHasUnverifiedReads(info *models.DiskInfo, lvmInfo *models.LVMInfo) bool {
 	if info != nil {
 		if info.ZFSListReadFailed {
@@ -103,6 +104,18 @@ func diskHasUnverifiedReads(info *models.DiskInfo, lvmInfo *models.LVMInfo) bool
 		}
 		for _, p := range info.ZFSPools {
 			if p.StatusReadFailed {
+				return true
+			}
+		}
+		// SMART.Error is set only for a physical drive where smartctl/nvme-cli
+		// was actually attempted and failed (e.g. permission-denied non-root) —
+		// countDiskIssues correctly skips it as "couldn't measure" rather than a
+		// fault, but nothing else routed that fact here, so the summary fell
+		// through to "healthy" even though the primary per-drive signal was
+		// never verified. A nil SMART (virtual disk / container — not
+		// applicable) must NOT trigger this.
+		for _, d := range info.Drives {
+			if d.SMART != nil && d.SMART.Error != "" {
 				return true
 			}
 		}
