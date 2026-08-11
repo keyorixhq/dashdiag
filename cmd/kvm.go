@@ -62,6 +62,8 @@ func runKVM(cmd *cobra.Command, _ []string) error {
 		return result.Err
 	}
 
+	recordResultSeverity([]runner.Result{result}) // BUG-022 class: honour 0/1/2 exit contract
+
 	if mode == output.ModeJSON {
 		enc := json.NewEncoder(os.Stdout)
 		enc.SetIndent("", "  ")

@@ -3,6 +3,7 @@ package cmd
 import (
 	"testing"
 
+	"github.com/keyorixhq/dashdiag/internal/analysis"
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/runner"
 )
@@ -75,6 +76,60 @@ func TestServicesGatesExitCode(t *testing.T) {
 			pendingExitCode = 0
 			defer func() { pendingExitCode = 0 }()
 			recordResultSeverity([]runner.Result{{Name: "Services", Data: tc.info}})
+			if pendingExitCode != tc.want {
+				t.Errorf("got exit %d, want %d", pendingExitCode, tc.want)
+			}
+		})
+	}
+}
+
+// TestKVMGatesExitCode is a regression guard for cmd-08-03: runKVM never
+// called recordResultSeverity, so `dsd kvm` always exited 0 even with a
+// CRASHED VM — a CI job gating on it got a silent pass.
+func TestKVMGatesExitCode(t *testing.T) {
+	cases := []struct {
+		name string
+		info *models.KVMInfo
+		want int
+	}{
+		{"not detected", &models.KVMInfo{Detected: false}, 0},
+		{"detected, no VMs", &models.KVMInfo{Detected: true}, 0},
+		{"enum failed", &models.KVMInfo{Detected: true, Status: "enum-failed", StatusReason: "virsh list failed"}, 1},
+		{"crashed VM", &models.KVMInfo{Detected: true, VMs: []models.KVMVM{
+			{Name: "web1", State: models.KVMCrashed},
+		}}, 2},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pendingExitCode = 0
+			defer func() { pendingExitCode = 0 }()
+			recordResultSeverity([]runner.Result{{Name: "KVM", Data: tc.info}})
+			if pendingExitCode != tc.want {
+				t.Errorf("got exit %d, want %d", pendingExitCode, tc.want)
+			}
+		})
+	}
+}
+
+// TestKVMGuestGatesExitCode is a regression guard for cmd-08-04: runKVMGuest
+// never recorded severity from analysis.KVMGuestInsights (the same source
+// kvmGuestConcerns scores the printed verdict from), so `dsd kvm-guest`
+// always exited 0 even with CRIT-level guest findings.
+func TestKVMGuestGatesExitCode(t *testing.T) {
+	cases := []struct {
+		name string
+		info models.KVMGuestInfo
+		want int
+	}{
+		{"not a guest", models.KVMGuestInfo{IsGuest: false}, 0},
+		{"clean guest", models.KVMGuestInfo{IsGuest: true}, 0},
+		{"emulated NIC", models.KVMGuestInfo{IsGuest: true, EmulatedNICs: []string{"eth0"}}, 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pendingExitCode = 0
+			defer func() { pendingExitCode = 0 }()
+			recordWorstInsight(analysis.KVMGuestInsights(tc.info))
 			if pendingExitCode != tc.want {
 				t.Errorf("got exit %d, want %d", pendingExitCode, tc.want)
 			}
