@@ -102,6 +102,27 @@ func TestPrintAWSReport_NoInstanceTypeFallback(t *testing.T) {
 	}
 }
 
+// TestPrintAWSReport_RebalanceNotFoldedIntoRecognitionLine is a regression guard
+// for cmd-01-01: the real "EC2 rebalance recommendation is active — …" WARN shares
+// the "EC2 " prefix with the all-clean recognition INFO, so isAWSRecognitionLine's
+// bare HasPrefix match silently dropped the WARN from both report blocks — the
+// summary still said "1 EC2 issue(s) found" but no detail line explained why.
+func TestPrintAWSReport_RebalanceNotFoldedIntoRecognitionLine(t *testing.T) {
+	info := &models.AWSInfo{
+		IsEC2: true, InstanceType: "m5.large",
+		RebalanceChecked: true, RebalanceRecommended: true,
+	}
+	var buf bytes.Buffer
+	printAWSReport(&buf, info, 50*time.Millisecond, output.ModePlain)
+	out := buf.String()
+	if !strings.Contains(out, "EC2 rebalance recommendation is active") {
+		t.Errorf("rebalance WARN must be printed, not folded away as the recognition line:\n%s", out)
+	}
+	if !strings.Contains(out, "1 EC2 issue(s) found") {
+		t.Errorf("summary should report 1 issue; got:\n%s", out)
+	}
+}
+
 func TestPrintAWSReport_Healthy(t *testing.T) {
 	clean := &models.AWSInfo{IsEC2: true, InstanceType: "t4g.small", IMDSChecked: true, RebalanceChecked: true} // IMDSv2 enforced, nothing else
 	var buf bytes.Buffer
