@@ -63,7 +63,7 @@ func ApplyThresholds(results []runner.Result, thresh Thresholds, _ platform.Clou
 	var insights []models.Insight
 	for _, r := range results {
 		if r.Err != nil {
-			insights = append(insights, insight("INFO", r.Name,
+			insights = append(insights, unverifiedInsight("INFO", r.Name,
 				fmt.Sprintf("check could not run — %v", r.Err), nil))
 			continue
 		}
@@ -1190,6 +1190,17 @@ func levelPct(val, warn, crit float64) string {
 
 func insight(level, check, message string, hints []string) models.Insight {
 	return models.Insight{Level: level, Check: check, Message: message, Hints: hints}
+}
+
+// unverifiedInsight is insight() for the specific case where level reflects a
+// downgrade because the data could not be read/measured this run (permission
+// denied, unreadable file, collector error) rather than a genuine clean/absent
+// finding. See models.Insight.Unverified for why this distinction matters to
+// baseline diffing.
+func unverifiedInsight(level, check, message string, hints []string) models.Insight {
+	ins := insight(level, check, message, hints)
+	ins.Unverified = true
+	return ins
 }
 
 // eccInsights turns EDAC corrected/uncorrected counts into insights. Shared by

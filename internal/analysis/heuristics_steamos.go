@@ -105,7 +105,7 @@ func checkSteamOSUpdate(s models.SteamOSInfo) []models.Insight {
 	// are both gated on RAUCAvailable, so without this a failed query reads as a
 	// silent OK. INFO doesn't raise the verdict.
 	if !s.RAUCAvailable {
-		out = append(out, insight("INFO", catSteamOS,
+		out = append(out, unverifiedInsight("INFO", catSteamOS,
 			"RAUC A/B slot health could not be verified — `rauc status` failed or returned no data",
 			[]string{"to inspect: rauc status", "check: systemctl status rauc — is the service up?"},
 		))

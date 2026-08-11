@@ -61,7 +61,7 @@ func checkSystemd(sys models.SystemdInfo) []models.Insight {
 	// 3s timeout — most likely under load, exactly when units are failing). Say
 	// so instead of letting an empty list read as a silent healthy verdict.
 	if sys.FailedUnitsUnknown {
-		out = append(out, insight("INFO", "Systemd",
+		out = append(out, unverifiedInsight("INFO", "Systemd",
 			"could not list failed units — systemctl list-units did not complete; failed-unit status is unverified",
 			[]string{
 				"to check manually: systemctl --failed",
@@ -500,7 +500,7 @@ func checkKernelSecurity(mac models.KernelSecurityInfo, thresh Thresholds) []mod
 			// NOT a privilege gap. Re-running as root would NOT help (non-root can
 			// read the same node), so don't suggest it — point at the node instead.
 			// (Contrast AppArmor below, whose mode lives in a root-only node.)
-			return append(out, insight("INFO", catKernelSec,
+			return append(out, unverifiedInsight("INFO", catKernelSec,
 				"SELinux is present but its enforce state could not be read — policy may be mid-load or in an unusual state",
 				[]string{
 					"to inspect: cat /sys/fs/selinux/enforce   (1=enforcing, 0=permissive)",
@@ -512,7 +512,7 @@ func checkKernelSecurity(mac models.KernelSecurityInfo, thresh Thresholds) []mod
 			// AppArmor's mode lives in /sys/kernel/security/apparmor/profiles, which
 			// is root-only — so here "unknown" genuinely IS a privilege gap and
 			// re-running as root resolves it.
-			return append(out, insight("INFO", catKernelSec,
+			return append(out, unverifiedInsight("INFO", catKernelSec,
 				"AppArmor present but mode unreadable — re-run as root",
 				nil,
 			))
@@ -566,7 +566,7 @@ func checkAppArmorActive(mac models.KernelSecurityInfo) []models.Insight {
 	// /var/log/audit unreadable AND dmesg restricted), so we can't claim "no
 	// denials" — surface it as unverified rather than a silent OK.
 	if mac.AppArmorDenials < 0 {
-		out = append(out, insight("INFO", catKernelSec,
+		out = append(out, unverifiedInsight("INFO", catKernelSec,
 			"AppArmor enforcing but its denial log could NOT be read — denials are unverified",
 			[]string{
 				"to inspect: dmesg | grep -i apparmor   (run as root)",
@@ -630,7 +630,7 @@ func checkSELinuxDenials(mac models.KernelSecurityInfo, thresh Thresholds) []mod
 	// unreadable, ausearch absent, journald also failed). Don't read that as "no
 	// denials" — surface it as unverified.
 	if mac.SELinuxMode == "enforcing" && mac.SELinuxDenials < 0 {
-		out = append(out, insight("INFO", catKernelSec,
+		out = append(out, unverifiedInsight("INFO", catKernelSec,
 			"SELinux enforcing but AVC denials could NOT be verified — audit log unreadable / ausearch absent",
 			[]string{
 				"to inspect: ausearch -m avc -ts recent   (run as root)",
@@ -711,7 +711,7 @@ func nvmeEventInsights(logs models.LogsInfo) []models.Insight {
 func checkLogs(logs models.LogsInfo, thresh Thresholds) []models.Insight {
 	var out []models.Insight
 	if logs.NeedsRoot {
-		out = append(out, insight("INFO", "Logs",
+		out = append(out, unverifiedInsight("INFO", "Logs",
 			"some checks limited — run as root for OOM/segfault detection via /dev/kmsg and auth log analysis",
 			nil,
 		))
@@ -922,7 +922,7 @@ func checkJournalActivity(logs models.LogsInfo) []models.Insight {
 	} else if logs.ErrorCountUnverified {
 		// The journal error scan failed and no /var/log fallback covered it, so the
 		// 0-error count is not trustworthy — don't read it as a clean log.
-		out = append(out, insight("INFO", "Logs",
+		out = append(out, unverifiedInsight("INFO", "Logs",
 			"could not read journal error counts — recent errors are unverified",
 			[]string{
 				"to inspect: journalctl -p err --since '1 hour ago' --no-pager  (run as root?)",
@@ -1029,7 +1029,7 @@ func checkDBus(d models.DBusInfo) []models.Insight {
 	// Surface it as INFO so the unverified state is honest without a scary
 	// top-line CRIT. Only an explicit failed/inactive is a real failure.
 	if d.Status != "failed" && d.Status != "inactive" {
-		return []models.Insight{insight("INFO", "DBus",
+		return []models.Insight{unverifiedInsight("INFO", "DBus",
 			fmt.Sprintf("D-Bus state could not be determined (status: %q) — health unverified, not assumed failed", d.Status),
 			[]string{
 				"to inspect: systemctl is-active dbus",
@@ -1057,7 +1057,7 @@ func checkOOM(oom models.OOMInfo) []models.Insight {
 	// The kernel log was unreadable, so EventsLast24h==0 means "couldn't check",
 	// not "no OOM kills" — surface it rather than passing as a silent clean.
 	if oom.StatusReason != "" {
-		return []models.Insight{insight("INFO", "OOM",
+		return []models.Insight{unverifiedInsight("INFO", "OOM",
 			"OOM check not verified — "+oom.StatusReason,
 			[]string{
 				"to inspect: journalctl -k | grep -i 'out of memory'   (run as root)",
@@ -1106,7 +1106,7 @@ func checkMTE(m models.MTEInfo) []models.Insight {
 		return nil
 	}
 	if m.StatusReason != "" {
-		return []models.Insight{insight("INFO", "MTE",
+		return []models.Insight{unverifiedInsight("INFO", "MTE",
 			"MTE fault check not verified — "+m.StatusReason,
 			[]string{
 				"to inspect: journalctl -k | grep -i 'tag check fault'   (run as root)",
@@ -1277,7 +1277,7 @@ func checkLaunchd(l models.LaunchdInfo) []models.Insight {
 // Silent when only the current user is logged in normally.
 func checkSessions(s models.SessionsInfo) []models.Insight {
 	if !s.Checked {
-		return []models.Insight{insight("INFO", "Sessions",
+		return []models.Insight{unverifiedInsight("INFO", "Sessions",
 			"active session check skipped — the `w` command is unavailable or failed, so logged-in sessions could not be enumerated",
 			[]string{"to inspect: which w"})}
 	}

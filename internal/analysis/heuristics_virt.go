@@ -58,7 +58,7 @@ func checkKVMVMs(kvm models.KVMInfo) []models.Insight {
 	}
 	// State could not be read (virsh dominfo failed) — couldn't verify, not healthy.
 	if kvm.VMsUnreadable > 0 {
-		out = append(out, insight("WARN", virtCatKVM,
+		out = append(out, unverifiedInsight("WARN", virtCatKVM,
 			fmt.Sprintf("%d VM(s) defined but their state could not be read (virsh dominfo failed) — true state unknown", kvm.VMsUnreadable),
 			[]string{
 				virtInspectVirsh,
@@ -233,7 +233,7 @@ func checkDocker(d models.DockerInfo) []models.Insight {
 		if reason == "" {
 			reason = "Docker daemon is reachable but its containers could not be listed — health not verified"
 		}
-		return []models.Insight{insight("WARN", virtCatDocker, reason,
+		return []models.Insight{unverifiedInsight("WARN", virtCatDocker, reason,
 			[]string{"to inspect: docker ps -a", "to inspect: journalctl -u docker --since '10 min ago'"})}
 	}
 
@@ -333,7 +333,7 @@ func checkPodmanQuadlets(d models.DockerInfo) []models.Insight {
 		))
 	}
 	if len(unverified) > 0 {
-		out = append(out, insight("INFO", virtCatDocker,
+		out = append(out, unverifiedInsight("INFO", virtCatDocker,
 			fmt.Sprintf("could not determine state of %d Podman quadlet(s): %s", len(unverified), strings.Join(unverified, ", ")),
 			[]string{"to inspect: systemctl show <unit> --property=ActiveState,LoadState   (systemctl unavailable or unit not found)"},
 		))
@@ -476,7 +476,7 @@ func checkDockerResources(d models.DockerInfo) []models.Insight { //nolint:funle
 	// could not be checked at all; must not be silently dropped from the
 	// unbounded-logging picture as if confirmed clean.
 	if d.LogDriver != nil && len(d.LogDriver.UnverifiedContainers) > 0 {
-		out = append(out, insight("INFO", virtCatDocker,
+		out = append(out, unverifiedInsight("INFO", virtCatDocker,
 			fmt.Sprintf("%d container(s) log config could not be verified (inspect failed): %s",
 				len(d.LogDriver.UnverifiedContainers), strings.Join(firstN(d.LogDriver.UnverifiedContainers, 3), ", ")),
 			[]string{"to inspect: docker inspect <container>"},
@@ -644,7 +644,7 @@ func checkK8s(k models.K8sInfo) []models.Insight {
 	// identical host — the cmd<->health tally-drift class (#275) this
 	// architecture exists to prevent, defeated by this one early return.
 	if !k.APIReachable {
-		out = append(out, insight("INFO", virtCatK8s,
+		out = append(out, unverifiedInsight("INFO", virtCatK8s,
 			"kubectl/k3s present but the cluster API was unreachable — cluster health NOT verified",
 			[]string{
 				"to inspect: kubectl get nodes",
@@ -1086,7 +1086,7 @@ func checkK8sOSLayerCoverageGaps(l models.K8sOSLayer) []models.Insight {
 	// at this field from "iptables-save unavailable". Including it would put a
 	// permanent, un-actionable INFO on every healthy Cilium cluster.
 	if !l.KubeForwardChecked || !l.CNIChecked {
-		out = append(out, insight("INFO", virtCatK8s,
+		out = append(out, unverifiedInsight("INFO", virtCatK8s,
 			"some OS-layer checks limited — the KUBE-FORWARD chain and/or CNI config could not be verified (needs root, or the relevant tool is not on PATH — common on k3s)",
 			nil,
 		))
@@ -1097,7 +1097,7 @@ func checkK8sOSLayerCoverageGaps(l models.K8sOSLayer) []models.Insight {
 	// the firewalld-masquerade check below silently can't fire even if flannel IS
 	// in use and misconfigured.
 	if l.FlannelCNIUnreadable {
-		out = append(out, insight("INFO", virtCatK8s,
+		out = append(out, unverifiedInsight("INFO", virtCatK8s,
 			"CNI config directory not readable — could not verify whether flannel is in use (firewalld-masquerade check skipped)",
 			[]string{"to audit: re-run as root (sudo dsd k8s --deep)"},
 		))

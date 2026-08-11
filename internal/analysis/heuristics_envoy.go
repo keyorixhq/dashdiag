@@ -17,7 +17,7 @@ func checkEnvoy(e models.EnvoyInfo) []models.Insight {
 	}
 
 	if !e.StatsRead {
-		return []models.Insight{insight("INFO", "Envoy",
+		return []models.Insight{unverifiedInsight("INFO", "Envoy",
 			"Envoy's admin interface is up, but its cluster stats could not be read",
 			[]string{
 				"note: the admin interface must be reachable to read upstream health",
@@ -31,7 +31,7 @@ func checkEnvoy(e models.EnvoyInfo) []models.Insight {
 	// an Envoy whose membership stats use unexpected names. Upstream health was never
 	// actually assessed, so surface it rather than let all-zeros pass as clean.
 	if e.ClustersTotal == 0 {
-		return []models.Insight{insight("INFO", "Envoy",
+		return []models.Insight{unverifiedInsight("INFO", "Envoy",
 			"Envoy admin stats were read, but no upstream cluster membership data was found — upstream host health could not be verified",
 			[]string{
 				"to inspect: curl -s localhost:9901/stats | grep membership_",

@@ -179,13 +179,16 @@ const (
 	sevCrit    = 3
 )
 
-// statusSeverity maps a status/level token to a rank, used for the pre-flight
-// readiness tally (printMigrationReadiness) — NOT for certify's regression
-// detection, which reuses baseline.DiffEntry's own Changed/Improved fields
-// instead of re-deriving severity from strings (see certifyVerdict). INFO — a
-// collector that couldn't measure something, dsd's "not verified" vocabulary —
-// ranks as unknown, not OK: it must never be conflated with a confirmed-healthy
-// reading.
+// statusSeverity maps a status/level token to a rank. Used by both the
+// pre-flight readiness tally (printMigrationReadiness) and certifyVerdict's
+// regression detection below — the latter re-derives severity from the
+// Before/After strings rather than trusting DiffEntry.Improved directly,
+// since certify compares two DIFFERENT hosts (source vs. destination) and
+// needs its own PASS/WARN/FAIL tiering (sevWarn vs sevCrit), not just a
+// boolean. INFO — a collector that couldn't measure something, dsd's "not
+// verified" vocabulary — ranks as unknown, not OK: it must never be conflated
+// with a confirmed-healthy reading. (baseline.DiffEntry.Unverified now marks
+// this same state structurally for same-host diffing — see ComputeDiff.)
 func statusSeverity(s string) int {
 	switch strings.ToUpper(strings.TrimSpace(s)) {
 	case "CRIT", "CRITICAL", "FAIL":

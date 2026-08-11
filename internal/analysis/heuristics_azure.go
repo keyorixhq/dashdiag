@@ -66,7 +66,7 @@ func azureCachingInsights(a models.AzureInfo) []models.Insight {
 	// fallback, which never mentions caching either way (same false-clean
 	// class as the AWS IMDS/rebalance fix).
 	if !a.DisksChecked {
-		return []models.Insight{insight("INFO", "Azure",
+		return []models.Insight{unverifiedInsight("INFO", "Azure",
 			"could not verify data-disk host-caching configuration — the IMDS storage profile could not be read",
 			[]string{"to inspect: curl -s -H Metadata:true 'http://169.254.169.254/metadata/instance/compute/storageProfile?api-version=2021-02-01'"})}
 	}

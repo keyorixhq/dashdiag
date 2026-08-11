@@ -25,7 +25,7 @@ func checkElasticsearch(e models.ElasticsearchInfo) []models.Insight {
 	}
 
 	if !e.HealthRead {
-		return []models.Insight{insight("INFO", esCatElastic,
+		return []models.Insight{unverifiedInsight("INFO", esCatElastic,
 			name+" is reachable, but cluster health could not be read",
 			[]string{
 				"note: modern Elasticsearch defaults to TLS + auth — pass credentials for the cluster-health check",

@@ -147,7 +147,7 @@ func checkMemory(mem models.MemoryInfo, thresh Thresholds, ctrCtx platform.Conta
 	// idle container) in either direction. Skip rather than guess.
 	ramUnmeasurable := ctrCtx.InContainer && ctrCtx.MemLimitMB > 0 && !mem.CgroupMemMeasured
 	if ramUnmeasurable {
-		out = append(out, insight("INFO", "Memory",
+		out = append(out, unverifiedInsight("INFO", "Memory",
 			"RAM usage check skipped — cgroup memory usage could not be read in this container, so host /proc/meminfo can't be validly scored against the container's memory limit",
 			[]string{"note: needs the memory controller mounted and readable (memory.current on cgroup v2, memory.usage_in_bytes on v1)"}))
 	} else if l := levelPct(mem.UsedPct, thresh.RAMWarnPct, thresh.RAMCritPct); l != "" {
