@@ -26,7 +26,7 @@ func checkHA(d models.HAInfo) []models.Insight {
 			[]string{"to inspect: systemctl status corosync pacemaker", "to start: systemctl start corosync pacemaker"})}
 	}
 	if !d.StatusReadable {
-		return []models.Insight{insight("INFO", haCatHACluster,
+		return []models.Insight{unverifiedInsight("INFO", haCatHACluster,
 			"the cluster is running but its status could not be read — run as root to verify nodes, resources, and fencing",
 			[]string{"to inspect: sudo crm status"})}
 	}

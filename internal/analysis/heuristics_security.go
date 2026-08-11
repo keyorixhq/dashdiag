@@ -72,7 +72,7 @@ func checkSecurityAuditGaps(sec models.SecurityInfo) []models.Insight {
 	var out []models.Insight
 
 	if sec.NeedsRoot {
-		out = append(out, insight("INFO", secCatHardening,
+		out = append(out, unverifiedInsight("INFO", secCatHardening,
 			"some checks limited — run as root for port process names, failed logins, and SELinux audit log",
 			nil,
 		))
@@ -84,7 +84,7 @@ func checkSecurityAuditGaps(sec models.SecurityInfo) []models.Insight {
 	// nothing — a false-OK on a security check. Surface it; INFO doesn't raise the
 	// verdict.
 	if sec.SSHConfigUnreadable && sec.SSHAuditSource == "" {
-		out = append(out, insight("INFO", secCatHardening,
+		out = append(out, unverifiedInsight("INFO", secCatHardening,
 			"SSH config present but not readable — sshd settings (root login, password auth, ciphers) were NOT audited",
 			[]string{secAuditRunAsRoot},
 		))
@@ -93,7 +93,7 @@ func checkSecurityAuditGaps(sec models.SecurityInfo) []models.Insight {
 	// /etc/shadow couldn't be read (non-root), so the empty/never-expiring-password
 	// audits read nothing — an empty-password account would otherwise pass as clean.
 	if sec.ShadowUnreadable {
-		out = append(out, insight("INFO", secCatHardening,
+		out = append(out, unverifiedInsight("INFO", secCatHardening,
 			"/etc/shadow not readable — empty/never-expiring password accounts were NOT audited",
 			[]string{secAuditRunAsRoot},
 		))
@@ -103,14 +103,14 @@ func checkSecurityAuditGaps(sec models.SecurityInfo) []models.Insight {
 	// failed-login/PAM checks below silently see zero, indistinguishable from
 	// a genuinely clean host, unless this is surfaced explicitly.
 	if sec.FailedLoginsUnreadable {
-		out = append(out, insight("INFO", secCatHardening,
+		out = append(out, unverifiedInsight("INFO", secCatHardening,
 			"SSH auth log not readable — failed-login/brute-force attempts were NOT audited",
 			[]string{secAuditRunAsRoot},
 		))
 	}
 
 	if sec.PAMFailuresUnreadable {
-		out = append(out, insight("INFO", secCatHardening,
+		out = append(out, unverifiedInsight("INFO", secCatHardening,
 			"PAM auth log not readable — su/sudo/login/cron authentication failures were NOT audited",
 			[]string{secAuditRunAsRoot},
 		))
@@ -842,7 +842,7 @@ func checkFirewall(f models.FirewallInfo) []models.Insight {
 			)}
 		}
 		if f.StatusReason != "" {
-			return []models.Insight{insight("INFO", secCatFirewall,
+			return []models.Insight{unverifiedInsight("INFO", secCatFirewall,
 				"firewall state not verified — "+f.StatusReason,
 				[]string{"to inspect: nft list ruleset", "to inspect: iptables -L -n   (run as root)"},
 			)}
@@ -912,7 +912,7 @@ func checkAuth(a models.AuthInfo) []models.Insight {
 		if msg == "" {
 			msg = "SSH auth log could not be read — failed-login detection skipped"
 		}
-		return []models.Insight{insight("INFO", secCatAuth, msg,
+		return []models.Insight{unverifiedInsight("INFO", secCatAuth, msg,
 			[]string{"run as root (sudo) to verify SSH authentication failures"})}
 	}
 	if a.FailedLast24h == 0 {
@@ -987,7 +987,7 @@ func checkAuditd(a models.AuditInfo) []models.Insight {
 			}))
 	}
 	if a.AuditLogSizeUnreadable {
-		out = append(out, insight("INFO", secCatAuditd,
+		out = append(out, unverifiedInsight("INFO", secCatAuditd,
 			"audit log size not verified — /var/log/audit/audit.log is unreadable (re-run as root)",
 			[]string{"to inspect: sudo ls -lh /var/log/audit/"}))
 	} else if a.AuditLogSizeGB > 10 {

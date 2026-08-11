@@ -19,7 +19,7 @@ func checkMongoDB(m models.MongoDBInfo) []models.Insight {
 		return nil
 	}
 	if !m.MetricsRead {
-		return []models.Insight{insight("INFO", mongoCat,
+		return []models.Insight{unverifiedInsight("INFO", mongoCat,
 			"MongoDB is reachable, but its status could not be read",
 			[]string{
 				"note: pass credentials if auth is enabled (the mongo shell must be able to run db.serverStatus())",
@@ -34,7 +34,7 @@ func checkMongoDB(m models.MongoDBInfo) []models.Insight {
 	// primary/quorum. Say so honestly instead of firing the no-primary CRIT off an
 	// unset HasPrimary (which would cry wolf on a healthy set).
 	if m.IsReplicaSet && !m.ReplStatusRead {
-		out = append(out, insight("INFO", mongoCat,
+		out = append(out, unverifiedInsight("INFO", mongoCat,
 			fmt.Sprintf("replica set %q detected, but rs.status() could not be read — primary/quorum not verified", m.ReplicaSetName),
 			[]string{
 				"note: rs.status() may need credentials even when db.hello() does not",

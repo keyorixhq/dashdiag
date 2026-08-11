@@ -25,7 +25,7 @@ func checkCloudMeta(c models.CloudInfo) []models.Insight {
 		// Disclose it instead of silently reading as OK (same false-clean bug
 		// class #921 fixed elsewhere; no StatusReason to cite — the collector
 		// exhausts all four providers with no per-provider failure recorded).
-		return []models.Insight{insight("INFO", cloudCatMeta,
+		return []models.Insight{unverifiedInsight("INFO", cloudCatMeta,
 			"cloud instance detected but its metadata could not be read from any provider's IMDS endpoint",
 			[]string{"to inspect: curl -s -H 'Metadata-Flavor: Google' http://metadata.google.internal/computeMetadata/v1/instance/id"},
 		)}
@@ -41,7 +41,7 @@ func checkCloudMeta(c models.CloudInfo) []models.Insight {
 	} else if c.SpotCheckFailed {
 		// The termination probe hit an IMDS error, so we can't confirm there's no
 		// pending reclaim — surface it rather than imply "no termination scheduled".
-		out = append(out, insight("INFO", cloudCatMeta,
+		out = append(out, unverifiedInsight("INFO", cloudCatMeta,
 			fmt.Sprintf("%s spot-termination check could not be confirmed — IMDS error on the termination probe", c.Provider),
 			[]string{"to inspect: curl -s http://169.254.169.254/latest/meta-data/spot/termination-time"}))
 	}
@@ -63,7 +63,7 @@ func checkCloudInit(c models.CloudInitInfo) []models.Insight {
 	// cloud-init is present (status.json exists) but its status could not be read —
 	// don't pass an instance with an unknown provisioning state as a silent OK.
 	if c.StatusUnverified {
-		return []models.Insight{insight("INFO", cloudCatInit,
+		return []models.Insight{unverifiedInsight("INFO", cloudCatInit,
 			"cloud-init present but its status could NOT be read — provisioning state unverified",
 			[]string{
 				cloudInspectInitLong,

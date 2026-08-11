@@ -53,7 +53,7 @@ func gcpMaintenanceInsights(g models.GCPInfo) []models.Insight {
 	// AWS IMDS/rebalance and Azure caching fixes — disclose it rather than
 	// silently drop the host-maintenance-policy check off a clean run.
 	if !g.MaintenanceChecked {
-		return []models.Insight{insight("INFO", "GCP",
+		return []models.Insight{unverifiedInsight("INFO", "GCP",
 			"could not verify host-maintenance policy — the instance metadata query failed or was unreachable",
 			[]string{"to inspect: curl -H 'Metadata-Flavor: Google' http://metadata.google.internal/computeMetadata/v1/instance/scheduling/on-host-maintenance"})}
 	}

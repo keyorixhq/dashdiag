@@ -23,10 +23,15 @@ type Snapshot struct {
 }
 
 type CheckResult struct {
-	Name   string `json:"name"`
-	Status string `json:"status"`
-	Value  string `json:"value"`
-	Raw    any    `json:"raw,omitempty"`
+	Name string `json:"name"`
+	// Status/Value are copied from the worst-ranked matching insight (see
+	// BuildSnapshot). Unverified mirrors that insight's Unverified flag: the
+	// data behind Status could not be read/measured this run, so Status is a
+	// downgrade rather than a confirmed finding — see models.Insight.Unverified.
+	Status     string `json:"status"`
+	Value      string `json:"value"`
+	Unverified bool   `json:"unverified,omitempty"`
+	Raw        any    `json:"raw,omitempty"`
 }
 
 type DiffEntry struct {
@@ -36,6 +41,14 @@ type DiffEntry struct {
 	StatusChange string
 	Changed      bool
 	Improved     bool
+	// Unverified is true when either side of this diff came from an
+	// Unverified CheckResult — the data behind that side's status was never
+	// actually read/measured this run. Improved is always forced false in
+	// that case (see ComputeDiff): a prior CRIT that now reads as an
+	// unverified INFO has not been resolved, and a prior unverified INFO that
+	// now reads OK is newly-confirmed information, not a verified improvement
+	// over a known-bad state.
+	Unverified bool
 }
 
 // writeAndCloseFn writes data to f and closes it, returning any error from
@@ -215,6 +228,7 @@ func BuildSnapshot(results []runner.Result, insights []models.Insight) *Snapshot
 				worstRank = rank
 				cr.Status = ins.Level
 				cr.Value = ins.Message
+				cr.Unverified = ins.Unverified
 			}
 		}
 		// Mirror live health (render.shouldHideRow): a collector that reports
@@ -265,6 +279,7 @@ func ComputeDiff(before, after *Snapshot) []DiffEntry {
 			// added coverage, not a status change — flagging it as "->OK degraded"
 			// (the old zero-value bug) was wrong.
 			d.StatusChange = "new->" + ac.Status
+			d.Unverified = ac.Unverified
 			if statusRank(ac.Status) > 0 {
 				d.Changed = true
 				degraded = append(degraded, d)
@@ -274,7 +289,21 @@ func ComputeDiff(before, after *Snapshot) []DiffEntry {
 		default:
 			d.StatusChange = bc.Status + "->" + ac.Status
 			d.Changed = bc.Status != ac.Status
-			d.Improved = statusRank(ac.Status) < statusRank(bc.Status)
+			d.Unverified = bc.Unverified || ac.Unverified
+			// A transition into or out of an unverified reading is never a
+			// verified improvement: a prior CRIT that now reads as an
+			// unverified INFO (e.g. re-run non-root) has not been resolved,
+			// it simply couldn't be checked, and a prior unverified INFO that
+			// now reads OK is newly-confirmed information, not a recovery
+			// from a known-bad state. Route it through "degraded" (if
+			// Changed) rather than silently improved/unchanged, matching
+			// cmd/migrate.go's certifyVerdict philosophy: an unknown must
+			// never render as a green pass.
+			if d.Unverified {
+				d.Improved = false
+			} else {
+				d.Improved = statusRank(ac.Status) < statusRank(bc.Status)
+			}
 			switch {
 			case d.Changed && !d.Improved:
 				degraded = append(degraded, d)
@@ -300,6 +329,7 @@ func ComputeDiff(before, after *Snapshot) []DiffEntry {
 			After:        "absent",
 			StatusChange: bc.Status + "->absent",
 			Changed:      true,
+			Unverified:   bc.Unverified,
 		})
 	}
 

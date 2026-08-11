@@ -174,7 +174,7 @@ func printCISReport(report models.CISReport, failOnly, stig bool, mode output.Ou
 			currentSection = r.Section
 			fmt.Printf("  ── %s\n", strings.ToUpper(currentSection))
 		}
-		icon := cisIcon(r.Status, mode)
+		icon := cisIcon(r, mode)
 		idPad := fmt.Sprintf("%-8s", r.ID)
 		fmt.Printf("  %s %s%s%s  %s\n",
 			icon, colourFor(r.Status, colour), idPad, resetColour(colour), r.Description)
@@ -189,6 +189,17 @@ func printCISReport(report models.CISReport, failOnly, stig bool, mode output.Ou
 		}
 		if r.Status == models.CISManual && r.Finding != "" {
 			fmt.Printf("           %scheck:  %s %s\n", dim(colour), resetColour(colour), r.Finding)
+		}
+		// Every skip's reason was recorded (skipr/unverifiedr always set
+		// Finding) but never shown here — a false-clean-adjacent bug in its
+		// own right: "sshd_config unreadable, run as root" rendered
+		// identically to "rsync not installed", indistinguishable either way.
+		if r.Status == models.CISSkipped && r.Finding != "" {
+			label := "skip:  "
+			if r.Unverified {
+				label = "unverified:"
+			}
+			fmt.Printf("           %s%s%s %s\n", dim(colour), label, resetColour(colour), r.Finding)
 		}
 	}
 
@@ -205,7 +216,13 @@ func printCISReport(report models.CISReport, failOnly, stig bool, mode output.Ou
 		fmt.Printf("  %d manual", report.Manual)
 	}
 	if report.Skipped > 0 {
-		fmt.Printf("  %d skipped", report.Skipped)
+		skipped := report.Skipped - report.Unverified
+		if skipped > 0 {
+			fmt.Printf("  %d skipped", skipped)
+		}
+		if report.Unverified > 0 {
+			fmt.Printf("  %s%d unverified%s", yellow(colour), report.Unverified, resetColour(colour))
+		}
 	}
 	fmt.Println()
 	if report.Fail > 0 {
@@ -237,6 +254,8 @@ func nis2StatusColour(status string, colour bool) string {
 		return red(colour)
 	case "PARTIAL":
 		return colourFor(models.CISFail, colour)
+	case "UNVERIFIED":
+		return yellow(colour)
 	case "PASS":
 		return green(colour)
 	default:
@@ -252,6 +271,11 @@ func nis2Icon(status string, mode output.OutputMode) string {
 		return asciiOr("fail", "❌  ", mode)
 	case "PARTIAL":
 		return asciiOr("warn", "⚠️  ", mode)
+	case "UNVERIFIED":
+		// Deliberately NOT the pass icon: this article had a pass, but some
+		// sibling rules could not be checked at all — a plain ✅ here would be
+		// exactly the false-clean verdict this status exists to prevent.
+		return asciiOr("unverified", "❓  ", mode)
 	case "SKIP":
 		return asciiOr("skip", "⏭️  ", mode)
 	default:
@@ -274,7 +298,7 @@ func printNIS2Article(g cis.NIS2ArticleGroup, failOnly, colour bool, mode output
 		if failOnly && r.Status != models.CISFail {
 			continue
 		}
-		ruleIcon := cisIcon(r.Status, mode)
+		ruleIcon := cisIcon(r, mode)
 		idPad := fmt.Sprintf("%-8s", r.ID)
 		fmt.Printf("         %s %s%s%s  %s\n",
 			ruleIcon, colourFor(r.Status, colour), idPad, resetColour(colour), r.Description)
@@ -285,6 +309,13 @@ func printNIS2Article(g cis.NIS2ArticleGroup, failOnly, colour bool, mode output
 			if r.Remediation != "" {
 				fmt.Printf("                    %sto fix: %s %s\n", dim(colour), resetColour(colour), r.Remediation)
 			}
+		}
+		if r.Status == models.CISSkipped && r.Finding != "" {
+			label := "skip:  "
+			if r.Unverified {
+				label = "unverified:"
+			}
+			fmt.Printf("                    %s%s%s %s\n", dim(colour), label, resetColour(colour), r.Finding)
 		}
 	}
 	printNIS2Summary(g, colour)
@@ -302,8 +333,11 @@ func printNIS2Summary(g cis.NIS2ArticleGroup, colour bool) {
 	if g.Manual > 0 {
 		parts = append(parts, fmt.Sprintf("%d manual", g.Manual))
 	}
-	if g.Skipped > 0 {
-		parts = append(parts, fmt.Sprintf("%s%d skipped%s", dim(colour), g.Skipped, resetColour(colour)))
+	if skipped := g.Skipped - g.Unverified; skipped > 0 {
+		parts = append(parts, fmt.Sprintf("%s%d skipped%s", dim(colour), skipped, resetColour(colour)))
+	}
+	if g.Unverified > 0 {
+		parts = append(parts, fmt.Sprintf("%s%d unverified%s", yellow(colour), g.Unverified, resetColour(colour)))
 	}
 	if len(parts) > 0 {
 		fmt.Printf("         %d controls: %s\n",
@@ -336,6 +370,8 @@ func bsiStatusColour(status string, colour bool) string {
 		return red(colour)
 	case "PARTIAL":
 		return colourFor(models.CISFail, colour)
+	case "UNVERIFIED":
+		return yellow(colour)
 	case "PASS":
 		return green(colour)
 	default:
@@ -351,6 +387,9 @@ func bsiIcon(status string, mode output.OutputMode) string {
 		return asciiOr("fail", "❌  ", mode)
 	case "PARTIAL":
 		return asciiOr("warn", "⚠️  ", mode)
+	case "UNVERIFIED":
+		// Deliberately NOT the pass icon — see nis2Icon's comment, same reasoning.
+		return asciiOr("unverified", "❓  ", mode)
 	case "SKIP":
 		return asciiOr("skip", "⏭️  ", mode)
 	default:
@@ -374,7 +413,7 @@ func printBSIReq(g cis.BSIReqGroup, failOnly, colour bool, mode output.OutputMod
 		if failOnly && r.Status != models.CISFail {
 			continue
 		}
-		ruleIcon := cisIcon(r.Status, mode)
+		ruleIcon := cisIcon(r, mode)
 		idPad := fmt.Sprintf("%-8s", r.ID)
 		fmt.Printf("         %s %s%s%s  %s\n",
 			ruleIcon, colourFor(r.Status, colour), idPad, resetColour(colour), r.Description)
@@ -385,6 +424,13 @@ func printBSIReq(g cis.BSIReqGroup, failOnly, colour bool, mode output.OutputMod
 			if r.Remediation != "" {
 				fmt.Printf("                    %sto fix: %s %s\n", dim(colour), resetColour(colour), r.Remediation)
 			}
+		}
+		if r.Status == models.CISSkipped && r.Finding != "" {
+			label := "skip:  "
+			if r.Unverified {
+				label = "unverified:"
+			}
+			fmt.Printf("                    %s%s%s %s\n", dim(colour), label, resetColour(colour), r.Finding)
 		}
 	}
 	printBSISummary(g, colour)
@@ -402,8 +448,11 @@ func printBSISummary(g cis.BSIReqGroup, colour bool) {
 	if g.Manual > 0 {
 		parts = append(parts, fmt.Sprintf("%d manual", g.Manual))
 	}
-	if g.Skipped > 0 {
-		parts = append(parts, fmt.Sprintf("%s%d skipped%s", dim(colour), g.Skipped, resetColour(colour)))
+	if skipped := g.Skipped - g.Unverified; skipped > 0 {
+		parts = append(parts, fmt.Sprintf("%s%d skipped%s", dim(colour), skipped, resetColour(colour)))
+	}
+	if g.Unverified > 0 {
+		parts = append(parts, fmt.Sprintf("%s%d unverified%s", yellow(colour), g.Unverified, resetColour(colour)))
 	}
 	if len(parts) > 0 {
 		fmt.Printf("         %d controls: %s\n",
@@ -411,8 +460,12 @@ func printBSISummary(g cis.BSIReqGroup, colour bool) {
 	}
 }
 
-func cisIcon(s models.CISStatus, mode output.OutputMode) string {
-	switch s {
+// cisIcon takes the whole result, not just its Status, because CISSkipped
+// alone doesn't distinguish "confirmed not applicable" from "could not be
+// verified" (CISResult.Unverified) — the two need visibly different icons,
+// not the same ⏭️ for both.
+func cisIcon(r models.CISResult, mode output.OutputMode) string {
+	switch r.Status {
 	case models.CISPass:
 		return asciiOr("ok", "✅", mode)
 	case models.CISFail:
@@ -420,6 +473,9 @@ func cisIcon(s models.CISStatus, mode output.OutputMode) string {
 	case models.CISManual:
 		return asciiOr("info", "ℹ️ ", mode)
 	case models.CISSkipped:
+		if r.Unverified {
+			return asciiOr("unverified", "❓ ", mode)
+		}
 		return asciiOr("skip", "⏭️ ", mode)
 	default:
 		return asciiOr("unknown", "— ", mode)
@@ -459,6 +515,12 @@ func red(on bool) string {
 		return ""
 	}
 	return "\033[31m"
+}
+func yellow(on bool) string {
+	if !on {
+		return ""
+	}
+	return "\033[33m"
 }
 func dim(on bool) string {
 	if !on {

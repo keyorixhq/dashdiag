@@ -76,7 +76,7 @@ func checkKernelPatch(d models.KernelPatchInfo) []models.Insight {
 	// collector contends for it under root), so reboot status is genuinely unknown.
 	// Surface it honestly (INFO) rather than dropping the row or implying "Kernel OK".
 	if d.CheckUnverified {
-		return []models.Insight{insight("INFO", "Kernel",
+		return []models.Insight{unverifiedInsight("INFO", "Kernel",
 			"kernel reboot-needed status could not be determined — the package manager (zypp) was locked by another process",
 			[]string{"to inspect: zypper needs-rebooting   (re-run when no other zypper/PackageKit process holds the lock)"})}
 	}
@@ -104,7 +104,7 @@ func checkKsplice(d models.KspliceInfo) []models.Insight {
 		return nil
 	}
 	if d.CheckUnverified {
-		return []models.Insight{insight("INFO", "Ksplice",
+		return []models.Insight{unverifiedInsight("INFO", "Ksplice",
 			"Ksplice is installed but its update status could not be read",
 			[]string{"to inspect: uptrack-show   (or: uptrack-upgrade -n)"})}
 	}
@@ -145,7 +145,7 @@ func checkServiceRestart(d models.ServiceRestartInfo) []models.Insight {
 		return []models.Insight{insight("WARN", "ServiceRestart", msg, hints)}
 	}
 	if d.NeedsRoot {
-		return []models.Insight{insight("INFO", "ServiceRestart",
+		return []models.Insight{unverifiedInsight("INFO", "ServiceRestart",
 			"stale-library scan was partial — run as root to check every process for libraries updated underneath it",
 			[]string{"to fix: re-run as root (sudo dsd health)"})}
 	}
@@ -221,7 +221,7 @@ func checkLivePatch(d models.LivePatchInfo) []models.Insight {
 	// surface as INFO so the operator re-runs as root, NOT a WARN — we never measured
 	// these, and asserting they're disabled would be a non-root false-alarm.
 	if len(d.UnverifiedPatches) > 0 {
-		out = append(out, insight("INFO", "LivePatch",
+		out = append(out, unverifiedInsight("INFO", "LivePatch",
 			fmt.Sprintf("%d kernel livepatch(es) loaded but their enabled-state could not be read (%s) — re-run as root to confirm they are active",
 				len(d.UnverifiedPatches), strings.Join(firstN(d.UnverifiedPatches, 3), ", ")),
 			[]string{"to inspect: sudo cat /sys/kernel/livepatch/*/enabled"}))
@@ -253,7 +253,7 @@ func checkTransactional(d models.TransactionalInfo) []models.Insight {
 		// BootedSnapshot and/or DefaultSnapshot couldn't be read (commonly
 		// `btrfs subvolume get-default` needing CAP_SYS_ADMIN under non-root)
 		// — RebootPending's false zero value must not read as a clean host.
-		return []models.Insight{insight("INFO", "Transactional",
+		return []models.Insight{unverifiedInsight("INFO", "Transactional",
 			"could not verify whether a transactional update is staged — the booted/default btrfs snapshot could not be read",
 			[]string{"to verify: sudo btrfs subvolume get-default /   (or run dsd as root)"})}
 	}

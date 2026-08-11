@@ -17,7 +17,7 @@ func checkGrafana(g models.GrafanaInfo) []models.Insight {
 	}
 
 	if !g.HealthRead {
-		return []models.Insight{insight("INFO", "Grafana",
+		return []models.Insight{unverifiedInsight("INFO", "Grafana",
 			"Grafana is up, but its health endpoint could not be read",
 			[]string{
 				"note: /api/health should be reachable without auth (a reverse proxy may block it)",

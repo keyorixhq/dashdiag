@@ -59,7 +59,7 @@ func checkVMware(v models.VMwareInfo) []models.Insight {
 	// read nothing. Don't let the all-clean INFO below imply ballooning/host-swap/
 	// host caps were verified — surface that they could NOT be checked.
 	if v.ToolsRunning && !v.StatAvailable {
-		out = append(out, insight("INFO", catVMware,
+		out = append(out, unverifiedInsight("INFO", catVMware,
 			"VMware resource-pressure stats unavailable (vmware-toolbox-cmd stat failed) — ballooning / host-swap / host caps NOT verified",
 			[]string{
 				"to inspect: vmware-toolbox-cmd stat balloon",
@@ -136,7 +136,7 @@ func vmwareMemLimitInsight(v models.VMwareInfo) models.Insight {
 				"note: a memory limit below the configured RAM is a common, invisible cause of guest paging — remove it in vSphere unless intentional",
 			})
 	default: // RAM unknown — can't tell whether the limit bites
-		return insight("WARN", catVMware,
+		return unverifiedInsight("WARN", catVMware,
 			fmt.Sprintf("a host memory limit of %d MB is configured on this VM; this VM's RAM could not be read, so whether the limit is currently binding could not be determined", v.MemLimitMB),
 			[]string{
 				"to inspect: vmware-toolbox-cmd stat memlimit; cat /proc/meminfo",
@@ -169,7 +169,7 @@ func vmwareCPULimitInsight(v models.VMwareInfo) models.Insight {
 				"note: a CPU limit below capacity is an invisible cause of guest slowness — remove it in vSphere unless intentional",
 			})
 	default: // capacity unknown — can't tell whether the limit throttles
-		return insight("WARN", catVMware,
+		return unverifiedInsight("WARN", catVMware,
 			fmt.Sprintf("a host CPU limit of %d MHz is configured on this VM; its per-vCPU host clock is unknown (vmware-toolbox-cmd stat speed unavailable), so whether it currently throttles the guest could not be determined", v.CPULimitMHz),
 			[]string{
 				"to size it: vmware-toolbox-cmd stat speed   (per-vCPU MHz; capacity = vCPUs × this)",

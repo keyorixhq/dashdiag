@@ -41,7 +41,7 @@ func checkPostgres(pg models.PostgresInfo) []models.Insight {
 	}
 
 	if !pg.MetricsRead {
-		return []models.Insight{insight("INFO", dbCatPostgres,
+		return []models.Insight{unverifiedInsight("INFO", dbCatPostgres,
 			"PostgreSQL is up and accepting connections; connection/replication metrics were not read",
 			[]string{
 				"note: run dsd as root or the postgres user for connection-saturation and replica-lag checks",
@@ -109,7 +109,7 @@ func checkMySQL(my models.MySQLInfo) []models.Insight {
 		name = dbCatMySQL
 	}
 	if !my.MetricsRead {
-		return []models.Insight{insight("INFO", dbCatMySQL,
+		return []models.Insight{unverifiedInsight("INFO", dbCatMySQL,
 			fmt.Sprintf("%s is reachable; connection/replication metrics were not read", name),
 			[]string{
 				"note: run dsd as root (root@localhost socket auth) for connection-saturation and replica-lag checks",
@@ -144,7 +144,7 @@ func checkMySQL(my models.MySQLInfo) []models.Insight {
 		// max_connections / Threads_connected come from separate queries that can
 		// fail after VERSION() succeeded; without both the saturation check can't
 		// run. Surface that rather than let an unread dimension pass as clean.
-		out = append(out, insight("INFO", dbCatMySQL,
+		out = append(out, unverifiedInsight("INFO", dbCatMySQL,
 			fmt.Sprintf("%s metrics were read, but the connection counters were not — connection-saturation was not assessed", name),
 			[]string{"to inspect: mysqladmin --socket=" + my.SocketPath + " status"}))
 	}
@@ -183,7 +183,7 @@ func checkRedis(r models.RedisInfo) []models.Insight {
 		return nil
 	}
 	if !r.MetricsRead {
-		return []models.Insight{insight("INFO", dbCatRedis,
+		return []models.Insight{unverifiedInsight("INFO", dbCatRedis,
 			"Redis is reachable (answered PING); memory/replication metrics were not read",
 			[]string{
 				"note: install redis-cli (or pass auth) for memory-pressure and replica checks",
@@ -227,7 +227,7 @@ func checkRedis(r models.RedisInfo) []models.Insight {
 		// maxclients comes from a separate CONFIG GET that can fail after INFO
 		// succeeded; without it the saturation check above can't run. Don't let an
 		// unread limit pass as clean.
-		out = append(out, insight("INFO", dbCatRedis,
+		out = append(out, unverifiedInsight("INFO", dbCatRedis,
 			"Redis metrics were read, but maxclients could not be — client-saturation was not assessed",
 			[]string{dbInspectRedisPrefix + r.Addr + " CONFIG GET maxclients"}))
 	}
@@ -262,7 +262,7 @@ func checkMemcached(m models.MemcachedInfo) []models.Insight {
 		return nil
 	}
 	if !m.MetricsRead {
-		return []models.Insight{insight("INFO", "Memcached",
+		return []models.Insight{unverifiedInsight("INFO", "Memcached",
 			"memcached is reachable; its stats could not be read",
 			[]string{dbInspectMemcachedPfx + m.Addr},
 		)}

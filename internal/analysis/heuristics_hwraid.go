@@ -23,12 +23,12 @@ func checkHWRaid(d models.HWRaidInfo) []models.Insight {
 		return nil
 	}
 	if d.NeedsRoot {
-		return []models.Insight{insight("INFO", hwRaidCat,
+		return []models.Insight{unverifiedInsight("INFO", hwRaidCat,
 			"hardware RAID controller detected but its status is root-only — re-run as root to verify the array is healthy",
 			[]string{"to inspect: sudo " + hwRaidInspectHint(d.Tool)})}
 	}
 	if d.ReadFailed {
-		return []models.Insight{insight("INFO", hwRaidCat,
+		return []models.Insight{unverifiedInsight("INFO", hwRaidCat,
 			"hardware RAID controller detected but its status output could not be parsed — treat as UNVERIFIED, not healthy",
 			[]string{hwRaidInspectPfx + hwRaidInspectHint(d.Tool)})}
 	}

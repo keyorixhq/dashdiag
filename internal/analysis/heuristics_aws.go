@@ -92,11 +92,11 @@ func awsEBSInsights(a models.AWSInfo) []models.Insight {
 	// vendor log page couldn't be read (false-OK rule — non-root must say so).
 	switch {
 	case a.EBSNeedsRoot:
-		out = append(out, insight("INFO", "AWS",
+		out = append(out, unverifiedInsight("INFO", "AWS",
 			"EBS performance stats need root — run dsd as root to check whether EBS IOPS/throughput is being throttled",
 			[]string{"note: the EBS NVMe vendor log page (0xD0) is root-only"}))
 	case a.EBSReadFailed:
-		out = append(out, insight("INFO", "AWS",
+		out = append(out, unverifiedInsight("INFO", "AWS",
 			"could not read EBS performance stats (nvme get-log on an EBS device failed or returned no EBS data) — EBS throttling NOT verified",
 			[]string{"to inspect: nvme get-log /dev/nvme0n1 --log-id=0xd0 --log-len=4096 --raw-binary | xxd | head"}))
 	}
@@ -167,7 +167,7 @@ func awsIMDSInsights(a models.AWSInfo) []models.Insight {
 	// check off a clean run — same false-clean class as the EBS EBSNeedsRoot/
 	// EBSReadFailed disclosures just above.
 	if !a.IMDSChecked {
-		return []models.Insight{insight("INFO", "AWS",
+		return []models.Insight{unverifiedInsight("INFO", "AWS",
 			"could not verify IMDS posture — the metadata service token request failed or was unreachable",
 			[]string{"to inspect: curl -s -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 21600' http://169.254.169.254/latest/api/token"})}
 	}
@@ -183,7 +183,7 @@ func awsRebalanceInsights(a models.AWSInfo) []models.Insight {
 	// Same reasoning as awsIMDSInsights above: RebalanceChecked=false on a
 	// DMI-confirmed EC2 host means the probe failed, not "no recommendation".
 	if !a.RebalanceChecked {
-		return []models.Insight{insight("INFO", "AWS",
+		return []models.Insight{unverifiedInsight("INFO", "AWS",
 			"could not verify EC2 rebalance-recommendation status — the metadata probe failed or was unreachable",
 			[]string{"to inspect: curl -s http://169.254.169.254/latest/meta-data/events/recommendations/rebalance"})}
 	}

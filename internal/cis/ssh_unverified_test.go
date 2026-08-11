@@ -28,8 +28,16 @@ func TestEvaluateSSHUnverifiedSkipped(t *testing.T) {
 	unver := models.SecurityInfo{SSHConfigUnreadable: true, SSHAuditSource: ""}
 	repUnver := Evaluate(unver, ks, 1, false, "apt")
 	for _, id := range []string{"5.2.6", "5.2.7", "5.2.17"} {
-		if r, ok := find(repUnver, id); !ok || r.Status != models.CISSkipped {
+		r, ok := find(repUnver, id)
+		if !ok || r.Status != models.CISSkipped {
 			t.Errorf("%s with unverified SSH config: status=%v ok=%v, want Skipped", id, r.Status, ok)
+		}
+		// Not just Skipped — Unverified too, so the NIS2/BSI rollups and the
+		// human renderer can tell this apart from a genuine "not applicable"
+		// skip (e.g. "no MTA installed"). Regression for the false-clean bug
+		// found via TestAllChecksRegistered-adjacent CIS package review.
+		if !r.Unverified {
+			t.Errorf("%s with unverified SSH config: Unverified=false, want true (must not read as a confirmed-absent skip)", id)
 		}
 	}
 	// Verified via sshd -T: the same rules evaluate normally, not skipped.

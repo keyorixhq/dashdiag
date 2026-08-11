@@ -82,9 +82,19 @@ func PrintDiff(w io.Writer, before, after *baseline.Snapshot, mode output.Output
 		for _, e := range changed {
 			name := fmt.Sprintf("  %-12s", e.Name)
 			diff := fmt.Sprintf("%s → %s", e.Before, e.After)
+			if e.Unverified {
+				// Never OK-green and never the plain after-level color here:
+				// this side of the transition wasn't actually verified this
+				// run (see baseline.ComputeDiff), so the honest signal is
+				// "unknown", not a status this run confirmed.
+				diff += " (unverified — not confirmed this run)"
+			}
 			if mode == output.ModeHuman {
 				level := afterLevel(e.StatusChange)
-				if e.Improved {
+				switch {
+				case e.Unverified:
+					level = "INFO"
+				case e.Improved:
 					level = "OK"
 				}
 				fmt.Fprintf(w, "%s %s\n", name, styleForStatus(level).Render(diff))

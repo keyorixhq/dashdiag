@@ -19,7 +19,7 @@ func checkPrometheus(p models.PrometheusInfo) []models.Insight {
 	}
 
 	if !p.MetricsRead {
-		return []models.Insight{insight("INFO", catPrometheus,
+		return []models.Insight{unverifiedInsight("INFO", catPrometheus,
 			"Prometheus is up, but its API could not be read",
 			[]string{
 				"note: the targets API must be reachable (a reverse proxy or auth may block it)",

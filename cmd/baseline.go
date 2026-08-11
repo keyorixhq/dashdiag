@@ -127,7 +127,13 @@ func runBaselineDiff(_ *cobra.Command, args []string) error {
 		}
 		changed++
 		arrow := "↓"
-		if d.Improved {
+		switch {
+		case d.Unverified:
+			// Neither a confirmed improvement nor a confirmed regression —
+			// one side of this transition was never actually verified this
+			// run (see baseline.ComputeDiff's Unverified handling).
+			arrow = "?"
+		case d.Improved:
 			arrow = "↑"
 		}
 		fmt.Printf("  %s  %-16s  %s → %s\n", arrow, d.Name, d.Before, d.After)

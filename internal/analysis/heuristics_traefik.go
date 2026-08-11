@@ -17,7 +17,7 @@ func checkTraefik(t models.TraefikInfo) []models.Insight {
 	}
 
 	if !t.APIRead {
-		return []models.Insight{insight("INFO", "Traefik",
+		return []models.Insight{unverifiedInsight("INFO", "Traefik",
 			"Traefik is up, but its API could not be read",
 			[]string{
 				"note: enable the API (api.insecure on :8080, or a secured api endpoint) to surface router health",
