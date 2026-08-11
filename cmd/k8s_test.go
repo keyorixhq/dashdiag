@@ -14,7 +14,18 @@ import (
 // forwarding disabled, checked and confirmed off) must render CRIT via the
 // shared analysis.CheckK8sOSLayer heuristic, not a hand-duplicated condition.
 func TestPrintK8sOSLayer(t *testing.T) {
-	clean := captureStdout(t, func() { printK8sOSLayer(models.K8sOSLayer{}, output.ModePlain) })
+	// KubeForwardChecked/CNIChecked must be true (and their paired OK/Chain
+	// fields true too, or the check itself fires a real CRIT/WARN) here to
+	// represent a genuinely clean, fully-verified node — since
+	// analysis.checkK8sOSLayerCoverageGaps discloses via INFO whenever either
+	// Checked field is false (its zero value), an empty struct is
+	// "unverified", not "clean".
+	clean := captureStdout(t, func() {
+		printK8sOSLayer(models.K8sOSLayer{
+			KubeForwardChecked: true, KubeForwardChain: true,
+			CNIChecked: true, CNIBinsOK: true,
+		}, output.ModePlain)
+	})
 	if !strings.Contains(clean, "No OS-layer issues") {
 		t.Errorf("a clean OS layer should say so, got:\n%s", clean)
 	}
@@ -34,12 +45,16 @@ func TestPrintK8sOSLayer(t *testing.T) {
 		t.Errorf("firewalld without masquerade should render WARN, got:\n%s", warnOut)
 	}
 
-	// INFO (default) branch: OS-layer checks limited by running non-root.
+	// INFO (default) branch: OS-layer checks limited — KubeForwardChecked/
+	// CNIChecked false (needs root, or the relevant tool isn't on PATH; see
+	// analysis.checkK8sOSLayerCoverageGaps). Zero-value K8sOSLayer{} already
+	// covers this (both default false), same as the "clean" case above but
+	// without setting either Checked field true.
 	infoOut := captureStdout(t, func() {
-		printK8sOSLayer(models.K8sOSLayer{OSLayerNeedsRoot: true}, output.ModePlain)
+		printK8sOSLayer(models.K8sOSLayer{}, output.ModePlain)
 	})
-	if !strings.Contains(infoOut, "INFO") || !strings.Contains(infoOut, "run as root") {
-		t.Errorf("a root-limited check should render INFO, got:\n%s", infoOut)
+	if !strings.Contains(infoOut, "INFO") || !strings.Contains(infoOut, "checks limited") {
+		t.Errorf("an unverified OS layer should render INFO, got:\n%s", infoOut)
 	}
 }
 

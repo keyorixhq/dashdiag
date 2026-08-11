@@ -57,6 +57,11 @@ type TransactionalInfo struct {
 	RebootPending   bool `json:"reboot_pending"` // default snapshot != booted snapshot
 	BootedSnapshot  int  `json:"booted_snapshot,omitempty"`
 	DefaultSnapshot int  `json:"default_snapshot,omitempty"`
+	// Unverified is true when BootedSnapshot and/or DefaultSnapshot could not be
+	// read (non-root btrfs, or the CLI call failed) — RebootPending stays false
+	// in that case too, so without this field a failed read was indistinguishable
+	// from a genuinely clean "no reboot pending" host.
+	Unverified bool `json:"unverified,omitempty"`
 }
 
 // LivePatchInfo reports kernel live-patching state from the generic livepatch sysfs

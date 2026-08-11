@@ -633,19 +633,29 @@ func checkK8s(k models.K8sInfo) []models.Insight {
 	// Surface it as INFO ("health not verified"), not a silent green OK. INFO does
 	// not raise the verdict (a kubectl-on-a-workstation pointing at a remote
 	// cluster shouldn't WARN).
+	//
+	// This used to return here, which also skipped CheckK8sOSLayer below —
+	// OSLayer facts (kubelet/containerd/cert/ip_forward/CNI: systemd, sysfs,
+	// iptables) do NOT depend on the API being reachable at all. On a k3s node
+	// with the k3s service itself down (API unreachable AND kubelet down),
+	// `dsd health --deep` reported nothing for the OS layer while `dsd k8s
+	// --deep` (cmd/k8s.go's k8sOSLayerInsights, which calls CheckK8sOSLayer
+	// independently) reported the real kubelet/cert/CNI CRITs for the
+	// identical host — the cmd<->health tally-drift class (#275) this
+	// architecture exists to prevent, defeated by this one early return.
 	if !k.APIReachable {
-		return []models.Insight{insight("INFO", virtCatK8s,
+		out = append(out, insight("INFO", virtCatK8s,
 			"kubectl/k3s present but the cluster API was unreachable — cluster health NOT verified",
 			[]string{
 				"to inspect: kubectl get nodes",
 				"check: API server up? kubeconfig valid (KUBECONFIG / ~/.kube/config)? RBAC sufficient?",
 			},
-		)}
+		))
+	} else {
+		out = append(out, checkK8sNodes(k)...)
+		out = append(out, checkK8sPodHealth(k)...)
+		out = append(out, checkK8sWorkloadsAndEvents(k)...)
 	}
-
-	out = append(out, checkK8sNodes(k)...)
-	out = append(out, checkK8sPodHealth(k)...)
-	out = append(out, checkK8sWorkloadsAndEvents(k)...)
 
 	if k.OSLayer != nil {
 		out = append(out, CheckK8sOSLayer(*k.OSLayer)...)
@@ -1058,14 +1068,26 @@ func checkK8sServicesChain(l models.K8sOSLayer) []models.Insight {
 func checkK8sOSLayerCoverageGaps(l models.K8sOSLayer) []models.Insight {
 	var out []models.Insight
 
-	// OSLayerNeedsRoot: iptables-save/ipvsadm/nft (KUBE-FORWARD, KUBE-SERVICES) and
-	// /etc/cni/net.d, /opt/cni/bin (CNI config) are commonly root-only reads. A
-	// non-root run degrades those checks to "not applicable" with no other signal,
-	// which looks identical to a genuinely clean/not-configured node — surface it
-	// once, rather than per-field, to avoid repeating the same root hint per check.
-	if l.OSLayerNeedsRoot {
+	// KubeForwardChecked/CNIChecked go false whenever the relevant tool couldn't
+	// be run or read — non-root is one cause, but not the only one: k3s keeps
+	// its bundled iptables off the host PATH, so detectKubeForward
+	// (collectors/k8s.go) fails identically as root or non-root. The old
+	// disclosure gated on OSLayerNeedsRoot (a bare uid==0 proxy) instead of
+	// these actual signals: a ROOT run on a tool-missing node got ZERO
+	// disclosure, and — the opposite failure — a non-root run where both tools
+	// happened to still succeed (nft and /opt/cni/bin are sometimes readable
+	// without root) got a disclosure for nothing that was actually limited.
+	// Check the real signals instead of the uid proxy.
+	//
+	// KubeServicesChecked is deliberately NOT included here: unlike the other
+	// two, its collector (detectKubeServices) also returns checked=false for a
+	// genuinely-not-applicable state (no kube-proxy pod at all — an eBPF
+	// replacement such as Cilium's kube-proxy-replacement), indistinguishable
+	// at this field from "iptables-save unavailable". Including it would put a
+	// permanent, un-actionable INFO on every healthy Cilium cluster.
+	if !l.KubeForwardChecked || !l.CNIChecked {
 		out = append(out, insight("INFO", virtCatK8s,
-			"some OS-layer checks limited — run as root for KUBE-SERVICES/KUBE-FORWARD chain and CNI config verification",
+			"some OS-layer checks limited — the KUBE-FORWARD chain and/or CNI config could not be verified (needs root, or the relevant tool is not on PATH — common on k3s)",
 			nil,
 		))
 	}

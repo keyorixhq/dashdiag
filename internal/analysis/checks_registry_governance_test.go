@@ -323,34 +323,10 @@ var checkExemptions = map[string]string{
 	"checkZFSPool": "StatusReadFailed emits an INFO and returns early, correctly suppressing the " +
 		"scrub-age check that would otherwise misread an unset value.",
 
-	// --- KNOWN BUG, NOT YET FIXED (4): confirmed live silent-skip bugs, deferred ---
-	// as larger-scope work (restructuring or a model field addition) rather than a
-	// same-shape INFO-disclosure patch. Each needs its own follow-up.
-	"checkDRBD": "KNOWN BUG, not fixed: the Unverified early-return (heuristics_storage.go) discards " +
-		"already-parsed Resources. DRBDInfo.Unverified has two producers — v9/netlink non-root (Resources " +
-		"empty, early-return loses nothing) and parseDRBDProc's partial /proc/drbd read (Unverified set " +
-		"AFTER resources were already appended). On an 8.x host where /proc/drbd errors mid-read after a " +
-		"resource was parsed as cs:SplitBrain, the CRIT is dropped and exit code flips 2->0. Fix: check " +
-		"Unverified only as a fallback when Resources is empty, not unconditionally first.",
-	"checkK8s": "KNOWN BUG, not fixed: the !APIReachable early-return (heuristics_virt.go) also skips " +
-		"CheckK8sOSLayer, which does not depend on API reachability (systemd/sysfs/iptables facts). On a " +
-		"k3s node with the service down, `dsd health --deep` reports nothing while `dsd k8s --deep` " +
-		"(cmd/k8s.go's k8sOSLayerInsights, called independently) reports real kubelet/cert/CNI CRITs for " +
-		"the identical host — the cmd<->health tally-drift class (#275) this architecture exists to " +
-		"prevent. Fix: run CheckK8sOSLayer independently of the APIReachable gate.",
-	"checkK8sOSLayerCoverageGaps": "KNOWN BUG, not fixed: OSLayerNeedsRoot (heuristics_virt.go) is a bare " +
-		"uid==0 proxy, not a real per-check signal. KubeForwardChecked/KubeServicesChecked/CNIChecked go " +
-		"false whenever the relevant tool is missing (not only under non-root — k3s's bundled iptables is " +
-		"off-PATH and nft is frequently absent on a k3s node, per the code's own comment at k8s.go:742-" +
-		"744), but disclosure only fires via OSLayerNeedsRoot. A ROOT run on such a node gets zero " +
-		"disclosure and \"No OS-layer issues\". Fix: disclose on tool-missing directly, not just on " +
-		"non-root, mirroring the already-fixed FlannelCNIUnreadable case.",
-	"checkTransactional": "KNOWN BUG, not fixed: TransactionalInfo has no Unverified/NeedsRoot field at " +
-		"all (models/maintenance.go), so a non-root or failed btrfs `subvolume get-default` read on " +
-		"openSUSE MicroOS/SLE Micro (needs CAP_SYS_ADMIN) leaves RebootPending=false with Available=true " +
-		"— a green \"Transactional: OK\" on a host with a staged, un-booted update. Same shape as the " +
-		"checkFstab gap: needs a collector/model field addition before checkTransactional can disclose " +
-		"it, out of scope for a same-shape INFO patch.",
+	// KNOWN BUG group (checkDRBD, checkK8sOSLayerCoverageGaps, checkK8s,
+	// checkTransactional) is now empty — all four fixed, see the
+	// neverSilentChecks table. checkFstab is a distinct, still-open case:
+	// exempted above pending a collector-layer fix, see /tmp/fstab-collector-gap.md.
 
 	// --- UNCLEAR (6): real ambiguity found reading the code; a live-host repro or ---
 	// a design-intent call is needed before deciding fix vs. exempt. Deferred rather

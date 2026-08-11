@@ -246,7 +246,18 @@ func livePatchInspectHint(tool string) string {
 // update in the new snapshot is NOT yet active — and `zypper needs-rebooting` misses it
 // (it checks the unchanged running snapshot). Silent on a clean transactional host.
 func checkTransactional(d models.TransactionalInfo) []models.Insight {
-	if !d.Available || !d.RebootPending {
+	if !d.Available {
+		return nil
+	}
+	if d.Unverified {
+		// BootedSnapshot and/or DefaultSnapshot couldn't be read (commonly
+		// `btrfs subvolume get-default` needing CAP_SYS_ADMIN under non-root)
+		// — RebootPending's false zero value must not read as a clean host.
+		return []models.Insight{insight("INFO", "Transactional",
+			"could not verify whether a transactional update is staged — the booted/default btrfs snapshot could not be read",
+			[]string{"to verify: sudo btrfs subvolume get-default /   (or run dsd as root)"})}
+	}
+	if !d.RebootPending {
 		return nil
 	}
 	return []models.Insight{insight("WARN", "Transactional",

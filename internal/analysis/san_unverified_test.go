@@ -39,6 +39,32 @@ func TestDRBDUnverifiedIsInfoNotSilent(t *testing.T) {
 	}
 }
 
+// A partial /proc/drbd read (8.x: scanner.Err() after at least one resource
+// line was already parsed, collectors/drbd_linux.go:185-192) must NOT discard
+// the resources that WERE parsed — a resource read as SplitBrain before the
+// read failed is a real CRIT and must still surface, alongside a disclosure
+// that the list may be incomplete. Regression: checkDRBD used to check
+// Unverified before scoring any resource, silently dropping this CRIT
+// (exit code 2->0) on exactly the host where the DRBD check matters most.
+func TestDRBDPartialReadKeepsParsedResources(t *testing.T) {
+	got := checkDRBD(models.DRBDInfo{
+		Version:    "8.4.10",
+		Unverified: true,
+		Resources:  []models.DRBDResource{{Minor: 0, ConnState: "SplitBrain"}},
+	})
+	if !hasInsightMsg(got, "CRIT", "SPLIT-BRAIN") {
+		t.Errorf("a resource parsed before a partial read failed must still CRIT, got %+v", got)
+	}
+	if !hasInsightMsg(got, "INFO", "incomplete") {
+		t.Errorf("a partial read with resources present must disclose the list may be incomplete, got %+v", got)
+	}
+	// The needs-root message is specific to the v9/netlink producer, which
+	// never has Resources set — must not fire here.
+	if hasInsightMsg(got, "INFO", "needs root") {
+		t.Errorf("8.x partial-read disclosure must not claim \"DRBD 9\"/needs-root, got %+v", got)
+	}
+}
+
 func TestLVMQueryFailuresAreInfo(t *testing.T) {
 	cases := []struct {
 		name string

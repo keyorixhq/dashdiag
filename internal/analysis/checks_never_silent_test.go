@@ -158,6 +158,45 @@ var neverSilentChecks = []neverSilentCheck{
 		},
 		wantSubstr: "could not verify",
 	},
+	{
+		name:    "checkDRBD: partial /proc/drbd read after a resource was already parsed",
+		checkFn: "checkDRBD",
+		run: func() []models.Insight {
+			return checkDRBD(models.DRBDInfo{
+				Version:    "8.4.10",
+				Unverified: true,
+				Resources:  []models.DRBDResource{{Minor: 0, ConnState: "SplitBrain"}},
+			})
+		},
+		wantSubstr: "incomplete",
+	},
+	{
+		name:    "checkK8sOSLayerCoverageGaps: root run with KUBE-FORWARD/CNI tools missing",
+		checkFn: "checkK8sOSLayerCoverageGaps",
+		run: func() []models.Insight {
+			return checkK8sOSLayerCoverageGaps(models.K8sOSLayer{KubeForwardChecked: false, CNIChecked: false})
+		},
+		wantSubstr: "checks limited",
+	},
+	{
+		name:    "checkK8s: API unreachable but OS-layer facts (kubelet down) still surface",
+		checkFn: "checkK8s",
+		run: func() []models.Insight {
+			return checkK8s(models.K8sInfo{
+				Detected: true, APIReachable: false,
+				OSLayer: &models.K8sOSLayer{KubeletChecked: true, KubeletActive: false},
+			})
+		},
+		wantSubstr: "kubelet is not running",
+	},
+	{
+		name:    "checkTransactional: btrfs read failed (commonly non-root)",
+		checkFn: "checkTransactional",
+		run: func() []models.Insight {
+			return checkTransactional(models.TransactionalInfo{Available: true, Unverified: true})
+		},
+		wantSubstr: "could not verify",
+	},
 }
 
 func TestChecksNeverSilentlySkip(t *testing.T) {

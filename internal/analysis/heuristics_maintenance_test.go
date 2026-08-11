@@ -223,4 +223,11 @@ func TestCheckTransactional(t *testing.T) {
 	if !hasInsightMsg(checkTransactional(pending), "WARN", "staged but NOT active") {
 		t.Error("a staged transactional update (default != booted) must WARN")
 	}
+	// btrfs read failed (commonly non-root) → INFO, NOT a silent clean pass —
+	// RebootPending's false zero value must not be trusted here. Regression for
+	// the completeness-guard finding (TestAllChecksRegistered, checkExemptions
+	// "checkTransactional" before this fix).
+	if !hasInsightMsg(checkTransactional(models.TransactionalInfo{Available: true, Unverified: true}), "INFO", "could not verify") {
+		t.Error("an unverified btrfs read must INFO, not silently pass as clean")
+	}
 }
