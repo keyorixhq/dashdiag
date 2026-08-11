@@ -25,3 +25,19 @@ func TestCheckElasticsearch(t *testing.T) {
 		t.Errorf("yellow cluster should WARN, got %+v", yellow)
 	}
 }
+
+// TestCheckElasticsearch_UnrecognizedStatus is a regression guard for
+// internal-analysis-04-01: the switch on e.Status had no default case, so any
+// value other than "red"/"yellow" fell through as if it were the genuinely
+// healthy "green" case — including a garbled or spoofed status from a
+// non-Elasticsearch service answering the same port. HealthRead only confirms
+// the JSON parsed and status was non-empty, not that it's a real ES/OpenSearch
+// enum value, so this must never render as silently clean.
+func TestCheckElasticsearch_UnrecognizedStatus(t *testing.T) {
+	got := checkElasticsearch(models.ElasticsearchInfo{
+		Detected: true, HealthRead: true, Status: "anything-not-red-or-yellow",
+	})
+	if !insightWithMsg(got, "INFO", "not a recognized state") {
+		t.Errorf("an unrecognized status must disclose it could not confirm health, not read as clean, got %+v", got)
+	}
+}

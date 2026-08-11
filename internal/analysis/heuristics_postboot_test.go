@@ -31,6 +31,22 @@ func TestCheckPostBoot_UnmeasurableIsShownNotOmitted(t *testing.T) {
 	}
 }
 
+// TestCheckPostBoot_UnrecognizedStateNotSilent is a regression guard for
+// internal-analysis-06-02: the State switch had no default case, so any
+// value other than found/absent/unmeasurable fell through to a silent nil —
+// discarding KernelPanic/OOMKills/UncleanShutdown findings carried in the
+// same struct even though Available was true. A corrupted or tampered
+// capture/replay bundle setting a garbage State must not read as "nothing
+// wrong ever happened".
+func TestCheckPostBoot_UnrecognizedStateNotSilent(t *testing.T) {
+	got := checkPostBoot(models.PostBootInfo{
+		Available: true, State: "garbage-state", KernelPanic: true, OOMKills: 3,
+	})
+	if !hasInsightMsg(got, "INFO", "not a recognized value") {
+		t.Errorf("an unrecognized State must disclose it could not be confirmed, not vanish silently, got %+v", got)
+	}
+}
+
 func TestCheckPostBoot_Absent(t *testing.T) {
 	got := checkPostBoot(models.PostBootInfo{Available: true, State: "absent"})
 	if !hasInsightMsg(got, "INFO", "no prior boot on record") {

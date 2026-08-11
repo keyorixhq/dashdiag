@@ -54,14 +54,15 @@ func TestCheckAppArmorDenials_MoreThanFiveGroups(t *testing.T) {
 	}
 }
 
-// TestCheckPostBoot_UnrecognizedStateReturnsNil covers the default return at the
-// end of checkPostBoot — when Available is true but State is not one of the three
-// known values the function must return nil without panicking.
-func TestCheckPostBoot_UnrecognizedStateReturnsNil(t *testing.T) {
+// TestCheckPostBoot_UnrecognizedStateDisclosesUnrecognized covers the default
+// case at the end of checkPostBoot — when Available is true but State is not
+// one of the three known values. internal-analysis-06-02: this must disclose
+// an INFO rather than silently return nil, without panicking.
+func TestCheckPostBoot_UnrecognizedStateDisclosesUnrecognized(t *testing.T) {
 	t.Parallel()
 	got := checkPostBoot(models.PostBootInfo{Available: true, State: "unknown-future-state"})
-	if got != nil {
-		t.Errorf("unrecognized state must produce nil, got %+v", got)
+	if !hasInsightMsg(got, "INFO", "not a recognized value") {
+		t.Errorf("unrecognized state must disclose it could not be confirmed, got %+v", got)
 	}
 }
 
