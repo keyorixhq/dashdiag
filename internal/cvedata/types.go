@@ -13,6 +13,13 @@ type OVALResult struct {
 	Severity string
 	Summary  string
 	Packages []OVALPackageMatch
+
+	// Error is set instead of the fields above when the OVAL file could not be
+	// loaded or parsed for this CVE — vulnerability status was NOT established,
+	// as opposed to Found=false (checked, and the CVE isn't in the feed).
+	// Callers must not treat a zero-value OVALResult with Error set as a clean
+	// "not found" result.
+	Error string `json:",omitempty"`
 }
 
 // OVALPackageMatch is a package found vulnerable by OVAL evaluation.
