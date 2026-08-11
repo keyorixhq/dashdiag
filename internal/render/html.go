@@ -132,8 +132,11 @@ func buildHTML(snap *baseline.Snapshot, insights []models.Insight, elapsed time.
 
 	for _, ins := range filterActionable(insights) {
 		cls := "warn"
-		if ins.Level == "CRIT" {
+		switch ins.Level {
+		case "CRIT":
 			cls = "crit"
+		case "INFO":
+			cls = "info"
 		}
 		data.Issues = append(data.Issues, htmlIssue{
 			Level: ins.Level, LevelClass: cls, Check: ins.Check, Message: ins.Message, Hints: ins.Hints,
@@ -154,7 +157,11 @@ func buildHTML(snap *baseline.Snapshot, insights []models.Insight, elapsed time.
 }
 
 // buildHTMLCheckRows mirrors the markdown report's table: trust the snapshot's
-// per-check worst status, ordered CRIT → WARN → OK then alphabetical (deterministic).
+// per-check worst status, ordered CRIT → WARN → INFO → OK then alphabetical
+// (deterministic). INFO covers a collector that errored or an unmeasurable
+// value — check.Status is set from the snapshot's worst insight
+// (baseline.BuildSnapshot), so the explicit cases below are the only statuses
+// that switch can ever produce; "default" is the real OK case, not a catch-all.
 func buildHTMLCheckRows(snap *baseline.Snapshot) []htmlCheckRow {
 	type row struct {
 		htmlCheckRow
@@ -165,9 +172,11 @@ func buildHTMLCheckRows(snap *baseline.Snapshot) []htmlCheckRow {
 		r := row{htmlCheckRow{Name: c.Name, Detail: c.Value}, 0}
 		switch c.Status {
 		case "CRIT":
-			r.Status, r.StatusClass, r.rank = "CRIT", "crit", 2
+			r.Status, r.StatusClass, r.rank = "CRIT", "crit", 3
 		case "WARN":
-			r.Status, r.StatusClass, r.rank = "WARN", "warn", 1
+			r.Status, r.StatusClass, r.rank = "WARN", "warn", 2
+		case "INFO":
+			r.Status, r.StatusClass, r.rank = "INFO", "info", 1
 		default:
 			r.Status, r.StatusClass, r.rank = "OK", "ok", 0
 		}
@@ -218,7 +227,7 @@ const htmlReportTemplate = `<!DOCTYPE html>
     --crit: #c0392b; --crit-bg: #fdecea;
     --warn: #b9770e; --warn-bg: #fef6e7;
     --ok:   #1e8449; --ok-bg:   #eafaf1;
-    --ink:  #1a1f24; --muted: #6b7680; --line: #e3e8ec; --bg: #f5f7f9;
+    --ink:  #1a1f24; --muted: #6b7680; --line: #e3e8ec; --bg: #f5f7f9; --info-bg: #eef1f3;
   }
   * { box-sizing: border-box; }
   body { margin: 0; background: var(--bg); color: var(--ink);
@@ -245,9 +254,11 @@ const htmlReportTemplate = `<!DOCTYPE html>
   .issue { background: #fff; border: 1px solid var(--line); border-left: 5px solid; border-radius: 8px;
     padding: 14px 18px; margin: 12px 0; }
   .issue.crit { border-left-color: var(--crit); } .issue.warn { border-left-color: var(--warn); }
+  .issue.info { border-left-color: var(--muted); }
   .issue .tag { font-size: 11px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.04em;
     padding: 2px 8px; border-radius: 4px; color: #fff; }
   .issue.crit .tag { background: var(--crit); } .issue.warn .tag { background: var(--warn); }
+  .issue.info .tag { background: var(--muted); }
   .issue .check { font-weight: 600; margin-left: 8px; }
   .issue .msg { margin: 10px 0 0; }
   .issue pre { background: #1a1f24; color: #e6edf3; border-radius: 6px; padding: 12px 14px;
@@ -262,6 +273,7 @@ const htmlReportTemplate = `<!DOCTYPE html>
   .st { font-weight: 700; font-size: 12px; padding: 2px 9px; border-radius: 4px; }
   .st.crit { color: var(--crit); background: var(--crit-bg); }
   .st.warn { color: var(--warn); background: var(--warn-bg); }
+  .st.info { color: var(--muted); background: var(--info-bg); }
   .st.ok   { color: var(--ok);   background: var(--ok-bg); }
   .ok-note { color: var(--ok); font-weight: 600; }
   .cve-group { font-weight: 600; margin: 14px 0 6px; }
