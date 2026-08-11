@@ -3,6 +3,7 @@ package render
 import (
 	"html/template"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 	"time"
@@ -223,5 +224,47 @@ func TestGenerateHTMLReport_WriteFails(t *testing.T) {
 
 	if _, err := GenerateHTMLReport(snap, nil, time.Second, nil); err == nil {
 		t.Error("expected an error when the report path is occupied by a directory")
+	}
+}
+
+// TestGenerateHTMLReport_HostnamePathTraversalSanitized is the regression
+// guard for a critical path-traversal write: during `dsd replay <bundle>
+// --report`, snap.Hostname is platform.Hostname(), which honors the replay
+// identity override read straight out of the bundle manifest's Host field
+// with no validation. A hostname of "../../../../tmp/evil" previously
+// survived filepath.Join(".", filename) unmodified and could overwrite an
+// arbitrary file outside the working directory (os.WriteFile truncates).
+// Not parallel — mutates the process CWD via os.Chdir.
+func TestGenerateHTMLReport_HostnamePathTraversalSanitized(t *testing.T) {
+	old, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	work := t.TempDir()
+	if err := os.Chdir(work); err != nil {
+		t.Fatal(err)
+	}
+	defer os.Chdir(old) //nolint:errcheck
+
+	snap := sampleSnap("OK")
+	snap.Hostname = "../../../../../../../../tmp/evil"
+
+	path, err := GenerateHTMLReport(snap, nil, time.Second, nil)
+	if err != nil {
+		t.Fatalf("GenerateHTMLReport: %v", err)
+	}
+
+	// The written path must be a plain filename directly under the CWD — a
+	// slash surviving anywhere in it means sanitization was bypassed.
+	wantName := "dsd-report-" + baseline.SafeHostname(snap.Hostname) + "-" +
+		snap.Timestamp.Format("20060102-150405") + ".html"
+	if path != filepath.Join(".", wantName) {
+		t.Errorf("path = %q, want %q (hostname must be sanitized, not just embedded raw)", path, filepath.Join(".", wantName))
+	}
+	if strings.ContainsAny(filepath.Base(path), `/\`) {
+		t.Errorf("filename %q still contains a path separator — traversal not blocked", filepath.Base(path))
+	}
+	if _, err := os.Stat(filepath.Join(work, wantName)); err != nil {
+		t.Errorf("expected report file at %q inside the working directory: %v", wantName, err)
 	}
 }

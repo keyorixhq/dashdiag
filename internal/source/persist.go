@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 )
 
 // On-disk index records (files/index.json, commands/index.json).
@@ -155,6 +156,23 @@ func (b *Bundle) saveInlineMeta(dir string) error {
 	return writeJSON(filepath.Join(dir, "statfs.json"), sfidx)
 }
 
+// safeBlobJoin joins dir with an index entry's blob path (fileIndexEntry.Blob,
+// cmdIndexEntry.StdoutBlob/StderrBlob), rejecting the result if it escapes
+// dir. These fields are attacker-controlled JSON string values read straight
+// out of a bundle's index files — not tar member names, so the traversal
+// guard tarball.go applies during extraction never sees them. A legitimate
+// bundle only ever writes fixed-shape values here (files/blobs/%04d,
+// commands/blobs/%04d.out/.err — see Save), so any value that resolves
+// outside dir is a crafted bundle, never a real one.
+func safeBlobJoin(dir, rel string) (string, error) {
+	full := filepath.Join(dir, rel)
+	base := filepath.Clean(dir)
+	if full != base && !strings.HasPrefix(full, base+string(filepath.Separator)) {
+		return "", fmt.Errorf("source: blob path %q escapes bundle directory", rel)
+	}
+	return full, nil
+}
+
 // Load reads a bundle previously written by Save.
 func Load(dir string) (*Bundle, error) {
 	b := NewBundle()
@@ -172,7 +190,11 @@ func Load(dir string) (*Bundle, error) {
 	for _, e := range fidx {
 		rec := fileRec{notExist: e.NotExist, permission: e.Perm, errText: e.Err}
 		if e.Blob != "" {
-			data, err := os.ReadFile(filepath.Join(dir, e.Blob))
+			blobPath, err := safeBlobJoin(dir, e.Blob)
+			if err != nil {
+				return nil, err
+			}
+			data, err := os.ReadFile(blobPath)
 			if err != nil {
 				return nil, err
 			}
@@ -212,10 +234,14 @@ func Load(dir string) (*Bundle, error) {
 	for _, e := range cidx {
 		rec := cmdRec{res: Result{ExitCode: e.Exit}, absent: e.Absent, errText: e.Err}
 		if e.StdoutBlob != "" {
-			rec.res.Stdout, _ = os.ReadFile(filepath.Join(dir, e.StdoutBlob))
+			if p, err := safeBlobJoin(dir, e.StdoutBlob); err == nil {
+				rec.res.Stdout, _ = os.ReadFile(p)
+			}
 		}
 		if e.StderrBlob != "" {
-			rec.res.Stderr, _ = os.ReadFile(filepath.Join(dir, e.StderrBlob))
+			if p, err := safeBlobJoin(dir, e.StderrBlob); err == nil {
+				rec.res.Stderr, _ = os.ReadFile(p)
+			}
 		}
 		if len(e.Argv) > 0 {
 			b.cmds[cmdKey(e.Argv[0], e.Argv[1:])] = rec

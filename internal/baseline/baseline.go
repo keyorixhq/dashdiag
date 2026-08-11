@@ -69,11 +69,14 @@ func baselineDir() string {
 	return filepath.Join(home, ".dsd", "baselines")
 }
 
-// safeHostname strips path-unsafe characters from a hostname before it is used
+// SafeHostname strips path-unsafe characters from a hostname before it is used
 // as a filename component. Bundles arriving via dsd replay carry a
 // manifest-supplied hostname that is attacker-controlled; letting it flow into
-// filepath.Join unsanitized allows writes outside ~/.dsd/baselines/.
-func safeHostname(h string) string {
+// filepath.Join unsanitized allows writes (or, for readers, unintended path
+// construction) outside the intended directory. Exported so every renderer
+// that embeds a snapshot hostname in an output filename (report.go, html.go)
+// shares this one sanitizer instead of re-implementing it.
+func SafeHostname(h string) string {
 	safe := strings.Map(func(r rune) rune {
 		if r == '/' || r == '\\' || r == ':' || r == '\x00' {
 			return '_'
@@ -88,7 +91,7 @@ func safeHostname(h string) string {
 
 func latestPath(hostname string) string {
 	dir := baselineDir()
-	full := filepath.Join(dir, safeHostname(hostname)+"-latest.json")
+	full := filepath.Join(dir, SafeHostname(hostname)+"-latest.json")
 	if !strings.HasPrefix(full, dir) {
 		return filepath.Join(dir, "unknown-host-latest.json")
 	}
@@ -97,7 +100,7 @@ func latestPath(hostname string) string {
 
 func prevPath(hostname string) string {
 	dir := baselineDir()
-	full := filepath.Join(dir, safeHostname(hostname)+"-prev.json")
+	full := filepath.Join(dir, SafeHostname(hostname)+"-prev.json")
 	if !strings.HasPrefix(full, dir) {
 		return filepath.Join(dir, "unknown-host-prev.json")
 	}
@@ -114,7 +117,7 @@ func SaveBaseline(snap *Snapshot) error {
 		return fmt.Errorf("marshalling snapshot: %w", err)
 	}
 
-	tsFile := filepath.Join(dir, safeHostname(snap.Hostname)+"-"+snap.Timestamp.Format("20060102-150405")+".json")
+	tsFile := filepath.Join(dir, SafeHostname(snap.Hostname)+"-"+snap.Timestamp.Format("20060102-150405")+".json")
 	if !strings.HasPrefix(tsFile, dir) {
 		return fmt.Errorf("baseline path %q escapes baseline directory", tsFile)
 	}
