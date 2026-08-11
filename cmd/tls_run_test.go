@@ -147,6 +147,25 @@ func TestScanCertFileUnparseable(t *testing.T) {
 	}
 }
 
+// TestScanCertFileNotPEMAtAll is a regression guard for cmd-13-01: a file
+// that isn't valid PEM at all (truncated, corrupted, empty, DER-encoded) was
+// conflated with the benign "key file, no CERTIFICATE block" case above and
+// vanished from the scan silently — no OK, no WARN, no CRIT, no ERR. A cert
+// path replaced with garbage (a broken deploy pipeline, or tampering) must
+// force an ERR result instead of disappearing from the report and exit code.
+func TestScanCertFileNotPEMAtAll(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "garbage.pem")
+	if err := os.WriteFile(path, []byte("this is not PEM data at all\njust garbage\n"), 0o600); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+	res := scanCertFile(path, 30, 7)
+	if len(res) != 1 || res[0].Level != "ERR" {
+		t.Fatalf("a non-PEM file must yield an ERR result, not vanish silently, got: %+v", res)
+	}
+}
+
 func TestAutoDetectCertPathsNoPanic(t *testing.T) {
 	t.Parallel()
 	// No fixtures are seeded on this host — just confirm it runs without
