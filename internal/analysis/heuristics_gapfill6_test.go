@@ -7,13 +7,17 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
-// TestCheckPostBoot_UnknownStateReturnsNil covers the final `return nil` in
-// checkPostBoot (heuristics_postboot.go:29) — reached when Available=true but
-// State is not "unmeasurable", "absent", or "found".
-func TestCheckPostBoot_UnknownStateReturnsNil(t *testing.T) {
+// TestCheckPostBoot_UnknownStateDisclosesUnrecognized covers the default case
+// in checkPostBoot (heuristics_postboot.go) — reached when Available=true but
+// State is not "unmeasurable", "absent", or "found". internal-analysis-06-02:
+// this must disclose an INFO, not silently return nil (a corrupted/tampered
+// replay bundle with a garbage State must not read as "nothing wrong ever
+// happened").
+func TestCheckPostBoot_UnknownStateDisclosesUnrecognized(t *testing.T) {
 	t.Parallel()
-	if got := checkPostBoot(models.PostBootInfo{Available: true, State: "unknown"}); len(got) != 0 {
-		t.Errorf("unrecognised state should yield nil, got %+v", got)
+	got := checkPostBoot(models.PostBootInfo{Available: true, State: "unknown"})
+	if !hasInsightMsg(got, "INFO", "not a recognized value") {
+		t.Errorf("unrecognised state should disclose it could not be confirmed, got %+v", got)
 	}
 }
 

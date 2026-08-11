@@ -25,8 +25,17 @@ func checkPostBoot(pb models.PostBootInfo) []models.Insight {
 			nil)}
 	case "found":
 		return postBootFindings(pb)
+	default:
+		// internal-analysis-06-02: an unrecognized State must not silently drop
+		// whatever findings the payload carries (KernelPanic/OOMKills/
+		// UncleanShutdown are only consulted when State=="found"). Real captures
+		// only ever set found/absent/unmeasurable — anything else means a
+		// corrupted or tampered replay bundle, which must not read as "nothing
+		// wrong ever happened".
+		return []models.Insight{unverifiedInsight("INFO", "PostBoot",
+			fmt.Sprintf("prior-boot state %q is not a recognized value (expected found/absent/unmeasurable) — post-boot forensics could not be confirmed", pb.State),
+			nil)}
 	}
-	return nil
 }
 
 // postBootUnmeasurable explains WHY the prior boot couldn't be read — always shown, never
