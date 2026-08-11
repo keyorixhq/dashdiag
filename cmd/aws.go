@@ -126,8 +126,13 @@ func awsInsightProviderSide(msg string) bool {
 // isAWSRecognitionLine matches the all-clean "EC2 <type> — …" INFO that checkAWS
 // emits only when everything it could verify is clean. The command prints its own
 // identity header + clean summary, so this line is folded away.
+//
+// The real "EC2 rebalance recommendation is active — …" WARN (awsRebalanceInsights)
+// also starts with "EC2 " — a bare prefix match folds that WARN away too, silently
+// dropping the only actionable line from both report blocks while the summary count
+// still says "1 EC2 issue(s) found". Exclude it explicitly.
 func isAWSRecognitionLine(msg string) bool {
-	return strings.HasPrefix(msg, "EC2 ")
+	return strings.HasPrefix(msg, "EC2 ") && !strings.HasPrefix(msg, "EC2 rebalance recommendation")
 }
 
 func printAWSReport(w io.Writer, info *models.AWSInfo, elapsed time.Duration, mode output.OutputMode) {
