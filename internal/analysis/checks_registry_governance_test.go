@@ -312,7 +312,7 @@ var checkExemptions = map[string]string{
 	"checkSteamOS": "A pure dispatcher; both sub-checks (checkSteamOSNetwork, checkSteamOSUpdate) run " +
 		"unconditionally on a Detected host and disclose on their own.",
 	"checkSteamOSNetwork": "!UpdateServerReachable fails toward WARN, never silence.",
-	"checkSteamOSUpdate": "!RAUCAvailable emits an explicit INFO naming the unverified state.",
+	"checkSteamOSUpdate":  "!RAUCAvailable emits an explicit INFO naming the unverified state.",
 	"checkTuned": "Available=false only when neither tuned-adm nor tuned.service exists — a genuine " +
 		"not-installed gate.",
 	"checkVMware": "Both StatAvailable and SCSIDisksChecked are disclosed or correctly gated; the " +
