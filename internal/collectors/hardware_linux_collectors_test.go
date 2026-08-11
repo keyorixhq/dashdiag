@@ -221,6 +221,9 @@ func TestCollectOneDrive_SATA(t *testing.T) {
 	if drive.WearPct != 10 {
 		t.Errorf("WearPct = %d, want 10 (100 - normalised value 90)", drive.WearPct)
 	}
+	if !drive.BadSectorsRead {
+		t.Error("BadSectorsRead must be true when ata_smart_attributes was present")
+	}
 }
 
 func TestCollectOneDrive_WearGuardsNonNormalisedValue(t *testing.T) {
@@ -532,7 +535,12 @@ func TestCollectNICs_NoNetDir(t *testing.T) {
 const smartctlSASJSON = `{"model_name":"ST4000NM0025","device":{"type":"scsi","protocol":"SAS"},"smart_status":{"passed":true},"temperature":{"current":30}}`
 
 // TestCollectOneDrive_SAS covers hardware_linux.go:150.73,151.21 — the SAS/SCSI
-// drive-type case in getSmartctlDriveInfo's protocol switch.
+// drive-type case in getSmartctlDriveInfo's protocol switch. Also a regression
+// guard for cmd-06-02: a real SAS drive's smartctl JSON has no
+// ata_smart_attributes table (grown-defect-list data lives in different SCSI
+// log pages this collector doesn't parse), so Reallocated/Pending/
+// UncorrectableErrors legitimately stay zero — BadSectorsRead must disclose
+// that as unmeasured, not silently indistinguishable from a clean ATA read.
 func TestCollectOneDrive_SAS(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("smartctl", []string{"--json=c", "-a", "/dev/sdb"}, smartctlSASJSON, 0)
@@ -540,6 +548,12 @@ func TestCollectOneDrive_SAS(t *testing.T) {
 	drive := collectOneDrive(context.Background(), "/dev/sdb")
 	if drive.Type != "sas" {
 		t.Errorf("Type = %q, want %q (SCSI/SAS protocol → sas)", drive.Type, "sas")
+	}
+	if drive.BadSectorsRead {
+		t.Error("BadSectorsRead must be false when ata_smart_attributes was absent (SAS drive)")
+	}
+	if drive.ReallocatedSectors != 0 || drive.PendingSectors != 0 || drive.UncorrectableErrors != 0 {
+		t.Errorf("bad-sector counters should stay zero-valued (unmeasured, not clean): %+v", drive)
 	}
 }
 

@@ -8,18 +8,26 @@ type HardwareDrive struct {
 	// SmartRead is true only when smartctl actually reported a SMART verdict
 	// (smart_status present). False = detected but unread (controller/USB bridge
 	// /virtual disk) — must not fire a "drive may fail imminently" CRIT.
-	SmartRead           bool   `json:"smart_read"`
-	SmartOK             bool   `json:"smart_ok"`
-	TempC               int    `json:"temp_c"`
-	PowerOnH            int64  `json:"power_on_h"`
-	WearPct             int    `json:"wear_pct"`
-	MediaErrors         int64  `json:"media_errors"`
-	UnsafeShutdowns     int64  `json:"unsafe_shutdowns"`
-	ReallocatedSectors  int    `json:"reallocated_sectors"`
-	PendingSectors      int    `json:"pending_sectors"`
-	UncorrectableErrors int    `json:"uncorrectable_errors"`
-	SmartctlAvailable   bool   `json:"smartctl_available"`
-	Error               string `json:"error,omitempty"`
+	SmartRead           bool  `json:"smart_read"`
+	SmartOK             bool  `json:"smart_ok"`
+	TempC               int   `json:"temp_c"`
+	PowerOnH            int64 `json:"power_on_h"`
+	WearPct             int   `json:"wear_pct"`
+	MediaErrors         int64 `json:"media_errors"`
+	UnsafeShutdowns     int64 `json:"unsafe_shutdowns"`
+	ReallocatedSectors  int   `json:"reallocated_sectors"`
+	PendingSectors      int   `json:"pending_sectors"`
+	UncorrectableErrors int   `json:"uncorrectable_errors"`
+	// BadSectorsRead is true only when smartctl's ATA SMART attribute table
+	// (ata_smart_attributes) was actually present and parsed — the source of
+	// ReallocatedSectors/PendingSectors/UncorrectableErrors above. False on a
+	// real SAS/SCSI drive (grown-defect-list data lives in different log pages
+	// this collector doesn't parse) or degraded smartctl output: the three
+	// counters above stay zero in that case, but that means UNMEASURED, not
+	// clean — callers must not render "Bad sectors: OK" when this is false.
+	BadSectorsRead    bool   `json:"bad_sectors_read"`
+	SmartctlAvailable bool   `json:"smartctl_available"`
+	Error             string `json:"error,omitempty"`
 }
 
 // HardwareThermal holds a single hwmon temperature reading.

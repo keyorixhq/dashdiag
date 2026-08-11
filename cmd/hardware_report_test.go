@@ -208,7 +208,7 @@ func TestPrintHardwareReportDriveWearWarn(t *testing.T) {
 func TestPrintHardwareReportSATABadSectors(t *testing.T) {
 	badSectors := captureStdout(t, func() {
 		printHardwareReport(&models.HardwareInfo{Drives: []models.HardwareDrive{
-			{Device: "sda", Type: "ata", SmartctlAvailable: true, SmartOK: true, ReallocatedSectors: 12},
+			{Device: "sda", Type: "ata", SmartctlAvailable: true, SmartOK: true, BadSectorsRead: true, ReallocatedSectors: 12},
 		}}, output.ModePlain, 0)
 	})
 	if !strings.Contains(badSectors, "CRIT") {
@@ -216,6 +216,23 @@ func TestPrintHardwareReportSATABadSectors(t *testing.T) {
 	}
 	if !strings.Contains(badSectors, "reallocated:12") {
 		t.Errorf("the reallocated count should be shown, got:\n%s", badSectors)
+	}
+}
+
+// TestPrintHardwareReportSATABadSectorsUnread is a regression guard for
+// cmd-06-02: a SAS drive (or any drive whose smartctl output lacks
+// ata_smart_attributes) never populates Reallocated/Pending/Uncorrectable —
+// they stay zero because nothing was measured, not because the drive is
+// clean. Without BadSectorsRead set, the section must disclose "could not
+// verify" instead of a green "Bad sectors: OK none".
+func TestPrintHardwareReportSATABadSectorsUnread(t *testing.T) {
+	out := captureStdout(t, func() {
+		printHardwareReport(&models.HardwareInfo{Drives: []models.HardwareDrive{
+			{Device: "sda", Type: "sas", SmartctlAvailable: true, SmartOK: true},
+		}}, output.ModePlain, 0)
+	})
+	if !strings.Contains(out, "could not verify") {
+		t.Errorf("a SAS drive with no ATA attribute data must disclose it could not verify bad sectors, got:\n%s", out)
 	}
 }
 
