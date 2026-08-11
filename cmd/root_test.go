@@ -109,6 +109,67 @@ func TestRootPersistentPreRun_OutRedirectsStdout(t *testing.T) {
 	}
 }
 
+// TestCreateOutFile_SymlinkRefused is the regression guard for a symlink-
+// following overwrite: --out only cobra-validates that a string flag was
+// given, never that the target isn't a symlink. If dsd runs privileged (root,
+// a service account, a scheduled job writing to a predictable path) and an
+// attacker pre-creates a symlink at that path pointing at a file they don't
+// own, a plain os.Create would silently truncate and overwrite the SYMLINK'S
+// TARGET. createOutFile must refuse, and must leave the symlink's target file
+// untouched.
+func TestCreateOutFile_SymlinkRefused(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "victim.txt")
+	if err := os.WriteFile(target, []byte("do not touch"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "out.txt")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := createOutFile(link); err == nil {
+		t.Fatal("createOutFile accepted a symlink target")
+	}
+
+	data, err := os.ReadFile(target)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "do not touch" {
+		t.Errorf("symlink target was modified: got %q", data)
+	}
+}
+
+// TestCreateOutFile_RegularFileOverwritten is the contrast case: re-running
+// dsd with the same --out path must still succeed and truncate dsd's own
+// prior REGULAR-file output — the fix must not be overly conservative and
+// break the common "overwrite my last report" case.
+func TestCreateOutFile_RegularFileOverwritten(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "out.txt")
+	if err := os.WriteFile(path, []byte("stale content from a prior run"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	f, err := createOutFile(path)
+	if err != nil {
+		t.Fatalf("createOutFile on a pre-existing regular file: %v", err)
+	}
+	if _, err := f.WriteString("fresh"); err != nil {
+		t.Fatal(err)
+	}
+	_ = f.Close()
+
+	data, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "fresh" {
+		t.Errorf("expected the regular file to be truncated and overwritten, got %q", data)
+	}
+}
+
 func TestRootHelpFunc(t *testing.T) {
 	hf := rootCmd.HelpFunc()
 

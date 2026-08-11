@@ -29,8 +29,13 @@ var secretRules = []secretRule{
 	{regexp.MustCompile(`(?s)-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?-----END [A-Z0-9 ]*PRIVATE KEY-----`),
 		"[REDACTED PRIVATE KEY]"},
 	// key = value / key: value secret assignments — keep the key, redact the value.
-	// Group 1 is the key + separator; group 2 (the value) is dropped.
-	{regexp.MustCompile(`(?i)((?:pass(?:word|wd)?|secret|token|api[_-]?key|access[_-]?key|auth_?token|credentials?)\s*[=:]\s*)("[^"]*"|'[^']*'|\S+)`),
+	// Group 1 is the key + separator; group 2 (the value) is dropped. The
+	// [A-Za-z0-9_-]* after the keyword allows a SUFFIXED identifier —
+	// SECRET_KEY_BASE=, DJANGO_SECRET_KEY=, STRIPE_API_KEY= — not just the bare
+	// keyword immediately before the operator; a PREFIXED identifier
+	// (MY_SECRET=) already matched without this, since the keyword alternation
+	// has no leading \b anchor.
+	{regexp.MustCompile(`(?i)((?:pass(?:word|wd)?|secret|token|api[_-]?key|access[_-]?key|auth_?token|credentials?)[A-Za-z0-9_-]*\s*[=:]\s*)("[^"]*"|'[^']*'|\S+)`),
 		"${1}" + redactedMark},
 	// AWS access key IDs.
 	{regexp.MustCompile(`\bAKIA[0-9A-Z]{16}\b`), "[REDACTED-AWS-KEY]"},
