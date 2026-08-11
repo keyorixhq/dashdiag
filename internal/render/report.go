@@ -23,7 +23,11 @@ func GenerateReport(snap *baseline.Snapshot, insights []models.Insight, elapsed 
 	md := buildMarkdown(snap, insights, elapsed, cve)
 
 	timestamp := snap.Timestamp.Format("20060102-150405")
-	filename := fmt.Sprintf("dsd-report-%s-%s.md", snap.Hostname, timestamp)
+	// snap.Hostname is attacker-controlled during `dsd replay <bundle> --report`
+	// (it comes from the bundle manifest's Host field, read with no validation) —
+	// sanitize before it reaches a filename, same as baseline.SafeHostname's own
+	// doc comment names this threat.
+	filename := fmt.Sprintf("dsd-report-%s-%s.md", baseline.SafeHostname(snap.Hostname), timestamp)
 	path := filepath.Join(".", filename)
 
 	if err := os.WriteFile(path, []byte(md), 0o644); err != nil { //nolint:gosec // report file, world-readable intentional

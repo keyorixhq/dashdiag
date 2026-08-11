@@ -310,6 +310,109 @@ func TestLoadCommandBlobsMissingAreIgnored(t *testing.T) {
 	}
 }
 
+// TestLoadFileBlobPathTraversalRejected is the regression guard for a
+// critical path-traversal read: fileIndexEntry.Blob is an attacker-controlled
+// JSON string in a bundle's files/index.json, not a tar member name, so it
+// never passes through the tar-extraction traversal guard in tarball.go. A
+// crafted "blob": "../../secret" previously let Load() read an arbitrary file
+// outside the bundle directory and store its bytes under the entry's own
+// (also attacker-chosen) logical Path — e.g. making an SSH private key's
+// content the recorded contents of an innocuous-looking path like
+// "/proc/loadavg". Load must reject the escape rather than read through it.
+func TestLoadFileBlobPathTraversalRejected(t *testing.T) {
+	t.Parallel()
+
+	// The attack target: a "secret" file that sits OUTSIDE the bundle dir.
+	outside := t.TempDir()
+	secretPath := filepath.Join(outside, "secret")
+	if err := os.WriteFile(secretPath, []byte("attacker should never see this"), 0o600); err != nil {
+		t.Fatalf("write secret: %v", err)
+	}
+
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "files"), 0o755); err != nil {
+		t.Fatalf("premkdir files: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "commands"), 0o755); err != nil {
+		t.Fatalf("premkdir commands: %v", err)
+	}
+	if err := writeJSON(filepath.Join(dir, "manifest.json"), Manifest{Format: FormatVersion}); err != nil {
+		t.Fatalf("writeJSON manifest: %v", err)
+	}
+	// Relative traversal from dir up to outside/secret.
+	rel, err := filepath.Rel(dir, secretPath)
+	if err != nil {
+		t.Fatalf("filepath.Rel: %v", err)
+	}
+	fidx := []fileIndexEntry{{Path: "/proc/loadavg", Blob: rel}}
+	if err := writeJSON(filepath.Join(dir, "files/index.json"), fidx); err != nil {
+		t.Fatalf("writeJSON files/index.json: %v", err)
+	}
+	// commands/index.json is mandatory (TestLoadCommandIndexMissing) — write an
+	// empty index so a missing-file error can't masquerade as the traversal
+	// rejection this test actually means to exercise.
+	if err := writeJSON(filepath.Join(dir, "commands/index.json"), []cmdIndexEntry{}); err != nil {
+		t.Fatalf("writeJSON commands/index.json: %v", err)
+	}
+
+	b, err := Load(dir)
+	if err == nil {
+		t.Fatalf("Load should reject a blob path that escapes the bundle directory, got a bundle: %+v", b)
+	}
+}
+
+// TestLoadCommandBlobPathTraversalIgnored is the command-blob sibling of
+// TestLoadFileBlobPathTraversalRejected. StdoutBlob/StderrBlob reads are
+// lenient-on-missing by design (TestLoadCommandBlobsMissingAreIgnored), so an
+// escaping path must be treated the same as missing — silently empty — never
+// followed to read the outside file's real content.
+func TestLoadCommandBlobPathTraversalIgnored(t *testing.T) {
+	t.Parallel()
+
+	outside := t.TempDir()
+	secretPath := filepath.Join(outside, "secret")
+	if err := os.WriteFile(secretPath, []byte("attacker should never see this"), 0o600); err != nil {
+		t.Fatalf("write secret: %v", err)
+	}
+
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "files"), 0o755); err != nil {
+		t.Fatalf("premkdir files: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "commands"), 0o755); err != nil {
+		t.Fatalf("premkdir commands: %v", err)
+	}
+	if err := writeJSON(filepath.Join(dir, "manifest.json"), Manifest{Format: FormatVersion}); err != nil {
+		t.Fatalf("writeJSON manifest: %v", err)
+	}
+	if err := writeJSON(filepath.Join(dir, "files/index.json"), []fileIndexEntry{}); err != nil {
+		t.Fatalf("writeJSON files/index.json: %v", err)
+	}
+	rel, err := filepath.Rel(dir, secretPath)
+	if err != nil {
+		t.Fatalf("filepath.Rel: %v", err)
+	}
+	cidx := []cmdIndexEntry{{Argv: []string{"ghost-tool"}, StdoutBlob: rel, StderrBlob: rel}}
+	if err := writeJSON(filepath.Join(dir, "commands/index.json"), cidx); err != nil {
+		t.Fatalf("writeJSON commands/index.json: %v", err)
+	}
+
+	b, err := Load(dir)
+	if err != nil {
+		t.Fatalf("Load should tolerate an escaping command blob path (same lenience as missing), got: %v", err)
+	}
+	rec, ok := b.getCmd("ghost-tool", nil)
+	if !ok {
+		t.Fatal("command entry should still be present")
+	}
+	if string(rec.res.Stdout) == "attacker should never see this" || string(rec.res.Stderr) == "attacker should never see this" {
+		t.Fatalf("Load read through the path traversal — got stdout=%q stderr=%q", rec.res.Stdout, rec.res.Stderr)
+	}
+	if len(rec.res.Stdout) != 0 || len(rec.res.Stderr) != 0 {
+		t.Fatalf("expected empty stdout/stderr for an escaping blob path, got %+v", rec.res)
+	}
+}
+
 // TestSaveManifestWriteFailureRootSafe covers persist.go:61-63 without relying
 // on directory permissions (chmod), so it also passes when the test runs as
 // root.  Pre-creating manifest.json as a directory makes os.WriteFile fail
