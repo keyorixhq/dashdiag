@@ -45,8 +45,17 @@ func gcpGuestAgentInsights(g models.GCPInfo) []models.Insight {
 // stop rather than live-migrate). A preemptible VM is EXPECTED to terminate, so that is
 // not flagged.
 func gcpMaintenanceInsights(g models.GCPInfo) []models.Insight {
+	// on-host-maintenance is a MANDATORY metadata attribute every GCE VM has —
+	// unlike OSLoginChecked below (an optional, project-level attribute where a
+	// 404 is normal), a query failure here on a DMI-confirmed GCP host
+	// (IsGCP gates registration) can only mean the metadata server itself was
+	// unreachable, never "attribute absent". Same false-clean class as the
+	// AWS IMDS/rebalance and Azure caching fixes — disclose it rather than
+	// silently drop the host-maintenance-policy check off a clean run.
 	if !g.MaintenanceChecked {
-		return nil
+		return []models.Insight{insight("INFO", "GCP",
+			"could not verify host-maintenance policy — the instance metadata query failed or was unreachable",
+			[]string{"to inspect: curl -H 'Metadata-Flavor: Google' http://metadata.google.internal/computeMetadata/v1/instance/scheduling/on-host-maintenance"})}
 	}
 	var out []models.Insight
 	if g.ActiveMaintenance != "" {

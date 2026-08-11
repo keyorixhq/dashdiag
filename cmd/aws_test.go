@@ -103,7 +103,7 @@ func TestPrintAWSReport_NoInstanceTypeFallback(t *testing.T) {
 }
 
 func TestPrintAWSReport_Healthy(t *testing.T) {
-	clean := &models.AWSInfo{IsEC2: true, InstanceType: "t4g.small", IMDSChecked: true} // IMDSv2 enforced, nothing else
+	clean := &models.AWSInfo{IsEC2: true, InstanceType: "t4g.small", IMDSChecked: true, RebalanceChecked: true} // IMDSv2 enforced, nothing else
 	var buf bytes.Buffer
 	printAWSReport(&buf, clean, 50*time.Millisecond, output.ModePlain)
 	out := buf.String()

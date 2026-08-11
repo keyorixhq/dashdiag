@@ -102,7 +102,11 @@ func TestCheckFirmware(t *testing.T) {
 }
 
 func TestCheckCloudMeta(t *testing.T) {
-	assertLevel(t, checkCloudMeta(models.CloudInfo{Available: false}), "")
+	// Available=false is not "not on a cloud" (this collector only runs after
+	// IsCloudInstance() already confirmed a live IMDS probe succeeded) — it's a
+	// could-not-verify state and must disclose, not silently pass. Regression
+	// for the false-clean bug TestAllChecksRegistered was added to catch.
+	assertLevel(t, checkCloudMeta(models.CloudInfo{Available: false}), "INFO")
 	assertLevel(t, checkCloudMeta(models.CloudInfo{Available: true, Provider: "aws", SpotTermination: true}), "CRIT")
 	assertLevel(t, checkCloudMeta(models.CloudInfo{Available: true, Provider: "gcp", MaintenanceEvent: true}), "WARN")
 }

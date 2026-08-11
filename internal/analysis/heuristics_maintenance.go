@@ -128,11 +128,21 @@ func checkServiceRestart(d models.ServiceRestartInfo) []models.Insight {
 	if d.StaleCount > 0 {
 		msg := fmt.Sprintf("%d process(es) are using libraries that were updated on disk (%s) — until restarted they run the OLD code",
 			d.StaleCount, strings.Join(d.StaleNames, ", "))
-		return []models.Insight{insight("WARN", "ServiceRestart", msg, []string{
+		hints := []string{
 			"note: after a glibc/openssl security update, unrestarted services stay vulnerable until restarted",
 			"to inspect: needs-restarting -s   (dnf-utils), or: lsof +c0 -d DEL 2>/dev/null | grep '\\.so'",
 			"to fix: systemctl restart <unit> for each, or reboot",
-		})}
+		}
+		// This branch used to return before the NeedsRoot check below, so a
+		// non-root scan's partial count (root-owned processes' /proc/<pid>/maps
+		// are unreadable non-root) was asserted as exact — a false-precision
+		// version of the false-clean bug. Keep the real, actionable WARN, but
+		// disclose that the count may be a floor, not the true total.
+		if d.NeedsRoot {
+			msg += " — scan was non-root and partial; root-owned processes were not checked, so the real count may be higher"
+			hints = append(hints, "to inspect fully: re-run as root (sudo dsd health)")
+		}
+		return []models.Insight{insight("WARN", "ServiceRestart", msg, hints)}
 	}
 	if d.NeedsRoot {
 		return []models.Insight{insight("INFO", "ServiceRestart",

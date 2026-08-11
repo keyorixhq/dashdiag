@@ -207,6 +207,14 @@ func checkDocker(d models.DockerInfo) []models.Insight {
 			}
 			return out
 		}
+		// StatusReason=="" here is deliberate, not a gap: the collector
+		// (collectors/docker.go) reserves StatusReason for an installed-but-
+		// unusable runtime — only Docker qualifies (it needs a running daemon,
+		// so an installed dockerd with no socket is a real fault). Podman is
+		// daemonless, so "no socket" is its normal idle state, not a fault. A
+		// host with nothing usable at all (including idle Podman) leaves
+		// StatusReason empty on purpose, so it's safe to stay silent here too
+		// rather than manufacture a WARN with nothing to point at.
 		if d.StatusReason != "" {
 			out = append(out, insight("WARN", virtCatDocker,
 				d.StatusReason,

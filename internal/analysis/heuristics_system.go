@@ -1096,6 +1096,12 @@ func checkOOM(oom models.OOMInfo) []models.Insight {
 }
 
 func checkMTE(m models.MTEInfo) []models.Insight {
+	// Deliberate, not a gap: Available=false only ever comes from a zero-value
+	// MTEInfo — MTECollector is only registered when IsMTEAvailable() already
+	// confirmed arm64 + the CPU/kernel "mte" feature flag (mte_linux.go), and
+	// its Collect() unconditionally sets Available:true, so a real host never
+	// reaches this function with Available=false. Genuinely not applicable on
+	// non-arm64 or pre-MTE hardware, same shape as checkEntropy/checkPressure.
 	if !m.Available {
 		return nil
 	}

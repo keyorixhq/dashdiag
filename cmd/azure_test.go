@@ -102,6 +102,7 @@ func TestPrintAzureReport_Healthy(t *testing.T) {
 		AN:               []models.ANIface{{VF: "enP1s2", Driver: "mlx5_core", Synthetic: "eth0", Bonded: true, Up: true}},
 		WAAgentInstalled: true, WAAgentRunning: true,
 		TimeSyncChecked: true, UsesHyperVPTP: true,
+		DisksChecked: true,
 	}
 	var buf bytes.Buffer
 	printAzureReport(&buf, clean, 50*time.Millisecond, output.ModePlain)

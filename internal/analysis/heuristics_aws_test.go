@@ -27,6 +27,21 @@ func hasAWSInsight(ins []models.Insight, level string, subs ...string) bool {
 	return false
 }
 
+// A DMI-confirmed EC2 host (IsEC2==true) where IMDSChecked/RebalanceChecked
+// are false means the probe itself failed (firewalled IMDS, IMDSv2-only
+// lockdown, token request error) — never "not on EC2", since that state
+// never reaches this collector. Both must disclose, not silently drop out of
+// the recognition line the way "EC2 t4g.small — ENA allowances clean" used to
+// with zero mention that IMDS/rebalance posture was never actually read.
+func TestCheckAWS_UncheckedIMDSAndRebalanceDisclose(t *testing.T) {
+	if !hasAWSInsight(checkAWS(models.AWSInfo{IsEC2: true, IMDSChecked: false}), "INFO", "could not verify IMDS posture") {
+		t.Error("IMDSChecked=false must disclose, not silently pass")
+	}
+	if !hasAWSInsight(checkAWS(models.AWSInfo{IsEC2: true, IMDSChecked: true, RebalanceChecked: false}), "INFO", "could not verify EC2 rebalance-recommendation status") {
+		t.Error("RebalanceChecked=false must disclose, not silently pass")
+	}
+}
+
 func TestCheckAWS_NonEC2Silent(t *testing.T) {
 	if got := checkAWS(models.AWSInfo{}); got != nil {
 		t.Errorf("non-EC2 should yield no insights, got %v", got)
@@ -45,6 +60,7 @@ func TestCheckAWS_HealthyRecognition(t *testing.T) {
 		}}},
 		EBS:         []models.EBSStats{{Device: "nvme0n1"}},
 		IMDSChecked: true, IMDSv1Enabled: false,
+		RebalanceChecked: true,
 	}
 	got := checkAWS(a)
 	if len(got) != 1 || got[0].Level != "INFO" {
@@ -147,6 +163,7 @@ func TestCheckAWS_TailRecognition(t *testing.T) {
 		IsEC2: true, InstanceType: "c6gn.medium",
 		ENA:               []models.ENAStats{{Iface: "ens5", Total: map[string]uint64{"bw_in": 0}}},
 		IMDSChecked:       true,
+		RebalanceChecked:  true,
 		ENAExpressChecked: true, ENAExpressActive: true,
 		NitroEnclavesPresent: true,
 	}

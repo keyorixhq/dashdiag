@@ -160,6 +160,17 @@ func awsIMDSInsights(a models.AWSInfo) []models.Insight {
 				"note: confirm no in-instance software still uses IMDSv1 before enforcing",
 			})}
 	}
+	// This collector only runs behind IsEC2 (DMI-confirmed), so IMDSChecked=false
+	// here is never "not on EC2" — it's the IMDS probe itself failing (firewalled
+	// 169.254.169.254, hop-limit=1, an IMDSv2-only lockdown that also blocks the
+	// probe's own token request). Don't let that silently drop the IMDSv1 posture
+	// check off a clean run — same false-clean class as the EBS EBSNeedsRoot/
+	// EBSReadFailed disclosures just above.
+	if !a.IMDSChecked {
+		return []models.Insight{insight("INFO", "AWS",
+			"could not verify IMDS posture — the metadata service token request failed or was unreachable",
+			[]string{"to inspect: curl -s -X PUT -H 'X-aws-ec2-metadata-token-ttl-seconds: 21600' http://169.254.169.254/latest/api/token"})}
+	}
 	return nil
 }
 
@@ -167,6 +178,13 @@ func awsRebalanceInsights(a models.AWSInfo) []models.Insight {
 	if a.RebalanceChecked && a.RebalanceRecommended {
 		return []models.Insight{insight("WARN", "AWS",
 			"EC2 rebalance recommendation is active — AWS signals this spot instance is at elevated risk of interruption; drain/migrate before the termination notice",
+			[]string{"to inspect: curl -s http://169.254.169.254/latest/meta-data/events/recommendations/rebalance"})}
+	}
+	// Same reasoning as awsIMDSInsights above: RebalanceChecked=false on a
+	// DMI-confirmed EC2 host means the probe failed, not "no recommendation".
+	if !a.RebalanceChecked {
+		return []models.Insight{insight("INFO", "AWS",
+			"could not verify EC2 rebalance-recommendation status — the metadata probe failed or was unreachable",
 			[]string{"to inspect: curl -s http://169.254.169.254/latest/meta-data/events/recommendations/rebalance"})}
 	}
 	return nil

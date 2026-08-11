@@ -130,6 +130,19 @@ func TestCheckServiceRestart(t *testing.T) {
 	if !hasInsightMsg(checkServiceRestart(models.ServiceRestartInfo{Available: true, StaleCount: 0, NeedsRoot: true}), "INFO", "partial") {
 		t.Errorf("partial non-root scan must INFO, not silently pass")
 	}
+	// stale AND non-root: the WARN fired first and returned before the NeedsRoot
+	// check ever ran, so a partial count was asserted as exact — false precision,
+	// not false-clean, but the same root cause. The WARN must still fire (real
+	// staleness found) but must also disclose the count may be a floor.
+	staleNonRoot := models.ServiceRestartInfo{
+		Available: true, StaleCount: 2, StaleNames: []string{"sshd", "dbus-broker"}, NeedsRoot: true,
+	}
+	if !hasInsightMsg(checkServiceRestart(staleNonRoot), "WARN", "OLD code") {
+		t.Errorf("stale-lib processes must still WARN even when the scan was partial")
+	}
+	if !hasInsightMsg(checkServiceRestart(staleNonRoot), "WARN", "non-root and partial") {
+		t.Errorf("WARN must disclose the scan was non-root/partial, not assert an exact count")
+	}
 }
 
 func TestCheckKernelRetention(t *testing.T) {
