@@ -26,6 +26,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -113,11 +114,30 @@ func safeBundlePath(raw string) (string, error) {
 
 // ── tool handlers ──────────────────────────────────────────────────────────
 
+// mcpPipelineMu serializes every MCP tool handler that touches the shared,
+// process-global health-pipeline state: collectors.activeSource (an
+// atomic.Pointer, but "swap in a Recorder/Replay, run the pipeline, swap the
+// previous Source back" is a multi-step transaction the atomicity of the
+// individual load/store does NOT make safe under concurrency) and, via
+// replayBundle, platform's identity/replay-platform overrides. The MCP SDK
+// runs concurrent tool calls (jsonrpc2.Async for every non-initialize
+// request), so without this a dsd_capture running concurrently with a
+// dsd_health/dsd_replay/dsd_diff call could have the OTHER call's collectors
+// silently read through (or tee into) this call's Recorder/Replay — cross-
+// contaminating a capture bundle or a live health result with data that was
+// never actually observed together. dsd_capture/replay/diff already cost
+// several seconds each (a full collector sweep), so serializing here is not
+// a meaningful throughput concern for a diagnostic tool.
+var mcpPipelineMu sync.Mutex
+
 // toolHealth runs the full health pipeline and returns the JSON verdict.
 // Equivalent to `dsd health --json [--deep] [--cve]`.
 func toolHealth(_ context.Context, _ *mcp.CallToolRequest, in mcpHealthInput) (
 	*mcp.CallToolResult, any, error,
 ) {
+	mcpPipelineMu.Lock()
+	defer mcpPipelineMu.Unlock()
+
 	ctx := context.Background()
 	ctrCtx := collectors.ContainerContextViaSource()
 	cloudEnv := collectors.CloudEnvironmentViaSource()
@@ -140,6 +160,9 @@ func toolHealth(_ context.Context, _ *mcp.CallToolRequest, in mcpHealthInput) (
 func toolCapture(_ context.Context, _ *mcp.CallToolRequest, in mcpCaptureInput) (
 	*mcp.CallToolResult, mcpCaptureOutput, error,
 ) {
+	mcpPipelineMu.Lock()
+	defer mcpPipelineMu.Unlock()
+
 	outPath, err := safeBundlePath(in.OutPath)
 	if err != nil {
 		return nil, mcpCaptureOutput{}, fmt.Errorf("dsd_capture: invalid out_path: %w", err)
@@ -204,6 +227,9 @@ func toolCapture(_ context.Context, _ *mcp.CallToolRequest, in mcpCaptureInput) 
 func toolReplay(_ context.Context, _ *mcp.CallToolRequest, in mcpReplayInput) (
 	*mcp.CallToolResult, any, error,
 ) {
+	mcpPipelineMu.Lock()
+	defer mcpPipelineMu.Unlock()
+
 	bundlePath, err := safeBundlePath(in.BundlePath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("dsd_replay: invalid bundle_path: %w", err)
@@ -227,6 +253,9 @@ func toolReplay(_ context.Context, _ *mcp.CallToolRequest, in mcpReplayInput) (
 func toolDiff(_ context.Context, _ *mcp.CallToolRequest, in mcpDiffInput) (
 	*mcp.CallToolResult, any, error,
 ) {
+	mcpPipelineMu.Lock()
+	defer mcpPipelineMu.Unlock()
+
 	baselinePath, err := safeBundlePath(in.BaselinePath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("dsd_diff: invalid baseline_path: %w", err)
