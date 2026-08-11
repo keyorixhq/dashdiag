@@ -69,13 +69,22 @@ func runCVE(cmd *cobra.Command, args []string) error {
 		if !jsonOut {
 			fmt.Printf("\nUsing OVAL file: %s\n", ovalPath)
 		}
+		var failed int
+		var lastErr error
 		for _, cveID := range args {
 			if !jsonOut {
 				fmt.Printf("Checking %s ...\n", strings.ToUpper(cveID))
 			}
 			r, err := cvedata.CheckCVEFromOVAL(ctx, ovalPath, cveID)
 			if err != nil {
+				failed++
+				lastErr = err
 				fmt.Fprintf(os.Stderr, "oval error: %v\n", err)
+				if jsonOut {
+					enc := json.NewEncoder(os.Stdout)
+					enc.SetIndent("", "  ")
+					_ = enc.Encode(&cvedata.OVALResult{CVE: strings.ToUpper(cveID), Error: err.Error()})
+				}
 				continue
 			}
 			if r.Found && len(r.Packages) > 0 {
@@ -89,7 +98,7 @@ func runCVE(cmd *cobra.Command, args []string) error {
 			}
 			printOVALResult(r)
 		}
-		return nil
+		return ovalLoopExitDecision(failed, len(args), lastErr)
 	}
 
 	if allFlag {
@@ -114,6 +123,24 @@ func runCVE(cmd *cobra.Command, args []string) error {
 	}
 
 	return runCVEChecks(ctx, args, jsonOut)
+}
+
+// ovalLoopExitDecision folds the pass/fail tally from the --oval per-CVE loop
+// into the exit-code contract. cmd-03-01: a CVE ID whose OVAL lookup errored
+// was never verified either way and must never read as a clean pass — this
+// file's own r.ScanFailed handling in printAllCVEs guards against exactly
+// this class elsewhere. Total failure (not one CVE ID could be checked) bails
+// with a real error; a partial failure still raises WARN so a CI gate can't
+// silently miss the unverified IDs.
+func ovalLoopExitDecision(failed, total int, lastErr error) error {
+	if failed == 0 {
+		return nil
+	}
+	if failed == total {
+		return fmt.Errorf("oval: no CVE ID could be checked: %w", lastErr)
+	}
+	recordExitCode(1)
+	return nil
 }
 
 // runCVEChecks handles `dsd cve <CVE-ID...>`: per-CVE lookup, JSON or human

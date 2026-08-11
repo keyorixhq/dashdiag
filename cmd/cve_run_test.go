@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"testing"
 
@@ -44,16 +45,19 @@ func TestRunCVEOvalNoArgs(t *testing.T) {
 }
 
 // TestRunCVEOvalInvalidPath exercises the --oval per-CVE loop against a file
-// that doesn't exist: CheckCVEFromOVAL fails, the loop prints the error to
-// stderr and continues rather than aborting the whole command.
+// that doesn't exist. cmd-03-01: every requested CVE ID fails to load, so the
+// command must bail with a real error instead of silently exiting 0 — the
+// operator asked to verify specific CVEs and NONE of them were ever checked.
 func TestRunCVEOvalInvalidPath(t *testing.T) {
 	c := newBareCVECmd()
 	_ = c.Flags().Set("oval", "/nonexistent/path.oval.xml")
+	var runErr error
 	out := captureStdout(t, func() {
-		if err := runCVE(c, []string{"CVE-2024-1234", "CVE-2024-5678"}); err != nil {
-			t.Fatalf("runCVE --oval with a bad file should not itself error (per-CVE errors are logged), got: %v", err)
-		}
+		runErr = runCVE(c, []string{"CVE-2024-1234", "CVE-2024-5678"})
 	})
+	if runErr == nil {
+		t.Fatal("runCVE --oval where every CVE ID fails to load must return an error, got nil")
+	}
 	if !strings.Contains(out, "Using OVAL file") {
 		t.Errorf("should announce the OVAL file in use, got:\n%s", out)
 	}
@@ -63,20 +67,59 @@ func TestRunCVEOvalInvalidPath(t *testing.T) {
 }
 
 // TestRunCVEOvalInvalidPathJSON exercises the same --oval loop in --json mode
-// (skips the "Checking..." human announcements).
+// (skips the "Checking..." human announcements). cmd-03-01: a failed lookup
+// must still be disclosed in the JSON stream (an OVALResult with Error set)
+// rather than silently vanishing from the output, and the command must error.
 func TestRunCVEOvalInvalidPathJSON(t *testing.T) {
 	c := newBareCVECmd()
 	_ = c.Flags().Set("oval", "/nonexistent/path.oval.xml")
 	_ = c.Flags().Set("json", "true")
+	var runErr error
 	out := captureStdout(t, func() {
-		if err := runCVE(c, []string{"CVE-2024-1234"}); err != nil {
-			t.Fatalf("runCVE --oval --json with a bad file should not error, got: %v", err)
-		}
+		runErr = runCVE(c, []string{"CVE-2024-1234"})
 	})
-	// A load failure produces no JSON-encodable result — nothing should be
-	// printed to stdout for that CVE.
-	if strings.Contains(out, "CVE-2024-1234") {
-		t.Errorf("a failed OVAL load must not print anything for that CVE on stdout, got:\n%s", out)
+	if runErr == nil {
+		t.Fatal("runCVE --oval --json where the only CVE ID fails to load must return an error, got nil")
+	}
+	if !strings.Contains(out, `"CVE": "CVE-2024-1234"`) {
+		t.Errorf("a failed OVAL load must still emit a JSON result disclosing the CVE ID, got:\n%s", out)
+	}
+	if !strings.Contains(out, `"Error"`) {
+		t.Errorf("a failed OVAL load's JSON result must disclose the error, got:\n%s", out)
+	}
+}
+
+// TestOVALLoopExitDecision is a regression guard for cmd-03-01: an OVAL
+// lookup error must never read as a clean pass. Total failure bails with a
+// real error; a partial failure still raises WARN (exit 1) instead of the
+// prior silent 0.
+func TestOVALLoopExitDecision(t *testing.T) {
+	lookupErr := errors.New("loading OVAL: no such file")
+	cases := []struct {
+		name          string
+		failed, total int
+		wantErr       bool
+		wantExitCode  int
+	}{
+		{"none failed", 0, 3, false, 0},
+		{"all failed", 3, 3, true, 0},
+		{"partial failure", 1, 3, false, 1},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			pendingExitCode = 0
+			defer func() { pendingExitCode = 0 }()
+			err := ovalLoopExitDecision(tc.failed, tc.total, lookupErr)
+			if tc.wantErr && err == nil {
+				t.Fatal("expected an error, got nil")
+			}
+			if !tc.wantErr && err != nil {
+				t.Fatalf("expected no error, got %v", err)
+			}
+			if pendingExitCode != tc.wantExitCode {
+				t.Errorf("pendingExitCode = %d, want %d", pendingExitCode, tc.wantExitCode)
+			}
+		})
 	}
 }
 
