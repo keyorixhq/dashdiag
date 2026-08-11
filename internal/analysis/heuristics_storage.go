@@ -788,16 +788,41 @@ func checkLVMRaid(l models.LVMInfo) []models.Insight {
 // Corosync clusters — a split brain or disconnection means the HA layer
 // is no longer protecting against node failure.
 func checkDRBD(d models.DRBDInfo) []models.Insight {
-	if d.Unverified {
-		// DRBD 9 present but resource state unreadable (netlink needs root). Say so —
-		// never omit (a split-brain/diskless resource must not hide behind silence).
-		return []models.Insight{insight("INFO", "DRBD",
-			"DRBD 9 present — resource state needs root (drbdsetup status uses netlink/CAP_NET_ADMIN)",
-			[]string{"to verify: sudo drbdsetup status --json all   (or run dsd as root)"})}
-	}
+	// Score whatever resources WERE parsed first — Unverified has two distinct
+	// producers (collectors/drbd_linux.go) and one of them (a partial /proc/drbd
+	// read on 8.x: scanner.Err() after at least one resource line was already
+	// parsed) leaves Resources non-empty. The old code checked Unverified before
+	// this loop and discarded already-parsed resources unconditionally — on an
+	// 8.x host where /proc/drbd errored mid-read right after a resource was
+	// parsed as cs:SplitBrain, that CRIT was silently dropped (exit code 2->0).
 	out := make([]models.Insight, 0, len(d.Resources))
 	for _, res := range d.Resources {
 		out = append(out, checkDRBDResource(res)...)
+	}
+	switch {
+	case !d.Unverified:
+		// clean
+	case len(d.Resources) > 0:
+		// The 8.x partial-read producer: some resources were parsed (and scored
+		// above) before the scanner errored — say the list may be incomplete
+		// rather than silently implying it's exhaustive.
+		out = append(out, insight("INFO", "DRBD",
+			"/proc/drbd read was incomplete — additional DRBD resources beyond those listed above may exist and are not reflected here",
+			[]string{"to verify: cat /proc/drbd", fmt.Sprintf(inspectDRBDStatusFmt, "all")}))
+	case strings.HasPrefix(d.Version, "9"):
+		// The v9/netlink producer: Resources is always empty here (drbd_linux.go
+		// only sets Unverified on this path when netlink returned nothing under
+		// a non-root euid) — never omit (a split-brain/diskless resource must not
+		// hide behind silence).
+		out = append(out, insight("INFO", "DRBD",
+			"DRBD 9 present — resource state needs root (drbdsetup status uses netlink/CAP_NET_ADMIN)",
+			[]string{"to verify: sudo drbdsetup status --json all   (or run dsd as root)"}))
+	default:
+		// A partial read that failed before parsing anything (or before the
+		// version header), so neither branch above applies.
+		out = append(out, insight("INFO", "DRBD",
+			"/proc/drbd could not be read — DRBD resource state NOT verified",
+			[]string{"to verify: cat /proc/drbd", fmt.Sprintf(inspectDRBDStatusFmt, "all")}))
 	}
 	return out
 }

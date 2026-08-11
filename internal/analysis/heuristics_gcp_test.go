@@ -73,14 +73,21 @@ func TestCheckGCP_ActiveMaintenanceWarns(t *testing.T) {
 }
 
 func TestCheckGCP_UnreadMaintenanceNotClaimed(t *testing.T) {
-	// MaintenanceChecked false → no maintenance insight AND no policy in the recognition
-	// line (couldn't-measure, never a silent OK).
+	// This collector only runs behind IsGCP (DMI-confirmed), so
+	// MaintenanceChecked==false here means the metadata query itself failed —
+	// on-host-maintenance is a MANDATORY attribute every GCE VM has, unlike
+	// OSLoginChecked (optional, a 404 is normal). Must disclose an explicit
+	// could-not-verify INFO, not just omit the policy from a fallback
+	// recognition line.
 	got := checkGCP(models.GCPInfo{IsGCP: true, MaintenanceChecked: false})
 	if len(got) != 1 || got[0].Level != "INFO" {
-		t.Fatalf("unread maintenance = %+v, want one recognition line", got)
+		t.Fatalf("unread maintenance = %+v, want one INFO disclosure", got)
 	}
-	if strings.Contains(got[0].Message, "on-host-maintenance") {
+	if strings.Contains(got[0].Message, "on-host-maintenance=") {
 		t.Errorf("must not state a maintenance policy when unmeasured: %q", got[0].Message)
+	}
+	if !strings.Contains(got[0].Message, "could not verify") {
+		t.Errorf("must disclose that maintenance policy could not be verified, got %q", got[0].Message)
 	}
 }
 

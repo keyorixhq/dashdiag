@@ -56,12 +56,19 @@ func azureTempDiskInsights(a models.AzureInfo) []models.Insight {
 // azureCachingInsights flags the one documented host-cache hazard: a DATA disk with
 // ReadWrite host caching. Azure recommends None/ReadOnly for data disks (ReadWrite
 // write-back caching risks consistency for write-heavy/database volumes). The OS disk's
-// ReadWrite default is correct and is never flagged. An unread storage profile
-// (DisksChecked == false) produces no insight and is omitted from the recognition line
-// — never a silent "caching OK".
+// ReadWrite default is correct and is never flagged.
 func azureCachingInsights(a models.AzureInfo) []models.Insight {
+	// This collector only runs behind IsAzure (DMI-confirmed), so DisksChecked
+	// ==false here is never "not on Azure" — it's the IMDS storageProfile query
+	// itself failing. checkAzure's other sub-checks (waagent, AN datapath) can
+	// still populate `out`, so an unread storage profile must disclose on its
+	// own rather than rely on the "everything was silent" recognition-line
+	// fallback, which never mentions caching either way (same false-clean
+	// class as the AWS IMDS/rebalance fix).
 	if !a.DisksChecked {
-		return nil
+		return []models.Insight{insight("INFO", "Azure",
+			"could not verify data-disk host-caching configuration — the IMDS storage profile could not be read",
+			[]string{"to inspect: curl -s -H Metadata:true 'http://169.254.169.254/metadata/instance/compute/storageProfile?api-version=2021-02-01'"})}
 	}
 	var out []models.Insight
 	for _, d := range a.Disks {

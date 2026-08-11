@@ -15,7 +15,20 @@ const (
 
 func checkCloudMeta(c models.CloudInfo) []models.Insight {
 	if !c.Available {
-		return nil
+		// This collector only runs when IsCloudInstance() already succeeded a
+		// live IMDS probe against AWS or GCP (collectors/cloudmeta_linux.go) —
+		// so Available=false here does not mean "not on a cloud" (that host
+		// never reaches this collector at all). It means the full per-provider
+		// metadata walk (AWS token + instance-id, then Azure/GCP/OCI in turn)
+		// failed after the gate's quick probe succeeded — a transient IMDS
+		// failure or IMDSv2-token-flow gap, not a clean "no cloud findings".
+		// Disclose it instead of silently reading as OK (same false-clean bug
+		// class #921 fixed elsewhere; no StatusReason to cite — the collector
+		// exhausts all four providers with no per-provider failure recorded).
+		return []models.Insight{insight("INFO", cloudCatMeta,
+			"cloud instance detected but its metadata could not be read from any provider's IMDS endpoint",
+			[]string{"to inspect: curl -s -H 'Metadata-Flavor: Google' http://metadata.google.internal/computeMetadata/v1/instance/id"},
+		)}
 	}
 	var out []models.Insight
 	if c.SpotTermination {

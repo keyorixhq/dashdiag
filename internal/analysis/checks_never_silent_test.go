@@ -8,91 +8,199 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/platform"
 )
 
-// TestChecksNeverSilentlySkip is the regression guard for the false-clean bug
-// class: a check function that could not measure/verify something must say so
-// (an INFO insight) rather than returning an empty slice indistinguishable
-// from "checked and found nothing wrong". Each entry's input reproduces a real
-// "could not measure" state; the assertion is that at least one insight is
-// emitted and that its message names what could not be verified.
+// neverSilentCheck is one row of neverSilentChecks — see that var's doc comment.
+type neverSilentCheck struct {
+	name       string
+	checkFn    string // the check<X> function name this row exercises — must match a real function; cross-checked by TestAllChecksRegistered
+	run        func() []models.Insight
+	wantSubstr string // must appear in at least one emitted insight's message
+}
+
+// neverSilentChecks is the regression guard for the false-clean bug class: a
+// check function that could not measure/verify something must say so (an INFO
+// insight) rather than returning an empty slice indistinguishable from
+// "checked and found nothing wrong". Each entry's input reproduces a real
+// "could not measure" state; TestChecksNeverSilentlySkip asserts that at
+// least one insight is emitted and that its message names what could not be
+// verified.
 //
 // Table-driven and explicit on purpose: a new check with a silent "give up"
-// path does not fail this test by construction — it has to be added here,
-// which is itself the point (adding a check without adding a row is visible
-// in review, not silently uncovered).
-func TestChecksNeverSilentlySkip(t *testing.T) {
-	tests := []struct {
-		name       string
-		run        func() []models.Insight
-		wantSubstr string // must appear in at least one emitted insight's message
-	}{
-		{
-			name: "checkMemory: cgroup memory unmeasurable in a limited container",
-			run: func() []models.Insight {
-				ctr := platform.ContainerContext{InContainer: true, MemLimitMB: 2048}
-				mem := models.MemoryInfo{UsedPct: 95, TotalGB: 2, FreeGB: 0.1, CgroupMemMeasured: false}
-				return checkMemory(mem, defaultThresh, ctr)
-			},
-			wantSubstr: "could not be read",
+// path does not fail TestChecksNeverSilentlySkip by construction — it has to
+// be added here, which is itself the point (adding a check without adding a
+// row is visible in review, not silently uncovered). TestAllChecksRegistered
+// (checks_registry_governance_test.go) is the backstop for the "has to be
+// added" half of that claim — it fails on any check function capable of this
+// bug class that isn't a checkFn here or in checkExemptions.
+//
+// A package-level var (not inline in the test func) so TestAllChecksRegistered
+// can read the covered function names without re-parsing the test body.
+var neverSilentChecks = []neverSilentCheck{
+	{
+		name:    "checkMemory: cgroup memory unmeasurable in a limited container",
+		checkFn: "checkMemory",
+		run: func() []models.Insight {
+			ctr := platform.ContainerContext{InContainer: true, MemLimitMB: 2048}
+			mem := models.MemoryInfo{UsedPct: 95, TotalGB: 2, FreeGB: 0.1, CgroupMemMeasured: false}
+			return checkMemory(mem, defaultThresh, ctr)
 		},
-		{
-			name: "checkOCI: on OCI but every sub-check unreachable",
-			run: func() []models.Insight {
-				return checkOCI(models.OCIInfo{IsOCI: true})
-			},
-			wantSubstr: "could not be verified",
+		wantSubstr: "could not be read",
+	},
+	{
+		name:    "checkOCI: on OCI but every sub-check unreachable",
+		checkFn: "checkOCI",
+		run: func() []models.Insight {
+			return checkOCI(models.OCIInfo{IsOCI: true})
 		},
-		{
-			name: "checkSessions: `w` unavailable",
-			run: func() []models.Insight {
-				return checkSessions(models.SessionsInfo{Checked: false})
-			},
-			wantSubstr: "could not be enumerated",
+		wantSubstr: "could not be verified",
+	},
+	{
+		name:    "checkSessions: `w` unavailable",
+		checkFn: "checkSessions",
+		run: func() []models.Insight {
+			return checkSessions(models.SessionsInfo{Checked: false})
 		},
-		{
-			name: "checkContainerGuest: cgroup v1 throttle/OOM signals unread",
-			run: func() []models.Insight {
-				v := models.ContainerGuestInfo{
-					InContainer:      true,
-					MemLimitBytes:    1 << 30,
-					CPUQuotaCores:    1,
-					CgroupV2:         false,
-					CgroupV1Measured: false,
-				}
-				return checkContainerGuest(v)
-			},
-			wantSubstr: "could not be read on this cgroup v1 host",
+		wantSubstr: "could not be enumerated",
+	},
+	{
+		name:    "checkContainerGuest: cgroup v1 throttle/OOM signals unread",
+		checkFn: "checkContainerGuest",
+		run: func() []models.Insight {
+			v := models.ContainerGuestInfo{
+				InContainer:      true,
+				MemLimitBytes:    1 << 30,
+				CPUQuotaCores:    1,
+				CgroupV2:         false,
+				CgroupV1Measured: false,
+			}
+			return checkContainerGuest(v)
 		},
-		{
-			name: "checkPostBoot: prior boot state unmeasurable",
-			run: func() []models.Insight {
-				return checkPostBoot(models.PostBootInfo{Available: true, State: "unmeasurable"})
-			},
-			wantSubstr: "forensics unavailable",
+		wantSubstr: "could not be read on this cgroup v1 host",
+	},
+	{
+		name:    "checkPostBoot: prior boot state unmeasurable",
+		checkFn: "checkPostBoot",
+		run: func() []models.Insight {
+			return checkPostBoot(models.PostBootInfo{Available: true, State: "unmeasurable"})
 		},
-		{
-			name: "checkElasticsearch: reachable but cluster health unread",
-			run: func() []models.Insight {
-				return checkElasticsearch(models.ElasticsearchInfo{Detected: true, HealthRead: false})
-			},
-			wantSubstr: "could not be read",
+		wantSubstr: "forensics unavailable",
+	},
+	{
+		name:    "checkElasticsearch: reachable but cluster health unread",
+		checkFn: "checkElasticsearch",
+		run: func() []models.Insight {
+			return checkElasticsearch(models.ElasticsearchInfo{Detected: true, HealthRead: false})
 		},
-		{
-			name: "checkFirewall: query failed, reason given",
-			run: func() []models.Insight {
-				return checkFirewall(models.FirewallInfo{Available: false, StatusReason: "nft query failed: permission denied"})
-			},
-			wantSubstr: "not verified",
+		wantSubstr: "could not be read",
+	},
+	{
+		name:    "checkFirewall: query failed, reason given",
+		checkFn: "checkFirewall",
+		run: func() []models.Insight {
+			return checkFirewall(models.FirewallInfo{Available: false, StatusReason: "nft query failed: permission denied"})
 		},
-		{
-			name: "checkAuth: sshd present but auth log unreadable",
-			run: func() []models.Insight {
-				return checkAuth(models.AuthInfo{Available: true, Checked: false})
-			},
-			wantSubstr: "could not be read",
+		wantSubstr: "not verified",
+	},
+	{
+		name:    "checkAuth: sshd present but auth log unreadable",
+		checkFn: "checkAuth",
+		run: func() []models.Insight {
+			return checkAuth(models.AuthInfo{Available: true, Checked: false})
 		},
-	}
+		wantSubstr: "could not be read",
+	},
+	{
+		name:    "checkRHELSubscription: subscription-manager output unparseable",
+		checkFn: "checkRHELSubscription",
+		run: func() []models.Insight {
+			return checkRHELSubscription(models.SUSEConnectInfo{StatusUnverified: true})
+		},
+		wantSubstr: "could not be determined",
+	},
+	{
+		name:    "checkCloudMeta: on a cloud (IsCloudInstance gated) but metadata unreachable",
+		checkFn: "checkCloudMeta",
+		run: func() []models.Insight {
+			return checkCloudMeta(models.CloudInfo{Available: false})
+		},
+		wantSubstr: "could not be read",
+	},
+	{
+		name:    "checkServiceRestart: stale libraries found by a partial non-root scan",
+		checkFn: "checkServiceRestart",
+		run: func() []models.Insight {
+			return checkServiceRestart(models.ServiceRestartInfo{
+				Available: true, StaleCount: 2, StaleNames: []string{"sshd", "dbus-broker"}, NeedsRoot: true,
+			})
+		},
+		wantSubstr: "non-root and partial",
+	},
+	{
+		name:    "checkAWS: on EC2 (IsEC2 gated) but IMDS posture unreachable",
+		checkFn: "checkAWS",
+		run: func() []models.Insight {
+			return checkAWS(models.AWSInfo{IsEC2: true, IMDSChecked: false})
+		},
+		wantSubstr: "could not verify IMDS posture",
+	},
+	{
+		name:    "checkAzure: on Azure (IsAzure gated) but storage profile unreachable",
+		checkFn: "checkAzure",
+		run: func() []models.Insight {
+			return checkAzure(models.AzureInfo{IsAzure: true, DisksChecked: false})
+		},
+		wantSubstr: "could not verify",
+	},
+	{
+		name:    "checkGCP: on GCP (IsGCP gated) but maintenance policy unreachable",
+		checkFn: "checkGCP",
+		run: func() []models.Insight {
+			return checkGCP(models.GCPInfo{IsGCP: true, MaintenanceChecked: false})
+		},
+		wantSubstr: "could not verify",
+	},
+	{
+		name:    "checkDRBD: partial /proc/drbd read after a resource was already parsed",
+		checkFn: "checkDRBD",
+		run: func() []models.Insight {
+			return checkDRBD(models.DRBDInfo{
+				Version:    "8.4.10",
+				Unverified: true,
+				Resources:  []models.DRBDResource{{Minor: 0, ConnState: "SplitBrain"}},
+			})
+		},
+		wantSubstr: "incomplete",
+	},
+	{
+		name:    "checkK8sOSLayerCoverageGaps: root run with KUBE-FORWARD/CNI tools missing",
+		checkFn: "checkK8sOSLayerCoverageGaps",
+		run: func() []models.Insight {
+			return checkK8sOSLayerCoverageGaps(models.K8sOSLayer{KubeForwardChecked: false, CNIChecked: false})
+		},
+		wantSubstr: "checks limited",
+	},
+	{
+		name:    "checkK8s: API unreachable but OS-layer facts (kubelet down) still surface",
+		checkFn: "checkK8s",
+		run: func() []models.Insight {
+			return checkK8s(models.K8sInfo{
+				Detected: true, APIReachable: false,
+				OSLayer: &models.K8sOSLayer{KubeletChecked: true, KubeletActive: false},
+			})
+		},
+		wantSubstr: "kubelet is not running",
+	},
+	{
+		name:    "checkTransactional: btrfs read failed (commonly non-root)",
+		checkFn: "checkTransactional",
+		run: func() []models.Insight {
+			return checkTransactional(models.TransactionalInfo{Available: true, Unverified: true})
+		},
+		wantSubstr: "could not verify",
+	},
+}
 
-	for _, tt := range tests {
+func TestChecksNeverSilentlySkip(t *testing.T) {
+	for _, tt := range neverSilentChecks {
 		t.Run(tt.name, func(t *testing.T) {
 			got := tt.run()
 			if len(got) == 0 {

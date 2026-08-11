@@ -210,10 +210,26 @@ func k8sOSLayerInsights(info *models.K8sInfo) []models.Insight {
 // kept as one pure function so it can't drift from `dsd health`'s k8s heuristics
 // (the sibling-divergence class, #275 — WorkloadsDown/PVCsNotBound/Events must
 // count). Pinned by the cmd↔health consistency test (cmd_health_consistency_test.go).
+//
+// OS-layer insights only count as a concern at WARN/CRIT, never INFO — the same
+// "INFO never raises the verdict" convention `dsd health` follows everywhere else
+// (exitCodeFromInsights, healthHasConcern in the consistency test). Checking
+// len(...) > 0 here used to silently disagree with that convention; it just never
+// surfaced because K8sOSLayer rarely emitted a bare INFO. It does now
+// (checkK8sOSLayerCoverageGaps discloses KubeForwardChecked/CNIChecked=false), which
+// is what caught this.
 func k8sHasConcern(info *models.K8sInfo) bool {
 	issues := info.NodesNotReady + info.CrashLooping + info.Pending + info.PodsNotReady +
 		info.UnknownStatus + info.WorkloadsDown + info.PVCsNotBound + len(info.Events)
-	return issues > 0 || info.HighRestarts > 0 || len(k8sOSLayerInsights(info)) > 0
+	if issues > 0 || info.HighRestarts > 0 {
+		return true
+	}
+	for _, ins := range k8sOSLayerInsights(info) {
+		if ins.Level == "WARN" || ins.Level == "CRIT" {
+			return true
+		}
+	}
+	return false
 }
 
 // printK8sOSLayer renders each OS-layer insight as a line, exactly mirroring what

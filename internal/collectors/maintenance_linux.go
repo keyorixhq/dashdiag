@@ -584,10 +584,20 @@ func (c *TransactionalCollector) Collect(ctx context.Context) (interface{}, erro
 	if out, err := runCmdOutput(ctx, "btrfs", "subvolume", "get-default", "/"); err == nil {
 		info.DefaultSnapshot = snapshotNumberFromPath(out)
 	}
-	// Only assert a pending reboot when BOTH numbers were read and they differ — a
-	// missing read (non-root btrfs) leaves RebootPending false rather than a false alarm.
-	if info.BootedSnapshot > 0 && info.DefaultSnapshot > 0 && info.BootedSnapshot != info.DefaultSnapshot {
+	switch {
+	case info.BootedSnapshot > 0 && info.DefaultSnapshot > 0 && info.BootedSnapshot != info.DefaultSnapshot:
+		// Only assert a pending reboot when BOTH numbers were read and they
+		// differ — a missing read (non-root btrfs) must not read as a false
+		// alarm either.
 		info.RebootPending = true
+	case info.BootedSnapshot == 0 || info.DefaultSnapshot == 0:
+		// One or both reads failed (commonly `btrfs subvolume get-default`
+		// needing CAP_SYS_ADMIN under non-root, or a non-transactional/non-
+		// btrfs layout on a host that has the transactional-update binary but
+		// isn't using it for /) — RebootPending's false zero value would
+		// otherwise be indistinguishable from a genuinely clean "no reboot
+		// pending" host. Disclose instead.
+		info.Unverified = true
 	}
 	return info, nil
 }

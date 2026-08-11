@@ -227,18 +227,16 @@ func TestCheckK8sOSLayer(t *testing.T) {
 		{"ip forward checked + off is CRIT", models.K8sOSLayer{IPForwardChecked: true, FlannelSubnetOK: true, CNIBinsOK: true, KubeForwardChain: true}, "CRIT"},
 		// /proc unreadable (IPForwardChecked=false) must NOT produce a false
 		// "IP forwarding disabled" CRIT — state is unknown, not disabled.
-		{"ip forward unchecked is not CRIT", models.K8sOSLayer{IPForwardChecked: false, FlannelSubnetOK: true, CNIBinsOK: true, KubeForwardChain: true}, ""},
+		// CNIChecked/KubeForwardChecked set true here to isolate the IPForward
+		// condition under test from checkK8sOSLayerCoverageGaps' own INFO
+		// disclosure (fires whenever either is false — see TestCheckK8sOSLayerCoverageGaps_UnverifiedFieldsDiscloseWithoutFalseCritWarn below for that case).
+		{"ip forward unchecked is not CRIT", models.K8sOSLayer{IPForwardChecked: false, FlannelSubnetOK: true, CNIBinsOK: true, KubeForwardChain: true, CNIChecked: true, KubeForwardChecked: true}, ""},
 		{"missing flannel subnet WHEN flannel in use is CRIT", models.K8sOSLayer{IPForwardEnabled: true, FlannelInUse: true, CNIChecked: true, CNIBinsOK: true, KubeForwardChain: true}, "CRIT"},
 		// The false-alarm fix: on a non-flannel CNI (Calico/Cilium) subnet.env is
 		// absent by design — must NOT CRIT.
-		{"missing flannel subnet but flannel NOT in use is clean", models.K8sOSLayer{IPForwardChecked: true, IPForwardEnabled: true, FlannelInUse: false, FlannelSubnetOK: false, CNIChecked: true, CNIBinsOK: true, KubeForwardChain: true}, ""},
+		{"missing flannel subnet but flannel NOT in use is clean", models.K8sOSLayer{IPForwardChecked: true, IPForwardEnabled: true, FlannelInUse: false, FlannelSubnetOK: false, CNIChecked: true, CNIBinsOK: true, KubeForwardChain: true, KubeForwardChecked: true}, ""},
 		{"empty CNI bins is CRIT", models.K8sOSLayer{IPForwardEnabled: true, FlannelSubnetOK: true, CNIChecked: true, KubeForwardChain: true}, "CRIT"},
-		// /opt/cni/bin unreadable (permission) → CNIChecked=false → must NOT CRIT.
-		{"unreadable CNI bins (unchecked) is not CRIT", models.K8sOSLayer{IPForwardChecked: true, IPForwardEnabled: true, FlannelSubnetOK: true, CNIChecked: false, CNIBinsOK: false, KubeForwardChain: true}, ""},
 		{"missing kube-forward chain (checked) is WARN", models.K8sOSLayer{IPForwardEnabled: true, FlannelSubnetOK: true, CNIChecked: true, CNIBinsOK: true, KubeForwardChecked: true}, "WARN"},
-		// [19] fix: neither nft nor iptables available (e.g. k3s) → unchecked → must
-		// NOT WARN (previously defaulted to "present", a false-OK; gating flips it).
-		{"unchecked kube-forward (no tools) is not WARN", models.K8sOSLayer{IPForwardChecked: true, IPForwardEnabled: true, FlannelSubnetOK: true, CNIChecked: true, CNIBinsOK: true, KubeForwardChecked: false}, ""},
 		{"expired cert is CRIT", func() models.K8sOSLayer { l := ok; l.CertExpiredNames = []string{"apiserver"}; return l }(), "CRIT"},
 		{"cert expiring soon is WARN", func() models.K8sOSLayer { l := ok; l.CertExpirySoon = true; l.CertExpirySoonDays = 5; return l }(), "WARN"},
 		// Regression: a cert expiring TODAY (0 days, within 24h) must WARN, not read as
@@ -329,6 +327,43 @@ func TestCheckK8sOSLayer(t *testing.T) {
 			assertLevel(t, CheckK8sOSLayer(tt.l), tt.want)
 		})
 	}
+}
+
+// checkK8sOSLayerCoverageGaps discloses via INFO whenever KubeForwardChecked or
+// CNIChecked is false (see its doc comment) — these two cases used to be pure
+// "" (zero-insight) rows in TestCheckK8sOSLayer's table, which no longer holds
+// now that the unverified state is disclosed; pulled out so each can assert
+// the full three-part expectation the table's two-column (name, want) shape
+// can't express: the disclosure fires, AND no false CRIT/WARN fires alongside it.
+func TestCheckK8sOSLayerCoverageGaps_UnverifiedFieldsDiscloseWithoutFalseCritWarn(t *testing.T) {
+	t.Run("unreadable CNI bins (unchecked) discloses, does not CRIT", func(t *testing.T) {
+		// /opt/cni/bin unreadable (permission) → CNIChecked=false.
+		got := CheckK8sOSLayer(models.K8sOSLayer{
+			IPForwardChecked: true, IPForwardEnabled: true, FlannelSubnetOK: true,
+			CNIChecked: false, CNIBinsOK: false, KubeForwardChain: true, KubeForwardChecked: true,
+		})
+		if !hasInsightMsg(got, "INFO", "some OS-layer checks limited") {
+			t.Errorf("unchecked CNI bins must disclose, got %+v", got)
+		}
+		if hasLevel(got, "CRIT") {
+			t.Errorf("unchecked CNI bins must NOT produce a false CRIT, got %+v", got)
+		}
+	})
+	t.Run("unchecked kube-forward (no tools) discloses, does not WARN", func(t *testing.T) {
+		// [19] fix: neither nft nor iptables available (e.g. k3s) → unchecked →
+		// must NOT WARN (previously defaulted to "present", a false-OK; gating
+		// flips it).
+		got := CheckK8sOSLayer(models.K8sOSLayer{
+			IPForwardChecked: true, IPForwardEnabled: true, FlannelSubnetOK: true,
+			CNIChecked: true, CNIBinsOK: true, KubeForwardChain: true, KubeForwardChecked: false,
+		})
+		if !hasInsightMsg(got, "INFO", "some OS-layer checks limited") {
+			t.Errorf("unchecked kube-forward must disclose, got %+v", got)
+		}
+		if hasLevel(got, "WARN") {
+			t.Errorf("unchecked kube-forward must NOT produce a false WARN, got %+v", got)
+		}
+	})
 }
 
 func TestCheckSnapper_Space(t *testing.T) {

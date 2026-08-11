@@ -869,6 +869,32 @@ func TestTransactionalCollector_Collect_NoRebootPending(t *testing.T) {
 	}
 }
 
+// A failed btrfs read (commonly non-root: `btrfs subvolume get-default`
+// needs CAP_SYS_ADMIN) must not leave RebootPending's false zero value
+// indistinguishable from a genuinely clean host — Unverified must disclose it.
+// Regression for the completeness-guard finding (TestAllChecksRegistered,
+// checkExemptions "checkTransactional" before this fix): a staged-but-unbooted
+// update on a non-root run used to read as a clean "Transactional: OK".
+func TestTransactionalCollector_Collect_UnverifiedOnFailedRead(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutStat("/usr/sbin/transactional-update", source.FileMeta{})
+		b.PutCmd("findmnt", []string{"-no", "FSROOT", "/"}, "/@/.snapshots/2/snapshot\n", 0)
+		b.PutCmd("btrfs", []string{"subvolume", "get-default", "/"}, "", 1)
+	})
+	c := NewTransactionalCollector(platform.ContainerContext{})
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	info := raw.(*models.TransactionalInfo)
+	if !info.Unverified {
+		t.Errorf("expected Unverified=true when the btrfs read fails, got %+v", info)
+	}
+	if info.RebootPending {
+		t.Errorf("a failed read must not assert RebootPending either way, got %+v", info)
+	}
+}
+
 func TestTransactionalCollector_Collect_NotAvailable(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {})
 	c := NewTransactionalCollector(platform.ContainerContext{})

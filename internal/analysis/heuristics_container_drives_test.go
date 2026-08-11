@@ -68,6 +68,29 @@ func TestCheckK8sWiresOSLayer(t *testing.T) {
 	}
 }
 
+// TestCheckK8sWiresOSLayerEvenWhenAPIUnreachable is the regression this guards:
+// checkK8s used to return immediately on !APIReachable, before ever reaching
+// CheckK8sOSLayer — but OSLayer facts (kubelet/containerd/cert/ip_forward/CNI)
+// come from systemd/sysfs/iptables, not the cluster API, so a k3s node with the
+// k3s service itself down (API unreachable AND kubelet down) got ZERO OS-layer
+// disclosure from `dsd health --deep` while `dsd k8s --deep` (which calls
+// CheckK8sOSLayer independently, cmd/k8s.go) reported the real kubelet CRIT for
+// the identical host — a cmd<->health tally-drift (#275) hiding a genuine fault
+// behind checkK8s's own early return.
+func TestCheckK8sWiresOSLayerEvenWhenAPIUnreachable(t *testing.T) {
+	info := models.K8sInfo{
+		Detected: true, APIReachable: false,
+		OSLayer: &models.K8sOSLayer{KubeletChecked: true, KubeletActive: false},
+	}
+	insights := checkK8s(info)
+	if !hasInsightMsg(insights, "INFO", "cluster health NOT verified") {
+		t.Errorf("expected the API-unreachable INFO, got %+v", insights)
+	}
+	if !hasInsightMsg(insights, "CRIT", "kubelet is not running") {
+		t.Errorf("expected the OS-layer kubelet-down CRIT to still surface despite the unreachable API, got %+v", insights)
+	}
+}
+
 // TestK8sUnknownStatusInsight_StatefulSetHint pins Spec 23f's key distinction: a
 // StatefulSet-owned pod stuck Unknown won't be rescheduled until deleted (unlike a
 // Deployment/ReplicaSet pod, which the controller replaces elsewhere), so the hint

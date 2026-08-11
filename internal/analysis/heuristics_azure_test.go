@@ -23,6 +23,7 @@ func TestCheckAzure_HealthyANRecognition(t *testing.T) {
 		HasVF:            true,
 		WAAgentInstalled: true, WAAgentRunning: true,
 		TimeSyncChecked: true, UsesHyperVPTP: true,
+		DisksChecked: true,
 	}
 	got := checkAzure(a)
 	if len(got) != 1 || got[0].Level != "INFO" {
@@ -44,6 +45,7 @@ func TestCheckAzure_SyntheticOnlyIsQuiet(t *testing.T) {
 		HasVF:            false,
 		WAAgentInstalled: true, WAAgentRunning: true,
 		TimeSyncChecked: true, UsesHyperVPTP: true,
+		DisksChecked: true,
 	}
 	got := checkAzure(a)
 	if len(got) != 1 || got[0].Level != "INFO" {
@@ -116,6 +118,7 @@ func TestCheckAzure_TempDiskNormalIsQuiet(t *testing.T) {
 	got := checkAzure(models.AzureInfo{
 		IsAzure:         true,
 		TempDiskPresent: true, TempDiskMount: "/mnt", PersistentDataAtRisk: false,
+		DisksChecked: true,
 	})
 	if len(got) != 1 || got[0].Level != "INFO" {
 		t.Fatalf("normal temp disk = %+v, want one INFO line", got)
@@ -151,19 +154,27 @@ func TestCheckAzure_DataDiskReadWriteCachingWarns(t *testing.T) {
 }
 
 func TestCheckAzure_UnreadStorageProfileNotClaimedOK(t *testing.T) {
-	// DisksChecked false → no caching insight AND no "host caching OK" in the
-	// recognition line (couldn't-measure, never a silent OK).
+	// This collector only runs behind IsAzure (DMI-confirmed), so
+	// DisksChecked==false here means the IMDS storageProfile query itself
+	// failed, not "not on Azure" — it must disclose an explicit could-not-
+	// verify INFO, not just quietly omit "host caching OK" from a fallback
+	// recognition line (the false-clean bug this test used to only half-guard:
+	// silence and disclosure both satisfy "never claims OK", but only
+	// disclosure tells the operator anything was unverified at all).
 	got := checkAzure(models.AzureInfo{IsAzure: true, DisksChecked: false})
 	if len(got) != 1 || got[0].Level != "INFO" {
-		t.Fatalf("unread profile = %+v, want one recognition line", got)
+		t.Fatalf("unread profile = %+v, want one INFO disclosure", got)
 	}
 	if strings.Contains(got[0].Message, "host caching OK") {
 		t.Errorf("must not claim caching OK when unmeasured: %q", got[0].Message)
 	}
+	if !strings.Contains(got[0].Message, "could not verify") {
+		t.Errorf("must disclose that caching could not be verified, got %q", got[0].Message)
+	}
 }
 
 func TestCheckAzure_DynamicMemoryInRecognition(t *testing.T) {
-	got := checkAzure(models.AzureInfo{IsAzure: true, DynamicMemory: true, DynMemMaxMB: 8192})
+	got := checkAzure(models.AzureInfo{IsAzure: true, DynamicMemory: true, DynMemMaxMB: 8192, DisksChecked: true})
 	if len(got) != 1 || !strings.Contains(got[0].Message, "Dynamic Memory enabled (max 8192 MB)") {
 		t.Errorf("DM should appear in recognition line, got %+v", got)
 	}
@@ -181,6 +192,7 @@ func TestCheckAzure_LowNVMeTimeoutInfo(t *testing.T) {
 func TestCheckAzure_AdequateNVMeTimeoutInRecognition(t *testing.T) {
 	got := checkAzure(models.AzureInfo{
 		IsAzure: true, NVMePresent: true, NVMeIOTimeoutChecked: true, NVMeIOTimeoutSecs: 240,
+		DisksChecked: true,
 	})
 	if len(got) != 1 || got[0].Level != "INFO" {
 		t.Fatalf("adequate timeout = %+v, want one recognition line", got)
