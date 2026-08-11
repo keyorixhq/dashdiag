@@ -4,6 +4,7 @@ package collectors
 
 import (
 	"context"
+	"fmt"
 	"strings"
 	"time"
 
@@ -15,7 +16,8 @@ import (
 // deliberately self-guarding against the many distros that mount / read-only BY
 // DESIGN: it only fires when the root is ro on a normally-writable fs, fstab intends
 // it rw, AND no immutable mechanism (ostree, transactional-update, SteamOS, or an
-// immutable fstype) is present. Returns nil (no row) on a healthy host.
+// immutable fstype) is present. Returns nil (no row) on a healthy host; an
+// error (not a silent nil) when /proc/mounts itself couldn't be read.
 type RootFSCollector struct{}
 
 func NewRootFSCollector() *RootFSCollector { return &RootFSCollector{} }
@@ -34,7 +36,14 @@ var writableRootFstypes = map[string]bool{
 func (c *RootFSCollector) Collect(_ context.Context) (interface{}, error) {
 	data, err := readFile("/proc/mounts")
 	if err != nil {
-		return nil, nil // can't read mounts — nothing to assert
+		// cmd-09-04: a genuine read failure must propagate as an error, not a
+		// silent (nil, nil) — the runner/analysis layer converts r.Err into an
+		// INFO "check could not run" insight, which keeps this check present in
+		// the snapshot. A silent (nil, nil) here is otherwise indistinguishable
+		// from "root is rw, nothing to report", vanishing the check exactly like
+		// a legitimate cross-platform absence — the one gap `dsd migrate
+		// certify`'s regression detection can't see through on its own.
+		return nil, fmt.Errorf("reading /proc/mounts: %w", err)
 	}
 	mounts, _ := readMounts(strings.NewReader(string(data)))
 	var root *mountEntry
