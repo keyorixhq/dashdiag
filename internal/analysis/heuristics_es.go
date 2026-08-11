@@ -56,6 +56,19 @@ func checkElasticsearch(e models.ElasticsearchInfo) []models.Insight {
 				esInspectCurlSK + e.BaseURL + "/_cluster/health?pretty",
 				"note: common on a single-node cluster (replicas can't be placed) — set index replicas to 0, or add a node",
 			})}
+	case "green":
+		return nil
+	default:
+		// internal-analysis-04-01: an unrecognized status string must not fall
+		// through as if it were "green" — HealthRead only confirms the JSON
+		// parsed and status was non-empty, not that status is one of the three
+		// real ES/OpenSearch enum values. A non-ES service answering this port
+		// (or a tampered response) could otherwise report as fully healthy.
+		return []models.Insight{unverifiedInsight("INFO", esCatElastic,
+			fmt.Sprintf("%s cluster status %q is not a recognized state (expected green/yellow/red) — health could not be confirmed", name, e.Status),
+			[]string{
+				"note: an unrecognized status can mean a non-Elasticsearch service is answering this port, or an incompatible/tampered response",
+				esInspectCurlSK + e.BaseURL + "/_cluster/health?pretty",
+			})}
 	}
-	return nil
 }
