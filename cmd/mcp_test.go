@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
@@ -107,4 +108,56 @@ func TestToolDiffNonexistentBundle(t *testing.T) {
 	if err == nil {
 		t.Fatal("expected error for nonexistent bundles, got nil")
 	}
+}
+
+// TestMCPPipelineMu_SerializesToolCapture is the regression guard for the
+// collectors.activeSource cross-contamination race: the MCP SDK runs
+// concurrent tool calls (jsonrpc2.Async for every non-initialize request),
+// and toolCapture swaps the process-global active Source for its full
+// multi-second collector run — without a lock, a concurrent toolHealth/
+// toolReplay/toolDiff call could read through (or tee into) this call's
+// Recorder mid-flight. Proves the wiring, not just that sync.Mutex itself
+// works: while a real toolCapture run (a full collector sweep, ~1-2s) is
+// in flight in another goroutine, mcpPipelineMu.TryLock() from this
+// goroutine must fail — and must succeed only after toolCapture returns.
+//
+// Not t.Parallel(): this test's correctness depends on being the only thing
+// contending for mcpPipelineMu at the moment it TryLocks, which a sibling
+// parallel test also calling a tool handler would defeat.
+func TestMCPPipelineMu_SerializesToolCapture(t *testing.T) {
+	dir := t.TempDir()
+	out := filepath.Join(dir, "out.tar.gz")
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		_, _, err := toolCapture(context.Background(), &mcp.CallToolRequest{}, mcpCaptureInput{OutPath: out})
+		if err != nil {
+			t.Errorf("toolCapture: %v", err)
+		}
+	}()
+
+	// Give the goroutine time to acquire mcpPipelineMu and start its collector
+	// run — toolCapture's own real run takes over a second (see
+	// TestToolCaptureIdentifiersImpliesSanitize), so this is a generous margin,
+	// not a tight race.
+	time.Sleep(50 * time.Millisecond)
+
+	select {
+	case <-done:
+		t.Fatal("toolCapture finished before the lock-contention check could run — test is racing the collector, not the lock")
+	default:
+	}
+
+	if mcpPipelineMu.TryLock() {
+		mcpPipelineMu.Unlock()
+		t.Fatal("mcpPipelineMu was NOT held while toolCapture was in flight — concurrent calls are not serialized")
+	}
+
+	<-done
+
+	if !mcpPipelineMu.TryLock() {
+		t.Fatal("mcpPipelineMu still held after toolCapture returned — lock leaked")
+	}
+	mcpPipelineMu.Unlock()
 }
