@@ -37,18 +37,24 @@ func runCPU(cmd *cobra.Command, _ []string) error {
 	ctrCtx := platform.DetectContainerContext()
 	start := time.Now()
 
-	cpuRaw, _ := collectors.NewCPUCollector(ctrCtx).Collect(ctx)
-	freqRaw, _ := collectors.NewCPUFreqCollector().Collect(ctx)
-	thermalRaw, _ := collectors.NewThermalCollector().Collect(ctx)
-	hwRaw, _ := collectors.NewHardwareCollector().Collect(ctx)
+	cpuRaw, cpuErr := collectors.NewCPUCollector(ctrCtx).Collect(ctx)
+	freqRaw, freqErr := collectors.NewCPUFreqCollector().Collect(ctx)
+	thermalRaw, thermalErr := collectors.NewThermalCollector().Collect(ctx)
+	hwRaw, hwErr := collectors.NewHardwareCollector().Collect(ctx)
 	elapsed := time.Since(start)
 
-	recordResultSeverity([]runner.Result{
-		{Name: "CPU Load", Data: cpuRaw},
-		{Name: "CPUFreq", Data: freqRaw},
-		{Name: "CPU Thermal", Data: thermalRaw},
-		{Name: "Hardware", Data: hwRaw},
-	})
+	results := []runner.Result{
+		{Name: "CPU Load", Data: cpuRaw, Err: cpuErr},
+		{Name: "CPUFreq", Data: freqRaw, Err: freqErr},
+		{Name: "CPU Thermal", Data: thermalRaw, Err: thermalErr},
+		{Name: "Hardware", Data: hwRaw, Err: hwErr},
+	}
+
+	if err := cpuTotalFailureErr(cpuRaw, freqRaw, thermalRaw, hwRaw, results); err != nil {
+		return err
+	}
+
+	recordResultSeverity(results)
 
 	if isJSON {
 		type cpuReport struct {
@@ -209,6 +215,24 @@ func printCPUReport(ctx context.Context, cpu *models.CPUInfo, freq *models.CPUFr
 	} else {
 		fmt.Printf("%s %d CPU concern(s) found%s\n", asciiOr("warn", iconWarnSp, mode), issues, timing)
 	}
+}
+
+// cpuTotalFailureErr returns a non-nil error when every CPU-family collector
+// failed to produce data — cmd-02-01: `dsd cpu` used to fall through to
+// recordResultSeverity's silent zero-insight result on nil Data and print a
+// fabricated "CPU healthy. Checks passed" (exit 0) even when nothing was
+// measured. CPU (load average) and Hardware (DMI) never legitimately return
+// nil without an error; thermal/cpufreq CAN be honestly absent (VM/cloud
+// guest, container — see ThermalCollector's InContainer gate), so this only
+// trips when NOTHING could be measured.
+func cpuTotalFailureErr(cpuRaw, freqRaw, thermalRaw, hwRaw any, results []runner.Result) error {
+	if cpuRaw != nil || freqRaw != nil || thermalRaw != nil || hwRaw != nil {
+		return nil
+	}
+	if err := firstErr(results); err != nil {
+		return err
+	}
+	return fmt.Errorf("cpu: no collector returned data")
 }
 
 func cpuIcon(val, warn, crit float64, mode output.OutputMode) string {
