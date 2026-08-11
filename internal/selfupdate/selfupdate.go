@@ -289,8 +289,16 @@ func verifyChecksumsSignatureKey(ctx context.Context, pubKey string, rel *Releas
 	if err != nil {
 		return fmt.Errorf("fetching release signature: %w", err)
 	}
-	if err := verifyMinisign(pubKey, sumsBody, sigBody); err != nil {
+	comment, err := verifyMinisign(pubKey, sumsBody, sigBody)
+	if err != nil {
 		return fmt.Errorf("release signature verification failed (refusing to update): %w", err)
+	}
+	// Anti-rollback: a validly-signed checksums.txt+.minisig pair captured from
+	// an OLDER release must not be accepted as proof THIS release is authentic
+	// — the trusted comment (cryptographically bound by the global signature
+	// just verified above) names the release it was actually signed for.
+	if !trustedCommentNamesRelease(comment, rel.TagName) {
+		return fmt.Errorf("release signature does not name %s (refusing to update — signature may be for a different release)", rel.TagName)
 	}
 	return nil
 }

@@ -109,8 +109,12 @@ var (
 // cancel semantics runCmd always had, and stdout+stderr+exit captured into a
 // source.Result. A non-zero exit is reported via ExitCode with a nil error; only
 // a genuine spawn failure (tool absent, ctx cancelled) returns a non-nil error.
+// This is the production exec path for every collector (runCmd/runCmdOutput/
+// runCmdCombined all route here via curSource().Run) — name is resolved via
+// source.ResolveTrustedTool (trusted system dirs, never the inherited $PATH,
+// since dsd routinely runs as root) before exec.
 func localeSafeExec(ctx context.Context, name string, args ...string) (source.Result, error) {
-	cmd := exec.CommandContext(ctx, name, args...)
+	cmd := exec.CommandContext(ctx, source.ResolveTrustedTool(name), args...)
 	cmd.Env = localeSafeEnv()
 	cmd.WaitDelay = 100 * time.Millisecond // force-kill after context cancel
 	var so, se bytes.Buffer

@@ -46,30 +46,37 @@ func parseMinisignPublicKey(pub string) (keyID [8]byte, key ed25519.PublicKey, e
 // verifyMinisign verifies that sigFile (the contents of a `.minisig`) is a valid
 // minisign signature over file, made by the key in pubLine. It checks both the
 // file signature and the global signature that binds the trusted comment, and
-// requires the signing key id to match the configured public key.
-func verifyMinisign(pubLine string, file, sigFile []byte) error {
+// requires the signing key id to match the configured public key. On success it
+// returns the verified trusted comment — cryptographically bound to this exact
+// signature, so a caller can check it names the specific release it expected
+// (see trustedCommentNamesRelease) rather than just trusting that SOME valid
+// signature was presented. Without that follow-up check, a validly-signed
+// checksums.txt+.minisig pair captured from an OLDER release verifies here just
+// as successfully as the current one — this function alone only proves
+// authenticity, not that the signed artifact is the release being installed.
+func verifyMinisign(pubLine string, file, sigFile []byte) (string, error) {
 	keyID, pub, err := parseMinisignPublicKey(pubLine)
 	if err != nil {
-		return err
+		return "", err
 	}
 
 	lines := strings.Split(strings.ReplaceAll(string(sigFile), "\r\n", "\n"), "\n")
 	if len(lines) < 4 {
-		return errors.New("minisign signature: malformed (need 4 lines)")
+		return "", errors.New("minisign signature: malformed (need 4 lines)")
 	}
 
 	sigRaw, err := base64.StdEncoding.DecodeString(strings.TrimSpace(lines[1]))
 	if err != nil {
-		return fmt.Errorf("minisign signature: invalid base64: %w", err)
+		return "", fmt.Errorf("minisign signature: invalid base64: %w", err)
 	}
 	if len(sigRaw) != 74 {
-		return fmt.Errorf("minisign signature: want 74 bytes, got %d", len(sigRaw))
+		return "", fmt.Errorf("minisign signature: want 74 bytes, got %d", len(sigRaw))
 	}
 	algo := [2]byte{sigRaw[0], sigRaw[1]}
 	var sigKeyID [8]byte
 	copy(sigKeyID[:], sigRaw[2:10])
 	if sigKeyID != keyID {
-		return errors.New("minisign signature: key id does not match the trusted public key")
+		return "", errors.New("minisign signature: key id does not match the trusted public key")
 	}
 	sig := sigRaw[10:74]
 
@@ -82,10 +89,10 @@ func verifyMinisign(pubLine string, file, sigFile []byte) error {
 	case [2]byte{'E', 'd'}: // legacy raw
 		msg = file
 	default:
-		return fmt.Errorf("minisign signature: unsupported algorithm %q", algo[:])
+		return "", fmt.Errorf("minisign signature: unsupported algorithm %q", algo[:])
 	}
 	if !ed25519.Verify(pub, msg, sig) {
-		return errors.New("minisign signature: does not verify (file altered or wrong key)")
+		return "", errors.New("minisign signature: does not verify (file altered or wrong key)")
 	}
 
 	// Global signature binds the trusted comment: Ed25519(file_signature || trusted_comment).
@@ -95,13 +102,31 @@ func verifyMinisign(pubLine string, file, sigFile []byte) error {
 	}
 	globalSig, err := base64.StdEncoding.DecodeString(strings.TrimSpace(lines[3]))
 	if err != nil {
-		return fmt.Errorf("minisign signature: invalid global-signature base64: %w", err)
+		return "", fmt.Errorf("minisign signature: invalid global-signature base64: %w", err)
 	}
 	bound := append(append([]byte(nil), sig...), []byte(trustedComment)...)
 	if !ed25519.Verify(pub, bound, globalSig) {
-		return errors.New("minisign signature: trusted comment failed verification")
+		return "", errors.New("minisign signature: trusted comment failed verification")
 	}
-	return nil
+	return trustedComment, nil
+}
+
+// trustedCommentNamesRelease reports whether a verified minisign trusted
+// comment names tag as one of its whitespace-separated fields — matching the
+// release workflow's `-t "dsd <tag> checksums"` format exactly (see
+// .github/workflows/release.yml, "Sign checksums.txt (minisign)"; keep the two
+// in sync). Field-exact rather than a substring check so tag "v1.2" cannot
+// match a comment naming "v1.20". This is the anti-rollback check: it makes a
+// validly-signed OLDER release's checksums.txt+.minisig pair fail verification
+// when replayed against a request for a different release, rather than being
+// accepted as proof the current release is authentic.
+func trustedCommentNamesRelease(comment, tag string) bool {
+	for field := range strings.FieldsSeq(comment) {
+		if field == tag {
+			return true
+		}
+	}
+	return false
 }
 
 // lastDataLine returns the last non-empty, non-comment line of s — so both a bare
