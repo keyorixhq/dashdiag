@@ -138,3 +138,19 @@ func TestPrintAWSReport_Healthy(t *testing.T) {
 		t.Errorf("both blocks should show 'nothing flagged'; got:\n%s", out)
 	}
 }
+
+// TestPrintAWSReport_StripsControlChars guards terminal escape injection:
+// InstanceType comes from the raw IMDS HTTP response body, which an
+// SSRF-reachable or spoofed metadata endpoint fully controls.
+func TestPrintAWSReport_StripsControlChars(t *testing.T) {
+	info := &models.AWSInfo{IsEC2: true, InstanceType: "evil\x1b]0;pwned\x07", IMDSChecked: true, RebalanceChecked: true}
+	var buf bytes.Buffer
+	printAWSReport(&buf, info, 10*time.Millisecond, output.ModePlain)
+	out := buf.String()
+	if strings.Contains(out, "\x1b") {
+		t.Errorf("printAWSReport output still contains ESC byte:\n%s", out)
+	}
+	if !strings.Contains(out, "evil]0;pwned") {
+		t.Errorf("printAWSReport output missing sanitized instance type:\n%s", out)
+	}
+}

@@ -204,9 +204,9 @@ func printGuestBlock(w io.Writer, title string, ins []models.Insight, mode outpu
 		case "WARN":
 			icon = asciiOr("warn", "⚠️ ", mode)
 		}
-		fmt.Fprintf(w, "  %s %s\n", icon, in.Message)
+		fmt.Fprintf(w, "  %s %s\n", icon, output.SanitizeControl(in.Message))
 		for _, h := range in.Hints {
-			fmt.Fprintf(w, "       %s %s\n", arrow, h)
+			fmt.Fprintf(w, "       %s %s\n", arrow, output.SanitizeControl(h))
 		}
 	}
 }
