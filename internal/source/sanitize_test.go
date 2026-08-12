@@ -1,6 +1,8 @@
 package source
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -340,6 +342,70 @@ func TestBundleSanitizeSensitiveEnvCacheKey(t *testing.T) {
 	}
 	if fr2, _ := b.getFile("/proc/cpuinfo"); string(fr2.data) != "model name: Xeon" {
 		t.Errorf("unrelated file should be untouched, got %q", fr2.data)
+	}
+}
+
+// TestBundleSanitizeCmdArgvSecret guards redaction-primitives-02: Sanitize
+// never touched a command's own argv, only its stdout/stderr — persist.go's
+// Save() writes argv verbatim into commands/index.json, so a credential
+// passed as a CLI argument (a diagnostic tool invoked with a token flag)
+// shipped unredacted in an otherwise "sanitized" bundle.
+func TestBundleSanitizeCmdArgvSecret(t *testing.T) {
+	t.Parallel()
+	b := NewBundle()
+	b.putCmd("probe-tool", []string{"--token=abc123secretvalue", "--verbose"},
+		Result{Stdout: []byte("200 OK")}, nil)
+
+	rep := b.Sanitize(SanitizeOptions{})
+	if rep.CommandsRedacted != 1 || rep.TotalRedactions != 1 {
+		t.Fatalf("report = %+v, want cmds=1 total=1", rep)
+	}
+
+	// The secret must be gone from whatever key now backs this command AND must
+	// not be reachable via the original (unredacted) argv lookup.
+	if _, ok := b.getCmd("probe-tool", []string{"--token=abc123secretvalue", "--verbose"}); ok {
+		t.Fatal("command should no longer be reachable by its original, unredacted argv")
+	}
+	found := false
+	for key := range b.cmds {
+		if strings.Contains(key, "abc123secretvalue") {
+			t.Errorf("secret argv value survived in bundle key: %q", key)
+		}
+		if strings.Contains(key, "probe-tool") {
+			found = true
+			if !strings.Contains(key, "--verbose") {
+				t.Errorf("non-secret argv element dropped from key: %q", key)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("expected the probe-tool command to still be present under a redacted key")
+	}
+}
+
+// TestSaveCmdArgvSecretRedacted is the persisted-index-level regression for
+// redaction-primitives-02: after Sanitize(), the on-disk
+// commands/index.json (what an operator actually hands to a vendor) must not
+// contain the raw secret in its argv field.
+func TestSaveCmdArgvSecretRedacted(t *testing.T) {
+	t.Parallel()
+	b := NewBundle()
+	b.putCmd("probe-tool", []string{"--token=abc123secretvalue"}, Result{Stdout: []byte("ok")}, nil)
+	b.Sanitize(SanitizeOptions{})
+
+	dir := t.TempDir()
+	if err := b.Save(dir); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "commands", "index.json"))
+	if err != nil {
+		t.Fatalf("reading commands/index.json: %v", err)
+	}
+	if strings.Contains(string(raw), "abc123secretvalue") {
+		t.Errorf("secret argv value persisted to commands/index.json: %s", raw)
+	}
+	if !strings.Contains(string(raw), "probe-tool") {
+		t.Errorf("command name should still be present: %s", raw)
 	}
 }
 

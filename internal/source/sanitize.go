@@ -191,6 +191,18 @@ func (b *Bundle) Sanitize(opts SanitizeOptions) SanitizeReport {
 			rep.TotalRedactions += n
 		}
 	}
+	// Commands: stdout/stderr content AND the command's own argv — persist.go's
+	// Save() writes argv verbatim into commands/index.json as
+	// cmdIndexEntry.Argv, so a secret passed as a CLI argument (e.g. a
+	// diagnostic tool invoked with a token flag) must be redacted the same way
+	// stdout/stderr already are. Argv lives in the map KEY (see cmdKey), so a
+	// redacted argv means a new key — rebuild the map rather than mutate
+	// mid-range. Argv redaction is secrets-only (not identifiers): the command
+	// index is also a replay LOOKUP key (getCmd matches on the live argv), and
+	// the identifiers-in-argv tradeoff (probe-target IPs surviving as lookup
+	// keys) is already a documented, accepted caveat — this only closes the
+	// secrets gap, which was undocumented and unmitigated.
+	newCmds := make(map[string]cmdRec, len(b.cmds))
 	for key, cr := range b.cmds {
 		var n int
 		if red, k := redact(cr.res.Stdout); k > 0 {
@@ -201,12 +213,15 @@ func (b *Bundle) Sanitize(opts SanitizeOptions) SanitizeReport {
 			cr.res.Stderr = red
 			n += k
 		}
+		newKey, argN := redactCmdArgvKey(key)
+		n += argN
 		if n > 0 {
-			b.cmds[key] = cr
 			rep.CommandsRedacted++
 			rep.TotalRedactions += n
 		}
+		newCmds[newKey] = cr
 	}
+	b.cmds = newCmds
 	// The host's own hostname also lives in the manifest metadata.
 	if opts.Identifiers && host != "" && host != "host" {
 		b.Manifest.Host = hostPlaceholder
@@ -269,4 +284,31 @@ func redactIdentifiers(data []byte, hostname string) ([]byte, int) {
 func isRedactableIP(s string) bool {
 	ip := net.ParseIP(s)
 	return ip != nil && !ip.IsLoopback() && !ip.IsUnspecified()
+}
+
+// redactCmdArgvKey runs redactSecrets over each argv element of a b.cmds map
+// key (built by cmdKey — name+args joined on NUL) and returns the key rebuilt
+// from the redacted elements plus the total redaction count. Each element is
+// redacted independently (matching persist.go's Save(), which persists argv
+// as a []string, not a joined command line), so a single-element form like
+// "--token=abc123" is caught by the same label-aware rule stdout/stderr use,
+// while a secret split across two adjacent elements ("-p", "hunter2") is not —
+// a known best-effort limit, same class as the rest of this package.
+func redactCmdArgvKey(key string) (string, int) {
+	parts := splitKey(key)
+	total := 0
+	changed := false
+	for i, p := range parts {
+		red, n := redactSecrets([]byte(p))
+		if n == 0 {
+			continue
+		}
+		parts[i] = string(red)
+		total += n
+		changed = true
+	}
+	if !changed {
+		return key, 0
+	}
+	return cmdKey(parts[0], parts[1:]), total
 }
