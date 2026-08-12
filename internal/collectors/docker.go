@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -215,6 +216,13 @@ func apiGet(ctx context.Context, client *http.Client, path string) ([]byte, erro
 	})
 }
 
+// dockerAPIMaxBodyBytes caps a single Docker/Podman API response. Real
+// responses (container/image/volume lists, even on a large host) stay well
+// under this; a malicious or misbehaving daemon on the other end of the
+// socket (or a pathological number of containers/labels) must not be able to
+// make dsd buffer an unbounded amount of memory reading it.
+const dockerAPIMaxBodyBytes = 32 << 20 // 32MiB
+
 // apiGetLive performs the live Docker/Podman API GET over the unix socket.
 func apiGetLive(ctx context.Context, client *http.Client, path string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
@@ -227,16 +235,12 @@ func apiGetLive(ctx context.Context, client *http.Client, path string) ([]byte, 
 		return nil, err
 	}
 	defer resp.Body.Close() //nolint:errcheck
-	var buf []byte
-	b := make([]byte, 4096)
-	for {
-		n, err := resp.Body.Read(b)
-		if n > 0 {
-			buf = append(buf, b[:n]...)
-		}
-		if err != nil {
-			break
-		}
+	buf, err := io.ReadAll(io.LimitReader(resp.Body, dockerAPIMaxBodyBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(buf) > dockerAPIMaxBodyBytes {
+		return nil, fmt.Errorf("docker/podman API response for %s exceeds %d bytes", path, dockerAPIMaxBodyBytes)
 	}
 	return buf, nil
 }

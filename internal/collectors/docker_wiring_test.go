@@ -1093,3 +1093,42 @@ func TestApiGetLive_DialError(t *testing.T) {
 		t.Errorf("got = %v, want nil on error", got)
 	}
 }
+
+// TestApiGetLive_RejectsOversizedResponse covers read-bounding-03: apiGetLive
+// must cap how much of a Docker/Podman API response it buffers. A malicious
+// or misbehaving daemon on the other end of the socket (or a pathological
+// container/label count) that streams far more than any real response must
+// not be able to make dsd buffer unbounded memory reading it.
+func TestApiGetLive_RejectsOversizedResponse(t *testing.T) {
+	t.Parallel()
+	sockPath := filepath.Join(t.TempDir(), "test.sock")
+	ln, err := net.Listen("unix", sockPath)
+	if err != nil {
+		t.Fatalf("failed to listen on unix socket: %v", err)
+	}
+	defer ln.Close() //nolint:errcheck
+
+	srv := &http.Server{
+		Handler: http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+			w.WriteHeader(http.StatusOK)
+			chunk := make([]byte, 1<<20) // 1MiB, reused
+			for written := 0; written < dockerAPIMaxBodyBytes+(2<<20); written += len(chunk) {
+				if _, err := w.Write(chunk); err != nil {
+					return
+				}
+			}
+		}),
+		ReadHeaderTimeout: 2 * time.Second,
+	}
+	go func() { _ = srv.Serve(ln) }()
+	defer srv.Close() //nolint:errcheck
+
+	client := socketClient(sockPath)
+	got, err := apiGetLive(context.Background(), client, "/containers/json")
+	if err == nil {
+		t.Fatalf("expected an error for an oversized API response, got %d bytes", len(got))
+	}
+	if got != nil {
+		t.Errorf("got = %d bytes, want nil on rejection", len(got))
+	}
+}
