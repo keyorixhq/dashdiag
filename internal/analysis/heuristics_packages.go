@@ -139,6 +139,16 @@ func checkPackageUpdates(pkg models.PackagesInfo) []models.Insight {
 		return []models.Insight{unverifiedInsight("INFO", "Packages", reason, hints)}
 	}
 
+	// Anything else non-empty is a status this heuristic doesn't recognize (a
+	// future collector change, or a tampered/corrupted `dsd replay` bundle) —
+	// treat it the same as "couldn't verify", never silently as a clean scan.
+	if pkg.Status != "" {
+		return []models.Insight{unverifiedInsight("INFO", "Packages",
+			fmt.Sprintf("could not verify security updates: unrecognized scan status %q", pkg.Status),
+			[]string{"note: this is an unverified result, not a clean bill of health"},
+		)}
+	}
+
 	if pkg.SecurityUpdates == 0 {
 		// Check for ESM-only updates even when no standard security updates exist
 		if pkg.ESMUpdates > 0 {
