@@ -310,18 +310,44 @@ func collectOCI(ctx context.Context, info *models.CloudInfo) bool {
 	return true
 }
 
-// IsCloudInstance returns true if running on a known cloud provider.
+// IsCloudInstance returns true if running on a known cloud provider — the gate
+// `dsd health` uses to decide whether to register CloudMetaCollector at all.
+//
+// internal-collectors-04-01: this used to probe only AWS and GCP (Azure and
+// OCI were never checked, so CloudMetaCollector — including Azure Scheduled
+// Events maintenance/eviction warnings — was silently never registered on
+// those platforms), and its AWS probe sent an empty IMDSv2 token instead of
+// performing the real token PUT collectAWS does via awsIMDSToken. Any AWS
+// instance with IMDSv2 HttpTokens:required enforced (AWS's own recommended
+// hardening default) got HTTP 401 on the token-less GET and was silently
+// treated as not-cloud, hiding the spot-termination notice CloudMetaCollector
+// would otherwise have caught. Now checks all four providers, each with the
+// same minimal presence probe its own collectXXX function relies on.
 func IsCloudInstance() bool {
-	// Quick check: try AWS and GCP metadata endpoints with short timeout
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
-	_, err := imdsGet(ctx, "http://169.254.169.254/latest/meta-data/instance-id",
-		map[string]string{cloudAWSTokenHeader: ""})
-	if err == nil {
+
+	client := &http.Client{Timeout: 500 * time.Millisecond}
+	if token, err := awsIMDSToken(ctx, client); err == nil {
+		if _, err := imdsGet(ctx, "http://169.254.169.254/latest/meta-data/instance-id",
+			map[string]string{cloudAWSTokenHeader: token}); err == nil {
+			return true
+		}
+	}
+
+	if body, err := imdsGet(ctx,
+		"http://169.254.169.254/metadata/instance?api-version=2021-02-01",
+		map[string]string{"Metadata": "true"}); err == nil && strings.Contains(body, "azEnvironment") {
 		return true
 	}
-	_, err = imdsGet(ctx,
+
+	if _, err := imdsGet(ctx,
 		"http://metadata.google.internal/computeMetadata/v1/instance/id",
-		map[string]string{cloudMetadataFlavorHeader: cloudGCPProvider})
+		map[string]string{cloudMetadataFlavorHeader: cloudGCPProvider}); err == nil {
+		return true
+	}
+
+	_, err := imdsGet(ctx, "http://169.254.169.254/opc/v2/instance/",
+		map[string]string{"Authorization": "Bearer Oracle"})
 	return err == nil
 }
