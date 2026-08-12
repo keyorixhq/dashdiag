@@ -192,6 +192,7 @@ var guardedUnverifiedSignals = map[string]string{
 	"DockerInfo.IPForwardChecked":  "analysis/heuristics_virt.go (gated; proc unreadable on macOS/proc-less container → unknown, not disabled)",
 	"FstabInfo.Checked":            "analysis/heuristics_fstab.go (gated, no verdict when unchecked)",
 	"MemoryInfo.MemHotplugChecked": "analysis/heuristics (gated; hotplug sysfs genuinely absent on non-hotplug kernels — not privilege-related)",
+	"MemoryInfo.MeminfoUnreadable": "analysis/heuristics_resources.go checkMemory (FIXED: proc meminfo unreadable/unparseable on Linux — e.g. a replay bundle missing it — now emits an explicit INFO instead of falling back to a live gopsutil read)",
 	"PackagesInfo.Checked":         "collectors/packages_linux.go markStaleMetadata feeds Status; analysis/heuristics_packages.go checkPackageUpdates already discloses query-failed/stale-metadata as INFO",
 	"PackagesInfo.DBHealthChecked": "analysis/heuristics_packages.go checkPackageDBHealth (collector invariant: DBUpdatesBlocked is never true when DBHealthChecked is false — verified 2026-07-08, no live bug; defensively gated anyway)",
 	"PostBootInfo.ShutdownChecked": "analysis/heuristics (gated; tool-absent/wtmp-inconclusive reads as unknown, not clean)",
