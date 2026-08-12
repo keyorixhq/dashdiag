@@ -1027,6 +1027,9 @@ func printTopProcsWithCgroup(results []runner.Result, _ output.OutputMode) {
 			continue
 		}
 		fmt.Printf("\n[Top processes — cgroup context]\n")
+		if deep.TopProcsNeedsRoot {
+			fmt.Printf("  (partial process visibility — run as root for a complete list)\n")
+		}
 		fmt.Printf("  %-6s  %-5s  %-20s  %s\n", "PID", "MEM%", "NAME", "SCOPE")
 		for _, p := range deep.TopProcs {
 			scope := p.CgroupScope
@@ -1049,6 +1052,9 @@ func printTopCPUProcsWithCgroup(results []runner.Result, _ output.OutputMode) {
 			continue
 		}
 		fmt.Printf("\n[Top processes — CPU, cgroup context]\n")
+		if deep.TopCPUProcsNeedsRoot {
+			fmt.Printf("  (partial process visibility — run as root for a complete list)\n")
+		}
 		fmt.Printf("  %-6s  %-6s  %-20s  %s\n", "PID", "CPU%", "NAME", "SCOPE")
 		for _, p := range deep.TopCPUProcs {
 			scope := p.CgroupScope

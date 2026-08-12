@@ -94,10 +94,20 @@ type HealthDeepInfo struct {
 	// Top memory consumers
 	TopProcs     []ProcessMemStat `json:"top_procs,omitempty"` // top 10 by RSS
 	TotalProcsMB float64          `json:"total_procs_mb"`      // sum of all process RSS
+	// TopProcsNeedsRoot is true when the /proc scan behind TopProcs/TotalProcsMB
+	// had restricted visibility (a per-PID permission denial, or /proc mounted
+	// with hidepid=2 — which hides other users' process directories from the
+	// listing entirely, with no read error at all). TopProcs/TotalProcsMB then
+	// only reflect what this UID could see; never let that silently pass as
+	// the complete process picture.
+	TopProcsNeedsRoot bool `json:"top_procs_needs_root,omitempty"`
 
 	// Top CPU consumers (utime+stime delta over 500ms), same cgroup-scope
 	// attribution as TopProcs.
 	TopCPUProcs []ProcessCPUStat `json:"top_cpu_procs,omitempty"` // top 10 by CPU%
+	// TopCPUProcsNeedsRoot is TopProcsNeedsRoot's counterpart for TopCPUProcs —
+	// see that field's comment.
+	TopCPUProcsNeedsRoot bool `json:"top_cpu_procs_needs_root,omitempty"`
 
 	// Extended memory breakdown from /proc/meminfo
 	CachedMB    float64 `json:"cached_mb"`
