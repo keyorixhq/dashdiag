@@ -313,6 +313,36 @@ func TestRedactIdentifiersCaseInsensitiveHostname(t *testing.T) {
 	}
 }
 
+// TestBundleSanitizeSensitiveEnvCacheKey guards redaction-primitives-07:
+// getenv()'s Cached("env/"+name, ...) blob has no "name=value" label for the
+// generic secretRules to key on (it caches the bare value), and only the one
+// hardcoded "imds-aws-token" cache key was ever force-redacted by key. A
+// future collector reading a genuinely sensitive env var (e.g. as a
+// cloud-provider detection signal) needs the same treatment for ANY
+// credential-shaped env var name, not just that one entry.
+func TestBundleSanitizeSensitiveEnvCacheKey(t *testing.T) {
+	t.Parallel()
+	b := NewBundle()
+	envPath := cacheKey("env/AWS_SECRET_ACCESS_KEY")
+	b.PutFile(envPath, []byte("wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"))
+	b.PutFile("/proc/cpuinfo", []byte("model name: Xeon")) // untouched control
+
+	rep := b.Sanitize(SanitizeOptions{})
+	if rep.FilesRedacted != 1 || rep.TotalRedactions != 1 {
+		t.Fatalf("report = %+v, want files=1 total=1", rep)
+	}
+	fr, ok := b.getFile(envPath)
+	if !ok {
+		t.Fatal("cached env file should still exist after sanitize")
+	}
+	if strings.Contains(string(fr.data), "wJalrXUtnFEMI") {
+		t.Errorf("secret env value survived sanitize: %q", fr.data)
+	}
+	if fr2, _ := b.getFile("/proc/cpuinfo"); string(fr2.data) != "model name: Xeon" {
+		t.Errorf("unrelated file should be untouched, got %q", fr2.data)
+	}
+}
+
 func TestRedactIdentifiers(t *testing.T) {
 	in := "gw 192.168.1.1 mac aa:bb:cc:dd:ee:ff host web01\n" +
 		"loopback 127.0.0.1 unspec 0.0.0.0 version 1.2.3.999\n" +

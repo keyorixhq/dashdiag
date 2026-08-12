@@ -5,6 +5,7 @@ import (
 	"hash/fnv"
 	"net"
 	"regexp"
+	"strings"
 )
 
 // Sanitization is BEST-EFFORT redaction of common credential patterns from a raw
@@ -79,6 +80,44 @@ func isSensitiveCacheKey(path string) bool {
 	return false
 }
 
+// envCacheKeyPrefix is the Cached() key prefix collectors/fsaccess.go's
+// getenv() uses: Cached("env/"+name, ...).
+const envCacheKeyPrefix = "env/"
+
+// sensitiveEnvNamePatterns are case-insensitive substrings matched against an
+// env var NAME (not its value) cached via getenv()'s "env/<NAME>" key. Mirrors
+// internal/collectors/docker.go's detectPlaintextSecrets pattern list (kept as
+// an independent copy here, not imported — collectors already depends on
+// source, so the reverse import would cycle).
+var sensitiveEnvNamePatterns = []string{
+	"PASSWORD", "PASSWD", "SECRET", "TOKEN", "APIKEY", "API_KEY",
+	"PRIVATE_KEY", "SIGNING_KEY", "ENCRYPTION_KEY", "CREDENTIALS",
+	"ACCESS_KEY", "AUTH_TOKEN",
+}
+
+// isSensitiveEnvCacheKey reports whether path is the bundle file path a
+// Cached("env/"+name, ...) call maps to for a name that looks like a
+// credential. getenv() caches the bare env value with no "name=value" label
+// for the generic secretRules regex to key on, so any future collector that
+// reads a genuinely sensitive env var (a cloud credential used as a
+// provider-detection signal, say) needs to be force-redacted by NAME the same
+// way sensitiveCacheKeys handles known live-credential keys — not just the
+// one hardcoded "imds-aws-token" entry.
+func isSensitiveEnvCacheKey(path string) bool {
+	prefixed := cacheKey(envCacheKeyPrefix)
+	name, ok := strings.CutPrefix(path, prefixed)
+	if !ok {
+		return false
+	}
+	name = strings.ToUpper(name)
+	for _, pat := range sensitiveEnvNamePatterns {
+		if strings.Contains(name, pat) {
+			return true
+		}
+	}
+	return false
+}
+
 // redactSecrets applies every rule to data and returns the redacted bytes plus the
 // number of redactions made. It is deterministic: identical input → identical output.
 func redactSecrets(data []byte) ([]byte, int) {
@@ -138,7 +177,7 @@ func (b *Bundle) Sanitize(opts SanitizeOptions) SanitizeReport {
 		if len(fr.data) == 0 {
 			continue
 		}
-		if isSensitiveCacheKey(path) {
+		if isSensitiveCacheKey(path) || isSensitiveEnvCacheKey(path) {
 			fr.data = []byte(redactedMark)
 			b.files[path] = fr
 			rep.FilesRedacted++
