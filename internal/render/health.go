@@ -1429,16 +1429,34 @@ func (r *Renderer) renderDetails(d *models.Details) {
 	const indent = "   "
 
 	if d.Title != "" {
-		fmt.Fprintf(os.Stdout, "%s%s\n", indent, StyleDim.Render(d.Title+":"))
+		fmt.Fprintf(os.Stdout, "%s%s\n", indent, StyleDim.Render(output.SanitizeControl(d.Title)+":"))
 	}
 
 	if len(d.Columns) > 0 && len(d.Rows) > 0 {
-		// Compute column widths
-		widths := make([]int, len(d.Columns))
+		// Sanitize into local copies — Details is largely sourced from
+		// journalctl/log_tail content and other subprocess/proc output, which is
+		// attacker-influenced and must not carry raw control bytes to the
+		// terminal. The underlying model (d) is left untouched so --json/--yaml
+		// output keeps the raw values.
+		columns := make([]string, len(d.Columns))
 		for i, col := range d.Columns {
+			columns[i] = output.SanitizeControl(col)
+		}
+		rows := make([][]string, len(d.Rows))
+		for i, row := range d.Rows {
+			sanRow := make([]string, len(row))
+			for j, cell := range row {
+				sanRow[j] = output.SanitizeControl(cell)
+			}
+			rows[i] = sanRow
+		}
+
+		// Compute column widths
+		widths := make([]int, len(columns))
+		for i, col := range columns {
 			widths[i] = len(col)
 		}
-		for _, row := range d.Rows {
+		for _, row := range rows {
 			for i, cell := range row {
 				if i < len(widths) && len(cell) > widths[i] {
 					widths[i] = len(cell)
@@ -1449,7 +1467,7 @@ func (r *Renderer) renderDetails(d *models.Details) {
 		// Header
 		var hdr strings.Builder
 		hdr.WriteString(indent)
-		for i, col := range d.Columns {
+		for i, col := range columns {
 			if i > 0 {
 				hdr.WriteString("  ")
 			}
@@ -1458,7 +1476,7 @@ func (r *Renderer) renderDetails(d *models.Details) {
 		fmt.Fprintln(os.Stdout, StyleDim.Render(hdr.String()))
 
 		// Rows
-		for _, row := range d.Rows {
+		for _, row := range rows {
 			var sb strings.Builder
 			sb.WriteString(indent)
 			for i, cell := range row {
@@ -1478,17 +1496,17 @@ func (r *Renderer) renderDetails(d *models.Details) {
 	if d.Type == "log_tail" {
 		if tail, ok := d.KV["log_tail"]; ok {
 			for line := range strings.SplitSeq(strings.TrimSpace(tail), "\n") {
-				fmt.Fprintf(os.Stdout, "%s%s\n", indent, StyleDim.Render(line))
+				fmt.Fprintf(os.Stdout, "%s%s\n", indent, StyleDim.Render(output.SanitizeControl(line)))
 			}
 		}
 	} else if len(d.KV) > 0 && len(d.Rows) == 0 {
 		for k, v := range d.KV {
-			fmt.Fprintf(os.Stdout, "%s%s: %s\n", indent, StyleDim.Render(k), v)
+			fmt.Fprintf(os.Stdout, "%s%s: %s\n", indent, StyleDim.Render(output.SanitizeControl(k)), output.SanitizeControl(v))
 		}
 	}
 
 	if d.Note != "" {
-		fmt.Fprintf(os.Stdout, "%s%s\n", indent, StyleDim.Render("note: "+d.Note))
+		fmt.Fprintf(os.Stdout, "%s%s\n", indent, StyleDim.Render("note: "+output.SanitizeControl(d.Note)))
 	}
 }
 
