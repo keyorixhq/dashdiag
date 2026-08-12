@@ -151,7 +151,7 @@ func TestWriteGuestReportHTML_AWS(t *testing.T) {
 
 func TestPrintGuestView_HealthyContainer(t *testing.T) {
 	info := models.ContainerGuestInfo{
-		InContainer: true, Runtime: "kubernetes", CgroupV2: true,
+		InContainer: true, Runtime: "kubernetes", CgroupV2: true, CgroupV2Measured: true,
 		MemLimitBytes: 256 << 20, CPUQuotaCores: 2.0,
 	}
 	view := guestView{

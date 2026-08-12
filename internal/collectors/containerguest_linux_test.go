@@ -144,6 +144,45 @@ func TestContainerGuestCollector_Collect_CgroupV2(t *testing.T) {
 	if !info.WritableRootfs {
 		t.Error("WritableRootfs = false, want true")
 	}
+	if !info.CgroupV2Measured {
+		t.Error("CgroupV2Measured = false, want true — every v2 counter file was readable")
+	}
+}
+
+// TestContainerGuestCollector_Collect_CgroupV2Unmeasured is the regression
+// guard for internal-collectors-05-02: when NONE of memory.current/
+// memory.events/cpu.stat are readable under the container's own v2 cgroup
+// dir (TOCTOU race, hardened LSM profile, minimal cgroupfs mount, or a
+// --cgroupns=host self-path resolution failure), the zero-valued
+// MemCurrentBytes/OOMKills/ThrottledPct must not read as a silent "healthy" —
+// CgroupV2Measured must be false.
+func TestContainerGuestCollector_Collect_CgroupV2Unmeasured(t *testing.T) {
+	withCombinedFixture(t, map[string][]byte{
+		"platform/container-context": containerContextJSON(t, platform.ContainerContext{
+			InContainer:   true,
+			IsDocker:      true,
+			CgroupVersion: 2,
+			CgroupV2Dir:   "/sys/fs/cgroup",
+			MemLimitMB:    512,
+			CPULimitCores: 2,
+		}),
+	}, nil, func(b *source.Bundle) {
+		// Deliberately no memory.current/memory.events/cpu.stat files seeded.
+		b.PutFile("/proc/mounts", []byte("overlay / overlay rw,relatime 0 0\n"))
+	})
+
+	c := NewContainerGuestCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.ContainerGuestInfo)
+	if info.CgroupV2Measured {
+		t.Error("CgroupV2Measured = true, want false — no v2 counter file was readable")
+	}
+	if info.MemCurrentBytes != 0 || info.OOMKills != 0 || info.ThrottledPct != 0 {
+		t.Errorf("expected zero-valued counters, got %+v", info)
+	}
 }
 
 // TestContainerGuestCollector_Collect_CgroupV2EmptyDirFallsBackToBase guards
