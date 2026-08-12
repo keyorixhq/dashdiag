@@ -233,9 +233,17 @@ func toolCapture(_ context.Context, _ *mcp.CallToolRequest, in mcpCaptureInput) 
 	if statErr == nil {
 		sz = fi.Size()
 	}
+	// Report the SANITIZED host (b.Manifest.Host, which Sanitize replaced with
+	// the placeholder) when identifiers redaction was requested — otherwise the
+	// tool's own JSON response discloses the real hostname on a channel
+	// Sanitize was never applied to, defeating the point of asking for it.
+	respHost := host
+	if in.Identifiers {
+		respHost = b.Manifest.Host
+	}
 	return nil, mcpCaptureOutput{
 		BundlePath: outPath,
-		Host:       host,
+		Host:       respHost,
 		CapturedAt: b.Manifest.Created,
 		Bytes:      sz,
 	}, nil

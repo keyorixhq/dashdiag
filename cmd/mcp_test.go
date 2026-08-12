@@ -10,6 +10,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -52,6 +53,31 @@ func TestToolCaptureIdentifiersImpliesSanitize(t *testing.T) {
 	}
 	if result.Bytes <= 0 {
 		t.Errorf("expected positive bundle size, got %d", result.Bytes)
+	}
+}
+
+// TestToolCaptureIdentifiersRedactsResponseHost guards redaction-primitives-05:
+// toolCapture's own JSON response echoed the real, unredacted hostname in its
+// "host" field regardless of Identifiers, even though the bundle FILE
+// contents correctly showed the placeholder — a caller that logs/forwards the
+// tool result (a common agent pattern) got the real hostname anyway.
+func TestToolCaptureIdentifiersRedactsResponseHost(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	out := filepath.Join(dir, "out.tar.gz")
+
+	realHost, err := os.Hostname()
+	if err != nil || realHost == "" {
+		t.Skip("os.Hostname unavailable in this environment")
+	}
+
+	_, result, err := toolCapture(context.Background(), &mcp.CallToolRequest{},
+		mcpCaptureInput{OutPath: out, Identifiers: true})
+	if err != nil {
+		t.Fatalf("toolCapture with Identifiers: %v", err)
+	}
+	if result.Host == realHost {
+		t.Errorf("toolCapture response disclosed the real hostname %q despite Identifiers:true", realHost)
 	}
 }
 
