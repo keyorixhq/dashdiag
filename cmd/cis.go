@@ -18,6 +18,11 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/runner"
 )
 
+const (
+	cisSkipLabel       = "skip:  "
+	cisUnverifiedLabel = "unverified:"
+)
+
 var cisCmd = &cobra.Command{
 	Use:   "cis",
 	Short: "CIS/STIG compliance benchmark",
@@ -195,9 +200,9 @@ func printCISReport(report models.CISReport, failOnly, stig bool, mode output.Ou
 		// own right: "sshd_config unreadable, run as root" rendered
 		// identically to "rsync not installed", indistinguishable either way.
 		if r.Status == models.CISSkipped && r.Finding != "" {
-			label := "skip:  "
+			label := cisSkipLabel
 			if r.Unverified {
-				label = "unverified:"
+				label = cisUnverifiedLabel
 			}
 			fmt.Printf("           %s%s%s %s\n", dim(colour), label, resetColour(colour), r.Finding)
 		}
@@ -311,9 +316,9 @@ func printNIS2Article(g cis.NIS2ArticleGroup, failOnly, colour bool, mode output
 			}
 		}
 		if r.Status == models.CISSkipped && r.Finding != "" {
-			label := "skip:  "
+			label := cisSkipLabel
 			if r.Unverified {
-				label = "unverified:"
+				label = cisUnverifiedLabel
 			}
 			fmt.Printf("                    %s%s%s %s\n", dim(colour), label, resetColour(colour), r.Finding)
 		}
@@ -426,9 +431,9 @@ func printBSIReq(g cis.BSIReqGroup, failOnly, colour bool, mode output.OutputMod
 			}
 		}
 		if r.Status == models.CISSkipped && r.Finding != "" {
-			label := "skip:  "
+			label := cisSkipLabel
 			if r.Unverified {
-				label = "unverified:"
+				label = cisUnverifiedLabel
 			}
 			fmt.Printf("                    %s%s%s %s\n", dim(colour), label, resetColour(colour), r.Finding)
 		}
