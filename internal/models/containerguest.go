@@ -15,8 +15,15 @@ type ContainerGuestInfo struct {
 	// CgroupV1Measured is true when, on a cgroup v1 host, the throttle/OOM counters
 	// (cpu.stat / memory.oom_control under the per-controller dirs) were actually
 	// readable. When false on a v1 container they're unverified — the verdict must say
-	// so, not imply "no throttling or OOM-kills". Always false on v2 (v2 reads inline).
+	// so, not imply "no throttling or OOM-kills".
 	CgroupV1Measured bool `json:"cgroup_v1_measured,omitempty"`
+	// CgroupV2Measured is the v2 analog of CgroupV1Measured: true when at least one
+	// of memory.current/memory.events/cpu.stat under the container's OWN cgroup dir
+	// (resolved via /proc/self/cgroup) was actually readable. False means a TOCTOU
+	// race, a hardened LSM profile, a minimal cgroupfs mount, or a --cgroupns=host
+	// self-path resolution failure left every v2 counter unreadable — 0 must not
+	// read as "healthy" in that case (internal-collectors-05-02).
+	CgroupV2Measured bool `json:"cgroup_v2_measured,omitempty"`
 
 	// Memory limit + usage (cgroup). LimitBytes 0 = no limit set (memory.max == max).
 	MemLimitBytes   int64 `json:"mem_limit_bytes"`
