@@ -50,6 +50,12 @@ func TestDiskHasUnverifiedReads(t *testing.T) {
 	if !diskHasUnverifiedReads(nil, &models.LVMInfo{VGReadFailed: true}) {
 		t.Error("LVM VGReadFailed must count as an unverified read")
 	}
+	// The outer presence gate itself (`lvs --version`) failed ambiguously —
+	// nothing below was queried, so this must count too, not just the
+	// individual vgs/pvs/lvs/raid failures above.
+	if !diskHasUnverifiedReads(nil, &models.LVMInfo{PresenceReadFailed: true}) {
+		t.Error("LVM PresenceReadFailed must count as an unverified read")
+	}
 	// A per-pool `zpool status` read failure (as opposed to the list-level
 	// ZFSListReadFailed above) must also be recognized — it's a distinct flag
 	// set when the pool list succeeds but the per-pool status call fails.

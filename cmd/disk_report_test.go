@@ -311,6 +311,17 @@ func TestPrintDiskLVM(t *testing.T) {
 		t.Errorf("no LVM at all should print nothing, got:\n%s", out)
 	}
 
+	// The outer presence gate itself (`lvs --version`) couldn't confirm lvm2
+	// is absent — must disclose, not silently fall through to the "no LVM at
+	// all" case above (VGs/ThinPools/etc are empty for a different reason:
+	// nothing was queried, not genuine absence).
+	presenceFailed := captureStdout(t, func() {
+		printDiskLVM(&models.LVMInfo{PresenceReadFailed: true}, output.ModePlain)
+	})
+	if !strings.Contains(presenceFailed, "could not confirm whether LVM is installed") {
+		t.Errorf("a failed presence check must be disclosed, got:\n%s", presenceFailed)
+	}
+
 	missingPV := captureStdout(t, func() {
 		printDiskLVM(&models.LVMInfo{VGs: []models.LVMVG{{Name: "pve", MissingPVs: 1}}}, output.ModePlain)
 	})
