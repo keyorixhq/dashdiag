@@ -209,19 +209,27 @@ func printHardwareDrivesSection(info *models.HardwareInfo, mode output.OutputMod
 			fmt.Printf("  %-14s %s  %d%% used\n", "Wear:", output.StatusIcon(wearLevel, mode), d.WearPct)
 		}
 
-		// SATA bad sectors
+		// SATA bad sectors. cmd-06-02: the counters below come exclusively from
+		// smartctl's ATA SMART attribute table — a real SAS/SCSI drive (or
+		// degraded smartctl output) never populates it, so BadSectorsRead=false
+		// must render as "couldn't verify", never a green zero-count OK.
 		if d.Type != "nvme" {
-			bsLevel := "ok"
-			bsMsg := "none"
-			if d.ReallocatedSectors > 0 || d.PendingSectors > 0 || d.UncorrectableErrors > 0 {
-				bsLevel = "warn"
-				if d.ReallocatedSectors >= 10 || d.PendingSectors >= 5 || d.UncorrectableErrors > 0 {
-					bsLevel = "fail"
+			if !d.BadSectorsRead {
+				fmt.Printf("  %-14s %s  could not verify — no ATA attribute data (SAS drive, or smartctl output incomplete)\n",
+					"Bad sectors:", output.StatusIcon("info", mode))
+			} else {
+				bsLevel := "ok"
+				bsMsg := "none"
+				if d.ReallocatedSectors > 0 || d.PendingSectors > 0 || d.UncorrectableErrors > 0 {
+					bsLevel = "warn"
+					if d.ReallocatedSectors >= 10 || d.PendingSectors >= 5 || d.UncorrectableErrors > 0 {
+						bsLevel = "fail"
+					}
+					bsMsg = fmt.Sprintf("reallocated:%d  pending:%d  uncorrectable:%d",
+						d.ReallocatedSectors, d.PendingSectors, d.UncorrectableErrors)
 				}
-				bsMsg = fmt.Sprintf("reallocated:%d  pending:%d  uncorrectable:%d",
-					d.ReallocatedSectors, d.PendingSectors, d.UncorrectableErrors)
+				fmt.Printf("  %-14s %s  %s\n", "Bad sectors:", output.StatusIcon(bsLevel, mode), bsMsg)
 			}
-			fmt.Printf("  %-14s %s  %s\n", "Bad sectors:", output.StatusIcon(bsLevel, mode), bsMsg)
 		}
 
 		// NVMe error counters
