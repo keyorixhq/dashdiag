@@ -62,6 +62,38 @@ func TestDiskHasUnverifiedReads(t *testing.T) {
 	}
 }
 
+// TestDiskHasUnverifiedReads_SMARTError is a regression guard for cmd-04-01:
+// a physical drive whose SMART read failed (non-root smartctl/nvme-cli
+// permission error — the primary per-drive health signal) was skipped by
+// countDiskIssues as "couldn't measure" (correctly, avoiding a false WARN),
+// but nothing routed that fact into diskHasUnverifiedReads — so the summary
+// fell through to a green "Disk healthy. Checks passed" even though SMART
+// was never actually verified for any drive.
+func TestDiskHasUnverifiedReads_SMARTError(t *testing.T) {
+	info := &models.DiskInfo{Drives: []models.PhysicalDrive{
+		{Name: "sda", SMART: &models.SMARTInfo{Error: "smartctl: Permission denied"}},
+	}}
+	if !diskHasUnverifiedReads(info, nil) {
+		t.Error("a drive with SMART.Error set must count as an unverified read")
+	}
+	if got := countDiskIssues(info, nil); got != 0 {
+		t.Errorf("a SMART read failure must not be counted as a concern, got %d", got)
+	}
+	// A virtual disk (SMART left nil — not applicable, not a failed read) must
+	// NOT trigger the unverified-reads disclosure.
+	nilSMART := &models.DiskInfo{Drives: []models.PhysicalDrive{{Name: "vda", SMART: nil}}}
+	if diskHasUnverifiedReads(nilSMART, nil) {
+		t.Error("a drive with nil SMART (virtual disk/container, not applicable) must not count as unverified")
+	}
+	// A drive that WAS successfully read (Error empty) must not trigger it either.
+	cleanSMART := &models.DiskInfo{Drives: []models.PhysicalDrive{
+		{Name: "sda", SMART: &models.SMARTInfo{Healthy: true}},
+	}}
+	if diskHasUnverifiedReads(cleanSMART, nil) {
+		t.Error("a successfully-read SMART result must not count as unverified")
+	}
+}
+
 // TestCountDiskIssuesFilesystemsBtrfsZFSAndLVM covers countDiskIssues'
 // remaining branches not exercised by the SMART-only table above: filesystem
 // capacity/inode thresholds (and the inherently-read-only skip), unhealthy
