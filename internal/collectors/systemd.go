@@ -2,6 +2,7 @@ package collectors
 
 import (
 	"bufio"
+	"cmp"
 	"context"
 	"fmt"
 	"io"
@@ -423,6 +424,12 @@ func isNonServiceBlameUnit(name string) bool {
 // service units (≥5s), skipping cloud-init and other infrastructure noise.
 // exclude (may be nil) drops units it returns true for — used to remove
 // timer-triggered async jobs that blame lists but which never gated boot.
+//
+// blame's stdout is untrusted external-tool output; it is documented as sorted
+// descending by duration, but truncated/unsorted/adversarial output must not
+// cause a later genuinely-slow unit to be silently dropped. Every line is
+// scanned (no early break on the first sub-threshold line) and candidates are
+// sorted by duration before capping at 3.
 func parseBlameSlowUnits(blameOut string, exclude func(string) bool) []models.SlowUnit {
 	var slow []models.SlowUnit
 	for line := range strings.SplitSeq(blameOut, "\n") {
@@ -440,7 +447,7 @@ func parseBlameSlowUnits(blameOut string, exclude func(string) bool) []models.Sl
 		name := fields[len(fields)-1]
 		dur := parseBlameTime(strings.Join(fields[:len(fields)-1], " "))
 		if dur < 5.0 {
-			break // blame output is sorted descending — stop early
+			continue
 		}
 		// Skip non-service units (device/mount/socket/etc. — see blameSkipSuffixes;
 		// these are waits, not fixable slow services, and .device units are VM
@@ -454,9 +461,12 @@ func parseBlameSlowUnits(blameOut string, exclude func(string) bool) []models.Sl
 			continue
 		}
 		slow = append(slow, models.SlowUnit{Name: name, Duration: dur})
-		if len(slow) >= 3 {
-			break
-		}
+	}
+	slices.SortFunc(slow, func(a, b models.SlowUnit) int {
+		return cmp.Compare(b.Duration, a.Duration)
+	})
+	if len(slow) > 3 {
+		slow = slow[:3]
 	}
 	return slow
 }

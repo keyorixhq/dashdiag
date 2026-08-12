@@ -16,9 +16,9 @@ func TestCollectBootTimes_Success(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("systemd-analyze", []string{"time"},
 			"Startup finished in 1.234s (kernel) + 5.678s (userspace) = 6.912s\n", 0)
-		// blame is sorted descending; parseBlameSlowUnits stops at the first
-		// entry under 5.0s (the 1.200s network-online line), so only the two
-		// >=5.0s entries surface as slow units.
+		// parseBlameSlowUnits filters out sub-5.0s entries (the 1.200s
+		// some-fast.service line), so only the two >=5.0s entries surface as
+		// slow units.
 		b.PutCmd("systemd-analyze", []string{"blame", "--no-pager"},
 			"         8.500s NetworkManager-wait-online.service\n"+
 				"         5.200s systemd-udev-settle.service\n"+
