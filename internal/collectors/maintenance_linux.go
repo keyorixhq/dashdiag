@@ -345,6 +345,18 @@ func (c *ServiceRestartCollector) Collect(_ context.Context) (interface{}, error
 	nonRoot := geteuid() != 0
 	seen := map[string]bool{}
 	deniedOthers := false
+	// hidepid=2 (a documented hardening default) omits other users' /proc/<pid>
+	// directory entries from readdir entirely — no permission error is ever
+	// raised, so deniedOthers alone misses it (unlike hidepid=1, where the
+	// directory entry stays visible and only the file read is denied, caught
+	// below). PID 1 always exists on a running Linux system, so its absence
+	// from the /proc/<pid>/maps glob results reliably signals the restricted
+	// case — see procVisibilityRestricted in health_deep_linux.go, reused here.
+	procEntries := make([]string, len(mapsFiles))
+	for i, m := range mapsFiles {
+		procEntries[i] = strings.TrimSuffix(m, "/maps")
+	}
+	hidepidRestricted := procVisibilityRestricted(procEntries)
 	for _, mapPath := range mapsFiles {
 		b, err := readFile(mapPath)
 		if err != nil {
@@ -370,7 +382,7 @@ func (c *ServiceRestartCollector) Collect(_ context.Context) (interface{}, error
 		}
 	}
 	// Non-root can't read other users' maps → the scan is partial, not a clean OK.
-	info.NeedsRoot = nonRoot && deniedOthers
+	info.NeedsRoot = nonRoot && (deniedOthers || hidepidRestricted)
 	return info, nil
 }
 
