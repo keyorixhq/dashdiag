@@ -93,8 +93,13 @@ func (c *ProcessesCollector) collectLinux() (*models.ProcessInfo, error) {
 			continue
 		}
 		// Skip kernel threads — they legitimately run in D state
-		// (jbd2, kworker, kswapd, ksoftirqd, migration, etc.)
-		if ppid == 2 || isKernelThread(name) {
+		// (jbd2, kworker, kswapd, ksoftirqd, migration, etc.). ppid==2
+		// (kthreadd) and the kernel-set PF_KTHREAD flag are both read from
+		// data the kernel controls, not the process's self-reported comm
+		// name (spoofable via prctl(PR_SET_NAME) — a userspace process can
+		// rename itself "kworker/0:1" and be silently exempted from
+		// HungProcs otherwise).
+		if ppid == 2 || isKernelThreadByFlag(data) {
 			continue
 		}
 		// Skip processes that are direct children of dsd itself. dsd spawns
@@ -199,21 +204,33 @@ func (c *ProcessesCollector) collectDarwin(ctx context.Context) (*models.Process
 	return info, nil
 }
 
-// isKernelThread returns true if the process name matches known kernel thread patterns.
-// These always run in D state legitimately and should not be flagged as hung.
-func isKernelThread(name string) bool {
-	kernelPrefixes := []string{
-		"jbd2/", "kworker/", "kswapd", "ksoftirqd/", "migration/",
-		"rcu_", "kthreadd", "kcompact", "kdevtmpfs", "netns",
-		"khungtaskd", "oom_reaper", "writeback", "kblockd",
-		"md", "edac-poller", "devfreq_", "watchdogd",
+// procFlagKthread is PF_KTHREAD (include/linux/sched.h), the bit in
+// /proc/<pid>/stat's flags field (field 9) the kernel sets exclusively for
+// genuine kernel threads. Unlike the process's self-reported comm name
+// (spoofable via prctl(PR_SET_NAME)), this is kernel-controlled and cannot be
+// set by userspace.
+const procFlagKthread = 0x00200000
+
+// isKernelThreadByFlag reports whether data (the raw /proc/<pid>/stat content
+// already read by the caller) has PF_KTHREAD set. Returns false — not proven
+// a kernel thread — on any parse failure, so the caller's ppid==2 (kthreadd)
+// check remains the fallback signal rather than this silently exempting an
+// unparseable entry.
+func isKernelThreadByFlag(data []byte) bool {
+	s := string(data)
+	end := strings.LastIndex(s, ")")
+	if end < 0 {
+		return false
 	}
-	for _, prefix := range kernelPrefixes {
-		if strings.HasPrefix(name, prefix) {
-			return true
-		}
+	fields := strings.Fields(s[end+1:])
+	if len(fields) < 7 {
+		return false
 	}
-	return false
+	flags, err := strconv.ParseUint(fields[6], 10, 64)
+	if err != nil {
+		return false
+	}
+	return flags&procFlagKthread != 0
 }
 
 // isShell returns true for common interactive shells.
