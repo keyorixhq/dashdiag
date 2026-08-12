@@ -70,6 +70,22 @@ func checkSystemd(sys models.SystemdInfo) []models.Insight {
 		))
 	}
 
+	// At least one blanket-suppressed sshd@ per-connection instance's exit status
+	// couldn't be read (systemctl show timed out/errored). It stays suppressed
+	// (fail-safe against re-flooding a benign scan pile), but a genuine per-
+	// connection sshd fault could be the one whose status was unreadable — say so
+	// rather than a silent, indistinguishable-from-clean "no non-benign sshd@
+	// failures" verdict.
+	if sys.SSHDStatusUnverified {
+		out = append(out, unverifiedInsight("INFO", "Systemd",
+			"some suppressed sshd@ connection instances' exit status could not be confirmed benign — a real per-connection sshd fault cannot be ruled out",
+			[]string{
+				"to inspect: systemctl --failed | grep sshd@",
+				"to inspect: systemctl show <unit> -p ExecMainStatus --value",
+			},
+		))
+	}
+
 	// Booted into emergency/rescue mode — the system did not reach its default
 	// target. `systemctl is-system-running` reports "maintenance" when
 	// rescue.target/emergency.target is the active target (e.g. a root/fstab fsck

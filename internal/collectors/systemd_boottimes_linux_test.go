@@ -223,6 +223,41 @@ func TestSystemdCollect_HappyPath(t *testing.T) {
 	}
 }
 
+// TestSystemdCollect_SSHDStatusUnverified guards the fail-toward-suppression
+// disclosure gap: a blanket-suppressed sshd@ connection instance whose exit
+// status lookup itself fails (systemctl show times out/errors) must set
+// SSHDStatusUnverified, never silently stay suppressed with no signal that
+// its real state was never confirmed benign.
+func TestSystemdCollect_SSHDStatusUnverified(t *testing.T) {
+	const sshdUnit = "sshd@10.0.0.1:22-10.0.0.2:33.service"
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutStat("/run/systemd/private", source.FileMeta{})
+		b.PutCmd("systemctl", []string{"list-units", "--state=failed", "--no-legend", "--no-pager", "--plain"},
+			sshdUnit+" loaded failed failed noise\n", 0)
+		b.PutCmdNotFound("systemctl", []string{"show", sshdUnit, "-p", "ExecMainStatus", "--value"})
+		b.PutGlob("/etc/sysupdate.d/*.transfer", nil)
+		b.PutGlob("/usr/lib/sysupdate.d/*.transfer", nil)
+		b.PutCmd("systemd-analyze", []string{"time"},
+			"Startup finished in 1.000s (kernel) + 2.000s (userspace) = 3.000s\n", 0)
+		b.PutCmd("systemd-analyze", []string{"blame", "--no-pager"}, "", 0)
+		b.PutCmd("systemctl", []string{"list-units", "--type=service", "--state=loaded", "--plain", "--no-legend", "--no-pager"}, "", 0)
+		b.PutCmd("systemctl", []string{"is-system-running"}, "running\n", 0)
+	})
+
+	c := &SystemdCollector{}
+	res, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	info := res.(*models.SystemdInfo)
+	if !info.SSHDStatusUnverified {
+		t.Error("expected SSHDStatusUnverified=true when the sshd@ instance's ExecMainStatus lookup fails")
+	}
+	if len(info.FailedUnits) != 0 {
+		t.Errorf("the unverifiable sshd@ instance must stay suppressed (fail-safe), got %v", info.FailedUnits)
+	}
+}
+
 // TestSystemdCollect_NotPresent guards the early gate: when neither
 // /run/systemd/private nor /run/systemd/system exists (non-systemd init —
 // e.g. Alpine/OpenRC, a minimal container), Collect must short-circuit to

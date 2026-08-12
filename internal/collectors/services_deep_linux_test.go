@@ -179,6 +179,35 @@ func TestServicesDeepCollector_Collect_NonBenignSSHDAddedBack(t *testing.T) {
 	}
 }
 
+// TestServicesDeepCollector_Collect_SSHDStatusUnverified mirrors the health
+// SystemdCollector's fail-toward-suppression disclosure gap: a suppressed
+// sshd@ instance whose exit status lookup itself fails must set
+// SSHDStatusUnverified, not silently stay suppressed with no signal.
+func TestServicesDeepCollector_Collect_SSHDStatusUnverified(t *testing.T) {
+	const sshdUnit = "sshd@10.0.0.1:22-10.0.0.2:5555.service"
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("systemctl", []string{"list-units", "--failed", "--plain", "--no-legend", "--no-pager"},
+			sshdUnit+" loaded failed failed OpenSSH per-connection\n", 0)
+		b.PutCmdNotFound("systemctl", []string{"show", sshdUnit, "-p", "ExecMainStatus", "--value"})
+		b.PutCmdNotFound("systemctl", []string{"list-units", "--type=service", "--state=loaded", "--plain", "--no-legend", "--no-pager"})
+		b.PutCmdNotFound("systemctl", []string{"list-units", "--type=service", "--state=masked", "--plain", "--no-legend", "--no-pager"})
+		b.PutCmdNotFound("systemd-analyze", []string{"blame", "--no-pager"})
+		b.PutCmdNotFound("systemctl", []string{"--user", "is-system-running"})
+	})
+	c := NewServicesDeepCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.ServicesDeepInfo)
+	if !info.SSHDStatusUnverified {
+		t.Error("expected SSHDStatusUnverified=true when the sshd@ instance's ExecMainStatus lookup fails")
+	}
+	if len(info.FailedUnits) != 0 {
+		t.Errorf("the unverifiable sshd@ instance must stay suppressed (fail-safe), got %+v", info.FailedUnits)
+	}
+}
+
 // TestServicesDeepCollector_Collect_UserUnitsAvailable guards the "user
 // systemd daemon IS running" path, including per-unit journal enrichment.
 func TestServicesDeepCollector_Collect_UserUnitsAvailable(t *testing.T) {
