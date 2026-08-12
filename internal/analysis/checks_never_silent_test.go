@@ -197,6 +197,14 @@ var neverSilentChecks = []neverSilentCheck{
 		},
 		wantSubstr: "could not verify",
 	},
+	{
+		name:    "checkInfiniBand: /sys/class/infiniband unreadable (restricted /sys view)",
+		checkFn: "checkInfiniBand",
+		run: func() []models.Insight {
+			return checkInfiniBand(models.InfiniBandInfo{ReadFailed: true})
+		},
+		wantSubstr: "could not be read",
+	},
 }
 
 func TestChecksNeverSilentlySkip(t *testing.T) {

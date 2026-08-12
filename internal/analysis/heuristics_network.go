@@ -684,6 +684,14 @@ func checkVLAN(v models.VLANInfo) []models.Insight {
 }
 
 func checkInfiniBand(ib models.InfiniBandInfo) []models.Insight {
+	if ib.ReadFailed {
+		return []models.Insight{unverifiedInsight("INFO", "InfiniBand",
+			"/sys/class/infiniband could not be read — IB fabric status unverified, not confirmed absent",
+			[]string{
+				netInspectIPLink,
+				"to inspect: ls -la /sys/class/infiniband",
+			})}
+	}
 	if len(ib.Ports) == 0 {
 		return nil
 	}

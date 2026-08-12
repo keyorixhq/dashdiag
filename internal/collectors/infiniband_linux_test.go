@@ -4,11 +4,27 @@ package collectors
 
 import (
 	"context"
+	"io/fs"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/source"
 )
+
+// fakeDirPermissionDeniedSource denies ReadDir on one specific path — the
+// Bundle API has no public seam for a ReadDir permission error, distinct from
+// "not recorded" (which Replay.ReadDir already surfaces as its own error).
+type fakeDirPermissionDeniedSource struct {
+	*source.Replay
+	deniedDir string
+}
+
+func (f fakeDirPermissionDeniedSource) ReadDir(dir string) ([]string, error) {
+	if dir == f.deniedDir {
+		return nil, &fs.PathError{Op: "open", Path: dir, Err: fs.ErrPermission}
+	}
+	return f.Replay.ReadDir(dir)
+}
 
 func TestInfiniBandCollectorIdentity(t *testing.T) {
 	t.Parallel()
@@ -22,12 +38,13 @@ func TestInfiniBandCollectorIdentity(t *testing.T) {
 }
 
 // TestInfiniBandCollector_Collect_NoDevices guards the no-hardware case: an
-// empty glob leaves info.Ports nil, but Collect still returns a non-nil
-// *models.InfiniBandInfo (unlike e.g. NVMe, InfiniBand doesn't gate off to nil
-// — verified against the source).
+// empty directory listing leaves info.Ports nil, but Collect still returns a
+// non-nil *models.InfiniBandInfo (unlike e.g. NVMe, InfiniBand doesn't gate
+// off to nil — verified against the source), and ReadFailed stays false since
+// the directory genuinely exists and was read successfully.
 func TestInfiniBandCollector_Collect_NoDevices(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutGlob("/sys/class/infiniband/*", nil)
+		b.PutDir("/sys/class/infiniband", nil)
 	})
 	c := NewInfiniBandCollector()
 	raw, err := c.Collect(context.Background())
@@ -41,13 +58,42 @@ func TestInfiniBandCollector_Collect_NoDevices(t *testing.T) {
 	if len(info.Ports) != 0 {
 		t.Errorf("Ports = %+v, want empty", info.Ports)
 	}
+	if info.ReadFailed {
+		t.Error("ReadFailed = true, want false (directory genuinely empty, not unreadable)")
+	}
+}
+
+// TestInfiniBandCollector_Collect_DirUnreadable covers the false-OK this
+// collector previously had no way to detect: /sys/class/infiniband exists but
+// can't be read (a restricted/namespaced /sys view), as opposed to genuinely
+// not existing. Must set ReadFailed, never silently read as "no IB hardware".
+func TestInfiniBandCollector_Collect_DirUnreadable(t *testing.T) {
+	b := source.NewBundle()
+	prev := SetSource(fakeDirPermissionDeniedSource{
+		Replay:    source.NewReplay(b),
+		deniedDir: "/sys/class/infiniband",
+	})
+	t.Cleanup(func() { SetSource(prev) })
+
+	c := NewInfiniBandCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.InfiniBandInfo)
+	if !info.ReadFailed {
+		t.Error("ReadFailed = false, want true when the directory read is denied")
+	}
+	if len(info.Ports) != 0 {
+		t.Errorf("Ports = %+v, want empty", info.Ports)
+	}
 }
 
 // TestInfiniBandCollector_Collect_OneDeviceOnePort exercises the full glob ->
 // per-device port glob -> readIBPort path end to end.
 func TestInfiniBandCollector_Collect_OneDeviceOnePort(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutGlob("/sys/class/infiniband/*", []string{"/sys/class/infiniband/mlx5_0"})
+		b.PutDir("/sys/class/infiniband", []string{"mlx5_0"})
 		b.PutGlob("/sys/class/infiniband/mlx5_0/ports/*", []string{"/sys/class/infiniband/mlx5_0/ports/1"})
 		b.PutFile("/sys/class/infiniband/mlx5_0/ports/1/state", []byte("4: ACTIVE\n"))
 		b.PutFile("/sys/class/infiniband/mlx5_0/ports/1/rate", []byte("100 Gb/sec (4X EDR)\n"))
@@ -77,10 +123,7 @@ func TestInfiniBandCollector_Collect_OneDeviceOnePort(t *testing.T) {
 // from multiple HCA devices are all flattened into info.Ports.
 func TestInfiniBandCollector_Collect_MultiplePortsAndDevices(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutGlob("/sys/class/infiniband/*", []string{
-			"/sys/class/infiniband/mlx5_0",
-			"/sys/class/infiniband/rxe0",
-		})
+		b.PutDir("/sys/class/infiniband", []string{"mlx5_0", "rxe0"})
 		b.PutGlob("/sys/class/infiniband/mlx5_0/ports/*", []string{
 			"/sys/class/infiniband/mlx5_0/ports/1",
 			"/sys/class/infiniband/mlx5_0/ports/2",
@@ -120,7 +163,7 @@ func TestInfiniBandCollector_Collect_MultiplePortsAndDevices(t *testing.T) {
 func TestIsInfiniBandPresent(t *testing.T) {
 	t.Run("present", func(t *testing.T) {
 		withFixtureSource(t, func(b *source.Bundle) {
-			b.PutGlob("/sys/class/infiniband/*", []string{"/sys/class/infiniband/mlx5_0"})
+			b.PutDir("/sys/class/infiniband", []string{"mlx5_0"})
 		})
 		if !IsInfiniBandPresent() {
 			t.Error("IsInfiniBandPresent() = false, want true")
@@ -128,10 +171,24 @@ func TestIsInfiniBandPresent(t *testing.T) {
 	})
 	t.Run("absent", func(t *testing.T) {
 		withFixtureSource(t, func(b *source.Bundle) {
-			b.PutGlob("/sys/class/infiniband/*", nil)
+			b.PutDir("/sys/class/infiniband", nil)
 		})
 		if IsInfiniBandPresent() {
 			t.Error("IsInfiniBandPresent() = true, want false")
+		}
+	})
+	// A directory that exists but can't be read (restricted /sys view) must
+	// keep the collector in the run rather than silently reading as absent —
+	// see TestInfiniBandCollector_Collect_DirUnreadable for the Collect() side.
+	t.Run("unreadable", func(t *testing.T) {
+		b := source.NewBundle()
+		prev := SetSource(fakeDirPermissionDeniedSource{
+			Replay:    source.NewReplay(b),
+			deniedDir: "/sys/class/infiniband",
+		})
+		t.Cleanup(func() { SetSource(prev) })
+		if !IsInfiniBandPresent() {
+			t.Error("IsInfiniBandPresent() = false, want true when the directory read is denied (ambiguous, not confirmed absent)")
 		}
 	})
 }

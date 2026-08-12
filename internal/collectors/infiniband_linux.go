@@ -4,12 +4,15 @@ package collectors
 
 import (
 	"context"
+	"os"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
+
+const ibSysClassDir = "/sys/class/infiniband"
 
 type InfiniBandCollector struct{}
 
@@ -20,14 +23,21 @@ func (c *InfiniBandCollector) Timeout() time.Duration { return 3 * time.Second }
 func (c *InfiniBandCollector) Collect(_ context.Context) (interface{}, error) {
 	info := &models.InfiniBandInfo{}
 
-	// /sys/class/infiniband/ — one dir per HCA device (mlx5_0, rxe0, etc.)
-	devices, _ := glob("/sys/class/infiniband/*")
-	if len(devices) == 0 {
+	// /sys/class/infiniband/ — one dir per HCA device (mlx5_0, rxe0, etc.).
+	// Read the directory (not a glob) so a restricted view (EACCES on a
+	// namespaced/bind-mounted /sys) is distinguishable from the directory
+	// genuinely not existing (no IB kernel module loaded) — filepath.Glob
+	// itself silently swallows read errors either way.
+	names, err := readDirNames(ibSysClassDir)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			info.ReadFailed = true
+		}
 		return info, nil
 	}
 
-	for _, dev := range devices {
-		devName := filepath.Base(dev)
+	for _, devName := range names {
+		dev := filepath.Join(ibSysClassDir, devName)
 		// Each device has ports/ subdirectory
 		ports, _ := glob(filepath.Join(dev, "ports", "*"))
 		for _, portPath := range ports {
@@ -38,10 +48,16 @@ func (c *InfiniBandCollector) Collect(_ context.Context) (interface{}, error) {
 	return info, nil
 }
 
-// IsInfiniBandPresent returns true when IB hardware is found.
+// IsInfiniBandPresent returns true when IB hardware is found, or when
+// presence could not be confirmed one way or the other (a restricted /sys
+// view) — in that case the collector still runs and discloses ReadFailed via
+// InfiniBandInfo, rather than the health run silently skipping the section.
 func IsInfiniBandPresent() bool {
-	devices, _ := glob("/sys/class/infiniband/*")
-	return len(devices) > 0
+	names, err := readDirNames(ibSysClassDir)
+	if err != nil {
+		return !os.IsNotExist(err)
+	}
+	return len(names) > 0
 }
 
 func readIBPort(device, portPath string) models.IBPort {
