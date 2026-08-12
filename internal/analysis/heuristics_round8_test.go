@@ -46,6 +46,10 @@ func TestCheckHardware(t *testing.T) {
 		{"drive read error is WARN", models.HardwareInfo{Drives: []models.HardwareDrive{{Device: "/dev/sda", SmartctlAvailable: true, Error: "scan timeout"}}}, "WARN"},
 		{"EDAC uncorrected is CRIT", models.HardwareInfo{Memory: models.HardwareMemory{EDACAvailable: true, UncorrectedErrors: 1}}, "CRIT"},
 		{"EDAC corrected is WARN", models.HardwareInfo{Memory: models.HardwareMemory{EDACAvailable: true, CorrectedErrors: 150}}, "WARN"},
+		// internal-collectors-11-03: a counter read failure must disclose INFO
+		// rather than silently reading as a clean "0 errors".
+		{"EDAC counters unreadable with zero counts is INFO, not silent OK",
+			models.HardwareInfo{Memory: models.HardwareMemory{EDACAvailable: true, EDACCountersUnreadable: true}}, "INFO"},
 		// Regression: a missing smartctl (synthetic SmartctlAvailable:false drive)
 		// must NOT short-circuit the EDAC/ECC memory check that follows the drive loop.
 		{"ECC fault surfaces even when smartctl is absent", models.HardwareInfo{
