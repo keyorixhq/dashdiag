@@ -328,4 +328,38 @@ func TestContainerdCollector_Collect_FullHappyPath(t *testing.T) {
 	if len(info.Namespaces) != 2 || info.TotalContainers != 3 {
 		t.Errorf("Namespaces=%+v TotalContainers=%d, want 2 namespaces / 3 total", info.Namespaces, info.TotalContainers)
 	}
+	if !info.CtrBinaryFound {
+		t.Error("CtrBinaryFound must be true when ctr version succeeded")
+	}
+}
+
+// TestContainerdCollector_Collect_CtrBinaryMissing is a regression guard for
+// internal-collectors-05-01: when the socket is reachable and the service is
+// active but no ctr/containerd-ctr binary can be found, Namespaces/
+// TotalContainers stay at their zero value — identical to a genuinely idle
+// containerd — so CtrBinaryFound must be false to disclose that enumeration
+// was never attempted.
+func TestContainerdCollector_Collect_CtrBinaryMissing(t *testing.T) {
+	withContainerdFixture(t, map[string]byte{containerdSocketCandidates[0]: '1'}, func(b *source.Bundle) {
+		b.PutCmd("systemctl", []string{"show", "containerd", "--property=ActiveState"}, "ActiveState=active\n", 0)
+		// No ctr/containerd-ctr/k3s-path/openSUSE-path binaries seeded — findCtr
+		// returns "" for every candidate.
+	})
+
+	c := NewContainerdCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.ContainerdInfo)
+
+	if !info.Available {
+		t.Error("Available must be true — the socket is reachable")
+	}
+	if info.CtrBinaryFound {
+		t.Error("CtrBinaryFound must be false when no ctr binary was found")
+	}
+	if info.TotalContainers != 0 || info.Namespaces != nil {
+		t.Errorf("expected zero-value Namespaces/TotalContainers, got %+v / %d", info.Namespaces, info.TotalContainers)
+	}
 }

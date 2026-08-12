@@ -157,8 +157,20 @@ func TestCheckGPU(t *testing.T) {
 
 func TestCheckContainerd(t *testing.T) {
 	assertLevel(t, checkContainerd(models.ContainerdInfo{Available: false, StatusReason: "socket not found"}), "WARN")
-	assertLevel(t, checkContainerd(models.ContainerdInfo{Available: true, ServiceState: "active"}), "")
-	assertLevel(t, checkContainerd(models.ContainerdInfo{Available: true, ServiceState: "failed"}), "CRIT")
+	assertLevel(t, checkContainerd(models.ContainerdInfo{Available: true, ServiceState: "active", CtrBinaryFound: true}), "")
+	assertLevel(t, checkContainerd(models.ContainerdInfo{Available: true, ServiceState: "failed", CtrBinaryFound: true}), "CRIT")
+}
+
+// TestCheckContainerd_CtrBinaryMissing is a regression guard for
+// internal-collectors-05-01: when no ctr/containerd-ctr binary was found,
+// Namespaces/TotalContainers stay at their zero value — byte-for-byte
+// identical to a genuinely idle containerd with zero namespaces. Must
+// disclose that enumeration was never attempted, not read as verified-clean.
+func TestCheckContainerd_CtrBinaryMissing(t *testing.T) {
+	got := checkContainerd(models.ContainerdInfo{Available: true, ServiceState: "active", CtrBinaryFound: false})
+	if !hasInsightMsg(got, "INFO", "could not be enumerated") {
+		t.Errorf("a missing ctr binary must disclose that containers could not be enumerated, got %+v", got)
+	}
 }
 
 func TestCheckSnapper(t *testing.T) {
