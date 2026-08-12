@@ -54,6 +54,8 @@ var guardedUnverifiedSignals = map[string]string{
 	"SecurityInfo.FirewallUnreadable":     "collectors/firewall_barename_linux_test.go (nft unreadable → INFO)",
 	"SecurityInfo.AuditRulesUnreadable":   "cis/rules_test.go TestEvaluate_AuditUnreadableNotFailed (4.1.1 non-root → Skipped, not Fail) + collectors/medium_low_linux_test.go TestAuditRulesFromOutput",
 	"AuditInfo.AuditLogSizeUnreadable":    "analysis/heuristics_round6_test.go TestCheckAuditd (non-root → INFO, not a silent 0-size OK)",
+	"AuditInfo.RulesUnreadable":           "analysis/heuristics_security.go checkAuditd (FIXED: auditctl -l failure now emits an explicit INFO instead of a silent rules_loaded=0)",
+	"AuditInfo.EventsUnreadable":          "analysis/heuristics_security.go checkAuditd (FIXED: ausearch failure now emits an explicit INFO instead of a silent events_last_1h=0)",
 
 	// Storage — heuristic folds an unreadable read to INFO/WARN, never OK.
 	"CephInfo.NeedsRoot":                "analysis/heuristics_round3_test.go (configured+non-root → INFO, not false 'unreachable' CRIT)",
