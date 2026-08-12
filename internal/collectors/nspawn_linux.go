@@ -23,17 +23,27 @@ func (c *NspawnCollector) Collect(ctx context.Context) (interface{}, error) {
 	info := &models.NspawnInfo{}
 
 	if _, err := lookPath(cmdMachineCtl); err != nil {
-		return info, nil
+		return info, nil // genuinely N/A — machinectl not installed
 	}
 
 	out, err := runCmd(ctx, cmdMachineCtl, "list", "--no-legend", "--no-pager")
-	if err != nil || strings.TrimSpace(out) == "" {
+	if err != nil {
+		// machinectl is installed but the query itself failed (systemd-machined
+		// down?) — a real gap, distinct from "genuinely no containers running".
+		// countFailedNspawnUnits queries systemctl directly, independent of
+		// machinectl, so a genuinely failed container unit is still caught here.
+		info.Status = "query-failed"
+		info.StatusReason = "machinectl list failed: " + err.Error()
+		info.FailedCount = countFailedNspawnUnits(ctx)
 		return info, nil
+	}
+	info.FailedCount = countFailedNspawnUnits(ctx)
+	if strings.TrimSpace(out) == "" {
+		return info, nil // genuinely no containers running — benign
 	}
 
 	info.Available = true
 	info.Containers = parseMachinectlList(out)
-	info.FailedCount = countFailedNspawnUnits(ctx)
 	return info, nil
 }
 
