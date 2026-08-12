@@ -118,9 +118,16 @@ func printContainerd(info *models.ContainerdInfo, mode output.OutputMode) {
 	if info.Version != "" {
 		printLine(mode, "ok", "Version", info.Version)
 	}
-	printLine(mode, "ok", "Containers",
-		fmt.Sprintf("%d across %d namespace(s)", info.TotalContainers, len(info.Namespaces)))
-	for _, ns := range info.Namespaces {
-		fmt.Printf("     %-20s %d container(s)\n", ns.Name, ns.ContainerCount)
+	if info.CtrBinaryFound {
+		printLine(mode, "ok", "Containers",
+			fmt.Sprintf("%d across %d namespace(s)", info.TotalContainers, len(info.Namespaces)))
+		for _, ns := range info.Namespaces {
+			fmt.Printf("     %-20s %d container(s)\n", ns.Name, ns.ContainerCount)
+		}
+	} else {
+		// internal-collectors-05-01: no ctr/containerd-ctr binary found — namespace
+		// enumeration was never attempted. TotalContainers/Namespaces are zero-value
+		// defaults, not a verified-clean "0 containers" reading.
+		printLine(mode, "info", "Containers", "could not be enumerated — no ctr/containerd-ctr binary found")
 	}
 }

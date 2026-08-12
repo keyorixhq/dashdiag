@@ -283,6 +283,21 @@ func checkContainerd(d models.ContainerdInfo) []models.Insight {
 		))
 	}
 
+	// internal-collectors-05-01: no ctr/containerd-ctr binary was found (removed,
+	// renamed, blocked via PATH), so namespace/container enumeration was never
+	// attempted — TotalContainers stayed 0 and Namespaces stayed nil, byte-for-
+	// byte identical to a genuinely idle containerd with zero namespaces. Never
+	// let that read as "verified clean".
+	if !d.CtrBinaryFound {
+		out = append(out, unverifiedInsight("INFO", virtCatContainerd,
+			"containerd namespaces/containers could not be enumerated — no ctr/containerd-ctr binary found",
+			[]string{
+				"to inspect: which ctr containerd-ctr",
+				"note: the socket is reachable and the service is running, but container inventory was never checked",
+			},
+		))
+	}
+
 	return out
 }
 
