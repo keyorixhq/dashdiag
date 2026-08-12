@@ -78,22 +78,30 @@ func TestFilterNonBenignSSHD(t *testing.T) {
 		"sshd@1-1.2.3.4:22-5.6.7.8:5001.service": "1",
 		"ssh@2-x.service":                        "0",
 	}
-	got := filterNonBenignSSHD(units, func(u string) (string, bool) {
+	got, unverified := filterNonBenignSSHD(units, func(u string) (string, bool) {
 		s, ok := status[u]
 		return s, ok
 	})
 	if len(got) != 1 || got[0] != "sshd@1-1.2.3.4:22-5.6.7.8:5001.service" {
 		t.Fatalf("only the non-255 sshd@ instance should be surfaced, got %v", got)
 	}
+	if unverified {
+		t.Error("unverified should be false — every inspected instance's status was readable")
+	}
 }
 
-// An unreadable status leaves the instance suppressed (fail-safe — never re-floods).
+// An unreadable status leaves the instance suppressed (fail-safe — never re-floods),
+// but must set unverified=true so the caller can disclose the gap instead of a
+// silent, indistinguishable clean read.
 func TestFilterNonBenignSSHD_UnreadableStaysSuppressed(t *testing.T) {
 	t.Parallel()
 	units := []string{"sshd@0-a.service"}
-	got := filterNonBenignSSHD(units, func(string) (string, bool) { return "", false })
+	got, unverified := filterNonBenignSSHD(units, func(string) (string, bool) { return "", false })
 	if len(got) != 0 {
 		t.Errorf("unreadable status must stay suppressed, got %v", got)
+	}
+	if !unverified {
+		t.Error("expected unverified=true when the status lookup fails")
 	}
 }
 
@@ -109,9 +117,12 @@ func TestFilterNonBenignSSHD_MaxInspect(t *testing.T) {
 	for i := range units {
 		units[i] = fmt.Sprintf("sshd@%d-a.service", i)
 	}
-	got := filterNonBenignSSHD(units, func(string) (string, bool) { return "1", true })
+	got, unverified := filterNonBenignSSHD(units, func(string) (string, bool) { return "1", true })
 	if len(got) != sshdMaxInspect {
 		t.Errorf("expected %d results (capped by sshdMaxInspect), got %d: %v", sshdMaxInspect, len(got), got)
+	}
+	if unverified {
+		t.Error("unverified should be false — every status lookup that ran succeeded")
 	}
 }
 

@@ -280,9 +280,12 @@ const sshdMaxInspect = 20
 // signature of a scan / LB probe / kex abort) or 0. The blanket sshd@ suppression
 // rightly hides that benign pile, but would also hide a genuine per-connection fault
 // (e.g. an unreadable host key fails every connection with a different status). This
-// adds those back. Additive and fail-safe: a status that can't be read is left
-// suppressed (the prior behaviour), so it can only surface more, never re-flood.
-func nonBenignSSHDInstances(ctx context.Context, units []string) []string {
+// adds those back. Additive and fail-safe for NOISE REDUCTION: a status that can't be
+// read is left suppressed rather than re-flooding the list. But that's a verdict gap,
+// not a clean "verified benign" — the second return reports whether at least one
+// lookup failed, so the caller can disclose "some sshd@ instances' real state
+// couldn't be confirmed" instead of a silent, indistinguishable clean read.
+func nonBenignSSHDInstances(ctx context.Context, units []string) ([]string, bool) {
 	return filterNonBenignSSHD(units, func(u string) (string, bool) {
 		s, err := runCmd(ctx, "systemctl", "show", u, "-p", "ExecMainStatus", "--value")
 		return strings.TrimSpace(s), err == nil
@@ -290,10 +293,11 @@ func nonBenignSSHDInstances(ctx context.Context, units []string) []string {
 }
 
 // filterNonBenignSSHD is the pure core of nonBenignSSHDInstances: given a status
-// lookup (ExecMainStatus, ok), it returns the sshd@ instances that failed non-benign.
-// statusOf returning ok=false (unreadable) leaves the instance suppressed (fail-safe).
-func filterNonBenignSSHD(units []string, statusOf func(string) (status string, ok bool)) []string {
+// lookup (ExecMainStatus, ok), it returns the sshd@ instances that failed non-benign,
+// plus whether any lookup was unverifiable (statusOf returned ok=false).
+func filterNonBenignSSHD(units []string, statusOf func(string) (status string, ok bool)) ([]string, bool) {
 	var out []string
+	unverified := false
 	inspected := 0
 	for _, u := range units {
 		if !isSSHDConnInstance(u) {
@@ -305,6 +309,7 @@ func filterNonBenignSSHD(units []string, statusOf func(string) (status string, o
 		inspected++
 		status, ok := statusOf(u)
 		if !ok {
+			unverified = true
 			continue // can't read → leave suppressed
 		}
 		switch status {
@@ -313,7 +318,7 @@ func filterNonBenignSSHD(units []string, statusOf func(string) (status string, o
 			out = append(out, u)
 		}
 	}
-	return out
+	return out, unverified
 }
 
 func listUnits(ctx context.Context, state string) ([]string, error) {
@@ -346,18 +351,20 @@ func (c *SystemdCollector) Collect(ctx context.Context) (any, error) {
 	failed = dropBenignSysupdate(failed)
 	// The blanket sshd@ suppression hides the benign dropped-before-auth pile, but
 	// would also hide a real per-connection sshd fault — add those (non-255) back.
-	failed = append(failed, nonBenignSSHDInstances(ctx, failedRaw)...)
+	nonBenignSSHD, sshdUnverified := nonBenignSSHDInstances(ctx, failedRaw)
+	failed = append(failed, nonBenignSSHD...)
 	slowUnits, totalBoot := collectBootTimes(ctx)
 
 	return &models.SystemdInfo{
-		Available:          true,
-		FailedUnits:        failed,
-		FailedUnitsUnknown: failedErr != nil,
-		NeedsDaemonReload:  systemdNeedsReload(ctx),
-		StuckUnits:         nil,
-		SlowUnits:          slowUnits,
-		TotalBootSec:       totalBoot,
-		SystemState:        systemRunningState(ctx),
+		Available:            true,
+		FailedUnits:          failed,
+		FailedUnitsUnknown:   failedErr != nil,
+		SSHDStatusUnverified: sshdUnverified,
+		NeedsDaemonReload:    systemdNeedsReload(ctx),
+		StuckUnits:           nil,
+		SlowUnits:            slowUnits,
+		TotalBootSec:         totalBoot,
+		SystemState:          systemRunningState(ctx),
 	}, nil
 }
 
