@@ -96,8 +96,8 @@ type SecurityInfo struct {
 
 	// AppArmor (SLES/Ubuntu/Debian)
 	AppArmorMode     string           `json:"apparmor_mode,omitempty"`     // enforce, complain, disabled
-	AppArmorProfiles int              `json:"apparmor_profiles,omitempty"` // total loaded profiles
-	AppArmorComplain int              `json:"apparmor_complain,omitempty"` // profiles in complain mode
+	AppArmorProfiles int              `json:"apparmor_profiles,omitempty"` // total loaded profiles (-1 = unreadable, e.g. non-root EACCES)
+	AppArmorComplain int              `json:"apparmor_complain,omitempty"` // profiles in complain mode (-1 = unreadable)
 	AppArmorDenials  int              `json:"apparmor_denials,omitempty"`  // denials in last hour
 	AppArmorGroups   []AppArmorDenial `json:"apparmor_groups,omitempty"`   // grouped AppArmor denials
 
