@@ -265,9 +265,21 @@ func parseApparmorProfiles(data string) string {
 
 // apparmorDetail returns profile counts by mode from the profiles list.
 // Path is /sys/kernel/security/apparmor/profiles — requires root.
+//
+// internal-collectors-18-01: on EACCES (non-root against the root-only
+// profiles file — the exact case apparmorMode() already distinguishes with
+// ksStatusUnknown) this must not collapse to (0,0,0), indistinguishable from
+// a host with genuinely zero loaded profiles. A non-root run against a host
+// enforcing hundreds of profiles would otherwise report AppArmorProfiles=0,
+// contradicting AppArmorMode=="unknown" for any consumer (notably raw --json
+// output) that reads the counts without also checking the mode string.
+// -1 mirrors the sentinel convention used elsewhere for "read failed" ints.
 func apparmorDetail() (total, enforce, complain int) {
 	data, err := readFile("/sys/kernel/security/apparmor/profiles") // #nosec G304
 	if err != nil {
+		if os.IsPermission(err) {
+			return -1, -1, -1
+		}
 		return 0, 0, 0
 	}
 	for line := range strings.SplitSeq(string(data), "\n") {
