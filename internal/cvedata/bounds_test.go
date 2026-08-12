@@ -18,20 +18,18 @@ func withShrunkFeedCap(t *testing.T, n int64) {
 	t.Cleanup(func() { maxDecompressedFeedBytes = old })
 }
 
-func TestBoundDecompressed_CapsRead(t *testing.T) {
+// TestBoundedReader_CapsRead exercises the capping logic directly via
+// boundedReader's explicit limit parameter — safe to run in parallel since,
+// unlike boundDecompressed, it never touches the maxDecompressedFeedBytes
+// package var.
+func TestBoundedReader_CapsRead(t *testing.T) {
 	t.Parallel()
-	withoutParallelShrink := func(n int64) io.Reader {
-		old := maxDecompressedFeedBytes
-		maxDecompressedFeedBytes = n
-		defer func() { maxDecompressedFeedBytes = old }()
-		return boundDecompressed(strings.NewReader(strings.Repeat("x", 100)))
-	}
-	r := withoutParallelShrink(10)
+	r := boundedReader(strings.NewReader(strings.Repeat("x", 100)), 10)
 	got, err := io.ReadAll(r)
 	if err != nil {
 		t.Fatalf("ReadAll: %v", err)
 	}
 	if len(got) != 10 {
-		t.Errorf("boundDecompressed did not cap the read: got %d bytes, want 10", len(got))
+		t.Errorf("boundedReader did not cap the read: got %d bytes, want 10", len(got))
 	}
 }

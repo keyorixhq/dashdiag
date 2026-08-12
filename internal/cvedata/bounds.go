@@ -18,5 +18,13 @@ var maxDecompressedFeedBytes int64 = 512 * 1024 * 1024 // 512MiB
 // an uncompressed feed) so a decoder reading from it can never pull more than
 // maxDecompressedFeedBytes out of a single feed file/stream.
 func boundDecompressed(r io.Reader) io.Reader {
-	return io.LimitReader(r, maxDecompressedFeedBytes)
+	return boundedReader(r, maxDecompressedFeedBytes)
+}
+
+// boundedReader is the limit-applying core of boundDecompressed, split out so
+// a test can exercise the capping logic itself with an explicit small limit
+// instead of mutating the maxDecompressedFeedBytes package var (which would
+// race any sibling t.Parallel() test in this package that also reads it).
+func boundedReader(r io.Reader, limit int64) io.Reader {
+	return io.LimitReader(r, limit)
 }
