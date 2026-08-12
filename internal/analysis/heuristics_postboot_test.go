@@ -57,7 +57,8 @@ func TestCheckPostBoot_Absent(t *testing.T) {
 func TestCheckPostBoot_PanicWarns(t *testing.T) {
 	got := checkPostBoot(models.PostBootInfo{
 		Available: true, State: "found", Source: "persistent_journal",
-		ShutdownChecked: true, KernelPanic: true, PanicHint: "Kernel panic - not syncing: VFS",
+		ShutdownChecked: true, OOMChecked: true, PanicChecked: true,
+		KernelPanic: true, PanicHint: "Kernel panic - not syncing: VFS",
 	})
 	if !hasInsightMsg(got, "WARN", "kernel panic") {
 		t.Errorf("prior-boot panic should WARN, got %+v", got)
@@ -68,7 +69,8 @@ func TestCheckPostBoot_OOMAndUncleanWarn(t *testing.T) {
 	got := checkPostBoot(models.PostBootInfo{
 		Available: true, State: "found", Source: "persistent_journal",
 		OOMKills: 2, OOMVictims: []string{"mysqld", "java"},
-		ShutdownChecked: true, UncleanShutdown: true,
+		ShutdownChecked: true, OOMChecked: true, PanicChecked: true,
+		UncleanShutdown: true,
 	})
 	if !hasInsightMsg(got, "WARN", "OOM kill") || !hasInsightMsg(got, "WARN", "mysqld") {
 		t.Errorf("prior-boot OOM should WARN with victims, got %+v", got)
@@ -83,13 +85,56 @@ func TestCheckPostBoot_CleanRecognition(t *testing.T) {
 	// result), no WARN.
 	got := checkPostBoot(models.PostBootInfo{
 		Available: true, State: "found", Source: "persistent_journal",
-		ShutdownChecked: true, UncleanShutdown: false,
+		ShutdownChecked: true, OOMChecked: true, PanicChecked: true,
+		UncleanShutdown: false,
 	})
 	if len(got) != 1 || got[0].Level != "INFO" {
 		t.Fatalf("clean prior boot = %+v, want one INFO line", got)
 	}
 	if !hasInsightMsg(got, "INFO", "no OOM kill or kernel panic") {
 		t.Errorf("clean recognition wording: %q", got[0].Message)
+	}
+}
+
+// TestCheckPostBoot_OOMCheckFailedDisclosed is the regression guard for
+// internal-collectors-26-01: on the journal path, a failed OOM/panic sub-call
+// (OOMChecked/PanicChecked false) must disclose INFO rather than silently
+// reading as a verified-clean prior boot.
+func TestCheckPostBoot_OOMCheckFailedDisclosed(t *testing.T) {
+	got := checkPostBoot(models.PostBootInfo{
+		Available: true, State: "found", Source: "persistent_journal",
+		ShutdownChecked: true, OOMChecked: false, PanicChecked: true,
+	})
+	if !hasInsightMsg(got, "INFO", "OOM-kill check could not be completed") {
+		t.Errorf("unchecked prior-boot OOM should disclose INFO, got %+v", got)
+	}
+	if hasInsightMsg(got, "INFO", "no OOM kill or kernel panic") {
+		t.Errorf("must not claim the clean recognition line when OOM wasn't checked, got %+v", got)
+	}
+}
+
+func TestCheckPostBoot_PanicCheckFailedDisclosed(t *testing.T) {
+	got := checkPostBoot(models.PostBootInfo{
+		Available: true, State: "found", Source: "persistent_journal",
+		ShutdownChecked: true, OOMChecked: true, PanicChecked: false,
+	})
+	if !hasInsightMsg(got, "INFO", "kernel-panic check could not be completed") {
+		t.Errorf("unchecked prior-boot panic should disclose INFO, got %+v", got)
+	}
+}
+
+// TestCheckPostBoot_WtmpDoesNotDiscloseOOMPanicCheckFailure guards that the
+// new OOMChecked/PanicChecked disclosure is journal-only: the wtmp path never
+// attempts those sub-checks at all (a structurally different "not
+// applicable", already covered by its own dedicated wording), so it must not
+// ALSO emit the journal-path "sub-call failed" INFOs.
+func TestCheckPostBoot_WtmpDoesNotDiscloseOOMPanicCheckFailure(t *testing.T) {
+	got := checkPostBoot(models.PostBootInfo{
+		Available: true, State: "found", Source: "wtmp",
+		ShutdownChecked: true, UncleanShutdown: false,
+	})
+	if hasInsightMsg(got, "INFO", "could not be completed") {
+		t.Errorf("wtmp path must not emit the journal-only sub-call-failed disclosure, got %+v", got)
 	}
 }
 

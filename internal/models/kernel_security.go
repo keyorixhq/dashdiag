@@ -22,8 +22,8 @@ type KernelSecurityInfo struct {
 	AppArmorPresent bool   `json:"app_armor_present"`
 	AppArmorMode    string `json:"app_armor_mode"`
 	// AppArmor detail (SLES/Ubuntu/Debian)
-	AppArmorProfiles int `json:"app_armor_profiles"` // total loaded profiles
-	AppArmorEnforce  int `json:"app_armor_enforce"`  // profiles in enforce mode
-	AppArmorComplain int `json:"app_armor_complain"` // profiles in complain mode (should be 0)
+	AppArmorProfiles int `json:"app_armor_profiles"` // total loaded profiles (-1 = unreadable, e.g. non-root EACCES)
+	AppArmorEnforce  int `json:"app_armor_enforce"`  // profiles in enforce mode (-1 = unreadable)
+	AppArmorComplain int `json:"app_armor_complain"` // profiles in complain mode, should be 0 (-1 = unreadable)
 	AppArmorDenials  int `json:"app_armor_denials"`  // denials in last hour (-1 = unavailable)
 }
