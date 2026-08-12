@@ -52,12 +52,17 @@ type ServicesDeepInfo struct {
 	// ran. On a non-systemd host (Alpine/OpenRC/Devuan) or when systemctl errors,
 	// FailedUnits stays empty because nothing was queried — NOT because there are no
 	// failed units. The renderer must read this so an empty list isn't a false "none".
-	FailedUnitsQueried bool           `json:"failed_units_queried,omitempty"`
-	FailedUnits        []SystemdUnit  `json:"failed_units,omitempty"`
-	NeedsDaemonReload  []string       `json:"needs_daemon_reload,omitempty"`
-	MaskedUnits        []string       `json:"masked_units,omitempty"`
-	JournalHealthy     bool           `json:"journal_healthy"`
-	JournalLastValid   string         `json:"journal_last_valid,omitempty"`
-	BootOffenders      []BootOffender `json:"boot_top_offenders,omitempty"`
-	UserUnits          *UserUnitsInfo `json:"user_units,omitempty"`
+	FailedUnitsQueried bool `json:"failed_units_queried,omitempty"`
+	// SSHDStatusUnverified mirrors SystemdInfo's field of the same name: at least
+	// one blanket-suppressed sshd@ per-connection instance's ExecMainStatus lookup
+	// failed, so a genuine per-connection sshd fault could be hiding among the
+	// suppressed pile rather than a confirmed-benign one.
+	SSHDStatusUnverified bool           `json:"sshd_status_unverified,omitempty"`
+	FailedUnits          []SystemdUnit  `json:"failed_units,omitempty"`
+	NeedsDaemonReload    []string       `json:"needs_daemon_reload,omitempty"`
+	MaskedUnits          []string       `json:"masked_units,omitempty"`
+	JournalHealthy       bool           `json:"journal_healthy"`
+	JournalLastValid     string         `json:"journal_last_valid,omitempty"`
+	BootOffenders        []BootOffender `json:"boot_top_offenders,omitempty"`
+	UserUnits            *UserUnitsInfo `json:"user_units,omitempty"`
 }

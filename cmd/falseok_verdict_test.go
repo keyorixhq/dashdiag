@@ -111,6 +111,28 @@ func TestServicesDeepNotQueriedNotNone(t *testing.T) {
 	}
 }
 
+// TestServicesDeepSSHDUnverifiedNotNone guards a second false-OK gap in the
+// same "Failed units" line: a blanket-suppressed sshd@ instance whose exit
+// status couldn't be confirmed benign, with no OTHER unit failed, must not
+// render the same green "none" a genuinely-clean host gets — a real
+// per-connection sshd fault could be the one instance left unverified.
+func TestServicesDeepSSHDUnverifiedNotNone(t *testing.T) {
+	unverified := &models.ServicesDeepInfo{FailedUnitsQueried: true, SSHDStatusUnverified: true, JournalHealthy: true}
+	out := captureStdout(t, func() { printSystemdHealth(unverified, output.ModeHuman) })
+	if line := failedUnitsLine(out); !strings.Contains(line, "unverified") {
+		t.Errorf("SSHDStatusUnverified 'Failed units' line should mention unverified, got %q", line)
+	}
+
+	// A genuinely clean, fully-verified run (SSHDStatusUnverified=false) still
+	// renders the plain green "none" — the disclosure must not fire when nothing
+	// is actually unverified.
+	clean := &models.ServicesDeepInfo{FailedUnitsQueried: true, JournalHealthy: true}
+	out2 := captureStdout(t, func() { printSystemdHealth(clean, output.ModeHuman) })
+	if line := failedUnitsLine(out2); strings.Contains(line, "unverified") {
+		t.Errorf("a fully-verified clean run must not mention unverified, got %q", line)
+	}
+}
+
 // failedUnitsLine returns the rendered "Failed units" line (other lines also contain
 // "none"/"healthy", so assertions must target this line specifically).
 func failedUnitsLine(out string) string {
