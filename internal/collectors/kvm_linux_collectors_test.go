@@ -347,6 +347,11 @@ func TestKVMCollectNetworks(t *testing.T) {
 	}
 }
 
+// TestKVMCollectNetworks_CmdFails is the regression guard for
+// internal-collectors-18-04: `virsh net-list` failing must set the same
+// enum-failed Status/StatusReason kvmCollectVMs already uses on its own
+// enumeration failure — a silent empty Networks/zero NetworksInactive is
+// indistinguishable from a host with no libvirt networks defined at all.
 func TestKVMCollectNetworks_CmdFails(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmdNotFound("virsh", []string{"net-list", "--all"})
@@ -355,6 +360,27 @@ func TestKVMCollectNetworks_CmdFails(t *testing.T) {
 	kvmCollectNetworks(context.Background(), info)
 	if len(info.Networks) != 0 {
 		t.Errorf("Networks = %+v, want empty", info.Networks)
+	}
+	if info.Status != "enum-failed" {
+		t.Errorf("Status = %q, want enum-failed", info.Status)
+	}
+	if info.StatusReason == "" {
+		t.Error("StatusReason is empty, want an explanation of the virsh net-list failure")
+	}
+}
+
+// TestKVMCollectNetworks_CmdFails_VMEnumAlreadyFailedKeepsReason guards the
+// precedence rule: when kvmCollectVMs already recorded its own enum-failed
+// reason (checked first, and the more severe of the two), a subsequent
+// network enumeration failure must NOT overwrite it.
+func TestKVMCollectNetworks_CmdFails_VMEnumAlreadyFailedKeepsReason(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmdNotFound("virsh", []string{"net-list", "--all"})
+	})
+	info := &models.KVMInfo{Status: "enum-failed", StatusReason: "libvirt is up but `virsh list` failed — VM states could not be read"}
+	kvmCollectNetworks(context.Background(), info)
+	if info.StatusReason != "libvirt is up but `virsh list` failed — VM states could not be read" {
+		t.Errorf("StatusReason = %q, want the original VM-enum failure reason preserved", info.StatusReason)
 	}
 }
 

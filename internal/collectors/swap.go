@@ -165,14 +165,23 @@ func (c *SwapCollector) Collect(ctx context.Context) (any, error) {
 	return info, nil
 }
 
+// darwinMemPressureLevel returns kern.memorystatus_vm_pressure_level (1=normal,
+// 2=warn, 3=urgent, 4=critical), or -1 when it could not be measured (sysctl
+// spawn failure, permission denied, or — notably — the very memory pressure
+// being probed preventing fork/exec of the subprocess). -1 must NOT fabricate
+// "normal": the old default of 1 made checkSwap's `MemPressureLevel > 0` gate
+// return EARLY with no insight at all, even at critical swap occupancy. -1
+// fails that gate instead, so checkSwap falls through to its generic
+// OS-agnostic swap-occupancy scoring rather than silently reporting a
+// genuinely critical host as pressure-normal (internal-collectors-31-01).
 func darwinMemPressureLevel(ctx context.Context) int {
 	out, err := runCmd(ctx, "sysctl", "-n", "kern.memorystatus_vm_pressure_level")
 	if err != nil {
-		return 1 // assume normal if unavailable
+		return -1
 	}
 	v, err := strconv.Atoi(strings.TrimSpace(out))
 	if err != nil || v < 1 {
-		return 1
+		return -1
 	}
 	return v
 }
