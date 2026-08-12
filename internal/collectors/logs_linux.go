@@ -371,6 +371,7 @@ func detectCrashLoops(ctx context.Context) []string {
 	if err != nil {
 		return nil
 	}
+	now := NowViaSource() // capture-time under replay, so recency is hermetic
 	var loops []string
 	for _, line := range strings.Split(out, "\n") {
 		fields := strings.Fields(line)
@@ -410,7 +411,7 @@ func detectCrashLoops(ctx context.Context) []string {
 		// (the systemd "unit failed" insight still flags it). Wall-clock based so
 		// it stays correct inside lxcfs containers, where CLOCK_MONOTONIC and
 		// /proc/uptime disagree.
-		if !crashLoopRecent(inactiveEnter, crashLoopRecencyWindow) {
+		if !crashLoopRecent(inactiveEnter, crashLoopRecencyWindow, now) {
 			continue
 		}
 		loops = append(loops, fmt.Sprintf("%s (restarted %d times)", unit, restarts))
@@ -420,10 +421,14 @@ func detectCrashLoops(ctx context.Context) []string {
 
 // crashLoopRecent reports whether a failed unit's last state change (systemd's
 // InactiveEnterTimestamp, a wall-clock string like "Thu 2026-06-04 00:35:21 UTC")
-// falls within window. Blank or unparseable timestamps return true — conservative:
-// never hide a possibly-live crash loop. A timestamp that parses to the future
-// (zone misparse / clock skew) also returns true for the same reason.
-func crashLoopRecent(inactiveEnter string, window time.Duration) bool {
+// falls within window of now. Blank or unparseable timestamps return true —
+// conservative: never hide a possibly-live crash loop. A timestamp that parses
+// to the future (zone misparse / clock skew) also returns true for the same
+// reason. now is passed in (NowViaSource, not time.Now/time.Since directly) so
+// this stays hermetic under replay — otherwise every failed unit in an old
+// capture reads as ancient relative to the replaying machine's real clock, and
+// a crash loop that was live at capture time silently vanishes on replay.
+func crashLoopRecent(inactiveEnter string, window time.Duration, now time.Time) bool {
 	inactiveEnter = strings.TrimSpace(inactiveEnter)
 	if inactiveEnter == "" {
 		return true
@@ -432,7 +437,7 @@ func crashLoopRecent(inactiveEnter string, window time.Duration) bool {
 	if err != nil {
 		return true
 	}
-	age := time.Since(t)
+	age := now.Sub(t)
 	return age < 0 || age <= window
 }
 
