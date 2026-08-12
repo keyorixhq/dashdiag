@@ -450,7 +450,7 @@ func TestDefaultExecCapsOutput(t *testing.T) {
 	t.Parallel()
 	const wantCap = 64 * 1024 * 1024 // must match MaxCapturedOutput
 	live := Live{}
-	res, err := live.Run(context.Background(), "/bin/sh", "-c", "dd if=/dev/zero bs=1m count=100 2>/dev/null")
+	res, err := live.Run(context.Background(), "/bin/sh", "-c", "dd if=/dev/zero bs=1M count=100 2>/dev/null")
 	if err != nil {
 		t.Fatalf("Run: %v", err)
 	}

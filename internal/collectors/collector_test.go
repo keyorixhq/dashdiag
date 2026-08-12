@@ -82,7 +82,7 @@ func TestLocaleSafeExecCapsOutput(t *testing.T) {
 	const wantCap = 64 * 1024 * 1024 // must match source.MaxCapturedOutput
 	// Emit well past the cap of cheap, fast-to-generate output so the test both
 	// runs quickly and definitely exceeds it.
-	out, err := runCmd(ctx, "sh", "-c", "dd if=/dev/zero bs=1m count=100 2>/dev/null")
+	out, err := runCmd(ctx, "sh", "-c", "dd if=/dev/zero bs=1M count=100 2>/dev/null")
 	if err != nil {
 		t.Fatalf("runCmd: %v", err)
 	}
