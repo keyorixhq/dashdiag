@@ -192,6 +192,129 @@ services:
 	}
 }
 
+// TestLoad_RootSkipsNonRootOwnedImplicitConfig is a regression guard: a root
+// process must not silently trust an auto-discovered $HOME/.dsd.yaml when
+// that file is owned by someone other than root (e.g. `sudo -E dsd` preserved
+// an unprivileged user's $HOME). Its Services list drives real outbound TCP
+// dials from internal/collectors/services.go — trusting it would let the
+// unprivileged file owner steer a privileged process's network connections.
+func TestLoad_RootSkipsNonRootOwnedImplicitConfig(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	cfgPath := filepath.Join(dir, ".dsd.yaml")
+	yaml := `
+services:
+  - name: attacker-controlled
+    host: 10.0.0.1
+    port: 4444
+    protocol: tcp
+thresholds:
+  disk_warn_pct: 1
+`
+	if err := os.WriteFile(cfgPath, []byte(yaml), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	prevEuid, prevOwner := geteuid, fileOwner
+	geteuid = func() int { return 0 }                          // simulate root
+	fileOwner = func(string) (int, bool) { return 1000, true } // owned by a non-root uid
+	defer func() { geteuid, fileOwner = prevEuid, prevOwner }()
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(cfg.Services) != 0 {
+		t.Fatalf("root process must not trust a non-root-owned implicit $HOME config; got Services=%+v", cfg.Services)
+	}
+	if cfg.Thresholds.DiskWarnPct != 80.0 {
+		t.Errorf("expected default DiskWarnPct=80 (config skipped), got %v", cfg.Thresholds.DiskWarnPct)
+	}
+}
+
+// TestLoad_RootTrustsRootOwnedImplicitConfig confirms the ownership gate only
+// blocks non-root-owned files: a root-owned $HOME config (the normal case
+// when dsd itself always runs as root on a box) must still be honored.
+func TestLoad_RootTrustsRootOwnedImplicitConfig(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	cfgPath := filepath.Join(dir, ".dsd.yaml")
+	yaml := `
+services:
+  - name: postgres
+    host: localhost
+    port: 5432
+    protocol: tcp
+`
+	if err := os.WriteFile(cfgPath, []byte(yaml), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	prevEuid, prevOwner := geteuid, fileOwner
+	geteuid = func() int { return 0 }                       // simulate root
+	fileOwner = func(string) (int, bool) { return 0, true } // owned by root
+	defer func() { geteuid, fileOwner = prevEuid, prevOwner }()
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(cfg.Services) != 1 || cfg.Services[0].Name != "postgres" {
+		t.Fatalf("root process should trust its own root-owned implicit config, got Services=%+v", cfg.Services)
+	}
+}
+
+// TestLoad_ExplicitConfigBypassesOwnershipCheck confirms an explicit --config
+// path (a deliberate operator choice) is never subject to the implicit-$HOME
+// ownership gate, even while running as root.
+func TestLoad_ExplicitConfigBypassesOwnershipCheck(t *testing.T) {
+	dir := t.TempDir()
+	yaml := `
+services:
+  - name: postgres
+    host: localhost
+    port: 5432
+    protocol: tcp
+`
+	cfgFile := filepath.Join(dir, "explicit.yaml")
+	if err := os.WriteFile(cfgFile, []byte(yaml), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+
+	prevEuid, prevOwner := geteuid, fileOwner
+	geteuid = func() int { return 0 }                          // simulate root
+	fileOwner = func(string) (int, bool) { return 1000, true } // non-root owner
+	defer func() { geteuid, fileOwner = prevEuid, prevOwner }()
+
+	cfg, err := Load(cfgFile)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(cfg.Services) != 1 || cfg.Services[0].Name != "postgres" {
+		t.Fatalf("explicit --config path must bypass the ownership gate, got Services=%+v", cfg.Services)
+	}
+}
+
+// TestDefaultFileOwner exercises the real (non-mocked) ownership resolver.
+func TestDefaultFileOwner(t *testing.T) {
+	dir := t.TempDir()
+	f := filepath.Join(dir, "owned.yaml")
+	if err := os.WriteFile(f, []byte("x"), 0644); err != nil {
+		t.Fatalf("write file: %v", err)
+	}
+	uid, ok := defaultFileOwner(f)
+	if !ok {
+		t.Fatal("expected ok=true for an existing file")
+	}
+	if uid != os.Getuid() {
+		t.Errorf("uid = %d, want the real process uid %d", uid, os.Getuid())
+	}
+
+	if _, ok := defaultFileOwner(filepath.Join(dir, "missing.yaml")); ok {
+		t.Error("expected ok=false for a missing file")
+	}
+}
+
 // TestLoad_UnmarshalTypeMismatch covers the v.Unmarshal error path
 // specifically: this is syntactically valid YAML (ReadInConfig succeeds) but
 // a field's shape doesn't coerce into the target Go struct (a mapping where a
