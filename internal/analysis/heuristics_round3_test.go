@@ -46,6 +46,24 @@ func TestCheckDRBDResource(t *testing.T) {
 	}
 }
 
+// TestCheckDRBDResource_UnrecognizedStates is a regression guard for
+// internal-analysis-10-04: neither switch (ConnState nor LocalDisk) had a
+// default case — the same recurring defect class that let SUSPENDED,
+// REMOVED/UNAVAIL/OFFLINE, and the Unconnected/Timeout/BrokenPipe/
+// NetworkFailure/ProtocolError/TearDown group each individually read as
+// healthy in production before being discovered and patched. An unrecognized
+// state string from either switch must disclose it could not be confirmed.
+func TestCheckDRBDResource_UnrecognizedStates(t *testing.T) {
+	connGot := checkDRBDResource(models.DRBDResource{ConnState: "SomeFutureConnState", LocalDisk: "UpToDate"})
+	if !hasInsightMsg(connGot, "INFO", "not a recognized value") {
+		t.Errorf("an unrecognized ConnState must disclose it could not be confirmed, got %+v", connGot)
+	}
+	diskGot := checkDRBDResource(models.DRBDResource{ConnState: "Connected", LocalDisk: "SomeFutureDiskState"})
+	if !hasInsightMsg(diskGot, "INFO", "not a recognized value") {
+		t.Errorf("an unrecognized LocalDisk state must disclose it could not be confirmed, got %+v", diskGot)
+	}
+}
+
 // ── multipath ─────────────────────────────────────────────────────────────────
 
 func TestCheckMultipath(t *testing.T) {

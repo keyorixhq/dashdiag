@@ -514,6 +514,19 @@ func checkZFSPool(pool models.ZFSPool) []models.Insight { //nolint:funlen // fla
 				fmt.Sprintf(inspectZPoolEventsFmt, pool.Name),
 			},
 		))
+	case "ONLINE":
+		// healthy — no insight
+	default:
+		// internal-analysis-10-04: SUSPENDED/REMOVED-UNAVAIL-OFFLINE were each
+		// individually missing from this switch and read as healthy in
+		// production before being discovered and patched — the same defect
+		// class recurs with every unrecognized state string (a newer zpool
+		// version, a typo, or corrupted output). Never let an unrecognized
+		// state fall through as if it were ONLINE.
+		out = append(out, unverifiedInsight("INFO", "ZFS",
+			fmt.Sprintf("ZFS pool %s state %q is not a recognized value — health could not be confirmed", pool.Name, pool.State),
+			[]string{fmt.Sprintf(inspectZPoolStatusFmt, pool.Name)},
+		))
 	}
 
 	// Capacity — ZFS copy-on-write degrades badly above 80%, writes fail above 90%
@@ -903,6 +916,19 @@ func checkDRBDResource(res models.DRBDResource) []models.Insight { //nolint:funl
 				"note: the resource is running without redundancy until the link recovers",
 			},
 		))
+	case "Connected", "VerifyS", "VerifyT", "Ahead", "Behind", "PausedSync":
+		// healthy / benign transient — no insight
+	default:
+		// internal-analysis-10-04: every state above was, at some point, missing
+		// from this switch and silently read as healthy in production before
+		// being individually discovered and patched — the same defect class
+		// recurs with the next new/renamed/typo'd connection-state string from a
+		// future drbdsetup version. Never let an unrecognized ConnState fall
+		// through as if it were Connected.
+		out = append(out, unverifiedInsight("INFO", "DRBD",
+			fmt.Sprintf("%s: connection state %q is not a recognized value — replication health could not be confirmed", name, res.ConnState),
+			[]string{fmt.Sprintf(inspectDRBDStatusFmt, name)},
+		))
 	}
 
 	// Disk state — local disk health
@@ -956,6 +982,16 @@ func checkDRBDResource(res models.DRBDResource) []models.Insight { //nolint:funl
 				fmt.Sprintf("to reattach (if intended): drbdadm attach %s", name),
 			},
 		))
+	case "UpToDate", "Consistent", "Attaching", "Negotiating":
+		// healthy / startup transient — no insight
+	default:
+		// internal-analysis-10-04: same recurring defect class as the ConnState
+		// switch above — never let an unrecognized local-disk state fall through
+		// as if it were UpToDate.
+		out = append(out, unverifiedInsight("INFO", "DRBD",
+			fmt.Sprintf("%s: local disk state %q is not a recognized value — disk health could not be confirmed", name, res.LocalDisk),
+			[]string{fmt.Sprintf(inspectDRBDStatusFmt, name)},
+		))
 	}
 
 	return out
@@ -1008,6 +1044,18 @@ func checkRAID(r models.RAIDInfo) []models.Insight {
 					"to inspect: dmesg | grep -i mdadm",
 					"note: data may be lost — check individual drive health with smartctl",
 				},
+			))
+		case "active":
+			// healthy — no insight
+		default:
+			// internal-analysis-10-04: same recurring defect class as the ZFS/DRBD
+			// switches above. The collector currently only ever sets one of the
+			// four cases handled here, but defensively guard against a future
+			// parsing change (or an unexpected /proc/mdstat format) passing
+			// through an unrecognized state and reading as healthy by omission.
+			out = append(out, unverifiedInsight("INFO", "RAID",
+				fmt.Sprintf("%s state %q is not a recognized value — array health could not be confirmed", arr.Name, arr.State),
+				[]string{fmt.Sprintf("to inspect: mdadm --detail /dev/%s", arr.Name)},
 			))
 		}
 	}

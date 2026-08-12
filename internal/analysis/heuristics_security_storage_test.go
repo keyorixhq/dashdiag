@@ -140,6 +140,19 @@ func TestCheckZFSPool(t *testing.T) {
 	}
 }
 
+// TestCheckZFSPool_UnrecognizedState is a regression guard for
+// internal-analysis-10-04: the State switch had no default case, so a state
+// string outside the hardcoded list (a newer zpool version, a typo, or
+// corrupted output — SUSPENDED and REMOVED/UNAVAIL/OFFLINE were each
+// individually missing and read healthy in production before being patched)
+// silently fell through as if the pool were ONLINE.
+func TestCheckZFSPool_UnrecognizedState(t *testing.T) {
+	got := checkZFSPool(models.ZFSPool{Name: "tank", State: "SOME-FUTURE-STATE"})
+	if !hasInsightMsg(got, "INFO", "not a recognized value") {
+		t.Errorf("an unrecognized ZFS pool state must disclose it could not be confirmed, got %+v", got)
+	}
+}
+
 // ── mdadm RAID states ─────────────────────────────────────────────────────────
 
 func TestCheckRAID(t *testing.T) {
@@ -161,6 +174,18 @@ func TestCheckRAID(t *testing.T) {
 		t.Run(tt.state, func(t *testing.T) {
 			assertLevel(t, checkRAID(arr(tt.state)), tt.want)
 		})
+	}
+}
+
+// TestCheckRAID_UnrecognizedState is a regression guard for
+// internal-analysis-10-04: the same recurring "no default case" defect class
+// as checkZFSPool/checkDRBDResource — an unrecognized mdadm state must
+// disclose it could not be confirmed, not silently read as "active".
+func TestCheckRAID_UnrecognizedState(t *testing.T) {
+	info := models.RAIDInfo{Arrays: []models.RAIDDevice{{Name: "md0", State: "some-future-state"}}}
+	got := checkRAID(info)
+	if !hasInsightMsg(got, "INFO", "not a recognized value") {
+		t.Errorf("an unrecognized RAID state must disclose it could not be confirmed, got %+v", got)
 	}
 }
 
