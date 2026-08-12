@@ -51,7 +51,9 @@ func (c *ServicesDeepCollector) Collect(ctx context.Context) (interface{}, error
 		for i, u := range parsed {
 			names[i] = u.Name
 		}
-		for _, name := range nonBenignSSHDInstances(ctx, names) {
+		nonBenignSSHD, sshdUnverified := nonBenignSSHDInstances(ctx, names)
+		info.SSHDStatusUnverified = sshdUnverified
+		for _, name := range nonBenignSSHD {
 			info.FailedUnits = append(info.FailedUnits, models.SystemdUnit{Name: name})
 		}
 	}

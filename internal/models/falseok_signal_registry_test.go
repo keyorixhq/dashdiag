@@ -33,13 +33,15 @@ var guardedUnverifiedSignals = map[string]string{
 	// Standalone renderers that can show an all-clear — guarded case-by-case in
 	// cmd/falseok_verdict_test.go (the renderer must not print its green line when
 	// the signal is unset).
-	"K8sInfo.APIReachable":                "cmd/falseok_verdict_test.go (k8s renderer) + analysis/pve_apireachable_test.go",
-	"CronInfo.FailureScanOK":              "cmd/falseok_verdict_test.go (cron) + analysis/cron_logs_unverified_test.go",
-	"LogsInfo.ErrorCountUnverified":       "cmd/falseok_verdict_test.go (logs) + analysis/cron_logs_unverified_test.go",
-	"LogsInfo.NeedsRoot":                  "cmd/falseok_verdict_test.go (logs non-root)",
-	"LogsInfo.ErrorScanFailed":            "analysis/cron_logs_unverified_test.go (scan-failed → not 'none')",
-	"ServicesDeepInfo.FailedUnitsQueried": "cmd/falseok_verdict_test.go (services deep)",
-	"CVEAllResult.ScanFailed":             "cmd/falseok_verdict_test.go (cve) + collectors/cve_stale_metadata_test.go",
+	"K8sInfo.APIReachable":                  "cmd/falseok_verdict_test.go (k8s renderer) + analysis/pve_apireachable_test.go",
+	"CronInfo.FailureScanOK":                "cmd/falseok_verdict_test.go (cron) + analysis/cron_logs_unverified_test.go",
+	"LogsInfo.ErrorCountUnverified":         "cmd/falseok_verdict_test.go (logs) + analysis/cron_logs_unverified_test.go",
+	"LogsInfo.NeedsRoot":                    "cmd/falseok_verdict_test.go (logs non-root)",
+	"LogsInfo.ErrorScanFailed":              "analysis/cron_logs_unverified_test.go (scan-failed → not 'none')",
+	"ServicesDeepInfo.FailedUnitsQueried":   "cmd/falseok_verdict_test.go (services deep)",
+	"ServicesDeepInfo.SSHDStatusUnverified": "cmd/falseok_verdict_test.go TestServicesDeepSSHDUnverifiedNotNone (a suppressed sshd@ instance's unreadable exit status must not render the same green 'none' a genuinely-clean host gets)",
+	"SystemdInfo.SSHDStatusUnverified":      "analysis/heuristics_round2_test.go TestCheckSystemd_SSHDStatusUnverified (INFO, not a silent fold into 'no non-benign sshd@ failures')",
+	"CVEAllResult.ScanFailed":               "cmd/falseok_verdict_test.go (cve) + collectors/cve_stale_metadata_test.go",
 
 	// dsd security — renderer shares health's verdict via the heuristic.
 	"SecurityInfo.NeedsRoot":              "analysis/heuristics_security_full_test.go + cmd/security_falseok_test.go",
