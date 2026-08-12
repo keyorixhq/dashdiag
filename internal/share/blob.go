@@ -27,6 +27,13 @@ const (
 	// rather than mis-decoding.
 	formatVersion = "v1"
 	wrapCols      = 76 // line width — keeps the block readable and email-safe
+
+	// maxDecodedReportBytes caps how much a single blob is allowed to inflate to.
+	// A `dsd health --json` payload is at most a few MB even on a large fleet
+	// snapshot; a pasted blob that gzip-bombs to gigabytes (a small, crafted
+	// base64 block decompressing to a huge stream) must not be able to exhaust
+	// memory on `dsd decode` just because the pasted text looked innocuous.
+	maxDecodedReportBytes = 64 * 1024 * 1024 // 64MiB
 )
 
 // ErrNoBlob is returned when the input contains no DSD REPORT block.
@@ -97,9 +104,12 @@ func Decode(text string) ([]byte, error) {
 		return nil, fmt.Errorf("corrupt report block (not valid gzip): %w", err)
 	}
 	defer func() { _ = zr.Close() }()
-	out, err := io.ReadAll(zr)
+	out, err := io.ReadAll(io.LimitReader(zr, maxDecodedReportBytes+1))
 	if err != nil {
 		return nil, fmt.Errorf("corrupt report block (decompress/CRC failed — block was truncated or altered): %w", err)
+	}
+	if len(out) > maxDecodedReportBytes {
+		return nil, fmt.Errorf("report block exceeds maximum decoded size (%d bytes) — refusing to decode further", maxDecodedReportBytes)
 	}
 	return out, nil
 }
