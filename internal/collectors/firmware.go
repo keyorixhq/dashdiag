@@ -24,10 +24,21 @@ func (c *FirmwareCollector) Timeout() time.Duration { return 30 * time.Second }
 func (c *FirmwareCollector) Collect(ctx context.Context) (any, error) {
 	info := &models.FirmwareInfo{}
 
-	// Check fwupdmgr is available
-	if _, err := runCmd(ctx, "fwupdmgr", "--version"); err != nil {
+	// fwupdmgr not on PATH at all — genuinely not installed.
+	if _, err := lookPath("fwupdmgr"); err != nil {
 		info.Status = "unavailable"
 		info.StatusReason = "fwupd not installed"
+		return info, nil
+	}
+	// fwupdmgr IS installed, but the version probe itself failed (fwupd daemon
+	// down, D-Bus unreachable). That's a real gap, not "not installed" — collapsing
+	// the two here silently dropped the whole Firmware section on a host that
+	// genuinely has fwupd but whose daemon isn't responding. Available stays true
+	// so checkFirmware's StatusReason disclosure branch fires instead of the
+	// caller reading this identically to a host with no fwupd at all.
+	if _, err := runCmd(ctx, "fwupdmgr", "--version"); err != nil {
+		info.Available = true
+		info.StatusReason = "fwupdmgr --version failed: " + err.Error()
 		return info, nil
 	}
 	info.Available = true
