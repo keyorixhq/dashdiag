@@ -122,6 +122,11 @@ func TestCheckSysctl_Profiles(t *testing.T) {
 	}{
 		{"database high swappiness is WARN", models.SysctlInfo{Workload: "database", VMSwappiness: 30}, "WARN"},
 		{"database high dirty ratio is WARN", models.SysctlInfo{Workload: "database", VMDirtyRatio: 40}, "WARN"},
+		// internal-collectors-32-01: -1 is the "read failed / unmeasured" sentinel
+		// (same convention as TCPTWReuse). It must never itself satisfy a "> N"
+		// high-value check — that would be a false WARN on an unmeasured sysctl.
+		{"database unmeasured swappiness (-1 sentinel) is silent", models.SysctlInfo{Workload: "database", VMSwappiness: -1}, ""},
+		{"database unmeasured dirty ratio (-1 sentinel) is silent", models.SysctlInfo{Workload: "database", VMDirtyRatio: -1}, ""},
 		{"webserver no tw_reuse is WARN", models.SysctlInfo{Workload: "webserver", TCPTWReuse: 0}, "WARN"},
 		{"webserver low rmem is WARN", models.SysctlInfo{Workload: "webserver", TCPTWReuse: 1, NetRmemMax: 1000}, "WARN"},
 		{"container low max_map_count is WARN", models.SysctlInfo{Workload: "container", VMMaxMapCount: 1000}, "WARN"},
