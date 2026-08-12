@@ -98,10 +98,9 @@ func TestClose_SyncError(t *testing.T) {
 	}
 }
 
-// TestHistory_ScannerError covers the ErrTooLong branch in History:
-// a line larger than the 1 MiB scanner cap triggers bufio.ErrTooLong, which
-// History must handle gracefully — logging a warning and returning whatever
-// entries were collected before the oversized line rather than aborting.
+// TestHistory_ScannerError covers the oversized-line branch in History: a
+// line larger than the 1 MiB cap must be skipped, not treated as a fatal
+// error, and the valid entry before it must still be returned.
 func TestHistory_ScannerError(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -112,7 +111,7 @@ func TestHistory_ScannerError(t *testing.T) {
 	}
 	defer func() { _ = s.Close() }()
 
-	// Write one valid line followed by a line that exceeds the 1 MiB scanner cap.
+	// Write one valid line followed by a line that exceeds the 1 MiB cap.
 	// Entry JSON fields: "host" (Hostname), "verdict" (Verdict).
 	validLine := `{"host":"h","verdict":"OK"}` + "\n"
 	oversizedLine := `{"host":"h","verdict":"WARN","value":"` + strings.Repeat("x", maxLineSizeBytes+1) + `"}` + "\n"
@@ -127,6 +126,50 @@ func TestHistory_ScannerError(t *testing.T) {
 	// The valid line before the oversized one must still be returned.
 	if len(entries) != 1 {
 		t.Errorf("expected 1 entry from partial read, got %d", len(entries))
+	}
+}
+
+// TestHistory_OversizedLineDoesNotDiscardLaterEntries guards
+// internal-store-01-03: the OLD bufio.Scanner-based implementation could not
+// resume after an oversized line (Scan() returns false permanently once it
+// hits bufio.ErrTooLong), so every entry written AFTER the bad one — the
+// newer, more relevant history — was silently dropped too, while History()
+// still returned success. A corrupted/oversized line early in the file must
+// only cost that one entry, not every entry appended after it.
+func TestHistory_OversizedLineDoesNotDiscardLaterEntries(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	storePath := filepath.Join(dir, "store.jsonl")
+	s, err := Open(storePath)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer func() { _ = s.Close() }()
+
+	before := `{"host":"h","verdict":"OK","version":"before"}` + "\n"
+	oversized := `{"host":"h","verdict":"WARN","value":"` + strings.Repeat("x", maxLineSizeBytes+1) + `"}` + "\n"
+	after1 := `{"host":"h","verdict":"CRIT","version":"after1"}` + "\n"
+	after2 := `{"host":"h","verdict":"OK","version":"after2"}` + "\n"
+	content := before + oversized + after1 + after2
+	if err := os.WriteFile(storePath, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, histErr := s.History(context.Background(), "h", 10)
+	if histErr != nil {
+		t.Fatalf("History returned an error: %v", histErr)
+	}
+	if len(entries) != 3 {
+		t.Fatalf("expected 3 entries (before + both after the oversized line), got %d: %+v", len(entries), entries)
+	}
+	versions := map[string]bool{}
+	for _, e := range entries {
+		versions[e.Version] = true
+	}
+	for _, want := range []string{"before", "after1", "after2"} {
+		if !versions[want] {
+			t.Errorf("expected entry %q to survive the oversized line, entries: %+v", want, entries)
+		}
 	}
 }
 
