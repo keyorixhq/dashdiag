@@ -168,7 +168,10 @@ func procUptimeSec(base string) int {
 	// Name may contain spaces — find closing ')' first
 	raw := string(data)
 	rp := strings.LastIndex(raw, ")")
-	if rp < 0 {
+	// rp+2 skips ") " after the comm field; a stat line truncated right at (or
+	// past) the closing paren — e.g. crafted/replayed content — must not slice
+	// past the end of raw.
+	if rp < 0 || rp+2 > len(raw) {
 		return 0
 	}
 	fields := strings.Fields(raw[rp+2:])
@@ -209,7 +212,9 @@ func procCPUSec(base string) float64 {
 	}
 	raw := string(data)
 	rp := strings.LastIndex(raw, ")")
-	if rp < 0 {
+	// Same bounds guard as procUptimeSec: don't slice past the end of raw when
+	// the stat line is truncated right at (or past) the closing paren.
+	if rp < 0 || rp+2 > len(raw) {
 		return 0
 	}
 	fields := strings.Fields(raw[rp+2:])
@@ -348,8 +353,13 @@ func collectOpenFiles(base string, info *models.ProcInfo) map[string]bool {
 		switch {
 		case strings.HasPrefix(target, "socket:["):
 			pf.Type = "socket"
-			inode := target[8 : len(target)-1]
-			inodes[inode] = true
+			// A well-formed target is "socket:[<inode>]" (kernel-generated), but
+			// this string can also arrive via a replayed capture bundle, which is
+			// untrusted input — a target that's exactly "socket:[" (no trailing
+			// "]") would make the naive target[8:len-1] slice panic (start > end).
+			if inode, ok := strings.CutSuffix(target[len("socket:["):], "]"); ok {
+				inodes[inode] = true
+			}
 			info.SocketCount++
 			// Check for deleted .so files (important signal: updated package, stale process)
 		case isSharedLib(cleanTarget):
