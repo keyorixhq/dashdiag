@@ -48,6 +48,26 @@ func TestCheckCVEZypperLockedExitIsUnknownNotPatched(t *testing.T) {
 	}
 }
 
+// TestCheckCVEZypperNonZeroExitWithUnmatchedOutput is a regression guard for
+// internal-collectors-07-03: the only failure guard was err+EMPTY output — a
+// non-zero exit with SOME non-empty, non-matching stdout (a repo/service
+// warning that isn't the lock message, doesn't say "no patch", and has no
+// pipe-delimited table row) fell straight into the parse loop, found no
+// "needed" rows, and returned a confident CVEPatched for a query that never
+// actually ran. Mirrors scanAllZypper's existing `!strings.Contains(out, "|")`
+// hardening.
+func TestCheckCVEZypperNonZeroExitWithUnmatchedOutput(t *testing.T) {
+	fake := fakeRunSource{run: func(_ string, _ []string) source.Result {
+		return source.Result{Stdout: []byte("Warning: repository 'sle-updates' is not signed.\n"), ExitCode: 4}
+	}}
+	defer SetSource(SetSource(fake))
+
+	res := checkCVEZypper(context.Background(), "CVE-2024-1234")
+	if res.Status != models.CVEUnknown {
+		t.Fatalf("a non-zero exit with an unmatched, non-table warning must read CVEUnknown, got %s", res.Status)
+	}
+}
+
 // TestCheckCVEZypperAlreadyPatched guards the "output present but no 'needed'
 // patches" branch: a security-category table row whose status is anything
 // other than "needed" (e.g. already applied) must read CVEPatched, not fall
