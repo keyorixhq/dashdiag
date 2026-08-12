@@ -199,6 +199,37 @@ func TestKVMCollectVMs_Happy(t *testing.T) {
 	}
 }
 
+// TestKVMCollectVMs_SkipsDashPrefixedName is the regression guard for
+// internal-collectors-18-09: a domain name beginning with "-" (from `virsh
+// list --all --name`) would otherwise be passed as a positional argv element
+// to `virsh dominfo`/`dumpxml`/`domblkerror`, which virsh could parse as an
+// option instead of the domain name. The fixture registers a suspicious
+// "--evil"-named domain's dominfo call returning a fabricated "running"
+// VM (Id 999) — if the fix's guard didn't skip it, that fabricated entry
+// would show up in info.VMs, proving the call was made.
+func TestKVMCollectVMs_SkipsDashPrefixedName(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("virsh", []string{"list", "--all", "--name"}, "vm1\n--evil\n", 0)
+		b.PutCmd("virsh", []string{"dominfo", "vm1"},
+			"Id:             3\nState:          running\nAutostart:      disable\n", 0)
+		b.PutCmd("virsh", []string{"domblkerror", "vm1"}, "No errors found\n", 0)
+		b.PutFile("/var/log/libvirt/qemu/vm1.log", []byte("ok\n"))
+		// Fabricated: if this ever gets called, the guard failed.
+		b.PutCmd("virsh", []string{"dominfo", "--evil"},
+			"Id:             999\nState:          running\nAutostart:      disable\n", 0)
+	})
+	info := &models.KVMInfo{}
+	kvmCollectVMs(context.Background(), info, false)
+	if len(info.VMs) != 1 || info.VMs[0].Name != "vm1" {
+		t.Fatalf("VMs = %+v, want exactly [vm1] — the \"--evil\" domain must be skipped", info.VMs)
+	}
+	for _, vm := range info.VMs {
+		if vm.ID == 999 {
+			t.Fatal("the fabricated ID-999 VM appeared — virsh dominfo was called with the dash-prefixed name")
+		}
+	}
+}
+
 func TestKVMCollectVMs_EnumFailed(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmdNotFound("virsh", []string{"list", "--all", "--name"})
