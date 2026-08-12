@@ -25,6 +25,11 @@ const (
 	cisBenchCIS       = "CIS"
 	cisRuleSSH52      = "5.2.1"
 	cisRuleAudit41    = "4.1.1"
+	cisRuleAudit4111  = "4.1.1.1"
+	cisRuleAudit4112  = "4.1.1.2"
+	cisRuleAudit4113  = "4.1.1.3"
+	cisRuleAudit4114  = "4.1.1.4"
+	cisRuleAudit4115  = "4.1.1.5"
 	stigPassMaxDaysID = "V-238380" //nolint:gosec // G101: STIG rule identifier, not a credential
 )
 
@@ -55,13 +60,13 @@ const (
 // Evaluate() overrides all of these to an explicit unverified skip when
 // sec.AuditRulesUnreadable confirms the ambiguous case.
 var auditVerdictAmbiguousRuleIDs = map[string]bool{
-	cisRuleAudit41: true,
-	"4.1.1.1":      true,
-	"4.1.1.2":      true,
-	"4.1.1.3":      true,
-	"4.1.1.4":      true,
-	"4.1.1.5":      true,
-	"4.1.2":        true,
+	cisRuleAudit41:   true,
+	cisRuleAudit4111: true,
+	cisRuleAudit4112: true,
+	cisRuleAudit4113: true,
+	cisRuleAudit4114: true,
+	cisRuleAudit4115: true,
+	"4.1.2":          true,
 }
 
 // parseMaxStartups parses an sshd MaxStartups value ("start:rate:full" or a bare
@@ -2336,10 +2341,10 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				return pass(r)
 			}},
 
-		{ID: "4.1.1.1", Framework: cisBenchCIS, Level: 2, Section: "Audit",
+		{ID: cisRuleAudit4111, Framework: cisBenchCIS, Level: 2, Section: "Audit",
 			Description: "Ensure audit log storage size is configured",
 			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
-				r := ruleByID("4.1.1.1")
+				r := ruleByID(cisRuleAudit4111)
 				if sec.AuditRules == -1 {
 					return skipr(r, cisSkipAuditdUnavailable)
 				}
@@ -2370,10 +2375,10 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					"add max_log_file = 8 to /etc/audit/auditd.conf")
 			}},
 
-		{ID: "4.1.1.2", Framework: cisBenchCIS, Level: 2, Section: "Audit",
+		{ID: cisRuleAudit4112, Framework: cisBenchCIS, Level: 2, Section: "Audit",
 			Description: "Ensure audit logs are not automatically deleted",
 			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
-				r := ruleByID("4.1.1.2")
+				r := ruleByID(cisRuleAudit4112)
 				if sec.AuditRules == -1 {
 					return skipr(r, cisSkipAuditdUnavailable)
 				}
@@ -2401,10 +2406,10 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					"add max_log_file_action = keep_logs to /etc/audit/auditd.conf")
 			}},
 
-		{ID: "4.1.1.3", Framework: cisBenchCIS, Level: 2, Section: "Audit",
+		{ID: cisRuleAudit4113, Framework: cisBenchCIS, Level: 2, Section: "Audit",
 			Description: "Ensure system is disabled when audit logs are full",
 			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
-				r := ruleByID("4.1.1.3")
+				r := ruleByID(cisRuleAudit4113)
 				if sec.AuditRules == -1 {
 					return skipr(r, cisSkipAuditdUnavailable)
 				}
@@ -2441,10 +2446,10 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				return pass(r)
 			}},
 
-		{ID: "4.1.1.4", Framework: cisBenchCIS, Level: 2, Section: "Audit",
+		{ID: cisRuleAudit4114, Framework: cisBenchCIS, Level: 2, Section: "Audit",
 			Description: "Ensure audit_backlog_limit is sufficient",
 			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
-				r := ruleByID("4.1.1.4")
+				r := ruleByID(cisRuleAudit4114)
 				if sec.AuditRules == -1 {
 					return skipr(r, cisSkipAuditdUnavailable)
 				}
@@ -2472,10 +2477,10 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					cisFixAuditBacklogGrub)
 			}},
 
-		{ID: "4.1.1.5", Framework: cisBenchCIS, Level: 2, Section: "Audit",
+		{ID: cisRuleAudit4115, Framework: cisBenchCIS, Level: 2, Section: "Audit",
 			Description: "Ensure auditing for processes prior to auditd is enabled (audit=1 in kernel cmdline)",
 			Check: func(sec models.SecurityInfo, _ models.KernelSecurityInfo) models.CISResult {
-				r := ruleByID("4.1.1.5")
+				r := ruleByID(cisRuleAudit4115)
 				if sec.AuditRules == -1 {
 					return skipr(r, cisSkipAuditdUnavailable)
 				}
