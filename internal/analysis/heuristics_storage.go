@@ -620,6 +620,15 @@ func checkZFSPool(pool models.ZFSPool) []models.Insight { //nolint:funlen // fla
 func checkLVM(l models.LVMInfo) []models.Insight {
 	var out []models.Insight
 
+	// The outer presence gate (`lvs --version`) itself couldn't confirm lvm2 is
+	// absent — found the binary but it errored. Nothing below was queried, so
+	// this must not read the same as a clean "no LVM installed" host.
+	if l.PresenceReadFailed {
+		return []models.Insight{unverifiedInsight("INFO", "LVM",
+			"could not confirm whether LVM is installed — `lvs --version` failed unexpectedly",
+			[]string{"to inspect: lvs --version"})}
+	}
+
 	// Thin pool data and metadata usage — CRIT thresholds are tight because
 	// exhaustion happens fast and recovery requires unmounting everything.
 	for _, pool := range l.ThinPools {

@@ -120,7 +120,7 @@ func diskHasUnverifiedReads(info *models.DiskInfo, lvmInfo *models.LVMInfo) bool
 			}
 		}
 	}
-	if lvmInfo != nil && (lvmInfo.VGReadFailed || lvmInfo.PVReadFailed || lvmInfo.LVReadFailed || lvmInfo.RaidReadFailed) {
+	if lvmInfo != nil && (lvmInfo.VGReadFailed || lvmInfo.PVReadFailed || lvmInfo.LVReadFailed || lvmInfo.RaidReadFailed || lvmInfo.PresenceReadFailed) {
 		return true
 	}
 	return false
@@ -428,6 +428,14 @@ func outputJSON(w io.Writer, v any) error {
 
 func printDiskLVM(lvm *models.LVMInfo, mode output.OutputMode) {
 	if lvm == nil {
+		return
+	}
+	if lvm.PresenceReadFailed {
+		// The outer presence gate itself (`lvs --version`) couldn't confirm lvm2 is
+		// absent — nothing below was ever queried. Must not fall through to the
+		// silent "no LVM" return below.
+		fmt.Printf("\nLVM\n  %s  could not confirm whether LVM is installed — `lvs --version` failed unexpectedly\n",
+			asciiOr("info", "ℹ️", mode))
 		return
 	}
 	if len(lvm.VGs) == 0 && len(lvm.ThinPools) == 0 && len(lvm.Snapshots) == 0 && len(lvm.RaidLVs) == 0 {

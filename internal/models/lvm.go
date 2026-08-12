@@ -61,4 +61,11 @@ type LVMInfo struct {
 	VGReadFailed bool `json:"vg_read_failed,omitempty"`
 	PVReadFailed bool `json:"pv_read_failed,omitempty"`
 	LVReadFailed bool `json:"lv_read_failed,omitempty"`
+	// PresenceReadFailed is true when the outer presence gate (`lvs --version`)
+	// could not confirm one way or the other whether lvm2 is installed — the lvs
+	// binary was found and ran but exited non-zero, as opposed to a clean
+	// "binary not found" spawn failure. VGs/ThinPools/etc are then empty because
+	// nothing was queried, not because there is genuinely no LVM. Never let that
+	// read as a clean "no LVM".
+	PresenceReadFailed bool `json:"presence_read_failed,omitempty"`
 }
