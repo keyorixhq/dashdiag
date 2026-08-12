@@ -72,3 +72,29 @@ func TestCisIcon(t *testing.T) {
 		})
 	}
 }
+
+// TestPrintCISReport_StripsControlChars guards terminal escape injection:
+// Description/Finding/Remediation are built from raw host data (usernames,
+// service names, config values) that a local attacker can influence.
+func TestPrintCISReport_StripsControlChars(t *testing.T) {
+	report := models.CISReport{
+		Profile: "Test Profile", Hostname: "host1", Fail: 1,
+		Results: []models.CISResult{
+			{
+				ID: "1.1", Section: "sec", Status: models.CISFail,
+				Description: "desc\x1b]0;pwned\x07",
+				Finding:     "finding\x1b[31mevil\x1b[0m",
+				Remediation: "fix\x1bcmd",
+			},
+		},
+	}
+	out := captureStdout(t, func() {
+		printCISReport(report, false, false, output.ModePlain)
+	})
+	if strings.Contains(out, "\x1b") {
+		t.Errorf("printCISReport output still contains ESC byte:\n%s", out)
+	}
+	if !strings.Contains(out, "desc]0;pwned") || !strings.Contains(out, "finding[31mevil[0m") || !strings.Contains(out, "fixcmd") {
+		t.Errorf("printCISReport output missing sanitized fields:\n%s", out)
+	}
+}
