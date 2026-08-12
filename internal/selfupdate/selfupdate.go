@@ -4,9 +4,9 @@
 // passive "newer version available" nudge via a TTL-cached check.
 //
 // Safety: the nudge never blocks the hot path beyond a short timeout, is gated
-// to interactive runs, is disabled by DSD_NO_UPDATE_CHECK, and never nags dev
-// builds. The self-replace is atomic (download to a temp file in the target dir,
-// verify, then rename over the running binary).
+// to interactive runs, is disabled by DSD_NO_UPDATE_CHECK or DSD_OFFLINE, and
+// never nags dev builds. The self-replace is atomic (download to a temp file in
+// the target dir, verify, then rename over the running binary).
 package selfupdate
 
 import (

@@ -71,12 +71,15 @@ func RefreshCache(ctx context.Context) (string, error) {
 }
 
 // MaybeNudge returns a one-line "update available" message for interactive use,
-// or "" when up to date / disabled / a dev build. It reads the cache (no
-// network); if the cache is missing or stale it does a single best-effort
-// refresh bounded by nudgeTimeout so the next run is accurate. Fully silenced by
-// DSD_NO_UPDATE_CHECK.
+// or "" when up to date / disabled / a dev build. It reads the cache; if the
+// cache is missing or stale it does a single best-effort HTTPS refresh
+// (RefreshCache -> LatestRelease, a GET to api.github.com) bounded by
+// nudgeTimeout so the next run is accurate. That refresh is the one outbound
+// network call anywhere in dsd's default interactive path, so it honours the
+// shared DSD_OFFLINE opt-out (see internal/platform's "no network calls by
+// default" contract) in addition to the nudge-specific DSD_NO_UPDATE_CHECK.
 func MaybeNudge(current string) string {
-	if os.Getenv("DSD_NO_UPDATE_CHECK") != "" {
+	if os.Getenv("DSD_NO_UPDATE_CHECK") != "" || os.Getenv("DSD_OFFLINE") != "" {
 		return ""
 	}
 	if !isCleanRelease(current) { // dev/describe build — never nag
