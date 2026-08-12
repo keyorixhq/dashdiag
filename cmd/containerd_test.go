@@ -43,6 +43,7 @@ func TestPrintContainerdAvailableStates(t *testing.T) {
 		printContainerd(&models.ContainerdInfo{
 			Available: true, SocketPath: "/run/containerd/containerd.sock",
 			ServiceState: "active", Version: "1.7.13",
+			CtrBinaryFound:  true,
 			TotalContainers: 3,
 			Namespaces:      []models.ContainerdNamespace{{Name: "default", ContainerCount: 3}},
 		}, output.ModePlain)
@@ -66,6 +67,25 @@ func TestPrintContainerdAvailableStates(t *testing.T) {
 	})
 	if !strings.Contains(other, "inactive") {
 		t.Errorf("an unrecognized service state should be shown verbatim, got:\n%s", other)
+	}
+}
+
+// TestPrintContainerdCtrBinaryMissing is a regression guard for
+// internal-collectors-05-01: when no ctr/containerd-ctr binary was found, the
+// Containers line used to print "0 across 0 namespace(s)" with an "ok" icon
+// — indistinguishable from a genuinely idle containerd. Must disclose that
+// enumeration was never attempted instead.
+func TestPrintContainerdCtrBinaryMissing(t *testing.T) {
+	out := captureStdout(t, func() {
+		printContainerd(&models.ContainerdInfo{
+			Available: true, ServiceState: "active", CtrBinaryFound: false,
+		}, output.ModePlain)
+	})
+	if !strings.Contains(out, "could not be enumerated") {
+		t.Errorf("a missing ctr binary must disclose containers could not be enumerated, got:\n%s", out)
+	}
+	if strings.Contains(out, "0 across 0 namespace(s)") {
+		t.Errorf("must not render the fabricated '0 across 0 namespace(s)' OK line, got:\n%s", out)
 	}
 }
 

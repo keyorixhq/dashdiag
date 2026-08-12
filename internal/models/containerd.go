@@ -22,6 +22,14 @@ type ContainerdInfo struct {
 	// non-root `dsd containerd` printed "not installed or not running" for a
 	// runtime that was actually right there.
 	SocketPermDenied bool `json:"socket_perm_denied,omitempty"`
+	// CtrBinaryFound is true only when a usable ctr/containerd-ctr binary was
+	// located and used to enumerate Namespaces/TotalContainers. False means
+	// namespace/container enumeration was never attempted (binary removed,
+	// renamed, blocked via PATH) — Namespaces stays nil and TotalContainers
+	// stays 0 exactly as they would for a genuinely idle containerd with zero
+	// namespaces. Callers must not treat that zero-value pair as "verified
+	// clean" when this is false.
+	CtrBinaryFound bool `json:"ctr_binary_found,omitempty"`
 }
 
 // ContainerdNamespace holds container counts for one containerd namespace.

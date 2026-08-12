@@ -112,6 +112,7 @@ func (c *ContainerdCollector) Collect(ctx context.Context) (interface{}, error) 
 	info.ServiceState = containerdServiceState(ctx)
 
 	ctrBin := findCtr()
+	info.CtrBinaryFound = ctrBin != ""
 	if ctrBin != "" {
 		info.Version = containerdVersion(ctx, ctrBin)
 		info.Namespaces = containerdNamespaces(ctx, ctrBin)
