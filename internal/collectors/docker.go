@@ -77,7 +77,7 @@ func (c *DockerCollector) Collect(ctx context.Context) (any, error) {
 		// normal idle state, NOT a fault — so a host with nothing usable (incl. idle
 		// Podman) leaves StatusReason empty and reads as a benign "no runtime detected"
 		// rather than a false "installed but not running" WARN.
-		if dockerInstalled() {
+		if dockerInstalled(ctx) {
 			info.StatusReason = "Docker installed but daemon not running"
 			if c.isRHEL10Plus() {
 				info.StatusReason = "Docker installed but daemon not running — on RHEL/Rocky 10+ add '{\"iptables\": false}' to /etc/docker/daemon.json (iptables-legacy removed in RHEL 10)"
@@ -886,8 +886,8 @@ func collectVolumes(ctx context.Context, client *http.Client, info *models.Docke
 }
 
 // dockerInstalled returns true if the docker binary is present on PATH.
-func dockerInstalled() bool {
-	_, err := runCmd(context.Background(), cmdDocker, "--version")
+func dockerInstalled(ctx context.Context) bool {
+	_, err := runCmd(ctx, cmdDocker, "--version")
 	return err == nil
 }
 

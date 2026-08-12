@@ -332,7 +332,7 @@ func TestDockerInstalled(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("docker", []string{"--version"}, "Docker version 27.3.1, build ...\n", 0)
 	})
-	if !dockerInstalled() {
+	if !dockerInstalled(context.Background()) {
 		t.Error("expected true")
 	}
 }
@@ -341,8 +341,27 @@ func TestDockerInstalled_NotFound(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmdNotFound("docker", []string{"--version"})
 	})
-	if dockerInstalled() {
+	if dockerInstalled(context.Background()) {
 		t.Error("expected false")
+	}
+}
+
+// TestDockerInstalledPropagatesContext covers subprocess-wrappers-02:
+// dockerInstalled must run `docker --version` through the caller's ctx, not a
+// detached context.Background() — otherwise the subprocess is decoupled from
+// both the Docker collector's Timeout() and the runner's overall deadline.
+func TestDockerInstalledPropagatesContext(t *testing.T) {
+	spy := &ctxSpyExecSource{stdout: "Docker version 27.3.1\n"}
+	prev := SetSource(spy)
+	defer SetSource(prev)
+
+	dockerInstalled(withCtxMarker(context.Background()))
+
+	if spy.gotCtx == nil {
+		t.Fatal("dockerInstalled never called Run — test setup problem")
+	}
+	if !markedCtx(spy.gotCtx) {
+		t.Error("dockerInstalled did not propagate the caller's context — it used a detached context.Background() instead")
 	}
 }
 
