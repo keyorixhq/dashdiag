@@ -270,8 +270,9 @@ var checkExemptions = map[string]string{
 	"checkKVMVMs": "VMsUnreadable unconditionally discloses via WARN.",
 	"checkKernelRetention": "Available requires both a nonzero installed-kernel count and an identified " +
 		"package manager; both are genuine \"can't identify\" gates with no green line at risk.",
-	"checkLVM": "Holds no unverified-signal logic of its own; unconditionally delegates all four " +
-		"*ReadFailed disclosures to checkLVMRaid.",
+	"checkLVM": "PresenceReadFailed unconditionally discloses via INFO and returns early (nothing below " +
+		"was queried when the outer presence gate itself is ambiguous); the other four *ReadFailed " +
+		"disclosures are unconditionally delegated to checkLVMRaid.",
 	"checkLVMRaid": "PVReadFailed/VGReadFailed/LVReadFailed are unconditionally disclosed; RaidReadFailed " +
 		"is gated on VGs existing, but VGReadFailed already fires in that same run so nothing goes " +
 		"silently clean.",

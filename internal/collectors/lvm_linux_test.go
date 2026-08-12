@@ -41,6 +41,20 @@ func TestIsLVMPresent(t *testing.T) {
 			t.Error("expected false when lvs is not installed")
 		}
 	})
+
+	// lvs was found and executed but exited non-zero on --version — an
+	// unexpected, ambiguous failure, not a clean "not installed" spawn error.
+	// The presence gate must stay permissive so the collector still runs and
+	// can disclose the ambiguity, rather than the LVM section silently
+	// vanishing as if this were a non-LVM host.
+	t.Run("found but errored", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutCmd("lvs", []string{"--version"}, "", 1)
+		})
+		if !IsLVMPresent() {
+			t.Error("expected true when lvs is found but --version errors (ambiguous, not confirmed absent)")
+		}
+	})
 }
 
 // TestLVMCollector_Collect_NotDetected guards the gate-off path: when lvm2 is
@@ -58,6 +72,29 @@ func TestLVMCollector_Collect_NotDetected(t *testing.T) {
 	info := raw.(*models.LVMInfo)
 	if !reflect.DeepEqual(info, &models.LVMInfo{}) {
 		t.Errorf("expected empty LVMInfo{} when lvm2 absent, got %+v", info)
+	}
+}
+
+// TestLVMCollector_Collect_PresenceCheckFailed covers the false-OK this
+// collector previously had no way to detect: lvs is found but --version
+// errors (ambiguous), as opposed to genuinely not being installed. Must set
+// PresenceReadFailed, never silently read the same as "no LVM here", and
+// must not proceed to query vgs/pvs/lvs on that ambiguous ground.
+func TestLVMCollector_Collect_PresenceCheckFailed(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("lvs", []string{"--version"}, "", 1)
+	})
+	c := NewLVMCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.LVMInfo)
+	if !info.PresenceReadFailed {
+		t.Error("expected PresenceReadFailed=true when lvs is found but --version errors")
+	}
+	if !reflect.DeepEqual(info, &models.LVMInfo{PresenceReadFailed: true}) {
+		t.Errorf("expected only PresenceReadFailed set (no vgs/pvs/lvs queried), got %+v", info)
 	}
 }
 
