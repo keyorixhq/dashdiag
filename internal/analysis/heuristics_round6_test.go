@@ -131,6 +131,18 @@ func TestCheckAuditd(t *testing.T) {
 			t.Errorf("unreadable audit log size must not alarm, got %s: %s", ins.Level, ins.Message)
 		}
 	}
+
+	// internal-collectors-01-03: RulesUnreadable/EventsUnreadable must disclose
+	// INFO, not leave rules_loaded=0/events_last_1h=0 to silently read as a
+	// genuinely-unconfigured auditd.
+	rulesUnread := checkAuditd(models.AuditInfo{Available: true, Running: true, RulesUnreadable: true})
+	if !insightWithMsg(rulesUnread, "INFO", "rule count not verified") {
+		t.Errorf("unreadable rule count should INFO 'rule count not verified', got %+v", rulesUnread)
+	}
+	eventsUnread := checkAuditd(models.AuditInfo{Available: true, Running: true, EventsUnreadable: true})
+	if !insightWithMsg(eventsUnread, "INFO", "event count not verified") {
+		t.Errorf("unreadable event count should INFO 'event count not verified', got %+v", eventsUnread)
+	}
 }
 
 func TestCheckHugePages(t *testing.T) {

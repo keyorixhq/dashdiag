@@ -42,7 +42,7 @@ const oomEmpty = `2026-05-17T09:00:00+0000 kernel: Linux version 6.1.0-generic
 
 func TestParseOOMEvents(t *testing.T) {
 	t.Run("multiple OOM events deduplicated by pid", func(t *testing.T) {
-		events := parseOOMEvents(oomJournalOutput)
+		events, truncated := parseOOMEvents(oomJournalOutput)
 		// 3 OOM lines but 2 unique PIDs from Kill lines (nginx 12345, php-fpm 23456, nginx 34567)
 		if len(events) != 3 {
 			t.Errorf("events = %d, want 3", len(events))
@@ -56,21 +56,50 @@ func TestParseOOMEvents(t *testing.T) {
 		if events[1].Process != "php-fpm" {
 			t.Errorf("events[1].Process = %q, want php-fpm", events[1].Process)
 		}
+		if truncated {
+			t.Error("truncated = true, want false — the scanner never errored")
+		}
 	})
 
 	t.Run("no OOM events returns empty slice", func(t *testing.T) {
-		events := parseOOMEvents(oomEmpty)
+		events, truncated := parseOOMEvents(oomEmpty)
 		if len(events) != 0 {
 			t.Errorf("events = %d, want 0", len(events))
+		}
+		if truncated {
+			t.Error("truncated = true, want false")
 		}
 	})
 
 	t.Run("empty input", func(t *testing.T) {
-		events := parseOOMEvents("")
+		events, truncated := parseOOMEvents("")
 		if len(events) != 0 {
 			t.Errorf("expected empty, got %d events", len(events))
 		}
+		if truncated {
+			t.Error("truncated = true, want false")
+		}
 	})
+}
+
+// TestParseOOMEvents_ScannerErrorTruncatesButFlagsIt is the regression guard
+// for internal-collectors-25-05: a line past bufio.Scanner's default ~64KB
+// token limit stops the scan early (Scan returns false on bufio.ErrTooLong),
+// silently dropping any OOM events on later lines. The caller must be told
+// the scan was incomplete rather than treating a short/empty result as a
+// verified, complete count.
+func TestParseOOMEvents_ScannerErrorTruncatesButFlagsIt(t *testing.T) {
+	oversized := strings.Repeat("x", 128*1024) // exceeds bufio.MaxScanTokenSize's default
+	out := "2026-05-17T09:12:34+0000 kernel: Out of memory: Kill process 111 (before) score 900 or sacrifice child\n" +
+		oversized + "\n" +
+		"2026-05-17T09:12:41+0000 kernel: Out of memory: Kill process 222 (after) score 900 or sacrifice child\n"
+	events, truncated := parseOOMEvents(out)
+	if !truncated {
+		t.Error("truncated = false, want true — the oversized line must trip the scanner's token limit")
+	}
+	if len(events) != 1 || events[0].Process != "before" {
+		t.Errorf("events = %+v, want only the pre-truncation \"before\" event", events)
+	}
 }
 
 // TestOOMCollector_Collect_AllSourcesUnreadable covers the "neither journalctl

@@ -148,7 +148,7 @@ func TestPriorBootOOM_Found(t *testing.T) {
 		b.PutCmd("journalctl", []string{"-k", "--boot=-1", "--no-pager", "-o", "short-iso", "--grep", "Out of memory|Killed process"},
 			postBootOOMJournal, 0)
 	})
-	kills, victims := priorBootOOM(context.Background())
+	kills, victims, checked := priorBootOOM(context.Background())
 	// parseOOMEvents dedupes by pid+process, so the matching "Out of memory" and
 	// "Killed process" lines for the SAME pid collapse to one event each — 2
 	// distinct victims here, not 4 matching lines.
@@ -158,16 +158,42 @@ func TestPriorBootOOM_Found(t *testing.T) {
 	if len(victims) != 2 || victims[0] != "nginx" || victims[1] != "php-fpm" {
 		t.Errorf("victims = %v, want [nginx php-fpm]", victims)
 	}
+	if !checked {
+		t.Error("checked = false, want true — the sub-call succeeded and the scan was clean")
+	}
 }
 
-func TestPriorBootOOM_CommandFails(t *testing.T) {
+// TestPriorBootOOM_GrepNoMatchIsChecked is the regression guard for
+// internal-collectors-26-01: journalctl --grep exits 1 on zero matches — the
+// routine, healthy case of finding nothing — and must set checked=true, not
+// be confused with a genuine sub-call failure.
+func TestPriorBootOOM_GrepNoMatchIsChecked(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("journalctl", []string{"-k", "--boot=-1", "--no-pager", "-o", "short-iso", "--grep", "Out of memory|Killed process"},
 			"", 1)
 	})
-	kills, victims := priorBootOOM(context.Background())
+	kills, victims, checked := priorBootOOM(context.Background())
+	if kills != 0 || victims != nil {
+		t.Errorf("priorBootOOM = (%d,%v), want (0,nil) on zero matches", kills, victims)
+	}
+	if !checked {
+		t.Error("checked = false, want true — exit 1 with no output is journalctl's zero-matches convention, not a failure")
+	}
+}
+
+// TestPriorBootOOM_CommandFails covers a GENUINE sub-call failure (the binary
+// itself can't run), distinct from the grep-no-match convention above —
+// checked must be false so the caller doesn't read this as a clean prior boot.
+func TestPriorBootOOM_CommandFails(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmdNotFound("journalctl", []string{"-k", "--boot=-1", "--no-pager", "-o", "short-iso", "--grep", "Out of memory|Killed process"})
+	})
+	kills, victims, checked := priorBootOOM(context.Background())
 	if kills != 0 || victims != nil {
 		t.Errorf("priorBootOOM = (%d,%v), want (0,nil) on command failure", kills, victims)
+	}
+	if checked {
+		t.Error("checked = true, want false — the sub-call itself failed, not a zero-match result")
 	}
 }
 
@@ -184,7 +210,7 @@ func TestPriorBootOOM_CapsVictimsAtFive(t *testing.T) {
 		b.PutCmd("journalctl", []string{"-k", "--boot=-1", "--no-pager", "-o", "short-iso", "--grep", "Out of memory|Killed process"},
 			sb.String(), 0)
 	})
-	_, victims := priorBootOOM(context.Background())
+	_, victims, _ := priorBootOOM(context.Background())
 	if len(victims) != 5 {
 		t.Errorf("len(victims) = %d, want 5 (capped)", len(victims))
 	}
@@ -196,12 +222,15 @@ func TestPriorBootPanic_Found(t *testing.T) {
 			"--grep", "Kernel panic|Oops:|general protection fault|BUG: unable to handle|kernel BUG at"},
 			"Kernel panic - not syncing: VFS: Unable to mount root fs\n", 0)
 	})
-	panicked, hint := priorBootPanic(context.Background())
+	panicked, hint, checked := priorBootPanic(context.Background())
 	if !panicked {
 		t.Error("panicked = false, want true")
 	}
 	if !strings.Contains(hint, "Kernel panic") {
 		t.Errorf("hint = %q, want it to contain the panic line", hint)
+	}
+	if !checked {
+		t.Error("checked = false, want true")
 	}
 }
 
@@ -211,21 +240,43 @@ func TestPriorBootPanic_NoMatch(t *testing.T) {
 			"--grep", "Kernel panic|Oops:|general protection fault|BUG: unable to handle|kernel BUG at"},
 			"", 0)
 	})
-	panicked, hint := priorBootPanic(context.Background())
+	panicked, hint, checked := priorBootPanic(context.Background())
 	if panicked || hint != "" {
 		t.Errorf("priorBootPanic = (%v,%q), want (false,\"\")", panicked, hint)
 	}
+	if !checked {
+		t.Error("checked = false, want true — an empty, error-free read was still a valid check")
+	}
 }
 
-func TestPriorBootPanic_CommandFails(t *testing.T) {
+// TestPriorBootPanic_GrepNoMatchIsChecked mirrors
+// TestPriorBootOOM_GrepNoMatchIsChecked for the panic sub-call.
+func TestPriorBootPanic_GrepNoMatchIsChecked(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("journalctl", []string{"-k", "--boot=-1", "--no-pager", "-q", "-o", "cat",
 			"--grep", "Kernel panic|Oops:|general protection fault|BUG: unable to handle|kernel BUG at"},
 			"", 1)
 	})
-	panicked, hint := priorBootPanic(context.Background())
+	panicked, hint, checked := priorBootPanic(context.Background())
+	if panicked || hint != "" {
+		t.Errorf("priorBootPanic = (%v,%q), want (false,\"\") on zero matches", panicked, hint)
+	}
+	if !checked {
+		t.Error("checked = false, want true — exit 1 with no output is journalctl's zero-matches convention, not a failure")
+	}
+}
+
+func TestPriorBootPanic_CommandFails(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmdNotFound("journalctl", []string{"-k", "--boot=-1", "--no-pager", "-q", "-o", "cat",
+			"--grep", "Kernel panic|Oops:|general protection fault|BUG: unable to handle|kernel BUG at"})
+	})
+	panicked, hint, checked := priorBootPanic(context.Background())
 	if panicked || hint != "" {
 		t.Errorf("priorBootPanic = (%v,%q), want (false,\"\") on command failure", panicked, hint)
+	}
+	if checked {
+		t.Error("checked = true, want false — the sub-call itself failed, not a zero-match result")
 	}
 }
 
