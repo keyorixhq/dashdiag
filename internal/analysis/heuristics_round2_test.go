@@ -19,21 +19,21 @@ func TestCheckBtrfsVolume(t *testing.T) {
 		vol  models.BtrfsVolume
 		want string
 	}{
-		{"healthy is clean", models.BtrfsVolume{MountPoint: "/data", Status: "healthy", StatsRead: true}, ""},
-		{"missing device is CRIT", models.BtrfsVolume{MountPoint: "/data", MissingDevs: 1}, "CRIT"},
-		{"stats unread is INFO not silent OK", models.BtrfsVolume{MountPoint: "/data", Status: "healthy", StatsRead: false}, "INFO"},
+		{"healthy is clean", models.BtrfsVolume{MountPoint: "/data", Status: "healthy", ShowRead: true, StatsRead: true}, ""},
+		{"missing device is CRIT", models.BtrfsVolume{MountPoint: "/data", ShowRead: true, MissingDevs: 1}, "CRIT"},
+		{"stats unread is INFO not silent OK", models.BtrfsVolume{MountPoint: "/data", Status: "healthy", ShowRead: true, StatsRead: false}, "INFO"},
 		// Non-root "device unreadable" artifact must be INFO, never the DEGRADED CRIT
 		// (false-CRIT found on the Fedora EC2 box: unprivileged btrfs shows present
 		// devices as MISSING). MissingDevs stays 0; DevReadUnverified drives the INFO.
-		{"non-root unverified device state is INFO not CRIT", models.BtrfsVolume{MountPoint: "/", DevReadUnverified: true, StatsRead: false}, "INFO"},
+		{"non-root unverified device state is INFO not CRIT", models.BtrfsVolume{MountPoint: "/", ShowRead: true, DevReadUnverified: true, StatsRead: false}, "INFO"},
 		{
 			name: "device I/O errors are CRIT",
-			vol:  models.BtrfsVolume{MountPoint: "/data", Status: "errors", StatsRead: true, Devices: []models.BtrfsDev{{ReadErrs: 5}}},
+			vol:  models.BtrfsVolume{MountPoint: "/data", Status: "errors", ShowRead: true, StatsRead: true, Devices: []models.BtrfsDev{{ReadErrs: 5}}},
 			want: "CRIT",
 		},
 		{
 			name: "corruption only is WARN (scrub-correctable)",
-			vol:  models.BtrfsVolume{MountPoint: "/data", Status: "errors", StatsRead: true, Devices: []models.BtrfsDev{{CorruptErrs: 3}}},
+			vol:  models.BtrfsVolume{MountPoint: "/data", Status: "errors", ShowRead: true, StatsRead: true, Devices: []models.BtrfsDev{{CorruptErrs: 3}}},
 			want: "WARN",
 		},
 	}
@@ -41,6 +41,19 @@ func TestCheckBtrfsVolume(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			assertLevel(t, checkBtrfsVolume(tt.vol), tt.want)
 		})
+	}
+}
+
+// TestCheckBtrfsVolume_ShowFailed is a regression guard for
+// internal-collectors-03-01: `btrfs filesystem show` itself failed — every
+// other field is zero-value, which happens to also trip the "stats unread"
+// branch at the same INFO level, silently masking whether the specific
+// ShowRead check actually fired. Assert the message text, not just the
+// level, so a revert of the ShowRead check can't hide behind that overlap.
+func TestCheckBtrfsVolume_ShowFailed(t *testing.T) {
+	got := checkBtrfsVolume(models.BtrfsVolume{MountPoint: "/data", ShowRead: false})
+	if !hasInsightMsg(got, "INFO", "could not be checked") {
+		t.Errorf("a failed `btrfs filesystem show` must disclose it could not be checked, got %+v", got)
 	}
 }
 
