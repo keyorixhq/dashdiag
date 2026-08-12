@@ -17,6 +17,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -331,8 +332,51 @@ func downloadToTemp(ctx context.Context, url, dir string) (string, string, error
 	return f.Name(), hex.EncodeToString(h.Sum(nil)), nil
 }
 
-func httpGet(ctx context.Context, client *http.Client, url string) (io.ReadCloser, error) {
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+// assetURLAllowedHosts restricts release-asset downloads (checksums.txt,
+// checksums.txt.minisig, and the platform binary itself) to GitHub's own
+// release hosts. Every Asset.URL (browser_download_url) is taken verbatim
+// from the GitHub API response; without this allowlist a compromised
+// release origin could point an asset at an arbitrary internal or
+// attacker-chosen host, and dsd would issue a blind outbound GET at it as
+// part of `dsd update`. The checksum/minisig checks still stop a bad
+// response from being installed, but do nothing to stop the request
+// itself, which would otherwise be an SSRF primitive against whatever
+// network the host running dsd can reach.
+var assetURLAllowedHosts = map[string]bool{
+	"github.com": true,
+	// The CDN github.com redirects release-asset downloads to.
+	"objects.githubusercontent.com":        true,
+	"release-assets.githubusercontent.com": true,
+}
+
+// requireHTTPSAssetURL gates the scheme check in validateAssetURL. Always
+// true in production; the test binary flips it off in TestMain so fixtures
+// can point Asset.URL at a plain-http httptest.NewServer without weakening
+// assetURLAllowedHosts itself (which stays a real allowlist in every case).
+var requireHTTPSAssetURL = true
+
+// validateAssetURL enforces that rawURL is an https:// GitHub release URL
+// before it is ever dialed.
+func validateAssetURL(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("invalid asset URL %q: %w", rawURL, err)
+	}
+	if requireHTTPSAssetURL && u.Scheme != "https" {
+		return fmt.Errorf("asset URL %q must use https, got %q", rawURL, u.Scheme)
+	}
+	host := u.Hostname()
+	if !assetURLAllowedHosts[host] {
+		return fmt.Errorf("asset URL %q has untrusted host %q (expected github.com or a githubusercontent.com release CDN)", rawURL, host)
+	}
+	return nil
+}
+
+func httpGet(ctx context.Context, client *http.Client, rawURL string) (io.ReadCloser, error) {
+	if err := validateAssetURL(rawURL); err != nil {
+		return nil, err
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -342,7 +386,7 @@ func httpGet(ctx context.Context, client *http.Client, url string) (io.ReadClose
 	}
 	if resp.StatusCode != http.StatusOK {
 		resp.Body.Close()
-		return nil, fmt.Errorf("GET %s returned %d", url, resp.StatusCode)
+		return nil, fmt.Errorf("GET %s returned %d", rawURL, resp.StatusCode)
 	}
 	return resp.Body, nil
 }
