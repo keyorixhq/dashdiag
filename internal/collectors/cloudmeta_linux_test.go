@@ -615,10 +615,27 @@ func TestCollectOCI_NotAvailable(t *testing.T) {
 
 func TestIsCloudInstance_AWS(t *testing.T) {
 	withCombinedFixture(t, map[string][]byte{
+		"imds-aws-token": []byte("tok"),
 		"imds/http://169.254.169.254/latest/meta-data/instance-id": []byte("i-abc"),
 	}, nil, nil)
 	if !IsCloudInstance() {
 		t.Error("expected IsCloudInstance()=true when the AWS instance-id probe succeeds")
+	}
+}
+
+// TestIsCloudInstance_AWSIMDSv2TokenRequired is a regression guard for
+// internal-collectors-04-01: the old probe sent an empty IMDSv2 token, which
+// any AWS instance with IMDSv2 HttpTokens:required enforced rejects with
+// HTTP 401 — silently treated as not-cloud. Seeding only the (successful)
+// token exchange plus the instance-id GET, with no fallback, must still
+// detect AWS.
+func TestIsCloudInstance_AWSIMDSv2TokenRequired(t *testing.T) {
+	withCombinedFixture(t, map[string][]byte{
+		"imds-aws-token": []byte("real-token"),
+		"imds/http://169.254.169.254/latest/meta-data/instance-id": []byte("i-abc"),
+	}, nil, nil)
+	if !IsCloudInstance() {
+		t.Error("expected IsCloudInstance()=true when the real IMDSv2 token flow succeeds")
 	}
 }
 
@@ -628,6 +645,30 @@ func TestIsCloudInstance_GCP(t *testing.T) {
 	}, nil, nil)
 	if !IsCloudInstance() {
 		t.Error("expected IsCloudInstance()=true when the GCP instance/id probe succeeds")
+	}
+}
+
+// TestIsCloudInstance_Azure is a regression guard for internal-collectors-04-01:
+// Azure was never probed at all — CloudMetaCollector (including Scheduled
+// Events maintenance/eviction warnings) was silently never registered on any
+// Azure host.
+func TestIsCloudInstance_Azure(t *testing.T) {
+	withCombinedFixture(t, map[string][]byte{
+		"imds/http://169.254.169.254/metadata/instance?api-version=2021-02-01": []byte(`{"compute":{"azEnvironment":"AzurePublicCloud"}}`),
+	}, nil, nil)
+	if !IsCloudInstance() {
+		t.Error("expected IsCloudInstance()=true when the Azure instance-metadata probe succeeds")
+	}
+}
+
+// TestIsCloudInstance_OCI is a regression guard for internal-collectors-04-01:
+// OCI was never probed at all, for the same reason as Azure above.
+func TestIsCloudInstance_OCI(t *testing.T) {
+	withCombinedFixture(t, map[string][]byte{
+		"imds/http://169.254.169.254/opc/v2/instance/": []byte(`{"id":"ocid1.instance.oc1..abc"}`),
+	}, nil, nil)
+	if !IsCloudInstance() {
+		t.Error("expected IsCloudInstance()=true when the OCI instance probe succeeds")
 	}
 }
 
