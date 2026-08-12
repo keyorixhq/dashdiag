@@ -179,6 +179,53 @@ func TestServicesDeepCollector_Collect_NonBenignSSHDAddedBack(t *testing.T) {
 	}
 }
 
+// TestServicesDeepCollector_Collect_SSHDAliasingBug is the regression guard
+// for the filterBenignFailedUnits in-place slice-filter aliasing bug: Collect()
+// passes `parsed` through filterBenignFailedUnits (which used to filter via
+// units[:0], aliasing parsed's backing array) and THEN reads the original
+// `parsed` again to rebuild the name list for nonBenignSSHDInstances.
+// Filtering in place silently corrupted parsed's later entries with
+// shifted-down duplicates whenever a dropped unit sits at an earlier array
+// index than a kept one — TestServicesDeepCollector_Collect_NonBenignSSHDAddedBack
+// doesn't catch this because its single-unit fixture never triggers the
+// overwrite. This fixture puts the blanket-suppressed sshd@ instance FIRST
+// and a real kept failure second, which does.
+func TestServicesDeepCollector_Collect_SSHDAliasingBug(t *testing.T) {
+	const sshdUnit = "sshd@10.0.0.1:22-10.0.0.2:5555.service"
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("systemctl", []string{"list-units", "--failed", "--plain", "--no-legend", "--no-pager"},
+			sshdUnit+" loaded failed failed OpenSSH per-connection\n"+
+				"my-real.service loaded failed failed my real service\n", 0)
+		b.PutCmd("systemctl", []string{"show", sshdUnit, "-p", "ExecMainStatus", "--value"}, "1\n", 0)
+		b.PutCmdNotFound("systemctl", []string{"list-units", "--type=service", "--state=loaded", "--plain", "--no-legend", "--no-pager"})
+		b.PutCmdNotFound("systemctl", []string{"list-units", "--type=service", "--state=masked", "--plain", "--no-legend", "--no-pager"})
+		b.PutCmdNotFound("systemd-analyze", []string{"blame", "--no-pager"})
+		b.PutCmdNotFound("systemctl", []string{"--user", "is-system-running"})
+	})
+	c := NewServicesDeepCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.ServicesDeepInfo)
+
+	foundReal, foundSSHD := false, false
+	for _, u := range info.FailedUnits {
+		if u.Name == "my-real.service" {
+			foundReal = true
+		}
+		if u.Name == sshdUnit {
+			foundSSHD = true
+		}
+	}
+	if !foundReal {
+		t.Errorf("expected my-real.service in FailedUnits, got %+v", info.FailedUnits)
+	}
+	if !foundSSHD {
+		t.Errorf("expected %s (non-benign exit status) to be added back to FailedUnits, got %+v — the aliasing bug erases it from parsed before nonBenignSSHDInstances can inspect it", sshdUnit, info.FailedUnits)
+	}
+}
+
 // TestServicesDeepCollector_Collect_UserUnitsAvailable guards the "user
 // systemd daemon IS running" path, including per-unit journal enrichment.
 func TestServicesDeepCollector_Collect_UserUnitsAvailable(t *testing.T) {
