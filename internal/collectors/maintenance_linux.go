@@ -167,13 +167,20 @@ func (c *KernelPatchCollector) Collect(ctx context.Context) (interface{}, error)
 	if b, err := readFile("/proc/sys/kernel/osrelease"); err == nil {
 		info.Running = strings.TrimSpace(string(b))
 	}
+	rpmProbeFailed := false
 	if hasCmd(maintCmdRPM) {
 		// RHEL/Oracle family: the running uname and the kernel package NVRA line up, so
 		// compare directly against the newest-INSTALLED kernel (--last orders by install
 		// time; rpm exits non-zero when a queried package is absent, so runCmdOutput to
 		// keep the installed lines). kernel-uek-core is the actual UEK package on Oracle
 		// Linux (the `kernel-uek` meta is often absent); kernel-core is EL9+ RHCK.
-		out, _ := runCmdOutput(ctx, maintCmdRPM, "-q", "--last", "kernel-uek-core", "kernel-uek", "kernel-core", "kernel")
+		out, rpmErr := runCmdOutput(ctx, maintCmdRPM, "-q", "--last", "kernel-uek-core", "kernel-uek", "kernel-core", "kernel")
+		// A legitimate "none of these four are installed" result still prints a
+		// "package X is not installed" line per package even on a non-zero exit — see
+		// TestKernelPatchCollector_Collect_RPMSkipsUninstalledFallsBackToSUSE. Completely
+		// empty stdout on a non-zero exit means the probe itself produced nothing (corrupt
+		// or locked rpmdb, timeout) — a genuine "couldn't measure", not "not installed".
+		rpmProbeFailed = rpmErr != nil && strings.TrimSpace(out) == ""
 		for _, line := range strings.Split(out, "\n") {
 			line = strings.TrimSpace(line)
 			fields := strings.Fields(line)
@@ -204,6 +211,13 @@ func (c *KernelPatchCollector) Collect(ctx context.Context) (interface{}, error)
 	if debianRebootMechanism() {
 		info.Available = true
 		info.RebootNeeded = fileExists("/run/reboot-required")
+		return info, nil
+	}
+	if rpmProbeFailed {
+		// rpm is present (this is an rpm-based host) but the probe itself failed to
+		// produce any usable output — disclose rather than silently drop the row.
+		info.Available = true
+		info.CheckUnverified = true
 		return info, nil
 	}
 	// No recognized kernel-package signal (e.g. a distro family we don't cover yet) —
@@ -278,8 +292,12 @@ func (c *KspliceCollector) Collect(ctx context.Context) (interface{}, error) {
 		info.Patched = info.EffectiveKernel != "" && info.EffectiveKernel != info.RunningKernel
 	}
 	// Dry-run upgrade lists pending live patches. "Nothing to be done." => up to date.
+	// Both known-good outcomes (nothing pending, or patches listed) exit 0 — any
+	// non-zero exit is a genuine probe failure regardless of what uptrack-upgrade
+	// wrote to stdout on the way out (a partial/progress line before failing would
+	// otherwise be silently parsed as "0 pending" instead of surfaced as unverified).
 	out, err := runCmdOutput(ctx, "uptrack-upgrade", "-n")
-	if err != nil && out == "" {
+	if err != nil {
 		info.CheckUnverified = true
 		return info, nil
 	}

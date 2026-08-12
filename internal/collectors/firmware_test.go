@@ -25,9 +25,7 @@ func TestFirmwareCollectorIdentity(t *testing.T) {
 // TestFirmwareCollect_FwupdmgrNotInstalled guards the simplest gate: fwupdmgr
 // absent from PATH must yield an explicit unavailable status, not an error.
 func TestFirmwareCollect_FwupdmgrNotInstalled(t *testing.T) {
-	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutCmdNotFound("fwupdmgr", []string{"--version"})
-	})
+	withLookPathFixture(t, map[string]bool{}, func(b *source.Bundle) {})
 	c := NewFirmwareCollector()
 	res, err := c.Collect(context.Background())
 	if err != nil {
@@ -45,6 +43,30 @@ func TestFirmwareCollect_FwupdmgrNotInstalled(t *testing.T) {
 	}
 }
 
+// TestFirmwareCollect_VersionProbeFails guards the disclosure path added for the
+// checkFirmware silent-skip fix: fwupdmgr IS on PATH (fwupd is genuinely
+// installed) but `fwupdmgr --version` itself fails (daemon down / D-Bus
+// unreachable) — Available must stay true and StatusReason must be set so
+// checkFirmware's disclosure branch fires, instead of collapsing to the same
+// "not installed" state a genuinely-absent host reports.
+func TestFirmwareCollect_VersionProbeFails(t *testing.T) {
+	withLookPathFixture(t, map[string]bool{"fwupdmgr": true}, func(b *source.Bundle) {
+		b.PutCmd("fwupdmgr", []string{"--version"}, "", 1)
+	})
+	c := NewFirmwareCollector()
+	res, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect must not error, got %v", err)
+	}
+	info := res.(*models.FirmwareInfo) //nolint:errcheck // asserted by identity test
+	if !info.Available {
+		t.Error("Available must be true — fwupd IS installed, only the version probe failed")
+	}
+	if info.StatusReason == "" || info.Status == "unavailable" {
+		t.Errorf("Status/StatusReason = %q/%q, want a disclosed daemon-probe-failure reason, not the not-installed state", info.Status, info.StatusReason)
+	}
+}
+
 // TestFirmwareCollect_NoUpgradesAvailable guards the exit-code-based "clean"
 // branch: fwupdmgr get-upgrades exits non-zero with no upgrades pending, and
 // the collector must still resolve to Status=OK, not surface an error.
@@ -53,7 +75,7 @@ func TestFirmwareCollect_FwupdmgrNotInstalled(t *testing.T) {
 // fwupdmgr exits non-zero to *report* "no upgrades" while still printing that
 // message to stdout — runCmd would discard it and mask the OK case.
 func TestFirmwareCollect_NoUpgradesAvailable(t *testing.T) {
-	withFixtureSource(t, func(b *source.Bundle) {
+	withLookPathFixture(t, map[string]bool{"fwupdmgr": true}, func(b *source.Bundle) {
 		b.PutCmd("fwupdmgr", []string{"--version"}, "fwupdmgr version 1.9.10\n", 0)
 		b.PutCmd("fwupdmgr", []string{"get-upgrades", "--json"}, "Nothing to do.\n", 2)
 	})
@@ -75,7 +97,7 @@ func TestFirmwareCollect_NoUpgradesAvailable(t *testing.T) {
 // a 0-exit get-upgrades call with unparsable JSON must set StatusReason
 // without erroring the collector.
 func TestFirmwareCollect_UpgradesJSONParseError(t *testing.T) {
-	withFixtureSource(t, func(b *source.Bundle) {
+	withLookPathFixture(t, map[string]bool{"fwupdmgr": true}, func(b *source.Bundle) {
 		b.PutCmd("fwupdmgr", []string{"--version"}, "fwupdmgr version 1.9.10\n", 0)
 		b.PutCmd("fwupdmgr", []string{"get-upgrades", "--json"}, "not valid json", 0)
 	})
@@ -95,7 +117,7 @@ func TestFirmwareCollect_UpgradesJSONParseError(t *testing.T) {
 // any of the known "nothing to do" strings, so StatusReason is set to the
 // generic failure message instead.
 func TestFirmwareCollect_GetUpgradesOtherFailure(t *testing.T) {
-	withFixtureSource(t, func(b *source.Bundle) {
+	withLookPathFixture(t, map[string]bool{"fwupdmgr": true}, func(b *source.Bundle) {
 		b.PutCmd("fwupdmgr", []string{"--version"}, "fwupdmgr version 1.9.10\n", 0)
 		b.PutCmd("fwupdmgr", []string{"get-upgrades", "--json"}, "daemon error: could not refresh metadata\n", 1)
 	})
@@ -146,7 +168,7 @@ func TestFirmwareCollect_UpgradesFound(t *testing.T) {
 			}
 		]
 	}`
-	withFixtureSource(t, func(b *source.Bundle) {
+	withLookPathFixture(t, map[string]bool{"fwupdmgr": true}, func(b *source.Bundle) {
 		b.PutCmd("fwupdmgr", []string{"--version"}, "fwupdmgr version 1.9.10\n", 0)
 		b.PutCmd("fwupdmgr", []string{"get-upgrades", "--json"}, upgradesJSON, 0)
 	})
