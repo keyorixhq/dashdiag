@@ -188,6 +188,32 @@ func TestParseDRBD9JSON_InvalidJSON(t *testing.T) {
 	}
 }
 
+// TestParseDRBD9JSON_OneMalformedResourceKeepsOthers guards against
+// discarding every resource when only ONE fails to decode (e.g. a
+// field-type mismatch from a drbdsetup version skew — "minor" arriving as a
+// string instead of a number). The first resource is well-formed and must
+// still surface (with its real ConnState), not be swallowed into a global
+// "Unverified" just because a sibling resource in the same array is broken.
+func TestParseDRBD9JSON_OneMalformedResourceKeepsOthers(t *testing.T) {
+	t.Parallel()
+	const raw = `[
+		{"name":"res0","role":"Primary","devices":[{"minor":0,"disk-state":"UpToDate"}],
+		 "connections":[{"connection-state":"StandAlone","peer_devices":[]}]},
+		{"name":"res1","role":"Secondary","devices":[{"minor":"not-a-number","disk-state":"UpToDate"}]}
+	]`
+	got := parseDRBD9JSON([]byte(raw), "9.1.4")
+	if got == nil {
+		t.Fatal("parseDRBD9JSON = nil, want a partial result keeping the well-formed resource")
+	}
+	if len(got.Resources) != 1 {
+		t.Fatalf("Resources = %+v, want exactly 1 (the malformed resource must be skipped, not discard everything)", got.Resources)
+	}
+	if got.Resources[0].ConnState != "StandAlone" {
+		t.Errorf("Resources[0].ConnState = %q, want %q (the down link on the well-formed resource must still surface)",
+			got.Resources[0].ConnState, "StandAlone")
+	}
+}
+
 // TestCollectDRBD9_CommandFails guards the drbdsetup-error and empty-output
 // branches of collectDRBD9.
 func TestCollectDRBD9_CommandFails(t *testing.T) {
