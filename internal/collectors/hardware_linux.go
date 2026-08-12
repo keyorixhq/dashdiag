@@ -104,6 +104,14 @@ func collectSMARTDrives(ctx context.Context, info *models.HardwareInfo) {
 	}
 
 	for _, dev := range scan.Devices {
+		// dev.Name is echoed back verbatim from `smartctl --scan-open`'s own
+		// JSON and passed as the trailing argv element to the second
+		// smartctl call below (collectOneDrive). A name beginning with "-"
+		// would be parsed by smartctl as an option rather than a device
+		// path — skip rather than let it be silently reinterpreted.
+		if strings.HasPrefix(dev.Name, "-") {
+			continue
+		}
 		drive := collectOneDrive(ctx, dev.Name)
 		info.Drives = append(info.Drives, drive)
 	}

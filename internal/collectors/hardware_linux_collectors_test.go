@@ -130,6 +130,27 @@ func TestCollectSMARTDrives_NoDevicesFound(t *testing.T) {
 	}
 }
 
+// TestCollectSMARTDrives_SkipsDashPrefixedDeviceName is the regression guard
+// for internal-collectors-14-05: a device name beginning with "-" (echoed
+// back from smartctl's own --scan-open JSON) must never reach the second
+// smartctl invocation as its trailing argv element, where it could be parsed
+// as an option instead of a device path. The fixture registers a fabricated
+// "-x"-device call that would only ever fire if the guard were missing.
+func TestCollectSMARTDrives_SkipsDashPrefixedDeviceName(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("smartctl", []string{"--scan-open", "--json=c"},
+			`{"devices":[{"name":"/dev/nvme0"},{"name":"-x"}]}`, 0)
+		b.PutCmd("smartctl", []string{"--json=c", "-a", "/dev/nvme0"}, smartctlNVMeJSON, 0)
+		// Fabricated: if this ever gets called, the guard failed.
+		b.PutCmd("smartctl", []string{"--json=c", "-a", "-x"}, smartctlSATAJSON, 0)
+	})
+	info := &models.HardwareInfo{}
+	collectSMARTDrives(context.Background(), info)
+	if len(info.Drives) != 1 || info.Drives[0].Device != "/dev/nvme0" {
+		t.Fatalf("Drives = %+v, want exactly [/dev/nvme0] — the \"-x\" device must be skipped", info.Drives)
+	}
+}
+
 func TestCollectSMARTDrives_ScanUnparseable(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("smartctl", []string{"--scan-open", "--json=c"}, "not json", 0)
