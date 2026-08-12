@@ -135,6 +135,12 @@ type BtrfsVolume struct {
 	// verdict then says "device state unverified — run as root" instead of a false
 	// DEGRADED CRIT. (A genuinely absent device shows the `<missing disk>` placeholder.)
 	DevReadUnverified bool `json:"dev_read_unverified,omitempty"`
+	// ShowRead is false when `btrfs filesystem show` itself failed entirely (binary
+	// missing, timeout, permission denied, OOM on a large multi-device fs) — distinct
+	// from every other field above, which assumes the command at least produced
+	// output. A false ShowRead means NOTHING about this volume was verified; it must
+	// not render as the zero-value "healthy" default.
+	ShowRead bool `json:"show_read,omitempty"`
 }
 
 // BtrfsDev is one device in a btrfs filesystem.

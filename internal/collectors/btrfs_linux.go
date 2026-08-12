@@ -42,6 +42,16 @@ func collectBtrfsVolumes(filesystems []models.FilesystemInfo) []models.BtrfsVolu
 	for _, mount := range mounts {
 		vol := parseBtrfsShow(ctx, mount)
 		if vol == nil {
+			// internal-collectors-03-01: `btrfs filesystem show` failed entirely
+			// (binary missing, timeout, permission denied, OOM) — this must not
+			// silently vanish the mount from the report, indistinguishable from
+			// "nothing wrong". Key by mount path, not UUID (which is unknown), so
+			// distinct failing mounts don't collide and overwrite each other.
+			key := "unverified:" + mount
+			if _, exists := byUUID[key]; !exists {
+				byUUID[key] = &models.BtrfsVolume{MountPoint: mount}
+				order = append(order, key)
+			}
 			continue
 		}
 		if _, exists := byUUID[vol.UUID]; !exists {
@@ -86,7 +96,7 @@ func parseBtrfsShow(ctx context.Context, mount string) *models.BtrfsVolume {
 // not "device is gone", and must NOT raise a DEGRADED CRIT. A genuinely absent
 // device is shown with the `<missing disk>` placeholder path, which we still flag.
 func applyBtrfsShow(out, mount string, nonRoot bool) *models.BtrfsVolume {
-	vol := &models.BtrfsVolume{MountPoint: mount, Status: "healthy"}
+	vol := &models.BtrfsVolume{MountPoint: mount, Status: "healthy", ShowRead: true}
 
 	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimSpace(line)

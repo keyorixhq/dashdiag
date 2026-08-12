@@ -1131,7 +1131,7 @@ func btrfsInsight(disk models.DiskInfo) (level, msg string, found bool) {
 
 func TestCheckDiskExtrasBtrfsIOErrorsCrit(t *testing.T) {
 	disk := models.DiskInfo{BtrfsVolumes: []models.BtrfsVolume{{
-		MountPoint: "/", Status: "errors", StatsRead: true,
+		MountPoint: "/", Status: "errors", ShowRead: true, StatsRead: true,
 		Devices: []models.BtrfsDev{{Path: "/dev/sda", ReadErrs: 0, WriteErrs: 5}},
 	}}}
 	level, msg, found := btrfsInsight(disk)
@@ -1145,7 +1145,7 @@ func TestCheckDiskExtrasBtrfsIOErrorsCrit(t *testing.T) {
 
 func TestCheckDiskExtrasBtrfsCorruptionWarn(t *testing.T) {
 	disk := models.DiskInfo{BtrfsVolumes: []models.BtrfsVolume{{
-		MountPoint: "/data", Status: "errors", StatsRead: true,
+		MountPoint: "/data", Status: "errors", ShowRead: true, StatsRead: true,
 		Devices: []models.BtrfsDev{{Path: "/dev/sdb", CorruptErrs: 3}},
 	}}}
 	level, msg, found := btrfsInsight(disk)
@@ -1160,7 +1160,7 @@ func TestCheckDiskExtrasBtrfsCorruptionWarn(t *testing.T) {
 func TestCheckDiskExtrasBtrfsIOWinsOverCorruption(t *testing.T) {
 	// A device with both I/O and corruption errors → CRIT (I/O is the worse signal).
 	disk := models.DiskInfo{BtrfsVolumes: []models.BtrfsVolume{{
-		MountPoint: "/", Status: "errors", StatsRead: true,
+		MountPoint: "/", Status: "errors", ShowRead: true, StatsRead: true,
 		Devices: []models.BtrfsDev{{Path: "/dev/sda", ReadErrs: 2, CorruptErrs: 9}},
 	}}}
 	if level, _, _ := btrfsInsight(disk); level != "CRIT" {
@@ -1171,7 +1171,7 @@ func TestCheckDiskExtrasBtrfsIOWinsOverCorruption(t *testing.T) {
 func TestCheckDiskExtrasBtrfsMissingStillCrit(t *testing.T) {
 	// Regression: missing-device DEGRADED path is unchanged.
 	disk := models.DiskInfo{BtrfsVolumes: []models.BtrfsVolume{{
-		MountPoint: "/", MissingDevs: 1, Status: "degraded",
+		MountPoint: "/", MissingDevs: 1, Status: "degraded", ShowRead: true,
 	}}}
 	if level, msg, found := btrfsInsight(disk); !found || level != "CRIT" || !strings.Contains(msg, "DEGRADED") {
 		t.Errorf("missing device should stay CRIT/DEGRADED, got level=%q msg=%q", level, msg)
