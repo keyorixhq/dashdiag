@@ -394,10 +394,15 @@ func TestKernelPatchCollector_Collect_RPMSkipsUninstalledFallsBackToSUSE(t *test
 	}
 }
 
-// TestKernelPatchCollector_Collect_NoRecognizedSignal covers the final
-// fall-through: rpm present but unusable, no zypper, no Debian reboot-required
-// signal — Available stays false rather than a misleading "Kernel OK".
-func TestKernelPatchCollector_Collect_NoRecognizedSignal(t *testing.T) {
+// TestKernelPatchCollector_Collect_RPMProbeFailed covers the rpm-probe-failed
+// fall-through: rpm is present (this IS an rpm-based host) but the --last
+// probe produced completely empty stdout on a non-zero exit — a corrupt/locked
+// rpmdb, not "these packages are absent" (that case still prints "not
+// installed" lines even on a non-zero exit, see
+// TestKernelPatchCollector_Collect_RPMSkipsUninstalledFallsBackToSUSE). No
+// zypper, no Debian reboot-required signal either, so this must disclose via
+// CheckUnverified rather than silently dropping the row as Available=false.
+func TestKernelPatchCollector_Collect_RPMProbeFailed(t *testing.T) {
 	withLookPathFixture(t, map[string]bool{"rpm": true}, func(b *source.Bundle) {
 		b.PutFile("/proc/sys/kernel/osrelease", []byte("5.14.0-default\n"))
 		b.PutCmd("rpm", []string{"-q", "--last", "kernel-uek-core", "kernel-uek", "kernel-core", "kernel"}, "", 1)
@@ -408,8 +413,8 @@ func TestKernelPatchCollector_Collect_NoRecognizedSignal(t *testing.T) {
 		t.Fatalf("Collect: %v", err)
 	}
 	info := raw.(*models.KernelPatchInfo)
-	if info.Available {
-		t.Errorf("expected Available=false with no recognized kernel-package signal, got %+v", info)
+	if !info.Available || !info.CheckUnverified {
+		t.Errorf("expected Available=true, CheckUnverified=true for an rpm probe that produced no output, got %+v", info)
 	}
 }
 
@@ -467,6 +472,32 @@ func TestKspliceCollector_Collect_UpgradeCheckUnverified(t *testing.T) {
 	info := raw.(*models.KspliceInfo)
 	if !info.CheckUnverified {
 		t.Error("expected CheckUnverified=true when uptrack-upgrade -n fails with empty output")
+	}
+}
+
+// TestKspliceCollector_Collect_UpgradeCheckUnverified_PartialOutput covers the
+// same non-zero-exit failure but with NON-EMPTY stdout (a partial/progress
+// line printed before the failure) — err!=nil must still set CheckUnverified
+// regardless of what partial text came back, rather than falling through to
+// countKsplicePending and silently parsing that partial text as "0 pending"
+// (a false "up to date" from a probe that never actually completed).
+func TestKspliceCollector_Collect_UpgradeCheckUnverified_PartialOutput(t *testing.T) {
+	withLookPathFixture(t, map[string]bool{"uptrack-uname": true}, func(b *source.Bundle) {
+		b.PutFile("/proc/sys/kernel/osrelease", []byte("5.4.17-2136.el8uek.x86_64\n"))
+		b.PutCmd("uptrack-uname", []string{"-r"}, "5.4.17-2136.el8uek.x86_64\n", 0)
+		b.PutCmd("uptrack-upgrade", []string{"-n"}, "Fetching updates...\n", 1)
+	})
+	c := NewKspliceCollector(platform.ContainerContext{})
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	info := raw.(*models.KspliceInfo)
+	if !info.CheckUnverified {
+		t.Error("expected CheckUnverified=true when uptrack-upgrade -n fails, even with partial stdout")
+	}
+	if info.PendingUpdates != 0 {
+		t.Errorf("expected PendingUpdates left at zero-value (not parsed from a failed probe's partial output), got %d", info.PendingUpdates)
 	}
 }
 
