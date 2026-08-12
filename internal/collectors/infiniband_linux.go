@@ -4,7 +4,8 @@ package collectors
 
 import (
 	"context"
-	"os"
+	"errors"
+	"io/fs"
 	"path/filepath"
 	"strings"
 	"time"
@@ -23,21 +24,24 @@ func (c *InfiniBandCollector) Timeout() time.Duration { return 3 * time.Second }
 func (c *InfiniBandCollector) Collect(_ context.Context) (interface{}, error) {
 	info := &models.InfiniBandInfo{}
 
-	// /sys/class/infiniband/ — one dir per HCA device (mlx5_0, rxe0, etc.).
-	// Read the directory (not a glob) so a restricted view (EACCES on a
-	// namespaced/bind-mounted /sys) is distinguishable from the directory
-	// genuinely not existing (no IB kernel module loaded) — filepath.Glob
-	// itself silently swallows read errors either way.
-	names, err := readDirNames(ibSysClassDir)
-	if err != nil {
-		if !os.IsNotExist(err) {
+	// Stat the parent dir first (not just glob it): filepath.Glob silently
+	// swallows read errors, so a restricted view (EACCES on a namespaced/
+	// bind-mounted /sys) is indistinguishable from the directory genuinely
+	// not existing (no IB kernel module loaded) via glob alone. Stat, unlike
+	// ReadDir/Glob, is recorded on BOTH success and failure by the capture
+	// layer (source.Recorder), so this distinction also replays faithfully —
+	// see internal/source/bundle.go's statRec (notExist vs permission).
+	if _, err := statFile(ibSysClassDir); err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
 			info.ReadFailed = true
 		}
 		return info, nil
 	}
 
-	for _, devName := range names {
-		dev := filepath.Join(ibSysClassDir, devName)
+	// /sys/class/infiniband/ — one dir per HCA device (mlx5_0, rxe0, etc.)
+	devices, _ := glob(filepath.Join(ibSysClassDir, "*"))
+	for _, dev := range devices {
+		devName := filepath.Base(dev)
 		// Each device has ports/ subdirectory
 		ports, _ := glob(filepath.Join(dev, "ports", "*"))
 		for _, portPath := range ports {
@@ -53,11 +57,11 @@ func (c *InfiniBandCollector) Collect(_ context.Context) (interface{}, error) {
 // view) — in that case the collector still runs and discloses ReadFailed via
 // InfiniBandInfo, rather than the health run silently skipping the section.
 func IsInfiniBandPresent() bool {
-	names, err := readDirNames(ibSysClassDir)
-	if err != nil {
-		return !os.IsNotExist(err)
+	if _, err := statFile(ibSysClassDir); err != nil {
+		return !errors.Is(err, fs.ErrNotExist)
 	}
-	return len(names) > 0
+	devices, _ := glob(filepath.Join(ibSysClassDir, "*"))
+	return len(devices) > 0
 }
 
 func readIBPort(device, portPath string) models.IBPort {
