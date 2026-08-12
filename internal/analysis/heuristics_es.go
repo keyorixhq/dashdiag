@@ -7,8 +7,9 @@ import (
 )
 
 const (
-	esCatElastic    = "Elasticsearch"
-	esInspectCurlSK = "to inspect: curl -sk "
+	esCatElastic        = "Elasticsearch"
+	esInspectCurlSK     = "to inspect: curl -sk "
+	esClusterHealthPath = "/_cluster/health?pretty"
 )
 
 // checkElasticsearch surfaces cluster-health issues for a local Elasticsearch or
@@ -29,7 +30,7 @@ func checkElasticsearch(e models.ElasticsearchInfo) []models.Insight {
 			name+" is reachable, but cluster health could not be read",
 			[]string{
 				"note: modern Elasticsearch defaults to TLS + auth — pass credentials for the cluster-health check",
-				"to inspect: curl -sk -u <user>:<pass> " + e.BaseURL + "/_cluster/health?pretty",
+				"to inspect: curl -sk -u <user>:<pass> " + e.BaseURL + esClusterHealthPath,
 			},
 		)}
 	}
@@ -53,7 +54,7 @@ func checkElasticsearch(e models.ElasticsearchInfo) []models.Insight {
 		}
 		return []models.Insight{insight("WARN", esCatElastic, msg,
 			[]string{
-				esInspectCurlSK + e.BaseURL + "/_cluster/health?pretty",
+				esInspectCurlSK + e.BaseURL + esClusterHealthPath,
 				"note: common on a single-node cluster (replicas can't be placed) — set index replicas to 0, or add a node",
 			})}
 	case "green":
@@ -68,7 +69,7 @@ func checkElasticsearch(e models.ElasticsearchInfo) []models.Insight {
 			fmt.Sprintf("%s cluster status %q is not a recognized state (expected green/yellow/red) — health could not be confirmed", name, e.Status),
 			[]string{
 				"note: an unrecognized status can mean a non-Elasticsearch service is answering this port, or an incompatible/tampered response",
-				esInspectCurlSK + e.BaseURL + "/_cluster/health?pretty",
+				esInspectCurlSK + e.BaseURL + esClusterHealthPath,
 			})}
 	}
 }
