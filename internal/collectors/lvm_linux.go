@@ -4,6 +4,7 @@ package collectors
 
 import (
 	"context"
+	"errors"
 	"strings"
 	"time"
 
@@ -17,10 +18,30 @@ const (
 	lvmFieldSep   = "-o"
 )
 
-// IsLVMPresent returns true when LVM tools are installed on this host.
+// IsLVMPresent returns true when LVM tools are installed on this host, or when
+// presence could not be confirmed one way or the other (lvs was found but
+// errored on --version) — in that case the collector still runs and
+// discloses LVMInfo.PresenceReadFailed, rather than the health run silently
+// skipping the LVM section entirely.
 func IsLVMPresent() bool {
+	present, absent := lvmPresenceCheck()
+	return present || !absent
+}
+
+// lvmPresenceCheck runs `lvs --version` and classifies the result. present is
+// true only on a clean success. absent is true only when the binary
+// genuinely could not be found/started (a spawn/lookup failure) — a
+// non-zero exit means the binary WAS found and ran, so that case returns
+// present=false, absent=false: ambiguous, not a confirmed absence.
+func lvmPresenceCheck() (present, absent bool) {
 	_, err := runCmd(context.Background(), "lvs", "--version")
-	return err == nil
+	if err == nil {
+		return true, false
+	}
+	if _, ok := errors.AsType[*cmdError](err); ok {
+		return false, false
+	}
+	return false, true
 }
 
 // LVMCollector checks LVM volume group free space, thin pool usage,
@@ -35,8 +56,13 @@ func (c *LVMCollector) Timeout() time.Duration { return 5 * time.Second }
 func (c *LVMCollector) Collect(ctx context.Context) (interface{}, error) {
 	info := &models.LVMInfo{}
 
-	// lvm2 not installed — silent OK
-	if !IsLVMPresent() {
+	present, absent := lvmPresenceCheck()
+	if absent {
+		// lvm2 genuinely not installed — clean absence
+		return info, nil
+	}
+	if !present {
+		info.PresenceReadFailed = true
 		return info, nil
 	}
 

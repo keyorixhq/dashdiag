@@ -88,6 +88,21 @@ func TestLVMQueryFailuresAreInfo(t *testing.T) {
 	}
 }
 
+// TestLVMPresenceCheckFailedNotSilentlyAbsent: the outer `lvs --version`
+// presence gate itself couldn't confirm lvm2 is absent (found the binary but
+// it errored) — this must surface as an unverified INFO, not fold into the
+// same silence as a genuinely-no-LVM host, and must not fall through to the
+// VG/PV/LV disclosures below (nothing was queried).
+func TestLVMPresenceCheckFailedNotSilentlyAbsent(t *testing.T) {
+	got := checkLVM(models.LVMInfo{PresenceReadFailed: true})
+	if !hasInsightMsg(got, "INFO", "could not confirm whether LVM is installed") {
+		t.Errorf("presence-check failure must INFO, got %+v", got)
+	}
+	if len(got) != 1 {
+		t.Errorf("expected a single disclosure insight, got %+v", got)
+	}
+}
+
 // Active iSCSI sessions whose state can't be read unprivileged (iscsiadm's per-session
 // sysfs fields are root-only) must surface "needs root", never be silently omitted —
 // else a failed/reconnecting session is invisible to a non-root health run.

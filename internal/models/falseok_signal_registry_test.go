@@ -63,6 +63,7 @@ var guardedUnverifiedSignals = map[string]string{
 	"LVMInfo.VGReadFailed":              "analysis/san_unverified_test.go",
 	"LVMInfo.PVReadFailed":              "analysis/san_unverified_test.go",
 	"LVMInfo.RaidReadFailed":            "analysis/heuristics_round7_test.go",
+	"LVMInfo.PresenceReadFailed":        "analysis/san_unverified_test.go TestLVMPresenceCheckFailedNotSilentlyAbsent + cmd/disk_report_test.go TestPrintDiskLVM + cmd/disk_issues_test.go TestDiskHasUnverifiedReads",
 	"DRBDInfo.Unverified":               "analysis/san_unverified_test.go (DRBD 9 non-root → INFO 'needs root', not silent omission)",
 	"ISCSIInfo.NeedsRoot":               "analysis/san_unverified_test.go (active sessions unreadable non-root → INFO, not silent)",
 	"FilesystemInfo.BusyCheckNeedsRoot": "analysis/heuristics_disk_busy_test.go (TestCheckDisk_BusyProcessHints_NeedsRoot: non-root busy-process scan → explicit caveat hint, not a silent 'no processes found')",
