@@ -220,6 +220,11 @@ func printSystemdHealth(info *models.ServicesDeepInfo, mode output.OutputMode) {
 		// systemctl couldn't be queried (non-systemd host, or it errored) — an empty
 		// list means "couldn't look", not svcValNone. Don't render the green svcValNone.
 		printLine(mode, "info", svcSectionFailedUnits, "not queried — systemctl unavailable (non-systemd host?)")
+	} else if len(info.FailedUnits) == 0 && info.SSHDStatusUnverified {
+		// A blanket-suppressed sshd@ instance's exit status couldn't be confirmed
+		// benign, and no OTHER unit failed — don't claim a clean "none" when a real
+		// per-connection sshd fault could be the one instance left unverified.
+		printLine(mode, "info", svcSectionFailedUnits, "none confirmed, but some suppressed sshd@ instances' status is unverified")
 	} else if len(info.FailedUnits) == 0 {
 		printLine(mode, "ok", svcSectionFailedUnits, svcValNone)
 	} else {
