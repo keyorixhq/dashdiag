@@ -80,6 +80,13 @@ func TestCheckSwap(t *testing.T) {
 		// macOS pressure path: MemPressureLevel>1 + high usage.
 		{"darwin pressure level 2 high usage is WARN", models.SwapInfo{MemPressureLevel: 2, UsedPct: 80}, "WARN"},
 		{"darwin pressure level 1 returns early clean", models.SwapInfo{MemPressureLevel: 1, UsedPct: 99}, ""},
+		// internal-collectors-31-01: -1 is the "could not be measured" sentinel.
+		// `MemPressureLevel > 0` is false for -1, so checkSwap falls through to
+		// the generic OS-agnostic swap-occupancy scoring below instead of the
+		// macOS-pressure-specific branch — unlike the OLD behavior, which
+		// defaulted a failed sysctl read to level 1 ("normal") and returned
+		// EARLY with no insight at all, even at critical swap occupancy.
+		{"darwin pressure unmeasured (-1 sentinel) falls through to occupancy scoring", models.SwapInfo{MemPressureLevel: -1, UsedPct: 99, UsedGB: 8}, "CRIT"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

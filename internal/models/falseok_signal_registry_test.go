@@ -55,6 +55,8 @@ var guardedUnverifiedSignals = map[string]string{
 	"SecurityInfo.FirewallConfigOnlyUnverified": "collectors/security_linux_firewall_test.go TestDetectNFTables_ConfigFileFallback + cmd/security_report_test.go (FIXED: nft absent + on-disk config now discloses unverified instead of a false FirewallActive=true)",
 	"SecurityInfo.AuditRulesUnreadable":         "cis/rules_test.go TestEvaluate_AuditUnreadableNotFailed (4.1.1 non-root → Skipped, not Fail) + collectors/medium_low_linux_test.go TestAuditRulesFromOutput",
 	"AuditInfo.AuditLogSizeUnreadable":          "analysis/heuristics_round6_test.go TestCheckAuditd (non-root → INFO, not a silent 0-size OK)",
+	"AuditInfo.RulesUnreadable":                 "analysis/heuristics_security.go checkAuditd (FIXED: auditctl -l failure now emits an explicit INFO instead of a silent rules_loaded=0)",
+	"AuditInfo.EventsUnreadable":                "analysis/heuristics_security.go checkAuditd (FIXED: ausearch failure now emits an explicit INFO instead of a silent events_last_1h=0)",
 
 	// Storage — heuristic folds an unreadable read to INFO/WARN, never OK.
 	"CephInfo.NeedsRoot":                "analysis/heuristics_round3_test.go (configured+non-root → INFO, not false 'unreachable' CRIT)",
@@ -187,19 +189,22 @@ var guardedUnverifiedSignals = map[string]string{
 	"OCIInfo.VNICChecked":            "analysis/heuristics_oci.go (gated; no virtio_net readable is normal off-OCI)",
 
 	// Misc host-level "*Checked" — audited 2026-07-08.
-	"AuthInfo.Checked":             "analysis/heuristics_security.go checkAuth (explicit INFO 'SSH auth log could not be read' — already the target pattern)",
-	"AuthInfo.SSHConfigChecked":    "analysis/heuristics_security.go checkAuth (gated: 'unknown policy keeps the WARN' — fails toward warning, not OK)",
-	"BINDInfo.PortsChecked":        "analysis/heuristics (gated; ss unavailable → explicit INFO disclosure already present)",
-	"DockerInfo.IPForwardChecked":  "analysis/heuristics_virt.go (gated; proc unreadable on macOS/proc-less container → unknown, not disabled)",
-	"FstabInfo.Checked":            "analysis/heuristics_fstab.go (gated, no verdict when unchecked)",
-	"MemoryInfo.MemHotplugChecked": "analysis/heuristics (gated; hotplug sysfs genuinely absent on non-hotplug kernels — not privilege-related)",
-	"MemoryInfo.MeminfoUnreadable": "analysis/heuristics_resources.go checkMemory (FIXED: proc meminfo unreadable/unparseable on Linux — e.g. a replay bundle missing it — now emits an explicit INFO instead of falling back to a live gopsutil read)",
-	"PackagesInfo.Checked":         "collectors/packages_linux.go markStaleMetadata feeds Status; analysis/heuristics_packages.go checkPackageUpdates already discloses query-failed/stale-metadata as INFO",
-	"PackagesInfo.DBHealthChecked": "analysis/heuristics_packages.go checkPackageDBHealth (collector invariant: DBUpdatesBlocked is never true when DBHealthChecked is false — verified 2026-07-08, no live bug; defensively gated anyway)",
-	"PostBootInfo.ShutdownChecked": "analysis/heuristics (gated; tool-absent/wtmp-inconclusive reads as unknown, not clean)",
-	"VMwareInfo.SCSIDisksChecked":  "analysis/heuristics (gated; no sd* disks on an NVMe-only guest is normal)",
-	"SteamOSRemotePlay.ARPChecked": "internal only (json:\"-\", not part of the --json contract); analysis gates on it before firing the isolation-suspected insight",
-	"SessionsInfo.Checked":         "analysis/heuristics_system.go checkSessions (FIXED: `w` unavailable now emits an explicit INFO, not a silent skip indistinguishable from 'nobody logged in')",
+	"AuthInfo.Checked":              "analysis/heuristics_security.go checkAuth (explicit INFO 'SSH auth log could not be read' — already the target pattern)",
+	"AuthInfo.SSHConfigChecked":     "analysis/heuristics_security.go checkAuth (gated: 'unknown policy keeps the WARN' — fails toward warning, not OK)",
+	"BINDInfo.PortsChecked":         "analysis/heuristics (gated; ss unavailable → explicit INFO disclosure already present)",
+	"DockerInfo.IPForwardChecked":   "analysis/heuristics_virt.go (gated; proc unreadable on macOS/proc-less container → unknown, not disabled)",
+	"FstabInfo.Checked":             "analysis/heuristics_fstab.go (gated, no verdict when unchecked)",
+	"MemoryInfo.MemHotplugChecked":  "analysis/heuristics (gated; hotplug sysfs genuinely absent on non-hotplug kernels — not privilege-related)",
+	"MemoryInfo.MeminfoUnreadable":  "analysis/heuristics_resources.go checkMemory (FIXED: proc meminfo unreadable/unparseable on Linux — e.g. a replay bundle missing it — now emits an explicit INFO instead of falling back to a live gopsutil read)",
+	"PackagesInfo.Checked":          "collectors/packages_linux.go markStaleMetadata feeds Status; analysis/heuristics_packages.go checkPackageUpdates already discloses query-failed/stale-metadata as INFO",
+	"PackagesInfo.DBHealthChecked":  "analysis/heuristics_packages.go checkPackageDBHealth (collector invariant: DBUpdatesBlocked is never true when DBHealthChecked is false — verified 2026-07-08, no live bug; defensively gated anyway)",
+	"PostBootInfo.ShutdownChecked":  "analysis/heuristics (gated; tool-absent/wtmp-inconclusive reads as unknown, not clean)",
+	"PostBootInfo.OOMChecked":       "analysis/heuristics_postboot.go postBootFindings (FIXED: journalctl --grep sub-call failure now emits an explicit INFO instead of a silent 0-OOM-kills clean read)",
+	"PostBootInfo.PanicChecked":     "analysis/heuristics_postboot.go postBootFindings (FIXED: same fix as OOMChecked, for the panic sub-call)",
+	"OOMInfo.EventsCountUnverified": "analysis/heuristics_system.go checkOOM (FIXED: a scanner error mid-parse now emits an explicit INFO instead of silently under-counting)",
+	"VMwareInfo.SCSIDisksChecked":   "analysis/heuristics (gated; no sd* disks on an NVMe-only guest is normal)",
+	"SteamOSRemotePlay.ARPChecked":  "internal only (json:\"-\", not part of the --json contract); analysis gates on it before firing the isolation-suspected insight",
+	"SessionsInfo.Checked":          "analysis/heuristics_system.go checkSessions (FIXED: `w` unavailable now emits an explicit INFO, not a silent skip indistinguishable from 'nobody logged in')",
 
 	// "*Measured" — cgroup read-success flags. Host /proc-derived values can't be
 	// validly scored against a container's cgroup limit when the cgroup side
