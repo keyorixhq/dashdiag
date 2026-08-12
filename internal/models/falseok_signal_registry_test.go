@@ -204,6 +204,7 @@ var guardedUnverifiedSignals = map[string]string{
 	// couldn't be read; the heuristic must say so, not silently pass.
 	"MemoryInfo.CgroupMemMeasured":        "analysis/heuristics_resources.go checkMemory (FIXED: unmeasurable cgroup memory now emits an explicit INFO instead of silently dropping the RAM check)",
 	"ContainerGuestInfo.CgroupV1Measured": "analysis/heuristics_containerguest.go checkContainerGuest (already correct: cgroup v1 throttle/OOM unmeasured → explicit INFO)",
+	"ContainerGuestInfo.CgroupV2Measured": "analysis/heuristics_containerguest.go checkContainerGuest (FIXED: cgroup v2 throttle/OOM unmeasured now emits an explicit INFO, matching the pre-existing v1 guard)",
 }
 
 func TestUnverifiedSignalFieldsAllRegistered(t *testing.T) {
