@@ -3,6 +3,7 @@ package collectors
 import (
 	"context"
 	"os"
+	"runtime"
 	"strings"
 	"testing"
 	"time"
@@ -155,6 +156,48 @@ Committed_AS:   10240000 kB
 	}
 	if want := 50.0; abs(result.UsedPct-want) > eps {
 		t.Errorf("UsedPct: got %v, want %v (from injected meminfo, not gopsutil)", result.UsedPct, want)
+	}
+}
+
+// TestMemoryCollector_Collect_TruncatedMeminfo guards against a false-CRIT:
+// a /proc/meminfo read that parses MemTotal fine but is truncated before
+// later keys (MemAvailable, Buffers, Cached, ...) — here forced via a single
+// line exceeding bufio.Scanner's max token size, which makes scanner.Err()
+// non-nil while the map already holds MemTotal from before the failure. If
+// that scan error is discarded, the "MemTotal > 0" branch treats the
+// partial map as complete: MemAvailable is absent, and the pre-3.14
+// fallback (MemFree+Buffers+Cached+SReclaimable) sums to 0 from the
+// unparsed keys, computing a false 100% UsedPct instead of reporting
+// unmeasured.
+func TestMemoryCollector_Collect_TruncatedMeminfo(t *testing.T) {
+	t.Parallel()
+	if runtime.GOOS != "linux" {
+		// Non-Linux falls through to a genuine gopsutil live read regardless of
+		// meminfoPath — the MeminfoUnreadable sentinel only applies on Linux.
+		t.Skip("MeminfoUnreadable sentinel only applies on Linux")
+	}
+
+	content := "MemTotal:  8192000 kB\n" + strings.Repeat("x", 100000)
+	f, err := os.CreateTemp(t.TempDir(), "meminfo-*")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if _, err := f.WriteString(content); err != nil {
+		t.Fatal(err)
+	}
+	f.Close()
+
+	c := &MemoryCollector{meminfoPath: f.Name(), ContainerCtx: platform.ContainerContext{}}
+	out, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect error: %v", err)
+	}
+	result := out.(*models.MemoryInfo) //nolint:errcheck
+	if !result.MeminfoUnreadable {
+		t.Errorf("expected MeminfoUnreadable=true for a truncated read, got false (UsedPct=%v)", result.UsedPct)
+	}
+	if result.UsedPct == 100 {
+		t.Error("truncated read must not report a false 100% UsedPct")
 	}
 }
 
