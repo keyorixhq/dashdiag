@@ -604,6 +604,31 @@ func TestServiceRestartCollector_Collect_PermissionDenied_AsRoot(t *testing.T) {
 	}
 }
 
+// TestServiceRestartCollector_Collect_HidepidRestrictsVisibility covers the
+// hidepid=2 gap that EACCES-only detection (deniedOthers) misses: every
+// /proc/<pid>/maps entry that IS in the glob results reads cleanly (no
+// permission error anywhere), but PID 1 — which always exists on a running
+// Linux system — is absent from the results entirely (hidepid=2 omits other
+// users' /proc/<pid> directory entries from readdir, no error raised). Must
+// still set NeedsRoot, or a hidepid=2 host silently reports a complete scan
+// that in fact only ever examined the caller's own processes.
+func TestServiceRestartCollector_Collect_HidepidRestrictsVisibility(t *testing.T) {
+	swapGeteuid(t, 1000)
+	withLookPathFixture(t, map[string]bool{"dpkg": true}, func(b *source.Bundle) {
+		b.PutGlob("/proc/[0-9]*/maps", []string{"/proc/123/maps"}) // no /proc/1 — hidepid=2
+		b.PutFile("/proc/123/maps", []byte("7f0000000000-7f0000010000 r-xp 00000000 08:01 123 /lib/libssl.so.3\n"))
+	})
+	c := NewServiceRestartCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	info := raw.(*models.ServiceRestartInfo)
+	if !info.NeedsRoot {
+		t.Error("expected NeedsRoot=true when PID 1 is absent from the glob results (hidepid=2), even with no read errors")
+	}
+}
+
 func TestServiceRestartCollector_Collect_NotAvailable(t *testing.T) {
 	withLookPathFixture(t, map[string]bool{}, func(b *source.Bundle) {})
 	c := NewServiceRestartCollector()
