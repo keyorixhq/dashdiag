@@ -203,8 +203,14 @@ func suppressCloudInitNoise(failedRaw []string, inContainer bool) []string {
 	return failed
 }
 
+// filterUnits returns a NEW slice, never units[:0] — the classic in-place
+// filter idiom aliases units' backing array, and Collect() reads the original
+// failedRaw again afterward (nonBenignSSHDInstances re-inspects it for real
+// sshd@ failures the blanket suppression hid). Filtering in place there
+// silently corrupted failedRaw's later entries with shifted-down duplicates,
+// erasing the very sshd@ unit nonBenignSSHDInstances needed to find.
 func filterUnits(units []string, ignore map[string]bool) []string {
-	out := units[:0]
+	out := make([]string, 0, len(units))
 	for _, u := range units {
 		if !unitIgnored(u, ignore) {
 			out = append(out, u)
@@ -222,7 +228,11 @@ func filterUnits(units []string, ignore map[string]bool) []string {
 // systemd-sysupdate rule so the paths cannot drift.
 func filterBenignFailedUnits(units []models.SystemdUnit, inContainer bool) []models.SystemdUnit {
 	sysupdateBenign := sysupdateUnconfigured()
-	out := units[:0]
+	// A NEW slice, never units[:0] — see filterUnits' comment. services_deep_linux.go
+	// reads the original `parsed` slice again after this call (to rebuild the sshd@
+	// instance-name list for nonBenignSSHDInstances); filtering in place there
+	// silently corrupted it the same way.
+	out := make([]models.SystemdUnit, 0, len(units))
 	for _, u := range units {
 		if unitIgnored(u.Name, cloudInitUnits) {
 			continue
