@@ -9,6 +9,7 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -51,6 +52,28 @@ func TestToolCaptureIdentifiersImpliesSanitize(t *testing.T) {
 	}
 	if result.Bytes <= 0 {
 		t.Errorf("expected positive bundle size, got %d", result.Bytes)
+	}
+}
+
+// TestRedactMCPJSON guards sanitize-bundle-01: toolHealth/toolReplay returned
+// their rendered JSON verbatim over MCP with no redaction path at all, even
+// though checks[].raw is documented out-of-contract and may carry a
+// collector's verbatim raw data. Exercises redactMCPJSON directly (the exact
+// helper toolHealth/toolReplay call) on compact JSON — the shape where a
+// naive byte-level regex pass against already-serialized JSON would corrupt
+// structure, which is why redaction happens on the decoded value instead.
+func TestRedactMCPJSON(t *testing.T) {
+	t.Parallel()
+	in := []byte(`{"checks":[{"name":"env","status":"OK","raw":{"line":"token=abc123secretvalue"}}]}`)
+	out := redactMCPJSON(in)
+	if strings.Contains(string(out), "abc123secretvalue") {
+		t.Errorf("secret survived redactMCPJSON: %s", out)
+	}
+	if !json.Valid(out) {
+		t.Fatalf("redactMCPJSON produced invalid JSON: %s", out)
+	}
+	if !strings.Contains(string(out), `"status":"OK"`) {
+		t.Errorf("non-secret field corrupted: %s", out)
 	}
 }
 

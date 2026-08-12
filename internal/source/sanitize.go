@@ -1,6 +1,7 @@
 package source
 
 import (
+	"encoding/json"
 	"fmt"
 	"hash/fnv"
 	"net"
@@ -396,4 +397,57 @@ func redactCmdArgvKey(key string) (string, int) {
 		return key, 0
 	}
 	return cmdKey(parts[0], parts[1:]), total
+}
+
+// RedactJSONSecrets applies the same always-on secret redaction Bundle.Sanitize
+// gives capture-bundle content to an arbitrary JSON document, by decoding it,
+// rewriting every string leaf through redactSecrets, and re-marshalling.
+//
+// Rewriting is done on the DECODED value, never on the raw serialized bytes:
+// running the byte-level secretRules patterns directly against
+// already-serialized JSON is unsafe, because a match (e.g. the generic
+// key=value rule's greedy \S+ value group) can swallow adjacent JSON syntax —
+// a closing quote, comma, or brace — when there is no whitespace between JSON
+// tokens (the normal case for compact/minified output), corrupting the
+// document. Decoding first means only string VALUES are ever substituted, so
+// the result is always valid JSON.
+//
+// Used by `dsd mcp`'s dsd_health/dsd_replay tools: their checks[].raw field is
+// documented out-of-contract and may carry a collector's verbatim raw data, so
+// it gets the same "secrets always redacted" treatment a capture bundle
+// already gets before crossing an MCP boundary that commonly forwards straight
+// into a cloud LLM's context. Returns data unchanged (with a non-nil error) if
+// it isn't valid JSON.
+func RedactJSONSecrets(data []byte) ([]byte, error) {
+	var v any
+	if err := json.Unmarshal(data, &v); err != nil {
+		return data, fmt.Errorf("source: redacting JSON: %w", err)
+	}
+	out, err := json.Marshal(redactJSONValue(v))
+	if err != nil {
+		return data, fmt.Errorf("source: re-marshalling redacted JSON: %w", err)
+	}
+	return out, nil
+}
+
+// redactJSONValue recursively rewrites every string leaf of a decoded JSON
+// value (as produced by json.Unmarshal into `any`) through redactSecrets.
+func redactJSONValue(v any) any {
+	switch t := v.(type) {
+	case string:
+		red, _ := redactSecrets([]byte(t))
+		return string(red)
+	case map[string]any:
+		for k, val := range t {
+			t[k] = redactJSONValue(val)
+		}
+		return t
+	case []any:
+		for i, val := range t {
+			t[i] = redactJSONValue(val)
+		}
+		return t
+	default:
+		return v
+	}
 }

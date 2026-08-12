@@ -1,6 +1,7 @@
 package source
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
@@ -478,6 +479,38 @@ func TestBundleSanitizeDirEntrySecret(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("non-secret dir entry dropped, got: %v", entries)
+	}
+}
+
+// TestRedactJSONSecrets guards sanitize-bundle-01: `dsd mcp`'s dsd_health /
+// dsd_replay tools returned checks[].raw verbatim over MCP with no redaction
+// path at all. Exercises the JSON-safe leaf-walking approach on COMPACT
+// (no-whitespace) JSON, the shape where a naive byte-level regex pass against
+// already-serialized JSON would corrupt structure.
+func TestRedactJSONSecrets(t *testing.T) {
+	t.Parallel()
+	in := `{"checks":[{"name":"env","raw":{"line":"token=abc123secretvalue","port":8080}}],"status":"OK"}`
+	out, err := RedactJSONSecrets([]byte(in))
+	if err != nil {
+		t.Fatalf("RedactJSONSecrets: %v", err)
+	}
+	if strings.Contains(string(out), "abc123secretvalue") {
+		t.Errorf("secret survived RedactJSONSecrets: %s", out)
+	}
+	var v map[string]any
+	if err := json.Unmarshal(out, &v); err != nil {
+		t.Fatalf("RedactJSONSecrets produced invalid JSON: %v\noutput: %s", err, out)
+	}
+	if v["status"] != "OK" {
+		t.Errorf("non-secret field corrupted: %+v", v)
+	}
+	checks, _ := v["checks"].([]any)
+	if len(checks) != 1 {
+		t.Fatalf("expected 1 check to survive, got: %+v", v)
+	}
+	raw, _ := checks[0].(map[string]any)["raw"].(map[string]any)
+	if raw["port"] != float64(8080) {
+		t.Errorf("non-secret nested field corrupted: %+v", raw)
 	}
 }
 
