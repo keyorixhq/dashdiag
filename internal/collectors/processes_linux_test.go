@@ -90,9 +90,10 @@ func TestProcessesCollector_Collect_Linux(t *testing.T) {
 		"/proc/200", // zombie, normal parent -> counted
 		"/proc/300", // D-state, normal parent -> counted
 		"/proc/400", // zombie, ppid=2 (kernel parent) -> skipped
-		"/proc/500", // zombie, kernel-thread name -> skipped
+		"/proc/500", // zombie, real kernel thread (PF_KTHREAD flag set) -> skipped
 		"/proc/600", // zombie, ppid==self -> skipped
 		"/proc/700", // zombie, shell parent -> skipped
+		"/proc/800", // zombie, SPOOFED kernel-thread name but PF_KTHREAD unset -> counted
 	}
 	normalParentStr := strconv.Itoa(normalParent)
 	shellParent := normalParent + 1
@@ -104,9 +105,16 @@ func TestProcessesCollector_Collect_Linux(t *testing.T) {
 		b.PutFile("/proc/300/stat", []byte("300 (somejob) D "+normalParentStr+" 300 300 0 -1 0"))
 		b.PutFile("/proc/300/wchan", []byte("pipe_wait"))
 		b.PutFile("/proc/400/stat", []byte("400 (orphan) Z 2 400 400 0 -1 0"))
-		b.PutFile("/proc/500/stat", []byte("500 (kworker/0:1) Z "+normalParentStr+" 500 500 0 -1 0"))
+		// flags field (7th field after the name) carries PF_KTHREAD (2097152) —
+		// the kernel-controlled signal a genuine kernel thread is detected by,
+		// not the spoofable comm name.
+		b.PutFile("/proc/500/stat", []byte("500 (kworker/0:1) Z "+normalParentStr+" 500 500 0 -1 2097152"))
 		b.PutFile("/proc/600/stat", []byte("600 (child) Z "+strconv.Itoa(selfPID)+" 600 600 0 -1 0"))
 		b.PutFile("/proc/700/stat", []byte("700 (grandchild) Z "+shellParentStr+" 700 700 0 -1 0"))
+		// A userspace process that renamed itself via prctl(PR_SET_NAME) to look
+		// like a kernel thread, but has no PF_KTHREAD bit set (flags=0) and a
+		// normal (non-kthreadd) parent — must NOT be exempted by name alone.
+		b.PutFile("/proc/800/stat", []byte("800 (kworker/0:1) Z "+normalParentStr+" 800 800 0 -1 0"))
 		b.PutFile("/proc/"+normalParentStr+"/comm", []byte("systemd\n"))
 		b.PutFile("/proc/"+shellParentStr+"/comm", []byte("bash\n"))
 	})
@@ -123,11 +131,20 @@ func TestProcessesCollector_Collect_Linux(t *testing.T) {
 	if info.Total != len(dirs) {
 		t.Errorf("Total = %d, want %d", info.Total, len(dirs))
 	}
-	if info.ZombieCount != 1 {
-		t.Fatalf("ZombieCount = %d, want 1, procs=%+v", info.ZombieCount, info.ZombieProcs)
+	if info.ZombieCount != 2 {
+		t.Fatalf("ZombieCount = %d, want 2, procs=%+v", info.ZombieCount, info.ZombieProcs)
 	}
 	if info.ZombieProcs[0].PID != 200 || info.ZombieProcs[0].ParentName != "systemd" {
 		t.Errorf("ZombieProcs[0] = %+v, want PID=200 ParentName=systemd", info.ZombieProcs[0])
+	}
+	var spoofed *models.ProcessState
+	for i := range info.ZombieProcs {
+		if info.ZombieProcs[i].PID == 800 {
+			spoofed = &info.ZombieProcs[i]
+		}
+	}
+	if spoofed == nil {
+		t.Fatalf("expected PID 800 (spoofed kernel-thread name, PF_KTHREAD unset) to be counted, procs=%+v", info.ZombieProcs)
 	}
 	if info.HungCount != 1 {
 		t.Fatalf("HungCount = %d, want 1, procs=%+v", info.HungCount, info.HungProcs)

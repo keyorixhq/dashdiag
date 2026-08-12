@@ -129,6 +129,35 @@ func TestParseProcStat_Fixtures(t *testing.T) {
 	})
 }
 
+// TestIsKernelThreadByFlag: PF_KTHREAD (2097152) in the stat flags field is
+// the kernel-controlled signal for a genuine kernel thread — unlike the
+// process's self-reported comm name, which any userspace process can spoof
+// via prctl(PR_SET_NAME) (e.g. renaming itself "kworker/0:1").
+func TestIsKernelThreadByFlag(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		in   string
+		want bool
+	}{
+		{"real kernel thread (PF_KTHREAD set)", "500 (kworker/0:1) S 2 500 500 0 -1 2097152", true},
+		{"spoofed name, flag unset", "800 (kworker/0:1) S 1234 800 800 0 -1 0", false},
+		{"normal userspace process", "1234 (nginx) S 1 1234 1234 0 -1 0", false},
+		{"flags combined with other bits", "500 (kworker/0:1) S 2 500 500 0 -1 2097153", true},
+		{"too few fields", "500 (kworker/0:1) S 2 500", false},
+		{"no parens", "500 kworker S 2 500 500 0 -1 2097152", false},
+		{"non-numeric flags field", "500 (kworker/0:1) S 2 500 500 0 -1 notanumber", false},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := isKernelThreadByFlag([]byte(tc.in)); got != tc.want {
+				t.Errorf("isKernelThreadByFlag(%q) = %v, want %v", tc.in, got, tc.want)
+			}
+		})
+	}
+}
+
 func FuzzParseProcStat(f *testing.F) {
 	f.Add([]byte("1234 (nginx) S 1 1234 1234 0 -1 0"))
 	f.Add([]byte("5678 (defunct) Z 1234 5678 5678 0 -1 0"))
