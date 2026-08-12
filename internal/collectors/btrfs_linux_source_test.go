@@ -132,15 +132,44 @@ func TestCollectBtrfsVolumes_DedupesByMountAndUUID(t *testing.T) {
 	}
 }
 
-// TestCollectBtrfsVolumes_ShowFailureSkipsMount guards that a mount whose
-// `btrfs filesystem show` fails (binary missing, transient error) is skipped
-// rather than producing a fabricated volume.
-func TestCollectBtrfsVolumes_ShowFailureSkipsMount(t *testing.T) {
+// TestCollectBtrfsVolumes_ShowFailureYieldsUnverifiedEntry is a regression
+// guard for internal-collectors-03-01: a mount whose `btrfs filesystem show`
+// fails (binary missing, transient error) must NOT silently vanish from the
+// report — it must produce an unverified BtrfsVolume entry (ShowRead=false)
+// so the caller can't mistake it for "nothing to report".
+func TestCollectBtrfsVolumes_ShowFailureYieldsUnverifiedEntry(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmdNotFound("btrfs", []string{"filesystem", "show", "/mnt/broken"})
 	})
 	fss := []models.FilesystemInfo{{FSType: "btrfs", Mount: "/mnt/broken"}}
-	if got := collectBtrfsVolumes(fss); got != nil {
-		t.Errorf("expected nil when btrfs filesystem show fails, got %+v", got)
+	got := collectBtrfsVolumes(fss)
+	if len(got) != 1 {
+		t.Fatalf("expected exactly 1 unverified volume when btrfs filesystem show fails, got %d: %+v", len(got), got)
+	}
+	if got[0].ShowRead {
+		t.Errorf("expected ShowRead=false, got %+v", got[0])
+	}
+	if got[0].MountPoint != "/mnt/broken" {
+		t.Errorf("MountPoint = %q, want /mnt/broken", got[0].MountPoint)
+	}
+}
+
+// TestCollectBtrfsVolumes_MultipleShowFailuresDontCollide covers the dedup-key
+// fix: two distinct mounts that both fail `btrfs filesystem show` have no
+// UUID, so keying the unverified entry by UUID (both "") would collapse them
+// into one, silently dropping the second mount. Keying by mount path instead
+// must produce one entry per failing mount.
+func TestCollectBtrfsVolumes_MultipleShowFailuresDontCollide(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmdNotFound("btrfs", []string{"filesystem", "show", "/mnt/a"})
+		b.PutCmdNotFound("btrfs", []string{"filesystem", "show", "/mnt/b"})
+	})
+	fss := []models.FilesystemInfo{
+		{FSType: "btrfs", Mount: "/mnt/a"},
+		{FSType: "btrfs", Mount: "/mnt/b"},
+	}
+	got := collectBtrfsVolumes(fss)
+	if len(got) != 2 {
+		t.Fatalf("expected 2 distinct unverified volumes, got %d: %+v", len(got), got)
 	}
 }

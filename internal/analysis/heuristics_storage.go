@@ -1203,6 +1203,20 @@ func checkDiskGrowth(fs models.FilesystemInfo) []models.Insight {
 // scrub-correctable); corruption/checksum errors alone are a WARN (often
 // scrub-correctable).
 func checkBtrfsVolume(v models.BtrfsVolume) []models.Insight {
+	// internal-collectors-03-01: `btrfs filesystem show` failed entirely (binary
+	// missing, timeout, permission denied, OOM) — every other field on this
+	// struct is a zero-value default, which would otherwise read as a clean
+	// "healthy" volume. The mount may in fact be DEGRADED or have I/O errors;
+	// disclose that this was never actually checked.
+	if !v.ShowRead {
+		return []models.Insight{unverifiedInsight("INFO", "Disk",
+			fmt.Sprintf("btrfs %s could not be checked — `btrfs filesystem show` failed (btrfs-progs missing, timeout, or permission denied)", v.MountPoint),
+			[]string{
+				fmt.Sprintf("to inspect: btrfs filesystem show %s", v.MountPoint),
+				"note: install btrfs-progs, or re-run as root, then retry",
+			},
+		)}
+	}
 	if v.MissingDevs > 0 {
 		return []models.Insight{insight("CRIT", "Disk",
 			fmt.Sprintf("btrfs %s is DEGRADED — %d missing device(s), data at risk", v.MountPoint, v.MissingDevs),
