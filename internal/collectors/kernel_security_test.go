@@ -141,6 +141,28 @@ func TestApparmorModeFromPath_Readable(t *testing.T) {
 	}
 }
 
+// TestApparmorDetail_PermissionDeniedViaSource is the regression guard for
+// internal-collectors-18-01: apparmorDetail() must distinguish EACCES (the
+// profiles file exists but is root-only, per apparmorMode()'s own comment)
+// from "no profiles file at all" — collapsing both to (0,0,0) makes a
+// non-root run against a host enforcing hundreds of profiles report
+// AppArmorProfiles=0, contradicting AppArmorMode=="unknown" for any raw
+// --json consumer that reads the counts without also checking the mode.
+func TestApparmorDetail_PermissionDeniedViaSource(t *testing.T) {
+	path := "/sys/kernel/security/apparmor/profiles"
+	b := source.NewBundle()
+	prev := SetSource(fakePermDeniedSource{
+		Replay:     source.NewReplay(b),
+		deniedPath: path,
+	})
+	t.Cleanup(func() { SetSource(prev) })
+
+	total, enforce, complain := apparmorDetail()
+	if total != -1 || enforce != -1 || complain != -1 {
+		t.Errorf("apparmorDetail() on EACCES = (%d, %d, %d), want (-1, -1, -1) sentinel, not zeros", total, enforce, complain)
+	}
+}
+
 func TestIsRecentAVCDenial(t *testing.T) {
 	// Real-format audit.log lines (the AVC record format is stable). Epoch 1715000000.
 	denied := `type=AVC msg=audit(1715000000.123:456): avc:  denied  { read } for  pid=1234 comm="httpd" name="shadow" scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:shadow_t:s0 tclass=file permissive=0`
