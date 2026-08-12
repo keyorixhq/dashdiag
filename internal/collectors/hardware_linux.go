@@ -160,8 +160,13 @@ func collectOneDrive(ctx context.Context, devPath string) models.HardwareDrive {
 		drive.UnsafeShutdowns = d.NVMeLog.UnsafeShutdowns
 	}
 
-	// SATA/SAS — parse critical ATA SMART attributes
+	// SATA/SAS — parse critical ATA SMART attributes. Absent on a real SAS/SCSI
+	// drive (grown-defect-list data lives in different log pages this collector
+	// doesn't parse) — BadSectorsRead records whether this table was actually
+	// there, so a caller can't mistake the zero-value counters below for a
+	// clean bad-sector verdict on hardware that was never measured.
 	if d.ATASMARTAttributes != nil {
+		drive.BadSectorsRead = true
 		for _, attr := range d.ATASMARTAttributes.Table {
 			switch attr.ID {
 			case 5: // Reallocated Sectors Count
