@@ -41,6 +41,32 @@ func TestCheckSSHWeakMACs_EffectiveConfSource(t *testing.T) {
 	}
 }
 
+// TestCheckSSHWeakMACs_Umac64EtmAndSha1_96 covers two real OpenSSH MAC names
+// the matching logic previously missed entirely: umac-64-etm@openssh.com (the
+// HasPrefix(m, "umac-64@") check never matches a string that starts with
+// "umac-64-etm@" instead) and hmac-sha1-96 (only exact equality against the
+// bare "hmac-sha1" was checked). Both are documented as weak by this file's
+// own comment but were silently let through.
+func TestCheckSSHWeakMACs_Umac64EtmAndSha1_96(t *testing.T) {
+	t.Parallel()
+	etm := checkSSHWeakMACs(models.SecurityInfo{SSHMACs: "umac-64-etm@openssh.com,hmac-sha2-256"})
+	if len(etm) == 0 || !strings.Contains(etm[0].Message, "umac-64-etm@openssh.com") {
+		t.Errorf("umac-64-etm@openssh.com must be flagged (short tag length regardless of ETM), got %+v", etm)
+	}
+
+	sha1_96 := checkSSHWeakMACs(models.SecurityInfo{SSHMACs: "hmac-sha1-96,hmac-sha2-256"})
+	if len(sha1_96) == 0 || !strings.Contains(sha1_96[0].Message, "hmac-sha1-96") {
+		t.Errorf("hmac-sha1-96 must be flagged, got %+v", sha1_96)
+	}
+
+	// hmac-sha1-96-etm@openssh.com stays borderline-acceptable, same as the
+	// plain hmac-sha1-etm@openssh.com case — must NOT be flagged.
+	sha1_96_etm := checkSSHWeakMACs(models.SecurityInfo{SSHMACs: "hmac-sha1-96-etm@openssh.com,hmac-sha2-256"})
+	if len(sha1_96_etm) != 0 {
+		t.Errorf("hmac-sha1-96-etm@openssh.com is ETM and must not be flagged, got %+v", sha1_96_etm)
+	}
+}
+
 // TestCheckSSHWeakKEX_EffectiveConfSource covers the sshEffectiveConf branch
 // in checkSSHWeakKEX (line 116-118).
 func TestCheckSSHWeakKEX_EffectiveConfSource(t *testing.T) {
