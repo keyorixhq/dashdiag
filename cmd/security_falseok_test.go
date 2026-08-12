@@ -24,6 +24,15 @@ func TestSecurityChecksLimited(t *testing.T) {
 		{"fully audited root run is not limited",
 			models.SecurityInfo{SSHAuditSource: "sshd -T"}, false},
 		{"clean zero-value (root, readable) is not limited", models.SecurityInfo{}, false},
+		// measurement-honesty-01: a ROOT run (NeedsRoot=false) on a host lacking
+		// auditd/ausearch still never verified SELinux AVC denials — must read
+		// as limited, not healthy.
+		{"root run with SELinux enforcing but denials unverified is limited",
+			models.SecurityInfo{SELinuxMode: "enforcing", SELinuxDenials: -1}, true},
+		{"SELinux permissive with denials unverified is not limited (not enforcing)",
+			models.SecurityInfo{SELinuxMode: "permissive", SELinuxDenials: -1}, false},
+		{"SELinux enforcing with denials actually measured (0) is not limited",
+			models.SecurityInfo{SELinuxMode: "enforcing", SELinuxDenials: 0}, false},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

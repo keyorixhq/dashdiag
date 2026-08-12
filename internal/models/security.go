@@ -176,6 +176,14 @@ type PortEntry struct {
 	Protocol string `json:"protocol"`
 	Process  string `json:"process"`
 	Expected bool   `json:"expected"`
+	// ExePath is the resolved target of /proc/<pid>/exe — unlike Process
+	// (/proc/<pid>/comm, freely settable by the process itself via
+	// prctl(PR_SET_NAME) or argv[0]), the exe symlink names the actual binary
+	// the kernel executed and cannot be spoofed without replacing that binary
+	// on disk. Empty when unreadable (permission, process exited, non-root
+	// run) — a "known service" downgrade must not trust Process alone without
+	// this corroboration.
+	ExePath string `json:"exe_path,omitempty"`
 }
 
 // SELinuxAVCGroup is a deduplicated group of AVC denials sharing the same

@@ -45,6 +45,28 @@ func TestCheckSecurityAuditGaps_NeedsRoot(t *testing.T) {
 	}
 }
 
+// TestCheckSecurityAuditGaps_SELinuxDenialsUnverified is a regression guard
+// for measurement-honesty-01: checkSecuritySELinuxDenials only tests
+// SELinuxDenials >= 10, which is false for the -1 "unknown" sentinel, so a
+// host where SELinux is enforcing but the audit log/ausearch were both
+// unreadable produced ZERO insights — not even an INFO. Its sibling
+// checkSELinuxDenials (heuristics_system.go) already discloses this same
+// sentinel; checkSecurityAuditGaps must too, or `dsd security`'s verdict has
+// no SELinux caveat even though denials were never actually read.
+func TestCheckSecurityAuditGaps_SELinuxDenialsUnverified(t *testing.T) {
+	t.Parallel()
+	if !hasInsightMsg(checkSecurityAuditGaps(models.SecurityInfo{SELinuxMode: "enforcing", SELinuxDenials: -1}),
+		"INFO", "could NOT be verified") {
+		t.Error("SELinux enforcing with denials unverified (-1) must produce an INFO disclosure")
+	}
+	if got := checkSecurityAuditGaps(models.SecurityInfo{SELinuxMode: "permissive", SELinuxDenials: -1}); len(got) != 0 {
+		t.Errorf("permissive mode must not trigger the enforcing-only disclosure, got %+v", got)
+	}
+	if got := checkSecurityAuditGaps(models.SecurityInfo{SELinuxMode: "enforcing", SELinuxDenials: 0}); len(got) != 0 {
+		t.Errorf("denials actually measured (0, not -1) must not trigger the disclosure, got %+v", got)
+	}
+}
+
 func TestCheckSecuritySSH_PasswordAuthOffensiveDistro(t *testing.T) {
 	t.Parallel()
 	sec := models.SecurityInfo{SSHPasswordAuth: true, IsOffensiveDistro: true}

@@ -116,6 +116,23 @@ func checkSecurityAuditGaps(sec models.SecurityInfo) []models.Insight {
 		))
 	}
 
+	// measurement-honesty-01: SELinuxDenials == -1 means the audit log/ausearch
+	// were both unreadable — checkSecuritySELinuxDenials only tests >= 10, which
+	// is false for -1, so that check emits nothing at all for this host. Its
+	// sibling checkSELinuxDenials (heuristics_system.go) already discloses this
+	// same sentinel as an INFO; without a matching entry here, `dsd security`'s
+	// verdict/summary line has no SELinux caveat even though denials were never
+	// actually read.
+	if sec.SELinuxMode == "enforcing" && sec.SELinuxDenials < 0 {
+		out = append(out, unverifiedInsight("INFO", secCatHardening,
+			"SELinux enforcing but AVC denials could NOT be verified — audit log unreadable / ausearch absent",
+			[]string{
+				"to inspect: ausearch -m avc -ts recent   (run as root)",
+				"to inspect: journalctl --since '1 hour ago' | grep 'avc:  denied'",
+			},
+		))
+	}
+
 	return out
 }
 
@@ -353,10 +370,18 @@ func checkNetworkExposure(sec models.SecurityInfo) []models.Insight { //nolint:f
 			pvePorts = append(pvePorts, portStr)
 			continue
 		}
-		// Check if process is a known service
+		// Check if process is a known service. internal-analysis-08-02: p.Process
+		// (/proc/<pid>/comm) is self-reported and freely settable by the process
+		// via prctl(PR_SET_NAME) or argv[0] — a local attacker can rename a
+		// backdoor listener to "nginx" and get downgraded from WARN to INFO.
+		// Require corroboration from p.ExePath (/proc/<pid>/exe, the actual
+		// executed binary, which the process cannot rename without replacing the
+		// binary on disk). An empty/non-matching ExePath (unreadable — non-root
+		// run, or process exited) fails closed and stays WARN below.
 		serviceName := ""
 		for proc, svc := range knownServiceProcesses {
-			if strings.Contains(strings.ToLower(p.Process), proc) {
+			if strings.Contains(strings.ToLower(p.Process), proc) &&
+				strings.Contains(strings.ToLower(p.ExePath), proc) {
 				serviceName = svc
 				break
 			}

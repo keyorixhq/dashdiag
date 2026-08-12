@@ -195,8 +195,8 @@ func TestBuildInodeProcMap_Happy(t *testing.T) {
 	if !hasRoot {
 		t.Fatal("expected hasRoot=true")
 	}
-	if m["555"] != "sshd" {
-		t.Errorf("m[555] = %q, want sshd", m["555"])
+	if m["555"].Name != "sshd" {
+		t.Errorf("m[555].Name = %q, want sshd", m["555"].Name)
 	}
 }
 
@@ -265,8 +265,8 @@ func TestBuildInodeProcMap_DedupKeepsFirst(t *testing.T) {
 	if !hasRoot {
 		t.Fatal("expected hasRoot=true")
 	}
-	if m["777"] != "first" {
-		t.Errorf("m[777] = %q, want first (dedup must keep the first-seen owner)", m["777"])
+	if m["777"].Name != "first" {
+		t.Errorf("m[777].Name = %q, want first (dedup must keep the first-seen owner)", m["777"].Name)
 	}
 }
 
