@@ -239,6 +239,15 @@ func TestParseDmesgLine(t *testing.T) {
 			wantLevel: "CRIT",
 		},
 		{
+			// internal-collectors-33-02: a message containing a genuine catastrophe
+			// keyword ("panic") ALONGSIDE a benign-substring match must stay CRIT —
+			// the catastrophe-keyword escalation must win over the benign downgrade,
+			// not the other way around, even though isBenignKernelErr also matches.
+			name:      "catastrophe keyword co-occurring with a benign substring stays CRIT",
+			line:      "kern  :warn  : [Wed Jun  4 10:30:00 2025] kernel panic - smbus base address uninitialized triggered watchdog reset",
+			wantLevel: "CRIT",
+		},
+		{
 			name:      "two-digit day, warn",
 			line:      "kern  :warn  : [Wed Jun 04 10:30:00 2025] usb 1-1: device descriptor read",
 			wantLevel: "WARN", wantUnit: "usb 1-1",
