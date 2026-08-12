@@ -44,16 +44,17 @@ var guardedUnverifiedSignals = map[string]string{
 	"CVEAllResult.ScanFailed":               "cmd/falseok_verdict_test.go (cve) + collectors/cve_stale_metadata_test.go",
 
 	// dsd security — renderer shares health's verdict via the heuristic.
-	"SecurityInfo.NeedsRoot":              "analysis/heuristics_security_full_test.go + cmd/security_falseok_test.go",
-	"SecurityInfo.PortsNeedRoot":          "analysis/heuristics_security_full_test.go (ports → 'run as root')",
-	"SecurityInfo.ShadowUnreadable":       "analysis/mac_shadow_unverified_test.go + cmd/security_falseok_test.go",
-	"SecurityInfo.SudoersUnreadable":      "cis/rules_test.go (5.3.4 sudo-nopasswd rule: SudoersUnreadable → CISSkipped, never false-OK)",
-	"SecurityInfo.FailedLoginsUnreadable": "analysis/failedlogins_pam_unverified_test.go",
-	"SecurityInfo.PAMFailuresUnreadable":  "analysis/failedlogins_pam_unverified_test.go",
-	"SecurityInfo.SSHConfigUnreadable":    "cis/ssh_unverified_test.go + cmd/security_falseok_test.go",
-	"SecurityInfo.FirewallUnreadable":     "collectors/firewall_barename_linux_test.go (nft unreadable → INFO)",
-	"SecurityInfo.AuditRulesUnreadable":   "cis/rules_test.go TestEvaluate_AuditUnreadableNotFailed (4.1.1 non-root → Skipped, not Fail) + collectors/medium_low_linux_test.go TestAuditRulesFromOutput",
-	"AuditInfo.AuditLogSizeUnreadable":    "analysis/heuristics_round6_test.go TestCheckAuditd (non-root → INFO, not a silent 0-size OK)",
+	"SecurityInfo.NeedsRoot":                    "analysis/heuristics_security_full_test.go + cmd/security_falseok_test.go",
+	"SecurityInfo.PortsNeedRoot":                "analysis/heuristics_security_full_test.go (ports → 'run as root')",
+	"SecurityInfo.ShadowUnreadable":             "analysis/mac_shadow_unverified_test.go + cmd/security_falseok_test.go",
+	"SecurityInfo.SudoersUnreadable":            "cis/rules_test.go (5.3.4 sudo-nopasswd rule: SudoersUnreadable → CISSkipped, never false-OK)",
+	"SecurityInfo.FailedLoginsUnreadable":       "analysis/failedlogins_pam_unverified_test.go",
+	"SecurityInfo.PAMFailuresUnreadable":        "analysis/failedlogins_pam_unverified_test.go",
+	"SecurityInfo.SSHConfigUnreadable":          "cis/ssh_unverified_test.go + cmd/security_falseok_test.go",
+	"SecurityInfo.FirewallUnreadable":           "collectors/firewall_barename_linux_test.go (nft unreadable → INFO)",
+	"SecurityInfo.FirewallConfigOnlyUnverified": "collectors/security_linux_firewall_test.go TestDetectNFTables_ConfigFileFallback + cmd/security_report_test.go (FIXED: nft absent + on-disk config now discloses unverified instead of a false FirewallActive=true)",
+	"SecurityInfo.AuditRulesUnreadable":         "cis/rules_test.go TestEvaluate_AuditUnreadableNotFailed (4.1.1 non-root → Skipped, not Fail) + collectors/medium_low_linux_test.go TestAuditRulesFromOutput",
+	"AuditInfo.AuditLogSizeUnreadable":          "analysis/heuristics_round6_test.go TestCheckAuditd (non-root → INFO, not a silent 0-size OK)",
 
 	// Storage — heuristic folds an unreadable read to INFO/WARN, never OK.
 	"CephInfo.NeedsRoot":                "analysis/heuristics_round3_test.go (configured+non-root → INFO, not false 'unreachable' CRIT)",
