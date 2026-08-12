@@ -52,9 +52,17 @@ func (c *ContainerGuestCollector) Collect(_ context.Context) (interface{}, error
 		if cgDir == "" {
 			cgDir = cgroupV2Base
 		}
-		info.MemCurrentBytes = parseInt64(readFileTrimmedLocal(filepath.Join(cgDir, "memory.current")))
-		info.OOMKills = cgroupKeyedValue(readFileTrimmedLocal(filepath.Join(cgDir, "memory.events")), "oom_kill")
-		info.ThrottledPct = cgroupThrottledPct(readFileTrimmedLocal(filepath.Join(cgDir, "cpu.stat")))
+		memCurrent := readFileTrimmedLocal(filepath.Join(cgDir, "memory.current"))
+		memEvents := readFileTrimmedLocal(filepath.Join(cgDir, "memory.events"))
+		cpuStat := readFileTrimmedLocal(filepath.Join(cgDir, "cpu.stat"))
+		info.MemCurrentBytes = parseInt64(memCurrent)
+		info.OOMKills = cgroupKeyedValue(memEvents, "oom_kill")
+		info.ThrottledPct = cgroupThrottledPct(cpuStat)
+		// Measured only if a counter file was actually readable — mirrors the v1
+		// guard below. A TOCTOU race, hardened LSM profile, minimal cgroupfs mount,
+		// or a --cgroupns=host self-path resolution failure must not silently read
+		// as "0 = healthy" (internal-collectors-05-02).
+		info.CgroupV2Measured = memCurrent != "" || memEvents != "" || cpuStat != ""
 	} else if cc.InContainer {
 		// cgroup v1: the same signals live under per-controller dirs. cpu.stat carries
 		// the SAME nr_periods/nr_throttled keys as v2; OOM-kills are the `oom_kill`

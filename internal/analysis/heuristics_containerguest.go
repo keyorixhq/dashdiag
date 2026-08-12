@@ -75,15 +75,24 @@ func checkContainerGuest(v models.ContainerGuestInfo) []models.Insight {
 			[]string{"to inspect: cat /sys/fs/cgroup/memory.current /sys/fs/cgroup/memory.max"}))
 	}
 
-	// cgroup v1: throttle/OOM live under per-controller dirs (memory.oom_control /
-	// cpu.stat), which the collector now reads — so a throttled/OOM-killed v1 container
-	// IS caught by the checks above. Only when those reads failed (CgroupV1Measured
-	// false — old kernel / controller not mounted) are the signals unverified; say so
-	// rather than letting the summary imply "no throttling or OOM-kills".
-	if v.InContainer && !v.CgroupV2 && !v.CgroupV1Measured {
+	// Throttle/OOM live under per-controller dirs on v1 (memory.oom_control /
+	// cpu.stat) or the unified hierarchy on v2 (memory.current / memory.events /
+	// cpu.stat), which the collector reads — so a throttled/OOM-killed container IS
+	// caught by the checks above on either cgroup version. Only when EVERY read
+	// failed (CgroupV1Measured / CgroupV2Measured false — old kernel, controller not
+	// mounted, a hardened LSM profile, or a --cgroupns=host self-path resolution
+	// failure) are the signals unverified; say so rather than letting the summary
+	// imply "no throttling or OOM-kills" (internal-collectors-05-02: the v2 gap).
+	if v.InContainer && ((v.CgroupV2 && !v.CgroupV2Measured) || (!v.CgroupV2 && !v.CgroupV1Measured)) {
+		cgroupLabel := "v1"
+		hint := "note: needs the cpu + memory v1 controllers mounted and a kernel exposing memory.oom_control"
+		if v.CgroupV2 {
+			cgroupLabel = "v2"
+			hint = "note: needs the container's own cgroup dir (resolved via /proc/self/cgroup) mounted and readable"
+		}
 		out = append(out, unverifiedInsight("INFO", catContainerGuest,
-			"CPU-throttle and OOM-kill could not be read on this cgroup v1 host — those signals are unverified",
-			[]string{"note: needs the cpu + memory v1 controllers mounted and a kernel exposing memory.oom_control"}))
+			fmt.Sprintf("CPU-throttle and OOM-kill could not be read on this cgroup %s host — those signals are unverified", cgroupLabel),
+			[]string{hint}))
 	}
 
 	if len(out) == 0 {

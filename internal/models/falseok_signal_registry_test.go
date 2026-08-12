@@ -194,6 +194,7 @@ var guardedUnverifiedSignals = map[string]string{
 	"DockerInfo.IPForwardChecked":   "analysis/heuristics_virt.go (gated; proc unreadable on macOS/proc-less container → unknown, not disabled)",
 	"FstabInfo.Checked":             "analysis/heuristics_fstab.go (gated, no verdict when unchecked)",
 	"MemoryInfo.MemHotplugChecked":  "analysis/heuristics (gated; hotplug sysfs genuinely absent on non-hotplug kernels — not privilege-related)",
+	"MemoryInfo.MeminfoUnreadable":  "analysis/heuristics_resources.go checkMemory (FIXED: proc meminfo unreadable/unparseable on Linux — e.g. a replay bundle missing it — now emits an explicit INFO instead of falling back to a live gopsutil read)",
 	"PackagesInfo.Checked":          "collectors/packages_linux.go markStaleMetadata feeds Status; analysis/heuristics_packages.go checkPackageUpdates already discloses query-failed/stale-metadata as INFO",
 	"PackagesInfo.DBHealthChecked":  "analysis/heuristics_packages.go checkPackageDBHealth (collector invariant: DBUpdatesBlocked is never true when DBHealthChecked is false — verified 2026-07-08, no live bug; defensively gated anyway)",
 	"PostBootInfo.ShutdownChecked":  "analysis/heuristics (gated; tool-absent/wtmp-inconclusive reads as unknown, not clean)",
@@ -209,6 +210,7 @@ var guardedUnverifiedSignals = map[string]string{
 	// couldn't be read; the heuristic must say so, not silently pass.
 	"MemoryInfo.CgroupMemMeasured":        "analysis/heuristics_resources.go checkMemory (FIXED: unmeasurable cgroup memory now emits an explicit INFO instead of silently dropping the RAM check)",
 	"ContainerGuestInfo.CgroupV1Measured": "analysis/heuristics_containerguest.go checkContainerGuest (already correct: cgroup v1 throttle/OOM unmeasured → explicit INFO)",
+	"ContainerGuestInfo.CgroupV2Measured": "analysis/heuristics_containerguest.go checkContainerGuest (FIXED: cgroup v2 throttle/OOM unmeasured now emits an explicit INFO, matching the pre-existing v1 guard)",
 }
 
 func TestUnverifiedSignalFieldsAllRegistered(t *testing.T) {
