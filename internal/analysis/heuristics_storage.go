@@ -148,6 +148,16 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen,cyclop // N
 			noData = append(noData, dev.Name)
 			continue
 		}
+		// internal-collectors-24-01: SmartRead only proves SOME field parsed — a
+		// smart-log missing/garbling exactly the safety-critical fields (while
+		// e.g. power_on_hours parsed fine) must not read as fully-verified
+		// healthy. Never suppresses a real CRIT from whatever DID parse below —
+		// only discloses that the picture may be incomplete.
+		if dev.SmartRead && dev.SmartDangerousFieldsUnread {
+			out = append(out, unverifiedInsight("INFO", "Drives",
+				fmt.Sprintf("%s SMART log read, but critical_warning/media_errors/percentage_used were not all present — drive health not fully verified", dev.Name),
+				[]string{inspectNVMEPrefix + dev.Name}))
+		}
 		if dev.CriticalWarning > 0 {
 			out = append(out, insight("CRIT", "Drives",
 				fmt.Sprintf("%s critical warning flag set (0x%02x) — drive may be failing", dev.Name, dev.CriticalWarning),
