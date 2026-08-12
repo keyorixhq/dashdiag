@@ -258,6 +258,62 @@ func TestSystemdCollect_SSHDStatusUnverified(t *testing.T) {
 	}
 }
 
+// TestSystemdCollect_SSHDAliasingBug is the regression guard for the
+// filterUnits/filterBenignFailedUnits in-place slice-filter aliasing bug:
+// Collect() passes failedRaw through suppressCloudInitNoise (which used to
+// filter via units[:0], aliasing failedRaw's backing array) and THEN reads
+// the original failedRaw again for nonBenignSSHDInstances. Filtering in
+// place silently corrupted failedRaw's later entries with shifted-down
+// duplicates, erasing the blanket-suppressed sshd@ unit nonBenignSSHDInstances
+// needed to find — so a genuinely-failed sshd@ connection (non-255/0 exit)
+// never got added back, silently vanishing from the verdict.
+func TestSystemdCollect_SSHDAliasingBug(t *testing.T) {
+	const sshdUnit = "sshd@10.0.0.1:22-10.0.0.2:33.service"
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutStat("/run/systemd/private", source.FileMeta{})
+		// sshd@ instance FIRST (blanket-suppressed by cloudInitUnits), then a
+		// real kept failure — this ordering is what triggers the aliasing
+		// corruption (the dropped entry's array slot gets overwritten by the
+		// kept entry shifting down).
+		b.PutCmd("systemctl", []string{"list-units", "--state=failed", "--no-legend", "--no-pager", "--plain"},
+			sshdUnit+" loaded failed failed noise\n"+
+				"my-real.service loaded failed failed my real service\n", 0)
+		// A non-benign exit status (not 0/255/"") — this sshd@ instance failed
+		// for a REAL reason and must be added back to FailedUnits.
+		b.PutCmd("systemctl", []string{"show", sshdUnit, "-p", "ExecMainStatus", "--value"}, "1\n", 0)
+		b.PutGlob("/etc/sysupdate.d/*.transfer", nil)
+		b.PutGlob("/usr/lib/sysupdate.d/*.transfer", nil)
+		b.PutCmd("systemd-analyze", []string{"time"},
+			"Startup finished in 1.000s (kernel) + 2.000s (userspace) = 3.000s\n", 0)
+		b.PutCmd("systemd-analyze", []string{"blame", "--no-pager"}, "", 0)
+		b.PutCmd("systemctl", []string{"list-units", "--type=service", "--state=loaded", "--plain", "--no-legend", "--no-pager"}, "", 0)
+		b.PutCmd("systemctl", []string{"is-system-running"}, "running\n", 0)
+	})
+
+	c := &SystemdCollector{}
+	res, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	info := res.(*models.SystemdInfo)
+
+	foundReal, foundSSHD := false, false
+	for _, u := range info.FailedUnits {
+		if u == "my-real.service" {
+			foundReal = true
+		}
+		if u == sshdUnit {
+			foundSSHD = true
+		}
+	}
+	if !foundReal {
+		t.Errorf("expected my-real.service in FailedUnits, got %v", info.FailedUnits)
+	}
+	if !foundSSHD {
+		t.Errorf("expected %s (non-benign exit status) to be added back to FailedUnits, got %v — the aliasing bug erases it from failedRaw before nonBenignSSHDInstances can inspect it", sshdUnit, info.FailedUnits)
+	}
+}
+
 // TestSystemdCollect_NotPresent guards the early gate: when neither
 // /run/systemd/private nor /run/systemd/system exists (non-systemd init —
 // e.g. Alpine/OpenRC, a minimal container), Collect must short-circuit to
