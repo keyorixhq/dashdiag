@@ -500,10 +500,8 @@ func parseProcNetTCP(path string, info *models.SecurityInfo) {
 		}
 		port := int(port64)
 		inode := fields[9]
-		procName := inodeProc[inode]
-		if !hasRoot && procName == "" {
-			procName = "" // will show note in drilldown
-		}
+		proc := inodeProc[inode]
+		procName := proc.Name
 
 		seen := false
 		for _, p := range info.ListeningPorts {
@@ -523,6 +521,7 @@ func parseProcNetTCP(path string, info *models.SecurityInfo) {
 				Port:     port,
 				Protocol: secProtoTCP,
 				Process:  procName,
+				ExePath:  proc.ExePath,
 				Expected: isExpectedPort(port),
 			})
 		}
@@ -535,10 +534,20 @@ func parseProcNetTCP(path string, info *models.SecurityInfo) {
 	}
 }
 
-// buildInodeProcMap builds a map of socket inode → process name.
+// inodeProcInfo pairs a process's self-reported name (/proc/<pid>/comm) with
+// its exe symlink target (/proc/<pid>/exe) — the latter names the actual
+// binary the kernel executed and, unlike comm, cannot be spoofed by the
+// process itself via prctl(PR_SET_NAME) or argv[0]. A "known service"
+// classification must corroborate against ExePath, not comm alone.
+type inodeProcInfo struct {
+	Name    string
+	ExePath string
+}
+
+// buildInodeProcMap builds a map of socket inode → process identity.
 // Returns the map and a bool indicating whether root-level fd access was available.
-func buildInodeProcMap() (map[string]string, bool) {
-	result := make(map[string]string)
+func buildInodeProcMap() (map[string]inodeProcInfo, bool) {
+	result := make(map[string]inodeProcInfo)
 	dirs, err := glob("/proc/[0-9]*/fd")
 	if err != nil {
 		return result, false
@@ -554,7 +563,10 @@ func buildInodeProcMap() (map[string]string, bool) {
 		if err != nil {
 			continue
 		}
-		procName := strings.TrimSpace(string(comm))
+		proc := inodeProcInfo{Name: strings.TrimSpace(string(comm))}
+		if exe, err := readLink("/proc/" + pid + "/exe"); err == nil {
+			proc.ExePath = exe
+		}
 		fds, err := readDirEntries(fdDir)
 		if err != nil {
 			continue
@@ -568,7 +580,7 @@ func buildInodeProcMap() (map[string]string, bool) {
 			if strings.HasPrefix(link, "socket:[") && strings.HasSuffix(link, "]") {
 				inode := link[8 : len(link)-1]
 				if _, exists := result[inode]; !exists {
-					result[inode] = procName
+					result[inode] = proc
 				}
 			}
 		}

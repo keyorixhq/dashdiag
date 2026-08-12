@@ -43,9 +43,19 @@ func TestCheckSecurityFull(t *testing.T) {
 		{
 			name: "known-service port is INFO",
 			mutate: func(s *models.SecurityInfo) {
-				s.ListeningPorts = []models.PortEntry{{Port: 5432, Protocol: "tcp", Process: "postgres"}}
+				s.ListeningPorts = []models.PortEntry{{Port: 5432, Protocol: "tcp", Process: "postgres", ExePath: "/usr/lib/postgresql/16/bin/postgres"}}
 			},
 			level: "INFO", msg: "known service",
+		},
+		{
+			// internal-analysis-08-02: a self-reported process name matching a
+			// known service, with NO corroborating ExePath (unreadable, or a
+			// renamed backdoor listener), must stay WARN, not downgrade to INFO.
+			name: "known-service NAME with no corroborating exe path stays WARN",
+			mutate: func(s *models.SecurityInfo) {
+				s.ListeningPorts = []models.PortEntry{{Port: 5432, Protocol: "tcp", Process: "postgres"}}
+			},
+			level: "WARN", msg: "unexpected port",
 		},
 		{
 			name: "cockpit port is INFO",

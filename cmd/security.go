@@ -637,7 +637,13 @@ func printSUIDBinariesSection(info *models.SecurityInfo, mode output.OutputMode)
 // sshd_config that existed but couldn't be read. In that state a zero issue
 // count means "nothing to flag in what we could see", NOT a clean bill of health.
 func securityChecksLimited(info *models.SecurityInfo) bool {
-	return info.NeedsRoot || (info.SSHConfigUnreadable && info.SSHAuditSource == "")
+	// measurement-honesty-01: NeedsRoot is set purely from os.Getuid() != 0, so
+	// a ROOT run on a host that lacks auditd/ausearch (minimal container base
+	// images, stripped RHEL) has NeedsRoot=false yet still never verified SELinux
+	// AVC denials (SELinuxDenials == -1) — without this, the top-level verdict
+	// reads "healthy. Checks passed" with no SELinux caveat.
+	selinuxUnverified := info.SELinuxMode == "enforcing" && info.SELinuxDenials < 0
+	return info.NeedsRoot || (info.SSHConfigUnreadable && info.SSHAuditSource == "") || selinuxUnverified
 }
 
 func printSecItem(label string, ok bool, goodVal, badVal string, mode output.OutputMode) {
