@@ -8,7 +8,6 @@ import (
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
-	"github.com/keyorixhq/dashdiag/internal/platform"
 )
 
 type ClockCollector struct{}
@@ -54,15 +53,21 @@ type clockState struct {
 	Source   string  `json:"source"`
 }
 
-// liveClockState reads the NTP sync state from the live system. In a container
-// the kernel clock is the host's, so we report it as synced from "host". Outside
-// a container we read directly from the kernel via adjtimex(2) — this works with
-// all NTP daemons (chrony, systemd-timesyncd, ntpd) because they all drive the
-// kernel clock through this syscall. No external tools, no locale issues.
+// liveClockState reads the NTP sync state from the live system via adjtimex(2)
+// — this works identically inside or outside a container, since the kernel
+// clock (and its sync state) is never namespaced; a container shares the
+// host's clock, not a copy of it. adjtimexSync already degrades to
+// Synced=false/"unavailable" if the syscall itself is blocked (e.g. an
+// unusually restrictive seccomp profile), so there is no case where "we're in
+// a container" justifies assuming Synced=true instead of measuring it.
+//
+// internal-collectors-03-02: this function used to short-circuit to
+// Synced:true/Source:"host" for every container, reasoning "the host
+// presumably handles this" — an assumption substituted for a measurement,
+// reported exactly like a verified sync. adjtimexSync reads the SAME shared
+// kernel state either way, so measuring it directly is strictly more honest
+// and no more expensive.
 func liveClockState() clockState {
-	if platform.DetectContainerContext().InContainer {
-		return clockState{Synced: true, OffsetMs: -1, Source: "host"}
-	}
 	synced, offsetMs, source := adjtimexSync()
 	return clockState{Synced: synced, OffsetMs: offsetMs, Source: source}
 }
