@@ -193,7 +193,7 @@ func TestSampleCoreUsage_HappyPath(t *testing.T) {
 
 func TestReadAllProcIO(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutGlob("/proc/[0-9]*", []string{"/proc/100"})
+		b.PutGlob("/proc/[0-9]*", []string{"/proc/1", "/proc/100"})
 		b.PutFile("/proc/100/io", []byte("read_bytes: 1024\nwrite_bytes: 2048\n"))
 		b.PutFile("/proc/100/comm", []byte("myapp\n"))
 	})
@@ -230,6 +230,24 @@ func TestReadAllProcIO_GlobFails(t *testing.T) {
 	counters, needsRoot := readAllProcIO()
 	if counters != nil || needsRoot {
 		t.Errorf("expected nil/false when the glob itself fails, got %+v/%v", counters, needsRoot)
+	}
+}
+
+// TestReadAllProcIO_HidepidRestrictsVisibility covers the hidepid=2 gap that
+// EACCES-only detection misses: every entry that IS in the listing reads
+// cleanly (no permission error anywhere), but PID 1 — which always exists on
+// a running Linux system — is absent from the glob results entirely. That
+// must still set needsRoot, or a hidepid=2 host silently reports "complete
+// visibility" while other users' processes were never enumerated.
+func TestReadAllProcIO_HidepidRestrictsVisibility(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutGlob("/proc/[0-9]*", []string{"/proc/100"}) // no /proc/1 — hidepid=2
+		b.PutFile("/proc/100/io", []byte("read_bytes: 1024\nwrite_bytes: 2048\n"))
+		b.PutFile("/proc/100/comm", []byte("myapp\n"))
+	})
+	_, needsRoot := readAllProcIO()
+	if !needsRoot {
+		t.Error("expected needsRoot=true when PID 1 is absent from the glob results (hidepid=2), even with no read errors")
 	}
 }
 
@@ -284,7 +302,7 @@ func TestReadAllProcCPU(t *testing.T) {
 		b.PutFile("/proc/100/comm", []byte("myapp\n"))
 		b.PutFile("/proc/stat", []byte("cpu  1000 0 500 8500 0 0 0 0\n"))
 	})
-	counters, sysTotal := readAllProcCPU()
+	counters, sysTotal, _ := readAllProcCPU()
 	c, ok := counters[100]
 	if !ok {
 		t.Fatal("expected an entry for pid 100")
@@ -300,7 +318,7 @@ func TestReadAllProcCPU(t *testing.T) {
 // TestReadAllProcCPU_GlobFails covers the "glob errors -> (nil, 0)" branch.
 func TestReadAllProcCPU_GlobFails(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {})
-	counters, sysTotal := readAllProcCPU()
+	counters, sysTotal, _ := readAllProcCPU()
 	if counters != nil || sysTotal != 0 {
 		t.Errorf("expected nil/0 when the glob itself fails, got %+v/%d", counters, sysTotal)
 	}
@@ -315,7 +333,7 @@ func TestReadAllProcCPU_NonNumericEntrySkipped(t *testing.T) {
 		b.PutGlob("/proc/[0-9]*", []string{"/proc/self"})
 		b.PutFile("/proc/stat", []byte("cpu  1000 0 500 8500 0 0 0 0\n"))
 	})
-	counters, sysTotal := readAllProcCPU()
+	counters, sysTotal, _ := readAllProcCPU()
 	if len(counters) != 0 {
 		t.Errorf("expected an empty map (non-numeric entry skipped), got %+v", counters)
 	}
@@ -334,9 +352,26 @@ func TestReadAllProcCPU_UnparseableStatSkipped(t *testing.T) {
 		b.PutFile("/proc/100/stat", []byte("100 (myapp S 1 100\n")) // missing ")"
 		b.PutFile("/proc/stat", []byte("cpu  1000 0 500 8500 0 0 0 0\n"))
 	})
-	counters, _ := readAllProcCPU()
+	counters, _, _ := readAllProcCPU()
 	if _, ok := counters[100]; ok {
 		t.Errorf("expected pid 100 to be skipped (unparseable stat), got %+v", counters)
+	}
+}
+
+// TestReadAllProcCPU_HidepidRestrictsVisibility mirrors
+// TestReadAllProcIO_HidepidRestrictsVisibility for readAllProcCPU: PID 1
+// absent from the glob results, but every entry present reads cleanly, must
+// still surface needsRoot=true.
+func TestReadAllProcCPU_HidepidRestrictsVisibility(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutGlob("/proc/[0-9]*", []string{"/proc/100"}) // no /proc/1 — hidepid=2
+		b.PutFile("/proc/100/stat", []byte("100 (myapp) S 1 100 100 0 -1 4194304 0 0 0 0 10 5 0 0 20 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n"))
+		b.PutFile("/proc/100/comm", []byte("myapp\n"))
+		b.PutFile("/proc/stat", []byte("cpu  1000 0 500 8500 0 0 0 0\n"))
+	})
+	_, _, needsRoot := readAllProcCPU()
+	if !needsRoot {
+		t.Error("expected needsRoot=true when PID 1 is absent from the glob results (hidepid=2), even with no read errors")
 	}
 }
 
@@ -389,8 +424,8 @@ func TestSampleTopCPUProcs_CtxCancelled(t *testing.T) {
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
 	c := NewHealthDeepCollector()
-	if got := c.sampleTopCPUProcs(ctx, 5); got != nil {
-		t.Errorf("expected nil for a cancelled context, got %+v", got)
+	if got := c.sampleTopCPUProcs(ctx, 5); got.Procs != nil || got.NeedsRoot {
+		t.Errorf("expected zero value for a cancelled context, got %+v", got)
 	}
 }
 
@@ -414,11 +449,11 @@ func TestSampleTopCPUProcs_HappyPath(t *testing.T) {
 
 	c := NewHealthDeepCollector()
 	got := c.sampleTopCPUProcs(context.Background(), 5)
-	if len(got) != 1 {
+	if len(got.Procs) != 1 {
 		t.Fatalf("expected 1 process in the sample, got %+v", got)
 	}
-	if got[0].PID != 100 || got[0].CPUPct <= 0 {
-		t.Errorf("unexpected top-CPU proc: %+v", got[0])
+	if got.Procs[0].PID != 100 || got.Procs[0].CPUPct <= 0 {
+		t.Errorf("unexpected top-CPU proc: %+v", got.Procs[0])
 	}
 }
 
@@ -788,7 +823,7 @@ func TestParseCgroupPath_Unknown(t *testing.T) {
 func TestReadAllProcIO_NonNumericEntry(t *testing.T) {
 	// no t.Parallel(): withFixtureSource mutates the package-level activeSource.
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutGlob("/proc/[0-9]*", []string{"/proc/notanumber"})
+		b.PutGlob("/proc/[0-9]*", []string{"/proc/1", "/proc/notanumber"})
 	})
 	result, needsRoot := readAllProcIO()
 	if needsRoot {

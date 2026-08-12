@@ -143,7 +143,10 @@ func TestHealthDeep_TopIOHermetic(t *testing.T) {
 // independently, so the derived top-N list must be cached and reproduced
 // verbatim rather than collapsing to an empty list on replay.
 func TestHealthDeep_TopCPUHermetic(t *testing.T) {
-	want := []models.ProcessCPUStat{{PID: 8823, Name: "java", CPUPct: 42.1, CgroupScope: "container:abc123"}}
+	want := topCPUSample{
+		Procs:     []models.ProcessCPUStat{{PID: 8823, Name: "java", CPUPct: 42.1, CgroupScope: "container:abc123"}},
+		NeedsRoot: true,
+	}
 	blob, err := json.Marshal(want)
 	if err != nil {
 		t.Fatal(err)
@@ -172,6 +175,9 @@ func TestHealthDeep_TopCPUHermetic(t *testing.T) {
 	if len(info.TopCPUProcs) != 1 || info.TopCPUProcs[0].PID != 8823 || info.TopCPUProcs[0].CPUPct != 42.1 {
 		t.Fatalf("replay did not return cached top-CPU sample: %+v", info.TopCPUProcs)
 	}
+	if !info.TopCPUProcsNeedsRoot {
+		t.Error("NeedsRoot caveat should replay verbatim, not silently drop")
+	}
 }
 
 // TestHealthDeep_CollectFullySeeded exercises Collect end-to-end with every
@@ -191,7 +197,7 @@ func TestHealthDeep_CollectFullySeeded(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	topCPU, err := json.Marshal([]models.ProcessCPUStat{})
+	topCPU, err := json.Marshal(topCPUSample{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -808,7 +814,7 @@ func TestTopMemoryProcs_EntryReadError(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutGlob("/proc/[0-9]*", []string{"/proc/999"})
 	})
-	procs, _ := topMemoryProcs(5)
+	procs, _, _ := topMemoryProcs(5)
 	if len(procs) != 0 {
 		t.Errorf("expected empty result when status read fails, got %v", procs)
 	}
@@ -823,7 +829,7 @@ func TestTopMemoryProcs_ZeroRSS(t *testing.T) {
 		b.PutFile("/proc/1001/comm", []byte("idle\n"))
 		b.PutFile("/proc/1001/cgroup", []byte("0::/\n"))
 	})
-	procs, _ := topMemoryProcs(5)
+	procs, _, _ := topMemoryProcs(5)
 	if len(procs) != 0 {
 		t.Errorf("expected empty result when rssKB==0, got %v", procs)
 	}
@@ -839,7 +845,7 @@ func TestTopMemoryProcs_ValidEntry(t *testing.T) {
 		b.PutFile("/proc/1002/comm", []byte("worker\n"))
 		b.PutFile("/proc/1002/cgroup", []byte("0::/system.slice/worker.service\n"))
 	})
-	procs, totalMB := topMemoryProcs(5)
+	procs, totalMB, _ := topMemoryProcs(5)
 	if len(procs) != 1 {
 		t.Fatalf("expected 1 proc, got %d", len(procs))
 	}
@@ -864,12 +870,44 @@ func TestTopMemoryProcs_TruncatesToN(t *testing.T) {
 		b.PutFile("/proc/2002/comm", []byte("big\n"))
 		b.PutFile("/proc/2002/cgroup", []byte("0::/\n"))
 	})
-	procs, _ := topMemoryProcs(1)
+	procs, _, _ := topMemoryProcs(1)
 	if len(procs) != 1 {
 		t.Fatalf("expected truncation to 1, got %d", len(procs))
 	}
 	if procs[0].Name != "big" {
 		t.Errorf("expected highest-RSS first, got %q", procs[0].Name)
+	}
+}
+
+// TestTopMemoryProcs_HidepidRestrictsVisibility mirrors the readAllProcIO/
+// readAllProcCPU hidepid=2 coverage: PID 1 absent from the glob results, but
+// the one entry present reads cleanly (no permission error), must still
+// surface needsRoot=true rather than silently reporting a complete ranking.
+func TestTopMemoryProcs_HidepidRestrictsVisibility(t *testing.T) {
+	// no t.Parallel(): withFixtureSource mutates the package-level activeSource.
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutGlob("/proc/[0-9]*", []string{"/proc/1002"}) // no /proc/1 — hidepid=2
+		b.PutFile("/proc/1002/status", []byte("Name:\tworker\nVmRSS:\t4096 kB\n"))
+		b.PutFile("/proc/1002/comm", []byte("worker\n"))
+		b.PutFile("/proc/1002/cgroup", []byte("0::/system.slice/worker.service\n"))
+	})
+	_, _, needsRoot := topMemoryProcs(5)
+	if !needsRoot {
+		t.Error("expected needsRoot=true when PID 1 is absent from the glob results (hidepid=2), even with no read errors")
+	}
+}
+
+// TestProcVisibilityRestricted covers the helper directly: PID 1's directory
+// entry present/absent from a glob result is the sole signal.
+func TestProcVisibilityRestricted(t *testing.T) {
+	if procVisibilityRestricted([]string{"/proc/1", "/proc/100"}) {
+		t.Error("expected false when PID 1 is present in the listing")
+	}
+	if !procVisibilityRestricted([]string{"/proc/100"}) {
+		t.Error("expected true when PID 1 is absent from the listing")
+	}
+	if !procVisibilityRestricted(nil) {
+		t.Error("expected true for an empty listing")
 	}
 }
 
