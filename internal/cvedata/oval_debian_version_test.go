@@ -12,11 +12,16 @@ import (
 // Version-aware test helpers
 // ─────────────────────────────────────────────────────────────────────────────
 // Each test that needs a specific installed version injects a fake dpkg-query
-// via t.Setenv("PATH", dir). These tests cannot be t.Parallel() because
-// t.Setenv is incompatible with parallel sub-tests.
+// via the resolveDpkgQuery seam (internal-cvedata-01-05: production resolves
+// "dpkg-query" through source.ResolveTrustedTool — trusted system dirs, never
+// $PATH — so a PATH-shadowed fake would silently lose to the real
+// /usr/bin/dpkg-query on any host that has one installed). These tests
+// cannot be t.Parallel() because they mutate the package-level
+// resolveDpkgQuery var.
 
-// fakeDpkgQuery writes a shell script at dir/dpkg-query that emits the given
-// tab-separated "name\tversion" lines and sets PATH so exec.LookPath finds it.
+// fakeDpkgQuery writes a shell script at a temp dir's dpkg-query that emits
+// the given tab-separated "name\tversion" lines and points resolveDpkgQuery
+// at it directly.
 func fakeDpkgQuery(t *testing.T, lines ...string) {
 	t.Helper()
 	dir := t.TempDir()
@@ -24,10 +29,11 @@ func fakeDpkgQuery(t *testing.T, lines ...string) {
 	for _, l := range lines {
 		script += "echo '" + l + "'\n"
 	}
-	if err := os.WriteFile(filepath.Join(dir, "dpkg-query"), []byte(script), 0o755); err != nil {
+	path := filepath.Join(dir, "dpkg-query")
+	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 		t.Fatalf("writing fake dpkg-query: %v", err)
 	}
-	t.Setenv("PATH", dir)
+	withResolveDpkgQuery(t, func(string) string { return path })
 }
 
 // TestScanUbuntuOVALPackages_VersionAware_Patched verifies that a package
