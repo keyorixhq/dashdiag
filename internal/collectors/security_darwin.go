@@ -258,6 +258,13 @@ func parseDarwinSuspectLaunchd(ctx context.Context, info *models.SecurityInfo) {
 		"/Library/LaunchDaemons",
 		"/Library/LaunchAgents",
 	}
+	// Per-user LaunchAgents — writable by any unprivileged user and the standard
+	// macOS persistence location for a non-root attacker (LoginItems/LaunchAgents
+	// malware). Both dirs above are root-owned; without this, that entire attack
+	// surface was never read and SuspectCrons reported clean regardless.
+	if matches, err := glob("/Users/*/Library/LaunchAgents"); err == nil {
+		dirs = append(dirs, matches...)
+	}
 	suspectPatterns := []string{
 		"/tmp/", "/var/tmp/", // executing from world-writable
 		"curl ", "wget ", // downloading at runtime
