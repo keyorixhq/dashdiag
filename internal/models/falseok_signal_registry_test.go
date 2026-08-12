@@ -136,6 +136,13 @@ var guardedUnverifiedSignals = map[string]string{
 	// true top I/O consumer entirely.
 	"HealthDeepInfo.TopIOProcsNeedsRoot": "analysis/correlate_deep_test.go (TestRuleIOWaitCulprit: partial visibility caveat appended to the culprit summary, never a silent unqualified attribution)",
 
+	// /proc/<pid>/status and /proc/<pid>/stat are gated the same way, and glob()
+	// silently omits other users' PID directories entirely under hidepid=2 (no
+	// error raised) — TopProcs/TopCPUProcs rankings and TotalProcsMB can miss the
+	// true top consumer with no signal unless disclosed at render.
+	"HealthDeepInfo.TopProcsNeedsRoot":    "cmd/falseok_verdict_test.go (TestPrintTopProcsWithCgroup_NeedsRootCaveat: partial-visibility caveat printed above the top-memory table, never a silent unqualified ranking)",
+	"HealthDeepInfo.TopCPUProcsNeedsRoot": "cmd/falseok_verdict_test.go (TestPrintTopCPUProcsWithCgroup_NeedsRootCaveat: partial-visibility caveat printed above the top-CPU table, never a silent unqualified ranking)",
+
 	// K8s OS-layer — "*Checked" companions gate whether the paired field is a real
 	// verdict or "not applicable/unknown". Audited 2026-07-08 alongside #742's live
 	// root-vs-non-root validation: KubeForwardChecked/KubeServicesChecked/CNIChecked

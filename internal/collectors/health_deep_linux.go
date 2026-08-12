@@ -76,7 +76,7 @@ func (c *HealthDeepCollector) Collect(ctx context.Context) (interface{}, error) 
 	}
 
 	// Top memory consumers from /proc/<pid>/status
-	info.TopProcs, info.TotalProcsMB = topMemoryProcs(10)
+	info.TopProcs, info.TotalProcsMB, info.TopProcsNeedsRoot = topMemoryProcs(10)
 
 	// Extended memory breakdown
 	collectMemDetail(info)
@@ -108,11 +108,12 @@ func (c *HealthDeepCollector) Collect(ctx context.Context) (interface{}, error) 
 	// Top CPU-consuming processes — same replay-fidelity concern as core usage
 	// and top-IO above: two live /proc/<pid>/stat reads 500ms apart must be
 	// cached as the derived result, not replayed as two independent reads.
-	var topCPU []models.ProcessCPUStat
+	var topCPU topCPUSample
 	_ = cachedJSON("healthdeep/top-cpu", func() (any, error) {
 		return c.sampleTopCPUProcs(ctx, 10), nil
 	}, &topCPU)
-	info.TopCPUProcs = topCPU
+	info.TopCPUProcs = topCPU.Procs
+	info.TopCPUProcsNeedsRoot = topCPU.NeedsRoot
 
 	return info, nil
 }
@@ -229,12 +230,36 @@ func computeCoreUsage(s1, s2 []coreSnapshot) []models.CoreStat {
 	return stats
 }
 
-// topMemoryProcs reads /proc/<pid>/status for RSS and returns top N by RSS.
-func topMemoryProcs(n int) ([]models.ProcessMemStat, float64) {
+// procVisibilityRestricted reports whether a /proc directory listing is
+// hiding other processes' entries entirely — most commonly the hidepid=2
+// mount option, a documented hardening default on shared/hardened hosts.
+// Unlike a per-PID permission denial (where the directory entry IS visible
+// but its contents aren't readable — os.IsPermission on the file read),
+// hidepid=2 omits the directory entries themselves, so a glob of /proc/[0-9]*
+// silently returns fewer PIDs with no error raised anywhere. PID 1
+// (init/systemd, or a container's own PID-1) always exists on a running
+// Linux system and its directory entry is hidden by hidepid=2 exactly like
+// every other process not owned by the caller — so its absence from the
+// listing is a reliable signal that the sample is incomplete.
+func procVisibilityRestricted(entries []string) bool {
+	for _, e := range entries {
+		if filepath.Base(e) == "1" {
+			return false
+		}
+	}
+	return true
+}
+
+// topMemoryProcs reads /proc/<pid>/status for RSS and returns top N by RSS,
+// plus whether the scan had restricted visibility (see procVisibilityRestricted
+// and readAllProcIO's identical per-PID permission tracking) — TopProcs/
+// TotalProcsMB then only reflect what this UID could see, not the true set.
+func topMemoryProcs(n int) ([]models.ProcessMemStat, float64, bool) {
 	entries, err := glob(hdCgroupProc)
 	if err != nil {
-		return nil, 0
+		return nil, 0, false
 	}
+	needsRoot := procVisibilityRestricted(entries)
 
 	// Get total RAM for percentage calculation
 	totalKB := uint64(0)
@@ -257,6 +282,9 @@ func topMemoryProcs(n int) ([]models.ProcessMemStat, float64) {
 		statusPath := filepath.Join(entry, "status")
 		data, err := readFile(filepath.Clean(statusPath)) // #nosec G304
 		if err != nil {
+			if os.IsPermission(err) {
+				needsRoot = true
+			}
 			continue
 		}
 
@@ -296,7 +324,7 @@ func topMemoryProcs(n int) ([]models.ProcessMemStat, float64) {
 	if len(procs) > n {
 		procs = procs[:n]
 	}
-	return procs, float64(totalRSSKB) / 1024
+	return procs, float64(totalRSSKB) / 1024, needsRoot
 }
 
 // topIOSample is the cached result of sampleTopIOProcs — the derived top-N
@@ -325,15 +353,18 @@ func procCommName(pid int) string {
 
 // readAllProcIO reads /proc/<pid>/io for every process, returning the raw
 // counters keyed by PID. needsRoot is true when at least one read was denied
-// for lack of privilege — that process's I/O is invisible to this sample, so
-// the ranking below may not reflect the true top consumer.
+// for lack of privilege, OR the listing itself is restricted (see
+// procVisibilityRestricted — e.g. hidepid=2, which hides other users'
+// process directories with no read error at all) — that process's I/O is
+// invisible to this sample, so the ranking below may not reflect the true
+// top consumer.
 func readAllProcIO() (map[int]procIOCounters, bool) {
 	entries, err := glob(hdCgroupProc)
 	if err != nil {
 		return nil, false
 	}
 	result := make(map[int]procIOCounters, len(entries))
-	needsRoot := false
+	needsRoot := procVisibilityRestricted(entries)
 	for _, entry := range entries {
 		pid, err := strconv.Atoi(filepath.Base(entry))
 		if err != nil {
@@ -433,13 +464,16 @@ type procCPUCounters struct {
 
 // readAllProcCPU reads /proc/<pid>/stat for every process, returning utime+stime
 // tick counters keyed by PID, plus the system-wide aggregate tick total (the
-// "cpu " line of /proc/stat) needed to normalize per-process ticks into a %.
-func readAllProcCPU() (map[int]procCPUCounters, uint64) {
+// "cpu " line of /proc/stat) needed to normalize per-process ticks into a %,
+// plus whether the scan had restricted visibility — see procVisibilityRestricted
+// and readAllProcIO's identical per-PID permission tracking.
+func readAllProcCPU() (map[int]procCPUCounters, uint64, bool) {
 	entries, err := glob(hdCgroupProc)
 	if err != nil {
-		return nil, 0
+		return nil, 0, false
 	}
 	result := make(map[int]procCPUCounters, len(entries))
+	needsRoot := procVisibilityRestricted(entries)
 	for _, entry := range entries {
 		pid, err := strconv.Atoi(filepath.Base(entry))
 		if err != nil {
@@ -447,6 +481,9 @@ func readAllProcCPU() (map[int]procCPUCounters, uint64) {
 		}
 		data, err := readFile(filepath.Join(entry, "stat")) // #nosec G304
 		if err != nil {
+			if os.IsPermission(err) {
+				needsRoot = true
+			}
 			continue
 		}
 		utime, stime, ok := parseProcStatUtimeStime(string(data))
@@ -455,7 +492,7 @@ func readAllProcCPU() (map[int]procCPUCounters, uint64) {
 		}
 		result[pid] = procCPUCounters{name: procCommName(pid), ticks: utime + stime}
 	}
-	return result, systemTotalTicks()
+	return result, systemTotalTicks(), needsRoot
 }
 
 // systemTotalTicks reads the aggregate "cpu " line of /proc/stat and sums its
@@ -499,24 +536,32 @@ func parseProcStatUtimeStime(stat string) (utime, stime uint64, ok bool) {
 	return utime, stime, true
 }
 
+// topCPUSample is the cached result of sampleTopCPUProcs — the derived top-N
+// list plus a partial-visibility flag, recorded as one unit so replay
+// reproduces both the ranking and the caveat verbatim (mirrors topIOSample).
+type topCPUSample struct {
+	Procs     []models.ProcessCPUStat
+	NeedsRoot bool
+}
+
 // sampleTopCPUProcs takes two /proc/<pid>/stat snapshots 500ms apart and returns
 // the top-n processes by CPU% — utime+stime delta over the system-wide tick
 // delta, scaled by core count. Matches top/htop's per-process %CPU convention,
 // which can exceed 100% for a multi-threaded process.
-func (c *HealthDeepCollector) sampleTopCPUProcs(ctx context.Context, n int) []models.ProcessCPUStat {
-	before, sysBefore := readAllProcCPU()
+func (c *HealthDeepCollector) sampleTopCPUProcs(ctx context.Context, n int) topCPUSample {
+	before, sysBefore, needsRoot1 := readAllProcCPU()
 	select {
 	case <-ctx.Done():
-		return nil
+		return topCPUSample{}
 	case <-time.After(500 * time.Millisecond):
 	}
-	after, sysAfter := readAllProcCPU()
+	after, sysAfter, needsRoot2 := readAllProcCPU()
 
 	procs := computeTopCPURates(before, after, sysAfter-sysBefore, n)
 	for i := range procs {
 		procs[i].CgroupScope = cgroupScope(procs[i].PID)
 	}
-	return procs
+	return topCPUSample{Procs: procs, NeedsRoot: needsRoot1 || needsRoot2}
 }
 
 // computeTopCPURates turns two /proc/<pid>/stat snapshots into the top-n

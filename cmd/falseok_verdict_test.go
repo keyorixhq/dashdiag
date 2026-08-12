@@ -7,6 +7,7 @@ import (
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
+	"github.com/keyorixhq/dashdiag/internal/runner"
 )
 
 // falseok_verdict_test.go — the canonical guard for the "unverified-state false-OK"
@@ -119,4 +120,50 @@ func failedUnitsLine(out string) string {
 		}
 	}
 	return ""
+}
+
+// health deep: TopProcs/TopCPUProcs are ranked from a /proc scan that silently
+// omits other users' PID directories under hidepid=2 (no error — glob() just
+// returns fewer entries) or hits a per-PID EACCES. Either way the table must
+// disclose the caveat, not present a partial ranking as the complete picture.
+func TestPrintTopProcsWithCgroup_NeedsRootCaveat(t *testing.T) {
+	restricted := captureStdout(t, func() {
+		printTopProcsWithCgroup([]runner.Result{{Data: &models.HealthDeepInfo{
+			TopProcs:          []models.ProcessMemStat{{PID: 100, Name: "k3s", MemPct: 5.5}},
+			TopProcsNeedsRoot: true,
+		}}}, output.ModePlain)
+	})
+	if !strings.Contains(restricted, "partial process visibility") {
+		t.Errorf("restricted-visibility scan must disclose the caveat, got:\n%s", restricted)
+	}
+
+	full := captureStdout(t, func() {
+		printTopProcsWithCgroup([]runner.Result{{Data: &models.HealthDeepInfo{
+			TopProcs: []models.ProcessMemStat{{PID: 100, Name: "k3s", MemPct: 5.5}},
+		}}}, output.ModePlain)
+	})
+	if strings.Contains(full, "partial process visibility") {
+		t.Errorf("a fully-visible scan must not print the caveat, got:\n%s", full)
+	}
+}
+
+func TestPrintTopCPUProcsWithCgroup_NeedsRootCaveat(t *testing.T) {
+	restricted := captureStdout(t, func() {
+		printTopCPUProcsWithCgroup([]runner.Result{{Data: &models.HealthDeepInfo{
+			TopCPUProcs:          []models.ProcessCPUStat{{PID: 200, Name: "stress", CPUPct: 88.5}},
+			TopCPUProcsNeedsRoot: true,
+		}}}, output.ModePlain)
+	})
+	if !strings.Contains(restricted, "partial process visibility") {
+		t.Errorf("restricted-visibility scan must disclose the caveat, got:\n%s", restricted)
+	}
+
+	full := captureStdout(t, func() {
+		printTopCPUProcsWithCgroup([]runner.Result{{Data: &models.HealthDeepInfo{
+			TopCPUProcs: []models.ProcessCPUStat{{PID: 200, Name: "stress", CPUPct: 88.5}},
+		}}}, output.ModePlain)
+	})
+	if strings.Contains(full, "partial process visibility") {
+		t.Errorf("a fully-visible scan must not print the caveat, got:\n%s", full)
+	}
 }
