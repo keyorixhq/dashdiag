@@ -358,7 +358,8 @@ func TestIsVMVirtType(t *testing.T) {
 // layout so they round-trip through the same parser.
 func TestCrashLoopRecent(t *testing.T) {
 	const layout = "Mon 2006-01-02 15:04:05 MST"
-	fmtTS := func(d time.Duration) string { return time.Now().UTC().Add(d).Format(layout) }
+	now := time.Now().UTC()
+	fmtTS := func(d time.Duration) string { return now.Add(d).Format(layout) }
 	cases := []struct {
 		name string
 		ts   string
@@ -372,9 +373,27 @@ func TestCrashLoopRecent(t *testing.T) {
 		{"unparseable ⇒ conservative report", "not a timestamp", true},
 	}
 	for _, c := range cases {
-		if got := crashLoopRecent(c.ts, crashLoopRecencyWindow); got != c.want {
+		if got := crashLoopRecent(c.ts, crashLoopRecencyWindow, now); got != c.want {
 			t.Errorf("%s: crashLoopRecent(%q) = %v, want %v", c.name, c.ts, got, c.want)
 		}
+	}
+}
+
+// TestCrashLoopRecent_HermeticUnderReplay guards the actual bug: now must come
+// from the caller (NowViaSource under replay), not time.Now()/time.Since
+// inside crashLoopRecent itself — otherwise a capture from days/months ago
+// makes every failed unit's timestamp read as ancient relative to the
+// replaying machine's real clock, silently hiding a crash loop that was live
+// at capture time.
+func TestCrashLoopRecent_HermeticUnderReplay(t *testing.T) {
+	const layout = "Mon 2006-01-02 15:04:05 MST"
+	captureTime := time.Date(2020, 1, 1, 12, 0, 0, 0, time.UTC)
+	inactiveEnter := captureTime.Add(-5 * time.Minute).Format(layout)
+	// The real wall clock is far in the future relative to captureTime — if
+	// crashLoopRecent used time.Now()/time.Since internally instead of the
+	// passed-in now, this would incorrectly read as stale.
+	if !crashLoopRecent(inactiveEnter, crashLoopRecencyWindow, captureTime) {
+		t.Error("a unit that crashed 5 minutes before capture time must read as recent when replayed against that same capture time, regardless of the real wall clock")
 	}
 }
 
