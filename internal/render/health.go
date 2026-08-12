@@ -1540,12 +1540,17 @@ func (r *Renderer) PrintSummary(insights []models.Insight, elapsed time.Duration
 
 func (r *Renderer) printInsightGroup(ins []models.Insight) {
 	for _, i := range ins {
+		// Check/Message can carry attacker-influenced text (comm names, cron/log
+		// content, cert fields, ...) assembled upstream in analysis — sanitize at
+		// this terminal-print boundary rather than at every construction site.
+		check := output.SanitizeControl(i.Check)
+		message := output.SanitizeControl(i.Message)
 		if r.mode == output.ModeHuman {
 			icon := styleForStatus(i.Level).Render(output.StatusIcon(levelToStatusKey(i.Level), r.mode))
-			fmt.Fprintf(os.Stdout, "%s  %s: %s\n", icon, StyleBold.Render(i.Check), i.Message)
+			fmt.Fprintf(os.Stdout, "%s  %s: %s\n", icon, StyleBold.Render(check), message)
 			r.printHints(i.Hints)
 		} else {
-			fmt.Fprintf(os.Stdout, "%s: %s: %s\n", i.Level, i.Check, i.Message)
+			fmt.Fprintf(os.Stdout, "%s: %s: %s\n", i.Level, check, message)
 			r.printHintsPlain(i.Hints)
 		}
 	}
@@ -1563,7 +1568,11 @@ func (r *Renderer) printHints(hints []string) {
 	seen := make(map[string]int) // label → index in groups
 	var groups []group
 
-	for _, h := range hints {
+	for _, raw := range hints {
+		// Hints are largely dsd-authored templates, but some splice in
+		// attacker-influenced values (SUID paths, bootnames, comm names, ...) —
+		// sanitize before any prefix matching/printing.
+		h := output.SanitizeControl(raw)
 		label := ""
 		cmd := h
 		for _, prefix := range []string{"to inspect: ", "to fix: ", "to persist: ", "to inspect:", "to fix:", "to persist:"} {
@@ -1608,7 +1617,8 @@ func (r *Renderer) printHintsPlain(hints []string) {
 	seen := make(map[string]int)
 	var groups []group
 
-	for _, h := range hints {
+	for _, raw := range hints {
+		h := output.SanitizeControl(raw)
 		label := ""
 		cmd := h
 		for _, prefix := range []string{"to inspect: ", "to fix: ", "to persist: "} {
