@@ -445,6 +445,17 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyc
 			fmt.Sprintf("primary interface %s is DOWN", net.PrimaryInterface),
 			[]string{netInspectIPLink, netInspectIPRoute, fmt.Sprintf("to fix: ip link set %s up", net.PrimaryInterface)},
 		))
+	} else if net.ConnectivityProbeDisabled {
+		// DSD_OFFLINE skipped the ping/DNS probe entirely — GatewayPingMs,
+		// InternetPingMs, and DNSResolvesMs are all unset zero values here, not
+		// real "0ms"/"unreachable" readings. Disclose that explicitly rather
+		// than falling into the branches below, which would otherwise either
+		// misread the zero value as a real CRIT or (just as bad) as a clean
+		// "0% loss" result with no indication the check never ran.
+		out = append(out, insight("INFO", catNetwork,
+			"gateway/internet connectivity and DNS resolution checks were skipped (DSD_OFFLINE set) — not measured",
+			nil,
+		))
 	} else if net.GatewayPingMs < 0 && net.InternetPingMs < 0 {
 		out = append(out, insight("CRIT", catNetwork,
 			"gateway and internet unreachable — host appears offline",
@@ -466,7 +477,7 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyc
 			[]string{"to inspect: ping -c5 $(ip route | awk '/default/{print $3}')"},
 		))
 	}
-	if !net.PrimaryInterfaceDown && net.GatewayPingMs >= 0 {
+	if !net.PrimaryInterfaceDown && !net.ConnectivityProbeDisabled && net.GatewayPingMs >= 0 {
 		// Shared with dsd net (analysis.GatewayPacketLossLevel). Loss is sampled from
 		// 2-3 pings, so 10/50 is the meaningful granularity — see thresholds.go.
 		if lv := GatewayPacketLossLevel(net.GatewayPacketLossPct); lv != "" {
@@ -478,19 +489,21 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyc
 				fmt.Sprintf("gateway packet loss %.0f%%", net.GatewayPacketLossPct), hints))
 		}
 	}
-	if net.DNSFailed {
-		out = append(out, insight("CRIT", "Network/DNS",
-			"DNS resolution failed — cannot resolve hostnames",
-			[]string{"to inspect: dig @8.8.8.8 google.com", "to inspect: cat /etc/resolv.conf", "to inspect: systemctl status systemd-resolved"},
-		))
-	} else if lv := DNSResolveLevel(net.DNSResolvesMs); lv != "" {
-		// Shared with dsd net (analysis.DNSResolveLevel): WARN 250ms, CRIT 500ms.
-		hints := []string{"to inspect: dig @8.8.8.8 google.com", "to inspect: cat /etc/resolv.conf"}
-		if lv == "CRIT" {
-			hints = append(hints, "to inspect: systemctl status systemd-resolved")
+	if !net.ConnectivityProbeDisabled {
+		if net.DNSFailed {
+			out = append(out, insight("CRIT", "Network/DNS",
+				"DNS resolution failed — cannot resolve hostnames",
+				[]string{"to inspect: dig @8.8.8.8 google.com", "to inspect: cat /etc/resolv.conf", "to inspect: systemctl status systemd-resolved"},
+			))
+		} else if lv := DNSResolveLevel(net.DNSResolvesMs); lv != "" {
+			// Shared with dsd net (analysis.DNSResolveLevel): WARN 250ms, CRIT 500ms.
+			hints := []string{"to inspect: dig @8.8.8.8 google.com", "to inspect: cat /etc/resolv.conf"}
+			if lv == "CRIT" {
+				hints = append(hints, "to inspect: systemctl status systemd-resolved")
+			}
+			out = append(out, insight(lv, "Network/DNS",
+				fmt.Sprintf("DNS resolution took %.0f ms", net.DNSResolvesMs), hints))
 		}
-		out = append(out, insight(lv, "Network/DNS",
-			fmt.Sprintf("DNS resolution took %.0f ms", net.DNSResolvesMs), hints))
 	}
 	if net.CloseWaitCount > 500 {
 		out = append(out, insight("CRIT", catNetwork,

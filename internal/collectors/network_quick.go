@@ -160,6 +160,17 @@ type connectivityProbe struct {
 }
 
 func probeConnectivity(ctx context.Context, gatewayIP, srcIP string, result *models.NetworkInfo) {
+	// This is the one outbound-to-the-internet call in default `dsd health`
+	// (ping 8.8.8.8, resolve github.com) — every other check reads local
+	// files/sockets. Skip it under DSD_OFFLINE rather than reporting a
+	// misleading "unreachable"/"DNS failed" result: ConnectivityProbeDisabled
+	// tells the heuristic this is unmeasured, not a real finding.
+	if os.Getenv("DSD_OFFLINE") != "" {
+		result.ConnectivityProbeDisabled = true
+		result.Bonds = collectBonds()
+		return
+	}
+
 	var p connectivityProbe
 	// cachedJSON records the probe on a live/capture pass and serves it on replay
 	// WITHOUT re-running ping/DNS — those are live network ops that would otherwise
