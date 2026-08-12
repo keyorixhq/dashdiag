@@ -386,6 +386,67 @@ udp   UNCONN 0 0 0.0.0.0:53 0.0.0.0:* users:(("named",pid=1234,fd=21))
 	}
 }
 
+// TestBindCheckPorts_NonRootOwnershipBlindSpot is a regression guard for the
+// unprivileged ss(8) ownership blind spot: as non-root, ss -p can only resolve
+// the owning process for sockets it owns itself — a :53 socket owned by
+// named's own service account (the default on virtually every distro
+// package) still shows up in the ss output, but with an EMPTY users: column,
+// not a wrong owner. Before the fix, isBindProcess correctly returned false
+// for that line and bindCheckPorts silently left Port53TCP/UDP false with no
+// signal that ownership couldn't be determined — the analysis layer then
+// reported a false "not listening on port 53". PortsOwnershipUnverified must
+// be set instead so the false WARN can be suppressed.
+func TestBindCheckPorts_NonRootOwnershipBlindSpot(t *testing.T) {
+	swapGeteuid(t, 1000) // non-root
+	const ssOut = `tcp   LISTEN 0 10 0.0.0.0:53 0.0.0.0:*
+udp   UNCONN 0 0 0.0.0.0:53 0.0.0.0:*
+`
+	prev := SetSource(source.Live{Exec: func(_ context.Context, name string, _ ...string) (source.Result, error) {
+		if name == "ss" {
+			return source.Result{Stdout: []byte(ssOut)}, nil
+		}
+		return source.Result{}, nil
+	}})
+	defer SetSource(prev)
+
+	var info models.BINDInfo
+	bindCheckPorts(context.Background(), &info)
+	if !info.PortsChecked {
+		t.Fatal("PortsChecked should be true — ss succeeded")
+	}
+	if info.Port53TCP || info.Port53UDP {
+		t.Errorf("Port53TCP=%v Port53UDP=%v, want both false — owner unknown, not confirmed named",
+			info.Port53TCP, info.Port53UDP)
+	}
+	if !info.PortsOwnershipUnverified {
+		t.Error("PortsOwnershipUnverified should be true — non-root ss saw a :53 socket with no owner info")
+	}
+}
+
+// TestBindCheckPorts_RootOwnershipNeverBlind guards the counterpart: as root,
+// ss -p can always resolve socket ownership, so an empty users: column means
+// there really is no process attached (not a privilege gap) — the ownership
+// blind-spot flag must never be raised.
+func TestBindCheckPorts_RootOwnershipNeverBlind(t *testing.T) {
+	swapGeteuid(t, 0) // root
+	const ssOut = `tcp   LISTEN 0 10 0.0.0.0:53 0.0.0.0:*
+udp   UNCONN 0 0 0.0.0.0:53 0.0.0.0:*
+`
+	prev := SetSource(source.Live{Exec: func(_ context.Context, name string, _ ...string) (source.Result, error) {
+		if name == "ss" {
+			return source.Result{Stdout: []byte(ssOut)}, nil
+		}
+		return source.Result{}, nil
+	}})
+	defer SetSource(prev)
+
+	var info models.BINDInfo
+	bindCheckPorts(context.Background(), &info)
+	if info.PortsOwnershipUnverified {
+		t.Error("PortsOwnershipUnverified must stay false as root — root ss ownership is always authoritative")
+	}
+}
+
 func TestBindFmt(t *testing.T) {
 	tests := []struct {
 		n    int
