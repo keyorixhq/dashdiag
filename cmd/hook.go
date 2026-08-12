@@ -184,8 +184,13 @@ func installPreDeploy(dryRun bool) {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return
 	}
-	// 0755: pre-deploy script must be executable
-	if err := os.WriteFile(path, []byte(preDeployScript), 0755); err != nil { // #nosec G306 -- pre-deploy script must be executable
+	// 0755: pre-deploy script must be executable. writeFileNoFollow refuses to
+	// write through a pre-existing symlink at path — plain os.WriteFile would
+	// follow one, letting another local user in a shared/reused working
+	// directory (a multi-tenant build host, a CI runner reusing workspaces)
+	// redirect this fixed, executable script to a path they can't write
+	// directly but the caller can.
+	if err := writeFileNoFollow(path, []byte(preDeployScript), 0755); err != nil { // #nosec G306 -- pre-deploy script must be executable
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return
 	}
@@ -206,8 +211,9 @@ func installGitHook(dryRun bool) {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return
 	}
-	// 0755: git hook must be executable
-	if err := os.WriteFile(path, []byte(gitPrePushHook), 0755); err != nil { // #nosec G306 -- git hook must be executable
+	// 0755: git hook must be executable. writeFileNoFollow refuses to write
+	// through a pre-existing symlink at path (see installPreDeploy above).
+	if err := writeFileNoFollow(path, []byte(gitPrePushHook), 0755); err != nil { // #nosec G306 -- git hook must be executable
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return
 	}
