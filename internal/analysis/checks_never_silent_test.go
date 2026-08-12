@@ -205,6 +205,14 @@ var neverSilentChecks = []neverSilentCheck{
 		},
 		wantSubstr: "could not be read",
 	},
+	{
+		name:    "checkRAID: /proc/mdstat unreadable (non-ENOENT open failure)",
+		checkFn: "checkRAID",
+		run: func() []models.Insight {
+			return checkRAID(models.RAIDInfo{ReadFailed: true})
+		},
+		wantSubstr: "could not be verified",
+	},
 }
 
 func TestChecksNeverSilentlySkip(t *testing.T) {
