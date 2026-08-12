@@ -401,17 +401,19 @@ func TestParseBlameSlowUnits_SingleTokenLine(t *testing.T) {
 	}
 }
 
-// TestParseBlameSlowUnits_BelowThresholdStops covers the early-exit branch when
-// dur < 5.0 — parseBlameSlowUnits breaks out immediately and returns whatever
-// it has accumulated so far.
-func TestParseBlameSlowUnits_BelowThresholdStops(t *testing.T) {
+// TestParseBlameSlowUnits_BelowThresholdSkippedNotStopped covers the dur < 5.0
+// branch: a sub-threshold line must be skipped, not treated as a sorted-output
+// end-of-list marker. blame's stdout is untrusted external-tool output — an
+// unsorted or adversarially-crafted line ordering must not cause a later
+// genuinely-slow unit to be silently dropped (internal-collectors-32-05).
+func TestParseBlameSlowUnits_BelowThresholdSkippedNotStopped(t *testing.T) {
 	t.Parallel()
 	blameOut := "10.000s slow.service\n" +
-		"4.999s fast.service\n" + // < 5s — triggers break
-		"8.000s should-not-appear.service\n" // never reached
+		"4.999s fast.service\n" + // < 5s — must be skipped, not treated as end-of-list
+		"8.000s should-still-appear.service\n" // must still surface, sorted after slow.service
 	got := parseBlameSlowUnits(blameOut, nil)
-	if len(got) != 1 || got[0].Name != "slow.service" {
-		t.Errorf("expected only slow.service before early-exit, got %v", got)
+	if len(got) != 2 || got[0].Name != "slow.service" || got[1].Name != "should-still-appear.service" {
+		t.Errorf("expected [slow.service, should-still-appear.service] sorted by duration, got %v", got)
 	}
 }
 

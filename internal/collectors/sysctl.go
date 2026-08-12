@@ -76,7 +76,17 @@ func (c *SysctlCollector) Collect(ctx context.Context) (any, error) {
 func (c *SysctlCollector) collectLinux() (*models.SysctlInfo, error) {
 	info := &models.SysctlInfo{Available: true}
 	// Best-effort reads — partial data is still useful
-	info.VMSwappiness, _ = readIntFile("/proc/sys/vm/swappiness")
+	// internal-collectors-32-01: a failed read must not silently become 0 — every
+	// VMSwappiness heuristic below is a "> N" high-value check, so a read failure
+	// masquerading as 0 reads as "swappiness is great" instead of "unmeasured",
+	// hiding a real misconfiguration behind a false-OK. -1 is the same "unknown"
+	// sentinel TCPTWReuse already uses below; every "> N" comparison naturally
+	// treats it as below threshold, so it can never itself trigger a false WARN.
+	if v, err := readIntFile("/proc/sys/vm/swappiness"); err == nil {
+		info.VMSwappiness = v
+	} else {
+		info.VMSwappiness = -1
+	}
 	info.NetSomaxconn, _ = readIntFile("/proc/sys/net/core/somaxconn")
 	info.FSFileMax, _ = readIntFile("/proc/sys/fs/file-max")
 	info.KernelPIDMax, _ = readIntFile("/proc/sys/kernel/pid_max")
@@ -95,7 +105,13 @@ func (c *SysctlCollector) collectLinux() (*models.SysctlInfo, error) {
 	}
 	info.TCPSynBacklog, _ = readIntFile("/proc/sys/net/ipv4/tcp_max_syn_backlog")
 	info.VMMaxMapCount, _ = readIntFile("/proc/sys/vm/max_map_count")
-	info.VMDirtyRatio, _ = readIntFile("/proc/sys/vm/dirty_ratio")
+	// internal-collectors-32-01: same "> N" false-OK risk as VMSwappiness above —
+	// a failed read must not masquerade as a healthy 0.
+	if v, err := readIntFile("/proc/sys/vm/dirty_ratio"); err == nil {
+		info.VMDirtyRatio = v
+	} else {
+		info.VMDirtyRatio = -1
+	}
 	info.VMDirtyBackgroundRatio, _ = readIntFile("/proc/sys/vm/dirty_background_ratio")
 	info.VMOvercommit, _ = readIntFile("/proc/sys/vm/overcommit_memory")
 	info.FSInotifyWatches, _ = readIntFile("/proc/sys/fs/inotify/max_user_watches")
