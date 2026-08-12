@@ -105,6 +105,20 @@ func TestLogoDataURI(t *testing.T) {
 	}
 }
 
+// TestLogoDataURI_RejectsOversizedDataURI covers internal-render-01-04: the
+// file-path branch above size-checks before embedding, but a data: URI is
+// embedded verbatim with no read step to check first — it must be capped
+// the same way, or a caller-supplied (env var / --logo) data: URI could
+// bloat every report by an arbitrary amount.
+func TestLogoDataURI_RejectsOversizedDataURI(t *testing.T) {
+	t.Parallel()
+	huge := "data:image/png;base64," + strings.Repeat("A", maxLogoBytes+1)
+	_, err := logoDataURI(huge)
+	if err == nil {
+		t.Error("oversized data: logo URI must return an error, not be embedded verbatim")
+	}
+}
+
 func TestBrandBarHTMLEscapesAndGates(t *testing.T) {
 	resetBrand(t)
 	if got := brandBarHTML(); got != "" {

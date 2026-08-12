@@ -61,6 +61,9 @@ func logoDataURI(logo string) (template.URL, error) {
 		return "", fmt.Errorf("http:// logo URLs are not supported; use https:// or a local file path")
 	}
 	if strings.HasPrefix(logo, "https://") {
+		if len(logo) > maxLogoBytes {
+			return "", fmt.Errorf("logo URL exceeds %d bytes", maxLogoBytes)
+		}
 		return template.URL(logo), nil //nolint:gosec // operator-supplied HTTPS URI, self-contained report
 	}
 	// Validate data: URIs — only image/* MIME types are safe to embed.
@@ -68,6 +71,13 @@ func logoDataURI(logo string) (template.URL, error) {
 	if strings.HasPrefix(logo, "data:") {
 		if !strings.HasPrefix(logo, "data:image/") {
 			return "", fmt.Errorf("data: logo URI must use an image/* MIME type")
+		}
+		// Unlike the file-path branch below, a data: URI is embedded verbatim with
+		// no read to size-check first — apply the same maxLogoBytes cap here so a
+		// caller-supplied (env var / --logo) data: URI can't bloat every report by
+		// an arbitrary amount just because it skipped the file-read path.
+		if len(logo) > maxLogoBytes {
+			return "", fmt.Errorf("data: logo URI exceeds %d bytes", maxLogoBytes)
 		}
 		return template.URL(logo), nil //nolint:gosec // validated image/* data URI
 	}
