@@ -62,12 +62,24 @@ func TestPVEPerAspectNotVerified(t *testing.T) {
 	t.Run("all verified, healthy node is clean", func(t *testing.T) {
 		p := base
 		p.StoragesVerified, p.TasksVerified, p.BackupVerified, p.HAVerified = true, true, true, true
+		p.GuestsVerified = true
 		p.HAFencingOK = true
 		p.BackupAgeDays = 1
 		p.BackupStatuses = []models.PVEBackupStatus{{}}
 		p.Subscription = models.PVESubscription{Status: "active"}
 		if got := checkPVE(p); len(got) != 0 {
 			t.Errorf("a fully-verified healthy node must be clean, got %+v", got)
+		}
+	})
+
+	t.Run("guest enumeration failed", func(t *testing.T) {
+		p := base
+		p.StoragesVerified, p.TasksVerified, p.BackupVerified, p.HAVerified = true, true, true, true
+		p.GuestsVerified = false
+		p.HAFencingOK = true
+		p.BackupAgeDays = 1
+		if !hasInsight(checkPVE(p), "INFO", "guest enumeration failed") {
+			t.Errorf("unverified guest enumeration must INFO, got %+v", checkPVE(p))
 		}
 	})
 }

@@ -207,6 +207,17 @@ func printPVENode(info *models.PVEInfo, mode output.OutputMode) {
 func printPVEGuests(info *models.PVEInfo, mode output.OutputMode) {
 	total := info.RunningCount + info.StoppedCount + info.PausedCount
 	if total == 0 {
+		if !info.GuestsVerified {
+			// internal-models-11-02: a total count of 0 with GuestsVerified
+			// false means guest enumeration itself failed (pvesh qemu/lxc
+			// query error or unparseable JSON), not that the node genuinely
+			// has no VMs/CTs. Say so instead of the same "none" a real
+			// guest-less node gets.
+			fmt.Printf("\n[VMs & Containers]  NOT verified — guest enumeration failed\n")
+			fmt.Printf("  %s  to inspect: pvesh get /nodes/localhost/qemu\n", asciiOr(secLvlInfo, secIconInfo, mode))
+			fmt.Printf("  %s  to inspect: pvesh get /nodes/localhost/lxc\n", asciiOr(secLvlInfo, secIconInfo, mode))
+			return
+		}
 		fmt.Printf("\n[VMs & Containers]  none\n")
 		return
 	}
@@ -447,6 +458,18 @@ func printPVEPerf(perf *models.PVEPerf, mode output.OutputMode) {
 
 func printPVEBridges(info *models.PVEInfo, mode output.OutputMode) {
 	if len(info.Bridges) == 0 {
+		if !info.BridgesVerified {
+			// internal-models-11-03: every real PVE node has at least one
+			// bridge (vmbr0) — an empty Bridges slice with BridgesVerified
+			// false means the pvesh network query itself failed, not that
+			// the node genuinely has no bridges. Say so instead of printing
+			// nothing, which reads identically to "network section skipped,
+			// nothing to report" for a node that may have a DOWN bridge.
+			fmt.Printf("\n[Network]\n")
+			fmt.Printf("  %s  bridge configuration NOT verified — pvesh network query failed\n",
+				asciiOr(secLvlInfo, secIconInfo, mode))
+			fmt.Println("       to inspect: pvesh get /nodes/localhost/network")
+		}
 		return
 	}
 	fmt.Printf("\n[Network]\n")

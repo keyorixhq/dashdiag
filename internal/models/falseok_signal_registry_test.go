@@ -79,6 +79,8 @@ var guardedUnverifiedSignals = map[string]string{
 	"PVEInfo.TasksVerified":    "analysis/pve_unverified_test.go",
 	"PVEInfo.BackupVerified":   "analysis/pve_unverified_test.go + heuristics_round5_test.go",
 	"PVEInfo.HAVerified":       "analysis/pve_unverified_test.go",
+	"PVEInfo.GuestsVerified":   "analysis/pve_unverified_test.go + heuristics_round5_test.go TestCheckPVEBackups_GuestsUnverifiedNotSilentlyVoidsAudit",
+	"PVEInfo.BridgesVerified":  "cmd/pve.go printPVEBridges (dsd pve-only rendering; bridges have no separate analysis-layer check)",
 
 	// Cloud / virt / other — heuristic folds the unmeasured state to INFO/WARN.
 	"AWSInfo.EBSNeedsRoot":              "analysis/heuristics_aws_test.go (non-root EBS read → INFO)",
