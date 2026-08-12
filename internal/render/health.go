@@ -1714,16 +1714,21 @@ func (r *Renderer) PrintCorrelations(corrs []analysis.Correlation) {
 	}
 
 	for _, c := range corrs {
+		// Name/Summary/Action are analysis-constructed strings that can splice in
+		// attacker-influenced data (e.g. an OOM-killed process's comm name) — this
+		// is the terminal-print boundary, so sanitize here.
+		name := output.SanitizeControl(c.Name)
+		summary := output.SanitizeControl(c.Summary)
+		action := output.SanitizeControl(c.Action)
 		if r.mode == output.ModeHuman {
 			style := styleForStatus(c.Level)
 			icon := style.Render("▶")
-			name := StyleBold.Render(c.Name)
-			fmt.Fprintf(os.Stdout, "%s  %s\n", icon, name)
+			fmt.Fprintf(os.Stdout, "%s  %s\n", icon, StyleBold.Render(name))
 		} else {
-			fmt.Fprintf(os.Stdout, "%s: %s\n", c.Level, c.Name)
+			fmt.Fprintf(os.Stdout, "%s: %s\n", c.Level, name)
 		}
-		fmt.Fprintf(os.Stdout, "   %s\n", c.Summary)
-		fmt.Fprintf(os.Stdout, "   → %s\n", c.Action)
+		fmt.Fprintf(os.Stdout, "   %s\n", summary)
+		fmt.Fprintf(os.Stdout, "   → %s\n", action)
 	}
 }
 
