@@ -409,6 +409,78 @@ func TestSaveCmdArgvSecretRedacted(t *testing.T) {
 	}
 }
 
+// TestBundleSanitizeErrTextSecret guards redaction-primitives-03 /
+// sanitize-bundle-04: Sanitize only ever iterated b.files' data and b.cmds'
+// stdout/stderr — a file read's recorded error TEXT (fileRec.errText,
+// persisted as fileIndexEntry.Err) was never passed through redactSecrets at
+// all, even when the OS error text happened to embed sensitive content (a
+// path with a credential in it, or a wrapped lower-level error carrying one).
+func TestBundleSanitizeErrTextSecret(t *testing.T) {
+	t.Parallel()
+	b := NewBundle()
+	b.files["/etc/secret.d/creds"] = fileRec{
+		errText: "open /etc/secret.d/creds: dial failed: password=hunter2secret",
+	}
+	rep := b.Sanitize(SanitizeOptions{})
+	if rep.FilesRedacted != 1 || rep.TotalRedactions != 1 {
+		t.Fatalf("report = %+v, want files=1 total=1", rep)
+	}
+	fr, _ := b.getFile("/etc/secret.d/creds")
+	if strings.Contains(fr.errText, "hunter2secret") {
+		t.Errorf("secret survived in file errText: %q", fr.errText)
+	}
+	if !strings.Contains(fr.errText, "dial failed") {
+		t.Errorf("non-secret error context dropped: %q", fr.errText)
+	}
+}
+
+// TestBundleSanitizeLinkTarget guards the links.json half of
+// redaction-primitives-03 / sanitize-bundle-04: a symlink target is recorded
+// verbatim from the live filesystem and was never passed through Sanitize.
+func TestBundleSanitizeLinkTarget(t *testing.T) {
+	t.Parallel()
+	b := NewBundle()
+	b.putLink("/etc/app/current-config", "/mnt/secrets/token=abc123secretvalue/config", nil)
+
+	rep := b.Sanitize(SanitizeOptions{})
+	if rep.TotalRedactions == 0 {
+		t.Fatalf("report = %+v, want ≥1 redaction", rep)
+	}
+	rec, _ := b.getLink("/etc/app/current-config")
+	if strings.Contains(rec.target, "abc123secretvalue") {
+		t.Errorf("secret survived in symlink target: %q", rec.target)
+	}
+}
+
+// TestBundleSanitizeDirEntrySecret guards the dirs.json half of
+// redaction-primitives-03 / sanitize-bundle-04: directory listing entries
+// were never passed through Sanitize at all.
+func TestBundleSanitizeDirEntrySecret(t *testing.T) {
+	t.Parallel()
+	b := NewBundle()
+	b.putDir("/mnt/secrets", []string{"readme.txt", "token=abc123secretvalue.txt"})
+
+	rep := b.Sanitize(SanitizeOptions{})
+	if rep.TotalRedactions == 0 {
+		t.Fatalf("report = %+v, want ≥1 redaction", rep)
+	}
+	entries, _ := b.getDir("/mnt/secrets")
+	for _, e := range entries {
+		if strings.Contains(e, "abc123secretvalue") {
+			t.Errorf("secret survived in dir listing entry: %q", e)
+		}
+	}
+	found := false
+	for _, e := range entries {
+		if e == "readme.txt" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("non-secret dir entry dropped, got: %v", entries)
+	}
+}
+
 func TestRedactIdentifiers(t *testing.T) {
 	in := "gw 192.168.1.1 mac aa:bb:cc:dd:ee:ff host web01\n" +
 		"loopback 127.0.0.1 unspec 0.0.0.0 version 1.2.3.999\n" +

@@ -156,8 +156,9 @@ type SanitizeOptions struct {
 }
 
 // Sanitize redacts secrets (always) and, if opts.Identifiers, identifiers from
-// every recorded file blob and command output in the bundle, in place.
-// Best-effort (see the package note).
+// every recorded file blob, command output, symlink target, directory listing,
+// glob match, and recorded error string in the bundle, in place. Best-effort
+// (see the package note).
 func (b *Bundle) Sanitize(opts SanitizeOptions) SanitizeReport {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -171,21 +172,59 @@ func (b *Bundle) Sanitize(opts SanitizeOptions) SanitizeReport {
 		}
 		return out, n
 	}
+	// redactStr is the string-in/string-out convenience form of redact, for the
+	// many recorded fields (errText, symlink targets, dir/glob entries) that are
+	// plain strings rather than []byte blobs.
+	redactStr := func(s string) (string, int) {
+		if s == "" {
+			return s, 0
+		}
+		red, n := redact([]byte(s))
+		if n == 0 {
+			return s, 0
+		}
+		return string(red), n
+	}
+	// redactSlice runs redactStr over every element of a []string (a dirs.json /
+	// globs.json entry list), returning a fresh slice only when something changed
+	// so untouched entries never get needlessly reallocated.
+	redactSlice := func(items []string) ([]string, int) {
+		var total int
+		var out []string
+		for i, s := range items {
+			red, n := redactStr(s)
+			if n == 0 {
+				continue
+			}
+			if out == nil {
+				out = append([]string(nil), items...)
+			}
+			out[i] = red
+			total += n
+		}
+		if out == nil {
+			return items, 0
+		}
+		return out, total
+	}
 
 	var rep SanitizeReport
 	for path, fr := range b.files {
-		if len(fr.data) == 0 {
-			continue
+		var n int
+		if len(fr.data) > 0 {
+			if isSensitiveCacheKey(path) || isSensitiveEnvCacheKey(path) {
+				fr.data = []byte(redactedMark)
+				n++
+			} else if red, k := redact(fr.data); k > 0 {
+				fr.data = red
+				n += k
+			}
 		}
-		if isSensitiveCacheKey(path) || isSensitiveEnvCacheKey(path) {
-			fr.data = []byte(redactedMark)
-			b.files[path] = fr
-			rep.FilesRedacted++
-			rep.TotalRedactions++
-			continue
+		if red, k := redactStr(fr.errText); k > 0 {
+			fr.errText = red
+			n += k
 		}
-		if red, n := redact(fr.data); n > 0 {
-			fr.data = red
+		if n > 0 {
 			b.files[path] = fr
 			rep.FilesRedacted++
 			rep.TotalRedactions += n
@@ -213,6 +252,10 @@ func (b *Bundle) Sanitize(opts SanitizeOptions) SanitizeReport {
 			cr.res.Stderr = red
 			n += k
 		}
+		if red, k := redactStr(cr.errText); k > 0 {
+			cr.errText = red
+			n += k
+		}
 		newKey, argN := redactCmdArgvKey(key)
 		n += argN
 		if n > 0 {
@@ -222,6 +265,48 @@ func (b *Bundle) Sanitize(opts SanitizeOptions) SanitizeReport {
 		newCmds[newKey] = cr
 	}
 	b.cmds = newCmds
+
+	for path, rec := range b.links {
+		var n int
+		if red, k := redactStr(rec.target); k > 0 {
+			rec.target = red
+			n += k
+		}
+		if red, k := redactStr(rec.errText); k > 0 {
+			rec.errText = red
+			n += k
+		}
+		if n > 0 {
+			b.links[path] = rec
+			rep.TotalRedactions += n
+		}
+	}
+	for path, rec := range b.stats {
+		if red, n := redactStr(rec.errText); n > 0 {
+			rec.errText = red
+			b.stats[path] = rec
+			rep.TotalRedactions += n
+		}
+	}
+	for path, rec := range b.statfss {
+		if red, n := redactStr(rec.errText); n > 0 {
+			rec.errText = red
+			b.statfss[path] = rec
+			rep.TotalRedactions += n
+		}
+	}
+	for pattern, entries := range b.dirs {
+		if red, n := redactSlice(entries); n > 0 {
+			b.dirs[pattern] = red
+			rep.TotalRedactions += n
+		}
+	}
+	for pattern, entries := range b.globs {
+		if red, n := redactSlice(entries); n > 0 {
+			b.globs[pattern] = red
+			rep.TotalRedactions += n
+		}
+	}
 	// The host's own hostname also lives in the manifest metadata.
 	if opts.Identifiers && host != "" && host != "host" {
 		b.Manifest.Host = hostPlaceholder
