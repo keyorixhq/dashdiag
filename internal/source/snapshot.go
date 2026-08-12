@@ -64,9 +64,15 @@ func FromSnapshot(tarballPath string) (*Bundle, error) {
 		if !strings.HasSuffix(base, ".txt") {
 			continue // skip .err/.exit/.missing/MANIFEST and command blobs
 		}
-		data, err := io.ReadAll(tr)
+		if hdr.Size < 0 || hdr.Size > maxUntarFileSize {
+			return nil, fmt.Errorf("snapshot entry %q exceeds maximum size (%d bytes)", hdr.Name, maxUntarFileSize)
+		}
+		data, err := io.ReadAll(io.LimitReader(tr, maxUntarFileSize+1))
 		if err != nil {
 			return nil, err
+		}
+		if int64(len(data)) > maxUntarFileSize {
+			return nil, fmt.Errorf("snapshot entry %q exceeds maximum size (%d bytes)", hdr.Name, maxUntarFileSize)
 		}
 		ingestSnapshotFile(b, base, string(data))
 	}
