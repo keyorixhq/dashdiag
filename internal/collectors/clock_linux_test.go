@@ -73,14 +73,13 @@ func TestCollectLinux_RTCInLocalTZ(t *testing.T) {
 
 // TestLiveClockState_ExercisesRealBranch calls liveClockState directly
 // (unlike collectLinux's Cached-wrapped call) to attribute its own coverage.
-// platform.DetectContainerContext reads real, non-injectable OS paths, so
-// which of the two branches fires depends on the actual execution
-// environment — this cannot be forced hermetically. The assertion only
-// pins the invariant that holds on EITHER branch: Source is always
-// populated and OffsetMs is never a stray zero-value sentinel confusion.
+// liveClockState always reads the real kernel clock via adjtimex(2) — the
+// container-vs-bare-metal distinction was removed (internal-collectors-03-02:
+// it used to assume a container's clock is synced rather than measuring it),
+// so Source now always comes from adjtimexSync's own outcomes.
 func TestLiveClockState_ExercisesRealBranch(t *testing.T) {
 	st := liveClockState()
 	if st.Source == "" {
-		t.Error("expected a non-empty Source from either the host or adjtimex branch")
+		t.Error("expected a non-empty Source from adjtimexSync")
 	}
 }

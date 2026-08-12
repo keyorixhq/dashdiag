@@ -42,6 +42,22 @@ func TestClockCollector_ReturnsResult(t *testing.T) {
 	}
 }
 
+// TestLiveClockState_NeverAssumesHostSynced is a regression guard for
+// internal-collectors-03-02: liveClockState used to short-circuit to
+// Synced:true/Source:"host" for every container, on the (unmeasured)
+// assumption that "the host presumably handles this" — reported identically
+// to a genuinely verified sync. adjtimex(2) reads the same shared,
+// non-namespaced kernel clock state whether or not the caller is in a
+// container, so Source must always come from adjtimexSync's real outcomes
+// ("adjtimex" or "unavailable") — never the old "host" sentinel, regardless
+// of whether this test happens to run inside a container itself.
+func TestLiveClockState_NeverAssumesHostSynced(t *testing.T) {
+	got := liveClockState()
+	if got.Source == "host" {
+		t.Errorf("liveClockState must never assume host-sync via the old container short-circuit, got %+v", got)
+	}
+}
+
 func TestAdjtimexSync_Linux(t *testing.T) {
 	if runtime.GOOS != "linux" {
 		t.Skip("adjtimex only on Linux")
