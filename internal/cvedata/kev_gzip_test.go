@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -77,5 +78,37 @@ func TestLoadKEVBadGzipMagic(t *testing.T) {
 
 	if _, err := LoadKEV(path); err == nil {
 		t.Error("expected gzip error for non-gzip .gz file")
+	}
+}
+
+// TestLoadKEVRejectsGzipBomb covers internal-cvedata-01-02: a KEV catalog
+// whose compressed size is tiny but decompresses to more than
+// maxDecompressedFeedBytes must be rejected rather than decoded fully into
+// memory. Shrinks the cap so the fixture doesn't need to be gigabyte-scale.
+func TestLoadKEVRejectsGzipBomb(t *testing.T) {
+	withShrunkFeedCap(t, 1024) // 1KiB — small enough to test cheaply
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bomb.json.gz")
+
+	// Otherwise-valid KEV JSON with a large, highly compressible padding field
+	// (json.Decode ignores fields it doesn't recognize) — well past the
+	// shrunk cap once decompressed, but the compressed form is tiny.
+	payload := `{"catalogVersion":"x","dateReleased":"2026-01-01","vulnerabilities":[],"padding":"` +
+		strings.Repeat("a", 10*1024) + `"}`
+	var buf bytes.Buffer
+	gw := gzip.NewWriter(&buf)
+	if _, err := gw.Write([]byte(payload)); err != nil {
+		t.Fatal(err)
+	}
+	if err := gw.Close(); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(path, buf.Bytes(), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := LoadKEV(path); err == nil {
+		t.Error("expected LoadKEV to reject a catalog exceeding the decompressed size cap")
 	}
 }
