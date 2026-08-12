@@ -99,8 +99,15 @@ func runCaptureRaw(cmd *cobra.Command) error {
 	}
 
 	// Capture the real hostname for the default filename before sanitize may
-	// replace Manifest.Host with a placeholder.
+	// replace Manifest.Host with a placeholder. --identifiers means the operator
+	// wants the host identity scrubbed from the bundle for sharing — using the
+	// real hostname in the default OUTPUT FILENAME regardless would defeat that
+	// the moment the file is handed over by its default name, even though the
+	// bundle's own contents correctly show the placeholder.
 	fileHost := b.Manifest.Host
+	if identifiers {
+		fileHost = "redacted"
+	}
 
 	var sanReport source.SanitizeReport
 	if sanitize {
