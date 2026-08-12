@@ -205,6 +205,19 @@ func checkCVEZypper(ctx context.Context, cveID string) *models.CVEResult {
 		return result
 	}
 
+	// internal-collectors-07-03: the only failure guard above is err+empty
+	// output — a non-zero exit with SOME non-empty, non-matching stdout (a
+	// repo/lock/service warning) fell straight into the parse loop, found no
+	// "needed" rows, and returned a confident CVEPatched. Mirror
+	// scanAllZypper's hardening: an error with no pipe-delimited table row at
+	// all is a genuine failure, never a silent "already patched".
+	if err != nil && !strings.Contains(out, "|") {
+		result.Status = models.CVEUnknown
+		result.StatusReason = "zypper lp failed: " + err.Error()
+		result.FallbackURL = "https://www.suse.com/security/cve/" + cveID + "/"
+		return result
+	}
+
 	// Parse patch table output
 	// Format: Repository | Patch Name | Category | Severity | Interactive | Status | Summary
 	var pkgs []models.CVEPackage
