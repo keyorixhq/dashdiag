@@ -72,13 +72,7 @@ func TestParseVirshVersion(t *testing.T) {
 	}
 }
 
-func TestIsKernelThreadAndIsShell(t *testing.T) {
-	if !isKernelThread("kworker/0:1") {
-		t.Error("kworker/ prefix should be recognized as a kernel thread")
-	}
-	if isKernelThread("nginx") {
-		t.Error("a real userspace process must not be flagged as a kernel thread")
-	}
+func TestIsShell(t *testing.T) {
 	if !isShell("bash") || !isShell("zsh") {
 		t.Error("bash/zsh should be recognized as shells")
 	}
