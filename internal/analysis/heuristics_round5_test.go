@@ -233,4 +233,13 @@ func TestCheckNspawn(t *testing.T) {
 	assertLevel(t, checkNspawn(models.NspawnInfo{Available: false}), "")
 	assertLevel(t, checkNspawn(models.NspawnInfo{Available: true, Containers: []models.NspawnContainer{{}}, FailedCount: 0}), "")
 	assertLevel(t, checkNspawn(models.NspawnInfo{Available: true, Containers: []models.NspawnContainer{{}}, FailedCount: 1}), "WARN")
+	// FailedCount is independent of machinectl's own success — a genuinely failed
+	// unit must WARN even when `machinectl list` itself errored (systemd-machined
+	// down), since countFailedNspawnUnits queries systemctl directly.
+	assertLevel(t, checkNspawn(models.NspawnInfo{Status: "query-failed", StatusReason: "boom", FailedCount: 1}), "WARN")
+	insights := checkNspawn(models.NspawnInfo{Status: "query-failed", StatusReason: "machinectl list failed: exit 1"})
+	assertLevel(t, insights, "INFO")
+	if len(insights) != 1 || !insights[0].Unverified {
+		t.Errorf("expected a single Unverified insight for query-failed, got %+v", insights)
+	}
 }

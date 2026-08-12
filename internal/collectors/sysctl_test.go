@@ -223,11 +223,21 @@ func TestSysctlCollector_CollectLinux_MissingFilesStayZeroValue(t *testing.T) {
 	if !info.Available {
 		t.Error("Available = false, want true (best-effort even with nothing readable)")
 	}
-	if info.VMSwappiness != 0 || info.NetSomaxconn != 0 || info.FSFileMax != 0 {
+	if info.NetSomaxconn != 0 || info.FSFileMax != 0 {
 		t.Errorf("info = %+v, want all zero-value on missing files", info)
 	}
 	if info.TCPTWReuse != -1 {
 		t.Errorf("TCPTWReuse = %d, want -1 sentinel", info.TCPTWReuse)
+	}
+	// internal-collectors-32-01: VMSwappiness/VMDirtyRatio must use the same -1
+	// "unknown" sentinel as TCPTWReuse on a failed read — a silent 0 would read
+	// as a healthy low value to every "> N" heuristic check, masking that the
+	// sysctl was never actually measured.
+	if info.VMSwappiness != -1 {
+		t.Errorf("VMSwappiness = %d, want -1 sentinel on unreadable file", info.VMSwappiness)
+	}
+	if info.VMDirtyRatio != -1 {
+		t.Errorf("VMDirtyRatio = %d, want -1 sentinel on unreadable file", info.VMDirtyRatio)
 	}
 }
 

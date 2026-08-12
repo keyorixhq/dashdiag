@@ -43,6 +43,13 @@ type MemoryInfo struct {
 	// different things (host-wide usage vs. the container's ceiling).
 	CgroupMemMeasured bool `json:"cgroup_mem_measured,omitempty"`
 
+	// MeminfoUnreadable is true on Linux when /proc/meminfo could not be read or
+	// parsed through the active Source (e.g. a replay bundle that never recorded
+	// it) — TotalGB/FreeGB/UsedPct are all zero-valued and must not be scored,
+	// since falling back to a live read would silently report the replaying
+	// machine's own memory instead of the captured host's.
+	MeminfoUnreadable bool `json:"meminfo_unreadable,omitempty"`
+
 	Status       string `json:"status"`
 	StatusReason string `json:"status_reason"`
 }

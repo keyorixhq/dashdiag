@@ -33,13 +33,15 @@ var guardedUnverifiedSignals = map[string]string{
 	// Standalone renderers that can show an all-clear — guarded case-by-case in
 	// cmd/falseok_verdict_test.go (the renderer must not print its green line when
 	// the signal is unset).
-	"K8sInfo.APIReachable":                "cmd/falseok_verdict_test.go (k8s renderer) + analysis/pve_apireachable_test.go",
-	"CronInfo.FailureScanOK":              "cmd/falseok_verdict_test.go (cron) + analysis/cron_logs_unverified_test.go",
-	"LogsInfo.ErrorCountUnverified":       "cmd/falseok_verdict_test.go (logs) + analysis/cron_logs_unverified_test.go",
-	"LogsInfo.NeedsRoot":                  "cmd/falseok_verdict_test.go (logs non-root)",
-	"LogsInfo.ErrorScanFailed":            "analysis/cron_logs_unverified_test.go (scan-failed → not 'none')",
-	"ServicesDeepInfo.FailedUnitsQueried": "cmd/falseok_verdict_test.go (services deep)",
-	"CVEAllResult.ScanFailed":             "cmd/falseok_verdict_test.go (cve) + collectors/cve_stale_metadata_test.go",
+	"K8sInfo.APIReachable":                  "cmd/falseok_verdict_test.go (k8s renderer) + analysis/pve_apireachable_test.go",
+	"CronInfo.FailureScanOK":                "cmd/falseok_verdict_test.go (cron) + analysis/cron_logs_unverified_test.go",
+	"LogsInfo.ErrorCountUnverified":         "cmd/falseok_verdict_test.go (logs) + analysis/cron_logs_unverified_test.go",
+	"LogsInfo.NeedsRoot":                    "cmd/falseok_verdict_test.go (logs non-root)",
+	"LogsInfo.ErrorScanFailed":              "analysis/cron_logs_unverified_test.go (scan-failed → not 'none')",
+	"ServicesDeepInfo.FailedUnitsQueried":   "cmd/falseok_verdict_test.go (services deep)",
+	"ServicesDeepInfo.SSHDStatusUnverified": "cmd/falseok_verdict_test.go TestServicesDeepSSHDUnverifiedNotNone (a suppressed sshd@ instance's unreadable exit status must not render the same green 'none' a genuinely-clean host gets)",
+	"SystemdInfo.SSHDStatusUnverified":      "analysis/heuristics_round2_test.go TestCheckSystemd_SSHDStatusUnverified (INFO, not a silent fold into 'no non-benign sshd@ failures')",
+	"CVEAllResult.ScanFailed":               "cmd/falseok_verdict_test.go (cve) + collectors/cve_stale_metadata_test.go",
 
 	// dsd security — renderer shares health's verdict via the heuristic.
 	"SecurityInfo.NeedsRoot":              "analysis/heuristics_security_full_test.go + cmd/security_falseok_test.go",
@@ -192,6 +194,7 @@ var guardedUnverifiedSignals = map[string]string{
 	"MemoryInfo.MemHotplugChecked":          "analysis/heuristics (gated; hotplug sysfs genuinely absent on non-hotplug kernels — not privilege-related)",
 	"MemoryInfo.EDACCountersUnreadable":     "analysis/heuristics_resources.go checkMemory (FIXED: a failed ce_count/ue_count read now emits an explicit INFO alongside whatever counters WERE read, instead of silently folding into a clean 0)",
 	"HardwareMemory.EDACCountersUnreadable": "analysis/heuristics_hardware.go (same fix as MemoryInfo.EDACCountersUnreadable — shared readEDACCounts collector)",
+	"MemoryInfo.MeminfoUnreadable":          "analysis/heuristics_resources.go checkMemory (FIXED: proc meminfo unreadable/unparseable on Linux — e.g. a replay bundle missing it — now emits an explicit INFO instead of falling back to a live gopsutil read)",
 	"PackagesInfo.Checked":                  "collectors/packages_linux.go markStaleMetadata feeds Status; analysis/heuristics_packages.go checkPackageUpdates already discloses query-failed/stale-metadata as INFO",
 	"PackagesInfo.DBHealthChecked":          "analysis/heuristics_packages.go checkPackageDBHealth (collector invariant: DBUpdatesBlocked is never true when DBHealthChecked is false — verified 2026-07-08, no live bug; defensively gated anyway)",
 	"PostBootInfo.ShutdownChecked":          "analysis/heuristics (gated; tool-absent/wtmp-inconclusive reads as unknown, not clean)",
@@ -204,6 +207,7 @@ var guardedUnverifiedSignals = map[string]string{
 	// couldn't be read; the heuristic must say so, not silently pass.
 	"MemoryInfo.CgroupMemMeasured":        "analysis/heuristics_resources.go checkMemory (FIXED: unmeasurable cgroup memory now emits an explicit INFO instead of silently dropping the RAM check)",
 	"ContainerGuestInfo.CgroupV1Measured": "analysis/heuristics_containerguest.go checkContainerGuest (already correct: cgroup v1 throttle/OOM unmeasured → explicit INFO)",
+	"ContainerGuestInfo.CgroupV2Measured": "analysis/heuristics_containerguest.go checkContainerGuest (FIXED: cgroup v2 throttle/OOM unmeasured now emits an explicit INFO, matching the pre-existing v1 guard)",
 }
 
 func TestUnverifiedSignalFieldsAllRegistered(t *testing.T) {

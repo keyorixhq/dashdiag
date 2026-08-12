@@ -168,6 +168,19 @@ func TestCheckSystemd(t *testing.T) {
 	assertLevel(t, checkSystemd(models.SystemdInfo{Available: true, FailedUnits: []string{"x.service"}}), "CRIT")
 }
 
+// TestCheckSystemd_SSHDStatusUnverified guards the disclosure for the
+// nonBenignSSHDInstances fail-toward-suppression gap: a suppressed sshd@
+// instance whose exit status couldn't be confirmed benign must surface as an
+// unverified INFO, never silently fold into a clean "no non-benign sshd@
+// failures" verdict.
+func TestCheckSystemd_SSHDStatusUnverified(t *testing.T) {
+	insights := checkSystemd(models.SystemdInfo{Available: true, SSHDStatusUnverified: true})
+	assertLevel(t, insights, "INFO")
+	if len(insights) != 1 || !insights[0].Unverified {
+		t.Errorf("expected a single Unverified insight, got %+v", insights)
+	}
+}
+
 // ── processes (zombies / hung) ────────────────────────────────────────────────
 
 func TestCheckProcesses(t *testing.T) {

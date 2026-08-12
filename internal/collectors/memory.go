@@ -70,7 +70,9 @@ func (c *MemoryCollector) Collect(ctx context.Context) (any, error) {
 		_ = f.Close()
 	}
 
-	if total := m["MemTotal"]; total > 0 {
+	switch {
+	case m["MemTotal"] > 0:
+		total := m["MemTotal"]
 		avail, ok := m["MemAvailable"]
 		if !ok {
 			// Pre-3.14 kernels lack MemAvailable; approximate it the way gopsutil
@@ -81,9 +83,9 @@ func (c *MemoryCollector) Collect(ctx context.Context) (any, error) {
 		info.FreeGB = float64(avail) / (1024 * 1024)
 		// Matches gopsutil v3: UsedPercent = (Total-Available)/Total * 100.
 		info.UsedPct = float64(total-avail) / float64(total) * 100
-	} else {
-		// Non-Linux (darwin): no /proc/meminfo. Replay binaries must match the
-		// captured OS, so the live read here is never on a Linux replay path.
+	case runtime.GOOS != "linux":
+		// Non-Linux (darwin): no /proc/meminfo, so the Source-routed read above
+		// never applies here — a genuine live read is the only option.
 		var vm mem.VirtualMemoryStat
 		if err := cachedJSON("gopsutil/mem/virtual", func() (any, error) {
 			return mem.VirtualMemoryWithContext(ctx)
@@ -93,6 +95,13 @@ func (c *MemoryCollector) Collect(ctx context.Context) (any, error) {
 		info.TotalGB = float64(vm.Total) / (1024 * 1024 * 1024)
 		info.FreeGB = float64(vm.Available) / (1024 * 1024 * 1024)
 		info.UsedPct = vm.UsedPercent
+	default:
+		// Linux, but /proc/meminfo couldn't be read or parsed through the active
+		// Source — e.g. a replay bundle that never recorded it. Falling through to
+		// a gopsutil live read here would silently report the REPLAYING machine's
+		// own memory instead of the captured host's, breaking replay hermeticity
+		// (internal-collectors-20-04). Report unmeasured instead of guessing.
+		info.MeminfoUnreadable = true
 	}
 
 	// ECC memory errors — cheap sysfs read; zero on VMs/consumer HW and non-Linux.
