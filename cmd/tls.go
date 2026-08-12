@@ -228,6 +228,7 @@ func scanCertFile(path string, warnDays, critDays int) []certResult {
 
 	var results []certResult
 	now := time.Now()
+	sawAnyPEMBlock := false
 
 	for len(data) > 0 {
 		var block *pem.Block
@@ -235,6 +236,7 @@ func scanCertFile(path string, warnDays, critDays int) []certResult {
 		if block == nil {
 			break
 		}
+		sawAnyPEMBlock = true
 		if block.Type != "CERTIFICATE" {
 			continue
 		}
@@ -273,7 +275,16 @@ func scanCertFile(path string, warnDays, critDays int) []certResult {
 	}
 
 	if len(results) == 0 {
-		// No CERTIFICATE block found — likely a key file, skip silently
+		if !sawAnyPEMBlock {
+			// cmd-13-01: not valid PEM at all — truncated, corrupted, empty, or
+			// DER-encoded. Must not vanish silently like the benign key-file
+			// case below: a cert path that was scanned but couldn't be verified
+			// has to force ERR (and the non-zero exit code that follows), not
+			// disappear from the report as if there was nothing to check.
+			return []certResult{{Path: path, Level: tlsLvlERR, Err: "no PEM data found (not a valid PEM-encoded file)"}}
+		}
+		// A PEM block was found but none had Type == CERTIFICATE — likely a key
+		// file. Skip silently.
 		return nil
 	}
 	return results
