@@ -269,6 +269,50 @@ func TestBundleSanitizeIdentifiersHostGuard(t *testing.T) {
 	}
 }
 
+// TestRedactSecretsASIAPrefix guards sanitize-bundle-02: the AWS access-key-ID
+// rule originally only matched the AKIA (long-lived IAM user key) prefix, so a
+// temporary/STS access key ID (ASIA — the AWS-recommended, now-dominant shape
+// from AssumeRole/EC2 instance profiles/EKS IRSA/Lambda) shipped in the clear.
+// Deliberately BARE (no "key_id=" label): a labeled occurrence is already
+// caught by the generic key=value rule regardless of prefix, so this isolates
+// the AKIA-only bare-prefix gap specifically (e.g. an access key ID appearing
+// unlabeled in a docker inspect Env array entry, a URL query param, or a JSON
+// blob with a non-obvious field name).
+func TestRedactSecretsASIAPrefix(t *testing.T) {
+	t.Parallel()
+	in := "container env dump: ASIAQWERTY1234ABCDEF end" // 20 chars: ASIA + 16 alnum
+	out, n := redactSecrets([]byte(in))
+	got := string(out)
+	if n == 0 {
+		t.Fatalf("expected ≥1 redaction, got 0: %q", got)
+	}
+	if strings.Contains(got, "ASIAQWERTY1234ABCDEF") {
+		t.Errorf("bare ASIA-prefixed temporary AWS access key survived redaction: %q", got)
+	}
+	if !strings.Contains(got, "end") {
+		t.Errorf("unrelated trailing content dropped: %q", got)
+	}
+}
+
+// TestRedactIdentifiersCaseInsensitiveHostname guards redaction-primitives-06:
+// hostRe had no (?i) flag, so a differently-cased rendering of the hostname
+// (e.g. an upcased syslog HOSTNAME field) survived --identifiers untouched.
+func TestRedactIdentifiersCaseInsensitiveHostname(t *testing.T) {
+	t.Parallel()
+	in := "syslog: HOSTNAME=WEB01 reboot detected"
+	out, n := redactIdentifiers([]byte(in), "web01")
+	got := string(out)
+	if n == 0 {
+		t.Fatalf("expected ≥1 redaction, got 0: %q", got)
+	}
+	if strings.Contains(got, "WEB01") {
+		t.Errorf("differently-cased hostname survived redaction: %q", got)
+	}
+	if !strings.Contains(got, hostPlaceholder) {
+		t.Errorf("expected hostname placeholder, got: %q", got)
+	}
+}
+
 func TestRedactIdentifiers(t *testing.T) {
 	in := "gw 192.168.1.1 mac aa:bb:cc:dd:ee:ff host web01\n" +
 		"loopback 127.0.0.1 unspec 0.0.0.0 version 1.2.3.999\n" +

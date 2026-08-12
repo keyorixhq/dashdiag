@@ -37,8 +37,12 @@ var secretRules = []secretRule{
 	// has no leading \b anchor.
 	{regexp.MustCompile(`(?i)((?:pass(?:word|wd)?|secret|token|api[_-]?key|access[_-]?key|auth_?token|credentials?)[A-Za-z0-9_-]*\s*[=:]\s*)("[^"]*"|'[^']*'|\S+)`),
 		"${1}" + redactedMark},
-	// AWS access key IDs.
-	{regexp.MustCompile(`\bAKIA[0-9A-Z]{16}\b`), "[REDACTED-AWS-KEY]"},
+	// AWS access key IDs. AKIA = long-lived IAM user key; ASIA = temporary/STS
+	// credentials (AssumeRole, EC2 instance profiles, EKS IRSA, Lambda execution
+	// roles — the AWS-recommended, now-dominant shape); ABIA/ACCA are rarer
+	// service/context-specific bearer forms. All four share the same 16
+	// trailing alnum chars.
+	{regexp.MustCompile(`\b(?:AKIA|ASIA|ABIA|ACCA)[0-9A-Z]{16}\b`), "[REDACTED-AWS-KEY]"},
 	// HTTP bearer tokens.
 	{regexp.MustCompile(`(?i)\bbearer\s+[A-Za-z0-9._\-]+`), "Bearer " + redactedMark},
 	// /etc/shadow password hashes: "user:$6$salt$hash:..." → redact the hash field.
@@ -209,7 +213,10 @@ func redactIdentifiers(data []byte, hostname string) ([]byte, int) {
 		return []byte(idPlaceholder("IP", string(m)))
 	})
 	if hostname != "" && hostname != "host" && len(hostname) >= 2 {
-		hostRe := regexp.MustCompile(`\b` + regexp.QuoteMeta(hostname) + `\b`)
+		// (?i): a captured log line can render the hostname in a different case
+		// than os.Hostname() returned (e.g. an upcased syslog HOSTNAME field) —
+		// that occurrence must still be recognized under --identifiers.
+		hostRe := regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(hostname) + `\b`)
 		if matches := hostRe.FindAll(out, -1); len(matches) > 0 {
 			n += len(matches)
 			out = hostRe.ReplaceAll(out, []byte(hostPlaceholder))
