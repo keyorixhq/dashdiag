@@ -8,7 +8,6 @@ import (
 	"encoding/json"
 	"io"
 	"math"
-	"os"
 	"strconv"
 	"strings"
 	"time"
@@ -48,15 +47,22 @@ func (c *DRBDCollector) Collect(ctx context.Context) (interface{}, error) {
 		// false-OK). Only attempt it when the module reports v9 — on 8.x an empty
 		// parse genuinely means "no configured resources" and there's nothing to ask.
 		if strings.HasPrefix(info.Version, "9") {
-			if r9 := collectDRBD9(ctx, info.Version); r9 != nil && len(r9.Resources) > 0 {
+			r9 := collectDRBD9(ctx, info.Version)
+			if r9 != nil && len(r9.Resources) > 0 {
 				return r9, nil
 			}
-			// v9 module loaded but netlink returned no resources. Unprivileged, that's
-			// almost certainly because `drbdsetup status` needs CAP_NET_ADMIN — the
-			// state is UNKNOWN, not absent. Surface "needs root" rather than silently
-			// omitting DRBD (which would hide a split-brain/diskless resource). As root,
-			// an empty result genuinely means no configured resources → gate off.
-			if os.Geteuid() != 0 {
+			// internal-collectors-11-01: collectDRBD9 returning nil means
+			// `drbdsetup status` itself failed to run or produce output — binary
+			// missing, or (commonly, since dsd often runs inside a container) the
+			// process lacks CAP_NET_ADMIN to reach the DRBD netlink interface EVEN
+			// AS ROOT. os.Geteuid() is not a reliable proxy for that capability, so
+			// keying off it let a root-but-capability-dropped run fall straight
+			// through to "DRBD absent" — hiding a real split-brain/diskless
+			// resource with no warning at all. Key off whether drbdsetup actually
+			// succeeded instead: nil means UNKNOWN regardless of privilege; a
+			// non-nil result with zero resources means it ran and genuinely found
+			// none, which is trustworthy at any privilege level.
+			if r9 == nil {
 				return &models.DRBDInfo{Version: info.Version, Unverified: true}, nil
 			}
 		}

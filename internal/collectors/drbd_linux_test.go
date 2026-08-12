@@ -4,7 +4,6 @@ package collectors
 
 import (
 	"context"
-	"os"
 	"strings"
 	"testing"
 	"time"
@@ -130,14 +129,16 @@ func TestDRBDCollector_Collect_9xFallbackSuccess(t *testing.T) {
 	}
 }
 
-// TestDRBDCollector_Collect_9xNoResourcesNonRoot guards the "needs root"
-// surfacing: v9 module loaded, drbdsetup returns no resources (netlink needs
-// CAP_NET_ADMIN), and the process is not root — must report Unverified=true
-// with the version preserved, not silently gate off as absent.
-func TestDRBDCollector_Collect_9xNoResourcesNonRoot(t *testing.T) {
-	if os.Geteuid() == 0 {
-		t.Skip("test assumes non-root; running as root in this environment")
-	}
+// TestDRBDCollector_Collect_9xDrbdsetupFails is a regression guard for
+// internal-collectors-11-01: v9 module loaded, drbdsetup fails to run
+// (binary missing, or — commonly, since dsd often runs as root inside a
+// container — CAP_NET_ADMIN dropped even though EUID is 0). The old gate
+// keyed off os.Geteuid(), so a root-but-capability-dropped run fell straight
+// through to "DRBD absent" instead of Unverified, hiding a real
+// split-brain/diskless resource with no warning at all. The fix keys off
+// whether collectDRBD9 itself succeeded, so this must report Unverified=true
+// regardless of the test process's actual privilege level.
+func TestDRBDCollector_Collect_9xDrbdsetupFails(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutFile("/proc/drbd", []byte("version: 9.1.4 (api:2/proto:86-121)\n"))
 		b.PutCmdNotFound("drbdsetup", []string{"status", "--json", "all"})
@@ -152,10 +153,29 @@ func TestDRBDCollector_Collect_9xNoResourcesNonRoot(t *testing.T) {
 		t.Fatalf("Collect() = %T, want *models.DRBDInfo", raw)
 	}
 	if !info.Unverified {
-		t.Error("Unverified = false, want true (v9, no resources, non-root)")
+		t.Error("Unverified = false, want true (v9, drbdsetup failed) — must not read as DRBD absent")
 	}
 	if info.Version != "9.1.4 (api:2/proto:86-121)" {
 		t.Errorf("Version = %q, want preserved 9.1.4 (api:2/proto:86-121)", info.Version)
+	}
+}
+
+// TestDRBDCollector_Collect_9xGenuinelyNoResources covers the other side: when
+// collectDRBD9 succeeds (drbdsetup ran fine) but genuinely reports zero
+// resources, that is trustworthy at any privilege level — gate off as
+// absent, not Unverified.
+func TestDRBDCollector_Collect_9xGenuinelyNoResources(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/proc/drbd", []byte("version: 9.1.4 (api:2/proto:86-121)\n"))
+		b.PutCmd("drbdsetup", []string{"status", "--json", "all"}, "[]", 0)
+	})
+	c := NewDRBDCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	if raw != nil {
+		t.Errorf("Collect() = %v, want nil (drbdsetup succeeded with genuinely zero resources)", raw)
 	}
 }
 
