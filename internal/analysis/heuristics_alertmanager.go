@@ -40,6 +40,17 @@ func checkAlertmanager(a models.AlertmanagerInfo) []models.Insight {
 				"to inspect: amtool check-config /etc/alertmanager/alertmanager.yml",
 				"note: check the Alertmanager log for the parse error, then reload (SIGHUP or POST /-/reload)",
 			}))
+	} else if !a.ConfigReloadRead {
+		// The status API answered, but the /metrics scrape that carries the
+		// config-reload gauge did not — the one signal this check exists to
+		// report was never actually established. Say so; don't go silent.
+		out = append(out, unverifiedInsight("INFO", "Alertmanager",
+			"Alertmanager is up, but its config-reload status could not be read",
+			[]string{
+				"note: /metrics must be reachable (a reverse proxy or auth may block it)",
+				"to inspect: curl -s localhost:9093/metrics | grep alertmanager_config_last_reload_successful",
+			},
+		))
 	}
 
 	return out
