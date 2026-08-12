@@ -80,6 +80,38 @@ func TestNspawnCollector_Collect_EmptyList(t *testing.T) {
 	}
 }
 
+// TestNspawnCollector_Collect_QueryFailed guards the silent-skip fix: when
+// `machinectl list` itself fails (systemd-machined down), Status/StatusReason
+// must be set for checkNspawn's disclosure branch, and FailedCount must still
+// come from the independent systemctl probe rather than being dropped.
+func TestNspawnCollector_Collect_QueryFailed(t *testing.T) {
+	withCombinedFixture(t,
+		map[string][]byte{"lookpath/machinectl": []byte("/usr/bin/machinectl")},
+		nil,
+		func(b *source.Bundle) {
+			b.PutCmd("machinectl", []string{"list", "--no-legend", "--no-pager"}, "", 1)
+			b.PutCmd("systemctl", []string{"list-units", "systemd-nspawn@*.service",
+				"--state=failed", "--no-legend", "--no-pager", "--plain"},
+				"systemd-nspawn@web3.service loaded failed failed systemd-nspawn@web3.service\n", 0)
+		},
+	)
+	c := NewNspawnCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.NspawnInfo)
+	if info.Available {
+		t.Errorf("expected Available=false when machinectl list itself failed, got %+v", info)
+	}
+	if info.Status != "query-failed" || info.StatusReason == "" {
+		t.Errorf("expected Status=query-failed with a StatusReason, got %+v", info)
+	}
+	if info.FailedCount != 1 {
+		t.Errorf("expected FailedCount=1 from the independent systemctl probe, got %+v", info)
+	}
+}
+
 // TestNspawnCollector_Collect_HappyPath exercises the full path: machinectl
 // lists two containers and systemctl reports one failed nspawn unit.
 func TestNspawnCollector_Collect_HappyPath(t *testing.T) {
