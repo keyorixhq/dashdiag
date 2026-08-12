@@ -158,7 +158,7 @@ func parseNVMeSmartLog(out string, dev *models.NVMeDevice) bool {
 	// single recognized field — a smart-log that includes only a benign field
 	// like power_on_hours, while critical_warning/media_errors/percentage_used
 	// are missing or garbled, must not read as a fully-verified healthy drive.
-	dev.SmartDangerousFieldsUnread = !(sawCriticalWarning && sawMediaErrors && sawPercentageUsed)
+	dev.SmartDangerousFieldsUnread = !sawCriticalWarning || !sawMediaErrors || !sawPercentageUsed
 	return parsedAny
 }
 
