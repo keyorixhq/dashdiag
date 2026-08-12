@@ -218,6 +218,17 @@ func TestCheckInfiniBand(t *testing.T) {
 	assertLevel(t, checkInfiniBand(models.InfiniBandInfo{Ports: []models.IBPort{{Device: "mlx5_0", Port: 1, State: ""}}}), "WARN") // unreadable state must not read healthy
 }
 
+// TestCheckInfiniBand_ReadFailedNotSilentlyAbsent: /sys/class/infiniband
+// unreadable (restricted /sys view) must surface as an unverified INFO, never
+// fold to the same "" (no concern) as genuinely having no IB hardware.
+func TestCheckInfiniBand_ReadFailedNotSilentlyAbsent(t *testing.T) {
+	insights := checkInfiniBand(models.InfiniBandInfo{ReadFailed: true})
+	assertLevel(t, insights, "INFO")
+	if len(insights) != 1 || !insights[0].Unverified {
+		t.Errorf("expected a single Unverified insight, got %+v", insights)
+	}
+}
+
 func TestCheckNspawn(t *testing.T) {
 	assertLevel(t, checkNspawn(models.NspawnInfo{Available: false}), "")
 	assertLevel(t, checkNspawn(models.NspawnInfo{Available: true, Containers: []models.NspawnContainer{{}}, FailedCount: 0}), "")

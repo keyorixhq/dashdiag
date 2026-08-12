@@ -4,12 +4,16 @@ package collectors
 
 import (
 	"context"
+	"errors"
+	"io/fs"
 	"path/filepath"
 	"strings"
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
+
+const ibSysClassDir = "/sys/class/infiniband"
 
 type InfiniBandCollector struct{}
 
@@ -20,12 +24,22 @@ func (c *InfiniBandCollector) Timeout() time.Duration { return 3 * time.Second }
 func (c *InfiniBandCollector) Collect(_ context.Context) (interface{}, error) {
 	info := &models.InfiniBandInfo{}
 
-	// /sys/class/infiniband/ — one dir per HCA device (mlx5_0, rxe0, etc.)
-	devices, _ := glob("/sys/class/infiniband/*")
-	if len(devices) == 0 {
+	// Stat the parent dir first (not just glob it): filepath.Glob silently
+	// swallows read errors, so a restricted view (EACCES on a namespaced/
+	// bind-mounted /sys) is indistinguishable from the directory genuinely
+	// not existing (no IB kernel module loaded) via glob alone. Stat, unlike
+	// ReadDir/Glob, is recorded on BOTH success and failure by the capture
+	// layer (source.Recorder), so this distinction also replays faithfully —
+	// see internal/source/bundle.go's statRec (notExist vs permission).
+	if _, err := statFile(ibSysClassDir); err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			info.ReadFailed = true
+		}
 		return info, nil
 	}
 
+	// /sys/class/infiniband/ — one dir per HCA device (mlx5_0, rxe0, etc.)
+	devices, _ := glob(filepath.Join(ibSysClassDir, "*"))
 	for _, dev := range devices {
 		devName := filepath.Base(dev)
 		// Each device has ports/ subdirectory
@@ -38,9 +52,15 @@ func (c *InfiniBandCollector) Collect(_ context.Context) (interface{}, error) {
 	return info, nil
 }
 
-// IsInfiniBandPresent returns true when IB hardware is found.
+// IsInfiniBandPresent returns true when IB hardware is found, or when
+// presence could not be confirmed one way or the other (a restricted /sys
+// view) — in that case the collector still runs and discloses ReadFailed via
+// InfiniBandInfo, rather than the health run silently skipping the section.
 func IsInfiniBandPresent() bool {
-	devices, _ := glob("/sys/class/infiniband/*")
+	if _, err := statFile(ibSysClassDir); err != nil {
+		return !errors.Is(err, fs.ErrNotExist)
+	}
+	devices, _ := glob(filepath.Join(ibSysClassDir, "*"))
 	return len(devices) > 0
 }
 

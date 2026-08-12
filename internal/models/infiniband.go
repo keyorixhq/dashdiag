@@ -11,7 +11,12 @@ type IBPort struct {
 
 // InfiniBandInfo holds IB fabric health.
 type InfiniBandInfo struct {
-	Ports        []IBPort `json:"ports,omitempty"`
-	Status       string   `json:"status,omitempty"`
-	StatusReason string   `json:"status_reason,omitempty"`
+	Ports []IBPort `json:"ports,omitempty"`
+	// ReadFailed is true when /sys/class/infiniband could not be read for a
+	// reason other than "does not exist" (e.g. a restricted container /sys
+	// view) — Ports is then empty because nothing was enumerated, not because
+	// no IB hardware is present. Never let that read as a clean "no IB".
+	ReadFailed   bool   `json:"read_failed,omitempty"`
+	Status       string `json:"status,omitempty"`
+	StatusReason string `json:"status_reason,omitempty"`
 }
