@@ -69,6 +69,18 @@ func checkPostgres(pg models.PostgresInfo) []models.Insight {
 				[]string{"to inspect: SELECT state, count(*) FROM pg_stat_activity GROUP BY state",
 					"note: a connection pooler (pgbouncer) is the usual fix before raising max_connections"}))
 		}
+	} else {
+		// A real server never reports max_connections==0. MetricsRead is true
+		// here, so this is a malformed/short read (or a rogue process answering
+		// on the socket) — say the saturation check wasn't assessed rather than
+		// silently skipping it, matching the MySQL/Redis/Memcached sibling paths
+		// in this file.
+		out = append(out, unverifiedInsight("INFO", dbCatPostgres,
+			"PostgreSQL connection-saturation could not be assessed — max_connections read as 0",
+			[]string{
+				"to inspect: sudo -u postgres psql -c \"SELECT current_setting('max_connections')\"",
+			},
+		))
 	}
 
 	// Idle-in-transaction connections hold locks and block VACUUM → bloat.
