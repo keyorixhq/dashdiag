@@ -31,7 +31,7 @@ func checkNFS(nfs models.NFSInfo) []models.Insight {
 				fmt.Sprintf("to unmount (safe): umount -l %s", m.Mount),
 				fmt.Sprintf("to remount after recovery: mount -o remount %s", m.Mount),
 			}
-			if !m.ServerReachable {
+			if !m.ServerReachable && !m.ServerCheckSkipped {
 				hints = append(hints,
 					fmt.Sprintf("server %s unreachable — check network/firewall", m.Server))
 			}
