@@ -124,7 +124,11 @@ func TestRpmDBHealth_PersistentlyBlocked(t *testing.T) {
 
 // TestRpmDBHealth_ContextCancelledDuringWait guards the partial-probe guard:
 // if ctx is cancelled while waiting out the retry delay, rpmDBHealth must NOT
-// assert blocked=true off an incomplete probe.
+// assert blocked=true off an incomplete probe — and must report checked=false
+// ("couldn't measure"), not checked=true, since only one failed probe ran and
+// there was no time for the confirming retry that tells a transient lock from
+// a real block apart (BUG-088-class conflation: checked=true,blocked=false
+// asserts a clean DB from a probe that never got to confirm it).
 func TestRpmDBHealth_ContextCancelledDuringWait(t *testing.T) {
 	fake := &countingRPMSource{outcomes: []source.Result{
 		{ExitCode: 1}, // first probe fails, triggering the wait-then-retry path
@@ -135,7 +139,7 @@ func TestRpmDBHealth_ContextCancelledDuringWait(t *testing.T) {
 	defer cancel()
 
 	checked, blocked, _, _ := rpmDBHealth(ctx)
-	if !checked || blocked {
-		t.Errorf("expected checked=true blocked=false when ctx cancels mid-wait (partial probe), got checked=%v blocked=%v", checked, blocked)
+	if checked || blocked {
+		t.Errorf("expected checked=false blocked=false when ctx cancels mid-wait (partial probe, no confirming retry), got checked=%v blocked=%v", checked, blocked)
 	}
 }

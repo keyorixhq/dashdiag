@@ -198,7 +198,10 @@ func rpmDBHealth(ctx context.Context) (checked, blocked bool, reason, fix string
 		return true, false, "", ""
 	}
 	if !sleepCtx(ctx, 1500*time.Millisecond) {
-		return true, false, "", "" // ctx cancelled — don't assert blocked on a partial probe
+		// ctx cancelled before the confirming retry ran: we have one failed probe and
+		// no second data point to tell a transient lock from a real block apart —
+		// report "couldn't measure", not "checked clean" (BUG-088-class conflation).
+		return false, false, "", ""
 	}
 	if _, err := runCmd(ctx, "rpm", pkgFlagQ, "rpm"); err == nil {
 		return true, false, "", "" // cleared on retry — it was a transient lock
