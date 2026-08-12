@@ -158,6 +158,44 @@ func TestCollectOneDrive_NonZeroExit(t *testing.T) {
 	}
 }
 
+// TestCollectOneDrive_SmartFailNonZeroExit is the regression guard for
+// internal-collectors-14-01: smartctl exits non-zero when SMART reports a
+// real failure (bit2=overall-health FAILED) while still writing full JSON to
+// stdout. collectOneDrive must parse that JSON rather than discarding it —
+// runCmd (the pre-fix helper) zeroes stdout on ANY non-zero exit, so this
+// would previously fall into the generic "smartctl failed: smartctl exited 2"
+// branch and never set SmartRead/SmartOK, permanently downgrading a true CRIT
+// (imminent drive failure) to a content-free WARN.
+func TestCollectOneDrive_SmartFailNonZeroExit(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("smartctl", []string{"--json=c", "-a", "/dev/sda"}, smartctlSATAJSON, 2)
+	})
+	drive := collectOneDrive(context.Background(), "/dev/sda")
+	if drive.Error != "" {
+		t.Fatalf("Error = %q, want empty — the non-zero exit must not discard valid SMART JSON", drive.Error)
+	}
+	if !drive.SmartRead || drive.SmartOK {
+		t.Errorf("SmartRead/SmartOK = %v/%v, want true/false (smart_status.passed=false in fixture)", drive.SmartRead, drive.SmartOK)
+	}
+	if drive.Model != "WDC WD40" {
+		t.Errorf("Model = %q, want %q — JSON body must be parsed despite the non-zero exit", drive.Model, "WDC WD40")
+	}
+}
+
+// TestCollectOneDrive_NeedsRootHint covers the "needs root" hint text, which
+// must match cmdError's actual format ("<name> exited <code>") rather than
+// Go's raw ExitError format ("exit status <code>") — the pre-fix substring
+// check could never match a cmdError and was dead code.
+func TestCollectOneDrive_NeedsRootHint(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("smartctl", []string{"--json=c", "-a", "/dev/sda"}, "", 2)
+	})
+	drive := collectOneDrive(context.Background(), "/dev/sda")
+	if drive.Error != "needs root — run: sudo dsd hardware" {
+		t.Errorf("Error = %q, want the needs-root hint", drive.Error)
+	}
+}
+
 func TestCollectOneDrive_JSONParseError(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("smartctl", []string{"--json=c", "-a", "/dev/sda"}, "not json", 0)

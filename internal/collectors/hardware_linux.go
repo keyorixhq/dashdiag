@@ -115,10 +115,22 @@ func collectOneDrive(ctx context.Context, devPath string) models.HardwareDrive {
 		SmartctlAvailable: true,
 	}
 
-	out, err := runCmd(ctx, "smartctl", "--json=c", "-a", devPath)
+	// smartctl signals real findings via a non-zero exit while still writing
+	// full JSON to stdout (bit2=SMART overall-health FAILED, bit3=prefail
+	// attrs below threshold, bit6=error log has errors, etc — see man
+	// smartctl EXIT STATUS). runCmd would discard that stdout on any
+	// non-zero exit, permanently downgrading the single most important case
+	// — an actually-failing drive — to a vague WARN with no diagnostic
+	// content (never reaching the !d.SmartOK CRIT branch in
+	// heuristics_hardware.go). Use runCmdOutput, which keeps stdout
+	// regardless of exit code, the same helper already used for rpm/dnf.
+	out, err := runCmdOutput(ctx, "smartctl", "--json=c", "-a", devPath)
 	if err != nil && out == "" {
 		errStr := err.Error()
-		if strings.Contains(errStr, "exit status 2") || strings.Contains(errStr, "exit status 1") {
+		// runCmd/runCmdOutput's cmdError formats as "<name> exited <code>"
+		// (collector.go), never Go's raw ExitError "exit status <code>" —
+		// match the actual format so this branch is reachable.
+		if strings.Contains(errStr, "exited 2") || strings.Contains(errStr, "exited 1") {
 			drive.Error = "needs root — run: sudo dsd hardware"
 		} else {
 			drive.Error = fmt.Sprintf("smartctl failed: %v", err)
