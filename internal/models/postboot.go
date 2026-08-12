@@ -34,11 +34,18 @@ type PostBootInfo struct {
 
 	// OOM kills observed in the PRIOR boot (distinct from OOMCollector, which reads the
 	// current boot's last 24h). Victims lists up to a few process names.
+	// OOMChecked is false when the --grep sub-call itself failed for a reason other
+	// than "no matches" (journalctl exits non-zero on zero matches too, so a genuine
+	// read failure and a genuinely clean boot are otherwise indistinguishable) —
+	// mirrors ShutdownChecked's "not measured" vs "measured and clean" distinction.
+	OOMChecked bool     `json:"oom_checked"`
 	OOMKills   int      `json:"oom_kills,omitempty"`
 	OOMVictims []string `json:"oom_victims,omitempty"`
 
 	// KernelPanic is true when the prior boot logged a panic / oops / fatal BUG; Hint
-	// carries a one-line excerpt of the matching kernel line.
-	KernelPanic bool   `json:"kernel_panic,omitempty"`
-	PanicHint   string `json:"panic_hint,omitempty"`
+	// carries a one-line excerpt of the matching kernel line. PanicChecked mirrors
+	// OOMChecked above.
+	PanicChecked bool   `json:"panic_checked"`
+	KernelPanic  bool   `json:"kernel_panic,omitempty"`
+	PanicHint    string `json:"panic_hint,omitempty"`
 }
