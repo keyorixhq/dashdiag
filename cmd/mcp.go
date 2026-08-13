@@ -130,30 +130,39 @@ func safeBundlePath(raw string) (string, error) {
 // a meaningful throughput concern for a diagnostic tool.
 var mcpPipelineMu sync.Mutex
 
-// mcpToolTimeout bounds toolHealth/toolCapture's own context.Background()
-// (the MCP SDK's request context isn't threaded through — see both funcs'
-// discarded first parameter), matching the product's own <35s completion
-// promise plus headroom for toolCapture's tar/gzip write. Without this, a
-// single hung collector (a real network dial with no timeout of its own, a
-// filtered egress path in a sandboxed environment) had nothing bounding the
-// MCP call at all.
+// runHealthOnceFn is runHealthOnce by default. It's a package-level seam so
+// tests can substitute a stub that captures the ctx it receives, to verify
+// that toolHealth/toolCapture forward the caller's real request-scoped
+// context instead of silently substituting context.Background() (which would
+// make the JSON-RPC caller's own cancellation/timeout unable to bound the
+// underlying collector run).
+var runHealthOnceFn = runHealthOnce
+
+// mcpToolTimeout additionally bounds toolHealth/toolCapture's collector run
+// on top of whatever cancellation the caller's own ctx carries — the MCP SDK
+// dispatches tools/call with jsonrpc2.Async, so ctx IS a real per-request
+// context, but a client that never cancels still needs a backstop. Matches
+// the product's own <35s completion promise plus headroom for toolCapture's
+// tar/gzip write. Without this, a single hung collector (a real network dial
+// with no timeout of its own, a filtered egress path in a sandboxed
+// environment) had nothing bounding the MCP call if the caller didn't cancel.
 const mcpToolTimeout = 40 * time.Second
 
 // toolHealth runs the full health pipeline and returns the JSON verdict.
 // Equivalent to `dsd health --json [--deep] [--cve]`.
-func toolHealth(_ context.Context, _ *mcp.CallToolRequest, in mcpHealthInput) (
+func toolHealth(ctx context.Context, _ *mcp.CallToolRequest, in mcpHealthInput) (
 	*mcp.CallToolResult, any, error,
 ) {
 	mcpPipelineMu.Lock()
 	defer mcpPipelineMu.Unlock()
 
-	ctx, cancel := context.WithTimeout(context.Background(), mcpToolTimeout)
+	ctx, cancel := context.WithTimeout(ctx, mcpToolTimeout)
 	defer cancel()
 	ctrCtx := collectors.ContainerContextViaSource()
 	cloudEnv := collectors.CloudEnvironmentViaSource()
 	profile := collectors.ProfileViaSource()
 
-	results, insights, _, _ := runHealthOnce(ctx, ctrCtx, cloudEnv, profile,
+	results, insights, _, _ := runHealthOnceFn(ctx, ctrCtx, cloudEnv, profile,
 		output.ModePlain, healthRunOpts{IncludeDeep: in.Deep, IncludeCVE: in.CVE, Terse: !in.Deep}, nil)
 
 	data, err := render.RenderJSON(results, insights)
@@ -186,7 +195,7 @@ func redactMCPJSON(data []byte) []byte {
 
 // toolCapture records a raw bundle, writing it to in.OutPath.
 // Equivalent to `dsd capture --raw [--sanitize] [--identifiers] --out <path>`.
-func toolCapture(_ context.Context, _ *mcp.CallToolRequest, in mcpCaptureInput) (
+func toolCapture(ctx context.Context, _ *mcp.CallToolRequest, in mcpCaptureInput) (
 	*mcp.CallToolResult, mcpCaptureOutput, error,
 ) {
 	mcpPipelineMu.Lock()
@@ -200,7 +209,7 @@ func toolCapture(_ context.Context, _ *mcp.CallToolRequest, in mcpCaptureInput) 
 		in.Sanitize = true
 	}
 
-	ctx, cancel := context.WithTimeout(context.Background(), mcpToolTimeout)
+	ctx, cancel := context.WithTimeout(ctx, mcpToolTimeout)
 	defer cancel()
 	ctrCtx := platform.DetectContainerContext()
 	cloudEnv := platform.DetectCloudEnvironment()
@@ -211,7 +220,7 @@ func toolCapture(_ context.Context, _ *mcp.CallToolRequest, in mcpCaptureInput) 
 	defer collectors.SetSource(prev)
 
 	gpu := detectGPUPresence()
-	results, insights, _, _ := runHealthOnce(ctx, ctrCtx, cloudEnv, profile,
+	results, insights, _, _ := runHealthOnceFn(ctx, ctrCtx, cloudEnv, profile,
 		output.ModePlain, healthRunOpts{Terse: true, IncludeGPU: gpu}, nil)
 
 	b := rec.Bundle()

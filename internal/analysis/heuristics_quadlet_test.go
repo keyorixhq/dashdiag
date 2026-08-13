@@ -1,6 +1,7 @@
 package analysis
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -73,6 +74,40 @@ func TestCheckPodmanQuadletsMultipleFailed(t *testing.T) {
 	}
 	if !hasInsight(insights, "WARN", "a, b") {
 		t.Errorf("want both names: %q", insights[0].Message)
+	}
+}
+
+// TestCheckPodmanQuadletsFailedCapAt3 is the regression test for
+// internal-analysis-12-04: checkPodmanQuadlets joined the full, uncapped
+// failed/inactive/unverified name lists into the insight message, unlike
+// every sibling list-formatting call in this file (checkKVMVMs,
+// checkDockerContainers, checkK8sWorkloadsAndEvents, ...), which all cap with
+// firstN(names, 3). A host with many failed quadlets must not produce an
+// unbounded message.
+func TestCheckPodmanQuadletsFailedCapAt3(t *testing.T) {
+	d := models.DockerInfo{
+		Available: true,
+		Runtime:   "podman",
+		PodmanQuadlets: []models.PodmanQuadlet{
+			{Name: "a", ServiceUnit: "a.service", Failed: true, State: "failed"},
+			{Name: "b", ServiceUnit: "b.service", Failed: true, State: "failed"},
+			{Name: "c", ServiceUnit: "c.service", Failed: true, State: "failed"},
+			{Name: "d", ServiceUnit: "d.service", Failed: true, State: "failed"},
+			{Name: "e", ServiceUnit: "e.service", Failed: true, State: "failed"},
+		},
+	}
+	insights := checkPodmanQuadlets(d)
+	if len(insights) != 1 {
+		t.Fatalf("expected 1 insight, got %d", len(insights))
+	}
+	if !hasInsight(insights, "WARN", "5 Podman quadlet(s) failed") {
+		t.Errorf("want failed count 5: %q", insights[0].Message)
+	}
+	if !strings.Contains(insights[0].Message, "a, b, c") {
+		t.Errorf("want the first 3 names joined: %q", insights[0].Message)
+	}
+	if strings.Contains(insights[0].Message, "a, b, c, d") {
+		t.Errorf("failed quadlet names must be capped at 3 (like every other list in this file), got %q", insights[0].Message)
 	}
 }
 
