@@ -69,7 +69,8 @@ func mysqlArgs(sql string) []string {
 
 func TestMySQLCollector_Collect_FullHappyPath_NotReplica(t *testing.T) {
 	withCombinedFixture(t, map[string][]byte{
-		"dial/unix/" + mysqlSock: {'1'},
+		"dial/unix/" + mysqlSock:      {'1'},
+		"socketpeercred/" + mysqlSock: []byte(`{"uid":0,"present":true}`),
 	}, nil, func(b *source.Bundle) {
 		b.PutCmd("mysql", mysqlArgs("SELECT VERSION()"), "8.0.36\n", 0)
 		b.PutCmd("mysql", mysqlArgs("SELECT @@max_connections"), "151\n", 0)
@@ -101,7 +102,8 @@ func TestMySQLCollector_Collect_FullHappyPath_NotReplica(t *testing.T) {
 func TestMySQLCollector_Collect_ReplicaViaOldSlaveStatus(t *testing.T) {
 	slaveStatus := "Slave_IO_Running: Yes\nSlave_SQL_Running: Yes\nSeconds_Behind_Master: 3\n"
 	withCombinedFixture(t, map[string][]byte{
-		"dial/unix/" + mysqlSock: {'1'},
+		"dial/unix/" + mysqlSock:      {'1'},
+		"socketpeercred/" + mysqlSock: []byte(`{"uid":0,"present":true}`),
 	}, nil, func(b *source.Bundle) {
 		b.PutCmd("mysql", mysqlArgs("SELECT VERSION()"), "10.11.6-MariaDB\n", 0)
 		b.PutCmd("mysql", mysqlArgs("SELECT @@max_connections"), "151\n", 0)
@@ -132,7 +134,8 @@ func TestMySQLCollector_Collect_ReplicaViaOldSlaveStatus(t *testing.T) {
 func TestMySQLCollector_Collect_ReplicaViaNewReplicaStatusFallback(t *testing.T) {
 	replicaStatus := "Replica_IO_Running: Yes\nReplica_SQL_Running: Yes\nSeconds_Behind_Source: 9\n"
 	withCombinedFixture(t, map[string][]byte{
-		"dial/unix/" + mysqlSock: {'1'},
+		"dial/unix/" + mysqlSock:      {'1'},
+		"socketpeercred/" + mysqlSock: []byte(`{"uid":0,"present":true}`),
 	}, nil, func(b *source.Bundle) {
 		b.PutCmd("mysql", mysqlArgs("SELECT VERSION()"), "8.4.0\n", 0)
 		b.PutCmd("mysql", mysqlArgs("SELECT @@max_connections"), "151\n", 0)
@@ -161,7 +164,8 @@ func TestMySQLCollector_Collect_ReplicaViaNewReplicaStatusFallback(t *testing.T)
 
 func TestMySQLCollector_Collect_VersionQueryFails(t *testing.T) {
 	withCombinedFixture(t, map[string][]byte{
-		"dial/unix/" + mysqlSock: {'1'},
+		"dial/unix/" + mysqlSock:      {'1'},
+		"socketpeercred/" + mysqlSock: []byte(`{"uid":0,"present":true}`),
 	}, nil, func(b *source.Bundle) {
 		b.PutCmd("mysql", mysqlArgs("SELECT VERSION()"), "", 1)
 	})
@@ -185,7 +189,8 @@ func TestMySQLCollector_Collect_VersionQueryFails(t *testing.T) {
 
 func TestMySQLCollector_Collect_ConnStatsRequiresBothQueries(t *testing.T) {
 	withCombinedFixture(t, map[string][]byte{
-		"dial/unix/" + mysqlSock: {'1'},
+		"dial/unix/" + mysqlSock:      {'1'},
+		"socketpeercred/" + mysqlSock: []byte(`{"uid":0,"present":true}`),
 	}, nil, func(b *source.Bundle) {
 		b.PutCmd("mysql", mysqlArgs("SELECT VERSION()"), "8.0.36\n", 0)
 		b.PutCmd("mysql", mysqlArgs("SELECT @@max_connections"), "151\n", 0)
@@ -206,6 +211,77 @@ func TestMySQLCollector_Collect_ConnStatsRequiresBothQueries(t *testing.T) {
 	}
 	if info.MaxConnections != 151 {
 		t.Errorf("MaxConnections = %d, want 151 (still recorded)", info.MaxConnections)
+	}
+}
+
+// TestMySQLCollector_Collect_UntrustedPeer_SkipsMetrics is the regression test
+// for the socket-trust fix: a listener on the socket path whose kernel-verified
+// SO_PEERCRED UID is neither root nor the mysql service account must NOT have
+// the mysql client run against it. Before the fix, ANY listener accepting the
+// dial was treated as the real server and queried — an unprivileged local
+// attacker who pre-created e.g. /tmp/mysql.sock could feed
+// collectMySQLMetrics fabricated output that dsd would report as genuine.
+func TestMySQLCollector_Collect_UntrustedPeer_SkipsMetrics(t *testing.T) {
+	withCombinedFixture(t, map[string][]byte{
+		"dial/unix/" + mysqlSock:      {'1'},
+		"socketpeercred/" + mysqlSock: []byte(`{"uid":1000,"present":true}`),
+		"userlookup/mysql":            []byte("27"), // distinct from the attacker's uid 1000
+	}, nil, func(b *source.Bundle) {
+		// If the trust gate is broken, Collect would run this and MetricsRead
+		// would come back true — the query is seeded to SUCCEED so a failure to
+		// gate (not a query error) is what would make this test pass wrongly.
+		b.PutCmd("mysql", mysqlArgs("SELECT VERSION()"), "8.0.36\n", 0)
+	})
+
+	c := NewMySQLCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.MySQLInfo)
+	if !info.PeerVerified {
+		t.Error("PeerVerified = false, want true — the SO_PEERCRED probe itself succeeded")
+	}
+	if info.PeerTrusted {
+		t.Error("PeerTrusted = true, want false — peer uid 1000 is neither root nor the mysql account")
+	}
+	if info.MetricsRead {
+		t.Error("MetricsRead = true, want false — must never query an unverified/untrusted listener")
+	}
+	if info.StatusReason == "" {
+		t.Error("expected a StatusReason disclosing the untrusted peer")
+	}
+}
+
+// TestMySQLCollector_Collect_UnverifiedPeer_SkipsMetrics covers a recording gap
+// / probe failure (e.g. a bundle captured before this check existed, or the
+// SO_PEERCRED syscall itself failing) — PeerVerified must be false and metrics
+// must still be skipped (not silently treated as trusted).
+func TestMySQLCollector_Collect_UnverifiedPeer_SkipsMetrics(t *testing.T) {
+	withCombinedFixture(t, map[string][]byte{
+		"dial/unix/" + mysqlSock: {'1'},
+		// No "socketpeercred/" entry at all — simulates a recording gap.
+	}, nil, func(b *source.Bundle) {
+		b.PutCmd("mysql", mysqlArgs("SELECT VERSION()"), "8.0.36\n", 0)
+	})
+
+	c := NewMySQLCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.MySQLInfo)
+	if info.PeerVerified {
+		t.Error("PeerVerified = true, want false — no recorded probe result")
+	}
+	if info.PeerTrusted {
+		t.Error("PeerTrusted = true, want false when unverified")
+	}
+	if info.MetricsRead {
+		t.Error("MetricsRead = true, want false when peer identity couldn't be verified")
+	}
+	if info.StatusReason == "" {
+		t.Error("expected a StatusReason disclosing the unverified peer")
 	}
 }
 

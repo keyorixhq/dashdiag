@@ -51,6 +51,26 @@ func (c *PostgresCollector) Collect(ctx context.Context) (interface{}, error) {
 	}
 	info := &models.PostgresInfo{Detected: true, SocketDir: dir}
 
+	// Verify the socket is actually owned by root or the postgres service
+	// account before running a client against it — the socket-dir candidate
+	// list includes /tmp, which an unprivileged local attacker can pre-create
+	// a same-named socket in, whose impostor listener could feed
+	// collectPostgresMetrics fabricated output. See socketpeer_linux.go for why
+	// SO_PEERCRED (kernel-verified, unspoofable by the peer) is the sound
+	// check here.
+	sockPath := dir + "/.s.PGSQL.5432"
+	trusted, verified := socketPeerTrusted(sockPath, "postgres")
+	info.PeerVerified = verified
+	info.PeerTrusted = trusted
+	if !verified {
+		info.StatusReason = "socket peer identity could not be verified — skipping metrics rather than trusting an unverified listener"
+		return info, nil
+	}
+	if !trusted {
+		info.StatusReason = "socket present but not owned by root or the postgres service account — refusing to query a possible impostor listener"
+		return info, nil
+	}
+
 	// Liveness — pg_isready needs no authentication. err==nil ⇒ exit 0 ⇒ accepting.
 	out, err := runCmd(ctx, "pg_isready", "-h", dir, "-q")
 	info.Accepting = err == nil

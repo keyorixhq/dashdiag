@@ -98,6 +98,8 @@ var guardedUnverifiedSignals = map[string]string{
 	"ServiceResult.Reachable":           "service-collector heuristic (DEGRADED when unreachable; analysis/heuristics_round9_test.go)",
 	"VaultInfo.Reachable":               "analysis/heuristics_vault.go checkVault (!Reachable → WARN, never silent OK)",
 	"IPMIInfo.NeedsRoot":                "analysis/heuristics_round9_test.go (non-root BMC read → INFO 're-run as root', not a WARN) + collectors/ipmi_linux_test.go",
+	"MySQLInfo.PeerVerified":            "collectors/socketpeer_linux_test.go + collectors/mysql_linux_test.go (SO_PEERCRED unverified/untrusted → metrics skipped with StatusReason, never a silent OK against an impostor listener)",
+	"PostgresInfo.PeerVerified":         "collectors/socketpeer_linux_test.go + collectors/postgres_linux_test.go (SO_PEERCRED unverified/untrusted → metrics skipped with StatusReason, never a silent OK against an impostor listener)",
 
 	// RHEL/Oracle maintenance — heuristic folds the unmeasured state to INFO, never OK.
 	"ServiceRestartInfo.NeedsRoot":    "analysis/heuristics_maintenance_test.go (non-root partial /proc scan → INFO 'partial', not a clean OK)",
