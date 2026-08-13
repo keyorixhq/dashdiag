@@ -3,11 +3,13 @@ package source
 import (
 	"archive/tar"
 	"compress/gzip"
+	"errors"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 const maxUntarFileSize int64 = 100 << 20 // 100 MiB per extracted file
@@ -50,7 +52,15 @@ func tarGzDir(srcDir, dstPath string) error {
 	// 0600: a capture bundle can carry sanitized-but-still-sensitive host data
 	// (paths, hostnames, config); don't leave it world/group-readable on a
 	// shared multi-user box merely because os.Create defers to umask.
-	f, err := os.OpenFile(dstPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600) // #nosec G304 -- operator-chosen output path
+	// O_NOFOLLOW: dstPath is operator/caller-chosen (--out, or an MCP tool's
+	// out_path) and can be a fixed/predictable path. Without this, a
+	// pre-existing symlink at dstPath would be followed and its target
+	// silently overwritten with the bundle instead of the write being
+	// refused — the same hazard cmd/root.go's createOutFile guards for --out.
+	f, err := os.OpenFile(dstPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|syscall.O_NOFOLLOW, 0o600) // #nosec G304 -- operator-chosen output path; O_NOFOLLOW blocks symlink-follow
+	if errors.Is(err, syscall.ELOOP) {
+		return fmt.Errorf("source: refusing to write through a symlink at %q", dstPath)
+	}
 	if err != nil {
 		return err
 	}
