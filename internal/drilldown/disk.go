@@ -21,7 +21,8 @@ func LargestDirs(ctx context.Context, mount string) (*models.Details, error) {
 	// at the mount root are visible, not just subdirectories.
 	children, err := os.ReadDir(mount)
 	if err != nil {
-		return largestDirsFallback(ctx, mount)
+		d, err := largestDirsFallback(ctx, mount)
+		return sanitizeDetails(d), err
 	}
 
 	type entry struct {
@@ -76,7 +77,11 @@ func LargestDirs(ctx context.Context, mount string) (*models.Details, error) {
 		d.Note = fmt.Sprintf("%d entr%s could not be measured (often a permission-denied subdirectory) and may be hidden from this list — run as root for full visibility",
 			skipped, pluralIes(skipped))
 	}
-	return d, nil
+	// Filenames are attacker-writable by any local user who can create a file
+	// under the drilled-down mount and can embed control/ANSI-escape bytes
+	// (up to 255 bytes on Linux) — strip them before the path reaches the
+	// rendered table.
+	return sanitizeDetails(d), nil
 }
 
 func pluralIes(n int) string {

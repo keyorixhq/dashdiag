@@ -14,6 +14,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/platform"
@@ -255,10 +256,34 @@ func countRPM() int {
 	return strings.Count(trimmed, "\n") + 1
 }
 
+// readTrim reads path and trims surrounding whitespace, assuming — but not
+// enforcing on its own — that kernel-exposed sysfs/DMI attribute values are
+// printable text. A crafted DMI string or block-device model/serial can
+// carry raw ANSI/OSC escape sequences, and every caller of readTrim ends up
+// in models.Inventory string fields that reach `dsd inventory`'s JSON/CSV/
+// stdout output with no other sanitization in the pipeline — strip control
+// characters here so every caller gets an already-safe value.
 func readTrim(path string) string {
 	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(string(data))
+	return stripControl(strings.TrimSpace(string(data)))
+}
+
+// stripControl removes control characters (including ESC, which starts
+// ANSI/OSC/DCS terminal escape sequences) from s, leaving printable text
+// unchanged. inventory/ has no dependency on internal/output today, so this
+// duplicates the small amount of logic in output.SanitizeControl rather than
+// adding a new cross-package import for one helper.
+func stripControl(s string) string {
+	if !strings.ContainsFunc(s, unicode.IsControl) {
+		return s
+	}
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, s)
 }

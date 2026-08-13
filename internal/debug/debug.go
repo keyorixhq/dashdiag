@@ -15,6 +15,7 @@ import (
 	"os"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // ctxKey is unexported so nothing outside this package can forge a debug context.
@@ -59,7 +60,15 @@ func Log(ctx context.Context, component, msg string, kvs ...any) {
 		fmt.Fprintf(&sb, "  MISSING_VALUE_FOR=%v", kvs[len(kvs)-1])
 	}
 
-	fmt.Fprintln(os.Stderr, sb.String())
+	// Every kv value here can ultimately originate from the host being
+	// diagnosed (err strings from failed probes/subprocess calls, hostnames/
+	// IPs from the routing table, etc.) — --debug is exactly the mode an
+	// operator reaches for when investigating a host they suspect is broken
+	// or hostile. Strip control characters (including embedded newlines,
+	// which could forge a fake "[debug] ..." line, and ESC, which starts
+	// ANSI/OSC terminal escape sequences) before this reaches the operator's
+	// terminal.
+	fmt.Fprintln(os.Stderr, stripControl(sb.String()))
 }
 
 // Logf writes a debug line using a printf-style format string.
@@ -70,5 +79,28 @@ func Logf(ctx context.Context, component, format string, args ...any) {
 	}
 	ts := time.Now().Format("15:04:05.000")
 	msg := fmt.Sprintf(format, args...)
-	fmt.Fprintf(os.Stderr, "[debug] %s  %-14s  %s\n", ts, component, msg)
+	// Same rationale as Log above: args can carry attacker-influenced text
+	// from the diagnosed host — strip control/ANSI-escape bytes (including
+	// embedded newlines) before this reaches the operator's terminal.
+	line := fmt.Sprintf("[debug] %s  %-14s  %s", ts, component, msg)
+	fmt.Fprintln(os.Stderr, stripControl(line))
+}
+
+// stripControl removes control characters (including ESC, which starts
+// ANSI/OSC/DCS terminal escape sequences, and \n/\r, which could forge a
+// fake "[debug] ..." line) from s, leaving printable text unchanged. debug/
+// is imported by collectors/ and runner/, both restricted by CLAUDE.md's
+// layered-import contract to a narrow allowlist that doesn't include
+// internal/output, so this duplicates the small amount of logic in
+// output.SanitizeControl rather than adding a new cross-package import.
+func stripControl(s string) string {
+	if !strings.ContainsFunc(s, unicode.IsControl) {
+		return s
+	}
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, s)
 }

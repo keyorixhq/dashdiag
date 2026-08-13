@@ -773,6 +773,11 @@ func inlineDrives(data any) string {
 		} else {
 			name = n.SATADevices[0].Name
 		}
+		// Device name is driver/firmware-reported (e.g. via nvme-cli/smartctl)
+		// and, under a crafted/virtual device, can carry control/ANSI-escape
+		// bytes — strip them before this reaches the summary line printed to
+		// the terminal.
+		name = output.SanitizeControl(name)
 		if unread == 1 {
 			return name + "  detected (SMART not read)"
 		}
@@ -1212,7 +1217,10 @@ func inlineGPU(data any) string {
 	}
 	if len(g.Devices) == 1 {
 		d := g.Devices[0]
-		s := d.Name
+		// GPU device name is driver-reported (e.g. via nvidia-smi) and, under
+		// a crafted/emulated device, can carry control/ANSI-escape bytes —
+		// strip them before this reaches the summary line.
+		s := output.SanitizeControl(d.Name)
 		if d.TempC > 0 {
 			s += fmt.Sprintf("  %d°C", d.TempC)
 		}
@@ -1228,7 +1236,7 @@ func inlineGPU(data any) string {
 	if len(g.Devices) == 2 {
 		var parts []string
 		for _, d := range g.Devices {
-			s := d.Name
+			s := output.SanitizeControl(d.Name)
 			if d.TempC > 0 {
 				s += fmt.Sprintf(" %d°C", d.TempC)
 			}
@@ -1245,7 +1253,7 @@ func inlineGPU(data any) string {
 	}
 	s := fmt.Sprintf("%d GPUs", len(g.Devices))
 	if hottest.TempC > 0 {
-		s += fmt.Sprintf("  max %d°C (%s)", hottest.TempC, hottest.Name)
+		s += fmt.Sprintf("  max %d°C (%s)", hottest.TempC, output.SanitizeControl(hottest.Name))
 	}
 	return s
 }
@@ -1264,10 +1272,13 @@ func diskInline(data any) string {
 	if len(fs) == 0 {
 		return ""
 	}
+	// Mount is parsed from the mount table and, via a FUSE/bind mount an
+	// unprivileged user controls the path of, can carry control/ANSI-escape
+	// bytes — strip them before this reaches the summary line.
 	if len(fs) <= 2 {
 		var parts []string
 		for _, f := range fs {
-			parts = append(parts, fmt.Sprintf("%s %.0f%%", f.Mount, f.UsedPct))
+			parts = append(parts, fmt.Sprintf("%s %.0f%%", output.SanitizeControl(f.Mount), f.UsedPct))
 		}
 		return strings.Join(parts, "  ")
 	}
@@ -1278,7 +1289,7 @@ func diskInline(data any) string {
 			worst = f
 		}
 	}
-	return fmt.Sprintf("%d mounts, max %.0f%% (%s)", len(fs), worst.UsedPct, worst.Mount)
+	return fmt.Sprintf("%d mounts, max %.0f%% (%s)", len(fs), worst.UsedPct, output.SanitizeControl(worst.Mount))
 }
 
 // networkInline implements Option C for multiple NICs.
@@ -1308,14 +1319,18 @@ func networkInline(data any) string {
 	if len(up) == 0 {
 		return ""
 	}
+	// Interface/bond names are attacker-influenceable (e.g. a crafted virtual
+	// NIC or a user-namespace-visible device) — strip control/ANSI-escape
+	// bytes at this single choke point before any name reaches the summary.
 	ifaceStr := func(i models.InterfaceInfo) string {
+		name := output.SanitizeControl(i.Name)
 		if i.SpeedMbps >= 1000 {
-			return fmt.Sprintf("%s %dGbps", i.Name, i.SpeedMbps/1000)
+			return fmt.Sprintf("%s %dGbps", name, i.SpeedMbps/1000)
 		}
 		if i.SpeedMbps > 0 {
-			return fmt.Sprintf("%s %dMbps", i.Name, i.SpeedMbps)
+			return fmt.Sprintf("%s %dMbps", name, i.SpeedMbps)
 		}
-		return i.Name
+		return name
 	}
 	ifaceSummary := ""
 	if len(up) <= 2 {
@@ -1340,11 +1355,12 @@ func networkInline(data any) string {
 	}
 	// Append bond health summary if any bonds exist
 	for _, b := range n.Bonds {
+		bondName := output.SanitizeControl(b.Name)
 		if b.AllDown {
-			ifaceSummary += fmt.Sprintf("  ❌ %s DOWN", b.Name)
+			ifaceSummary += fmt.Sprintf("  ❌ %s DOWN", bondName)
 		} else if b.Degraded {
 			upCount := len(b.Slaves) - b.DownSlaves
-			ifaceSummary += fmt.Sprintf("  ⚠️  %s %d/%d slaves", b.Name, upCount, len(b.Slaves))
+			ifaceSummary += fmt.Sprintf("  ⚠️  %s %d/%d slaves", bondName, upCount, len(b.Slaves))
 		}
 	}
 	return ifaceSummary

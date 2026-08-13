@@ -11,6 +11,13 @@ import (
 	"time"
 )
 
+// writeProcIOFixture writes /proc/<pid>/io and a matching /proc/<pid>/stat
+// (constant fixtureStartTime, same helper cpu_test.go uses) so
+// topProcessesByIOLinuxAt's starttime-based identity check — added to close
+// the recycled-PID misattribution finding — sees the same process instance
+// across repeated calls for the same pid within one test. Tests that need to
+// simulate an actual PID recycling (different starttime) write /proc/<pid>/stat
+// themselves via writeProcStatFixtureWithStart instead.
 func writeProcIOFixture(t *testing.T, procRoot string, pid int, readBytes, writeBytes uint64) {
 	t.Helper()
 	dir := filepath.Join(procRoot, strconv.Itoa(pid))
@@ -23,6 +30,7 @@ func writeProcIOFixture(t *testing.T, procRoot string, pid int, readBytes, write
 	if err := os.WriteFile(filepath.Join(dir, "io"), []byte(content), 0644); err != nil {
 		t.Fatalf("WriteFile io: %v", err)
 	}
+	writeProcStatFixtureWithStart(t, procRoot, pid, "R", 1, 0, 0, fixtureStartTime)
 }
 
 func TestReadProcIO_HappyPath(t *testing.T) {
@@ -164,6 +172,39 @@ func TestTopProcessesByIOLinux_RecycledPIDSkipped(t *testing.T) {
 	}
 	if len(got.Rows) != 0 {
 		t.Errorf("expected the recycled pid to be skipped, got %+v", got.Rows)
+	}
+}
+
+// TestTopProcessesByIOLinux_RecycledPIDHigherCounterDifferentStartTimeSkipped
+// guards Finding internal-drilldown-01-09: the old "counter went backwards"
+// check alone cannot catch a PID recycled between the two samples if the new
+// process happens to report HIGHER byte counters than the old one's first
+// sample — that case must now be caught by the starttime (stat field 22)
+// identity mismatch, not silently misattributed to the wrong process.
+func TestTopProcessesByIOLinux_RecycledPIDHigherCounterDifferentStartTimeSkipped(t *testing.T) {
+	procRoot := t.TempDir()
+	const pid = 8
+	// First sample: original process, starttime=1000, low counters.
+	writeProcIOFixture(t, procRoot, pid, 100, 100)
+	writeProcStatFixtureWithStart(t, procRoot, pid, "R", 1, 0, 0, 1000)
+
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		// Second sample: PID recycled by an unrelated process (different
+		// starttime) that happens to report much HIGHER byte counters — the
+		// exact scenario the plain monotonicity check misses.
+		writeProcIOFixture(t, procRoot, pid, 999999, 999999)
+		writeProcStatFixtureWithStart(t, procRoot, pid, "R", 1, 0, 0, 2000)
+	}()
+
+	got, err := topProcessesByIOLinuxAt(context.Background(), 5, procRoot)
+	if err != nil {
+		t.Fatalf("topProcessesByIOLinuxAt: %v", err)
+	}
+	for _, row := range got.Rows {
+		if row[0] == strconv.Itoa(pid) {
+			t.Errorf("recycled pid %d with mismatched starttime must be excluded even with higher counters, got row %+v", pid, row)
+		}
 	}
 }
 

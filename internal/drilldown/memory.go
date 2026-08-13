@@ -17,10 +17,17 @@ import (
 
 // TopProcessesByRSS returns the top n processes sorted by RSS.
 func TopProcessesByRSS(ctx context.Context, n int) (*models.Details, error) {
+	var d *models.Details
+	var err error
 	if runtime.GOOS == "darwin" {
-		return topProcessesByRSSMac(ctx, n)
+		d, err = topProcessesByRSSMac(ctx, n)
+	} else {
+		d, err = topProcessesByRSSLinux(ctx, n)
 	}
-	return topProcessesByRSSLinux(ctx, n)
+	// Name comes from /proc/PID/status's Name: field (or ps comm on macOS),
+	// both attacker-settable via prctl(PR_SET_NAME) — strip control/ANSI-escape
+	// bytes before this reaches a rendered table.
+	return sanitizeDetails(d), err
 }
 
 type procMem struct {

@@ -1,6 +1,7 @@
 package render
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -578,5 +579,59 @@ func TestNetworkInlineBranches(t *testing.T) {
 	}
 	if got != "bond0" {
 		t.Errorf("bond slaves should be excluded from the NIC list: got %q, want %q", got, "bond0")
+	}
+}
+
+// TestInlineSanitizesControlChars guards Finding internal-render-02-02: mount
+// paths, interface/bond names, GPU device names, and drive names all
+// originate from parsed /proc, /sys, or external tool output an attacker can
+// influence (a FUSE/bind mount, a crafted virtual NIC/GPU/drive), and none of
+// inlineDrives/inlineGPU/diskInline/networkInline stripped control characters
+// before building the summary line later written to os.Stdout.
+func TestInlineSanitizesControlChars(t *testing.T) {
+	t.Parallel()
+	evil := "evil\x1b[2Jname"
+
+	if got := inlineDrives(models.NVMeInfo{Devices: []models.NVMeDevice{{Name: evil, SmartRead: true}}}); strings.ContainsRune(got, 0x1b) {
+		t.Errorf("inlineDrives (1 device): control byte survived: %q", got)
+	}
+	if got := inlineDrives(models.NVMeInfo{
+		Devices:     []models.NVMeDevice{{Name: "nvme0", SmartRead: true}},
+		SATADevices: []models.SATADevice{{Name: evil, SmartRead: true}},
+	}); strings.ContainsRune(got, 0x1b) {
+		t.Errorf("inlineDrives (SATA path): control byte survived: %q", got)
+	}
+
+	if got := inlineGPU(models.GPUInfo{Devices: []models.GPUDevice{{Name: evil}}}); strings.ContainsRune(got, 0x1b) {
+		t.Errorf("inlineGPU (1 device): control byte survived: %q", got)
+	}
+	if got := inlineGPU(models.GPUInfo{Devices: []models.GPUDevice{{Name: evil}, {Name: "card1"}}}); strings.ContainsRune(got, 0x1b) {
+		t.Errorf("inlineGPU (2 devices): control byte survived: %q", got)
+	}
+	if got := inlineGPU(models.GPUInfo{Devices: []models.GPUDevice{{Name: evil, TempC: 90}, {Name: "card1", TempC: 10}, {Name: "card2", TempC: 20}}}); strings.ContainsRune(got, 0x1b) {
+		t.Errorf("inlineGPU (3+ devices, hottest): control byte survived: %q", got)
+	}
+
+	diskShort := models.DiskInfo{Filesystems: []models.FilesystemInfo{{Mount: evil, UsedPct: 10}}}
+	if got := diskInline(diskShort); strings.ContainsRune(got, 0x1b) {
+		t.Errorf("diskInline (<=2 mounts): control byte survived: %q", got)
+	}
+	diskMany := models.DiskInfo{Filesystems: []models.FilesystemInfo{
+		{Mount: "/", UsedPct: 10}, {Mount: "/boot", UsedPct: 20}, {Mount: evil, UsedPct: 90},
+	}}
+	if got := diskInline(diskMany); strings.ContainsRune(got, 0x1b) {
+		t.Errorf("diskInline (3+ mounts, worst): control byte survived: %q", got)
+	}
+
+	netShort := models.NetworkInfo{Interfaces: []models.InterfaceInfo{{Name: evil, Up: true, SpeedMbps: 1000}}}
+	if got := networkInline(netShort); strings.ContainsRune(got, 0x1b) {
+		t.Errorf("networkInline (<=2 NICs): control byte survived: %q", got)
+	}
+	netBond := models.NetworkInfo{
+		Interfaces: []models.InterfaceInfo{{Name: "eth0", Up: true}},
+		Bonds:      []models.BondInterface{{Name: evil, AllDown: true}},
+	}
+	if got := networkInline(netBond); strings.ContainsRune(got, 0x1b) {
+		t.Errorf("networkInline (bond name): control byte survived: %q", got)
 	}
 }

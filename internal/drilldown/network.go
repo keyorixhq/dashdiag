@@ -28,10 +28,18 @@ const procAttrNote = "per-process attribution requires ss or root access"
 // TCPStateAttribution returns a breakdown of TCP connection states with
 // per-process attribution for anomalous patterns.
 func TCPStateAttribution(ctx context.Context, results []runner.Result) (*models.Details, error) {
+	var d *models.Details
+	var err error
 	if runtime.GOOS == "darwin" {
-		return tcpStatesMac(ctx)
+		d, err = tcpStatesMac(ctx)
+	} else {
+		d, err = tcpStatesLinux(ctx)
 	}
-	return tcpStatesLinux(ctx)
+	// parseSSProc extracts the process name from ss's users:(...) field, which
+	// is ultimately sourced from /proc/PID/comm and attacker-settable via
+	// prctl(PR_SET_NAME) — strip control/ANSI-escape bytes before it reaches
+	// the PROCESS column.
+	return sanitizeDetails(d), err
 }
 
 func tcpStatesLinux(ctx context.Context) (*models.Details, error) {

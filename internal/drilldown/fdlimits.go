@@ -16,10 +16,18 @@ import (
 
 // TopProcessesByFDPercent returns the top n processes by file descriptor usage %.
 func TopProcessesByFDPercent(ctx context.Context, n int) (*models.Details, error) {
+	var d *models.Details
+	var err error
 	if runtime.GOOS == "darwin" {
-		return topProcessesByFDMac(ctx, n)
+		d, err = topProcessesByFDMac(ctx, n)
+	} else {
+		d, err = topProcessesByFDLinux(ctx, n)
 	}
-	return topProcessesByFDLinux(ctx, n)
+	// name comes from procComm/ps comm, attacker-settable via
+	// prctl(PR_SET_NAME) — strip control/ANSI-escape bytes before this reaches
+	// the rendered table (procComm already sanitizes, this covers the macOS
+	// `ps -o comm=` path too).
+	return sanitizeDetails(d), err
 }
 
 type fdEntry struct {

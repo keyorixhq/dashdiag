@@ -253,6 +253,43 @@ func TestRenderStoryFromHistory_ZombieOffenderAndRecovered(t *testing.T) {
 	}
 }
 
+// TestRenderStorySanitizesControlChars guards Finding internal-render-04-01:
+// ins.Message/c.Value and extractZombieOffender's ParentName (sourced from
+// /proc/PID/comm, attacker-settable via prctl(PR_SET_NAME)) reach the
+// terminal with no control-character stripping in either narration path.
+func TestRenderStorySanitizesControlChars(t *testing.T) {
+	t.Parallel()
+	evil := "evil\x1b[2Jname"
+
+	// Single-point path: ins.Message.
+	s := snapAt(time.Date(2026, 6, 6, 15, 4, 0, 0, time.UTC), baseline.CheckResult{Name: "CPU Load", Status: "OK"})
+	insights := []models.Insight{{Check: "CPU Load", Level: "CRIT", Message: evil}}
+	got := renderStorySinglePoint(insights, s)
+	if strings.ContainsRune(got, 0x1b) {
+		t.Errorf("renderStorySinglePoint: control byte survived: %q", got)
+	}
+
+	// History path: c.Value and the zombie-offender ParentName.
+	t0 := time.Date(2026, 6, 6, 10, 0, 0, 0, time.UTC)
+	t1 := t0.Add(time.Hour)
+	zombieRaw := map[string]any{
+		"zombie_procs": []any{map[string]any{"parent_name": evil}},
+	}
+	hist := []*baseline.Snapshot{
+		snapAt(t0, baseline.CheckResult{Name: "Processes", Status: "OK", Value: "120 running"}),
+		snapAt(t1, baseline.CheckResult{Name: "Processes", Status: "CRIT", Value: evil, Raw: zombieRaw}),
+	}
+	out := renderStoryFromHistory(hist)
+	if strings.ContainsRune(out, 0x1b) {
+		t.Errorf("renderStoryFromHistory: control byte survived: %q", out)
+	}
+
+	// extractZombieOffender directly.
+	if got := extractZombieOffender(zombieRaw); strings.ContainsRune(got, 0x1b) {
+		t.Errorf("extractZombieOffender: control byte survived: %q", got)
+	}
+}
+
 // renderStorySinglePoint is the fallback RenderStory uses when no baseline
 // history exists yet (fewer than 2 saved snapshots).
 func TestRenderStorySinglePoint(t *testing.T) {

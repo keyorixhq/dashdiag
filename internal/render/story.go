@@ -7,6 +7,7 @@ import (
 
 	"github.com/keyorixhq/dashdiag/internal/baseline"
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/output"
 )
 
 const storyTimeFmt = "15:04 02.01.2006"
@@ -28,17 +29,21 @@ func RenderStoryFromHistory(history []*baseline.Snapshot) string {
 // renderStorySinglePoint is the fallback when no history exists yet.
 func renderStorySinglePoint(insights []models.Insight, snap *baseline.Snapshot) string {
 	ts := snap.Timestamp.Local().Format(storyTimeFmt)
+	hostname := output.SanitizeControl(snap.Hostname)
 	active := activeInsights(insights)
 	if len(active) == 0 {
 		return fmt.Sprintf("System health at %s on %s — all %d checks passed.",
-			ts, snap.Hostname, len(snap.Checks))
+			ts, hostname, len(snap.Checks))
 	}
 	var lines []string
 	for _, ins := range active {
-		lines = append(lines, fmt.Sprintf("  %s: %s", ins.Check, ins.Message))
+		// ins.Message can carry attacker-controlled substrings (e.g. a process
+		// name set via prctl(PR_SET_NAME)) — strip control/ANSI-escape bytes
+		// before this narration is written to the terminal.
+		lines = append(lines, fmt.Sprintf("  %s: %s", ins.Check, output.SanitizeControl(ins.Message)))
 	}
 	return fmt.Sprintf("System health at %s on %s:\n%s",
-		ts, snap.Hostname, strings.Join(lines, "\n"))
+		ts, hostname, strings.Join(lines, "\n"))
 }
 
 // renderStoryFromHistory narrates across multiple baseline snapshots.
@@ -51,7 +56,7 @@ func renderStoryFromHistory(history []*baseline.Snapshot) string {
 	last := history[len(history)-1]
 	start := first.Timestamp.Local().Format(storyTimeFmt)
 	end := last.Timestamp.Local().Format(storyTimeFmt)
-	hostname := last.Hostname
+	hostname := output.SanitizeControl(last.Hostname)
 	n := len(history)
 
 	// Track events: when each check changed status
@@ -78,7 +83,12 @@ func renderStoryFromHistory(history []*baseline.Snapshot) string {
 		for _, c := range snap.Checks {
 			prev := prevStatus[c.Name]
 			if prev != "" && prev != c.Status {
-				msg := c.Value
+				// c.Value can carry attacker-controlled substrings the same
+				// way ins.Message does elsewhere; extractZombieOffender pulls
+				// ParentName straight from /proc/PID/comm (attacker-settable
+				// via prctl(PR_SET_NAME)) — both need stripping before this
+				// narration reaches the terminal.
+				msg := output.SanitizeControl(c.Value)
 				if c.Name == "Processes" && (c.Status == "WARN" || c.Status == "CRIT") {
 					if offender := extractZombieOffender(c.Raw); offender != "" {
 						msg = fmt.Sprintf("%s (offender: %s)", msg, offender)
@@ -101,7 +111,7 @@ func renderStoryFromHistory(history []*baseline.Snapshot) string {
 	var currentIssues []string
 	for _, c := range last.Checks {
 		if c.Status == "WARN" || c.Status == "CRIT" {
-			currentIssues = append(currentIssues, fmt.Sprintf("  %s: %s", c.Name, c.Value))
+			currentIssues = append(currentIssues, fmt.Sprintf("  %s: %s", c.Name, output.SanitizeControl(c.Value)))
 		}
 	}
 
@@ -204,6 +214,10 @@ func extractZombieOffender(raw any) string {
 		if idx := strings.LastIndexByte(name, '/'); idx >= 0 {
 			name = name[idx+1:]
 		}
+		// parent_name is /proc/PID/comm, attacker-settable via
+		// prctl(PR_SET_NAME) — strip control/ANSI-escape bytes here so every
+		// caller of extractZombieOffender gets an already-safe string.
+		name = output.SanitizeControl(name)
 		if !seen[name] {
 			seen[name] = true
 			names = append(names, name)

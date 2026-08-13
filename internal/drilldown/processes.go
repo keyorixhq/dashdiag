@@ -27,7 +27,11 @@ func HungProcesses(ctx context.Context) (*models.Details, error) {
 			Note:  "Uninterruptible process listing not available on macOS.",
 		}, nil
 	}
-	return hungProcessesLinuxAt(ctx, "/proc")
+	d, err := hungProcessesLinuxAt(ctx, "/proc")
+	// e.name (parsed from /proc/PID/stat's comm field) and the parent's
+	// procComm() are both attacker-settable via prctl(PR_SET_NAME) — strip
+	// control/ANSI-escape bytes before this reaches the rendered table.
+	return sanitizeDetails(d), err
 }
 
 // procStatEntry is a minimal parsed /proc/PID/stat result.
@@ -99,10 +103,17 @@ func hungProcessesLinuxAt(ctx context.Context, procRoot string) (*models.Details
 
 // ZombiesWithParent returns zombie processes with their parent process info.
 func ZombiesWithParent(ctx context.Context) (*models.Details, error) {
+	var d *models.Details
+	var err error
 	if runtime.GOOS == "darwin" {
-		return zombiesWithParentMac(ctx)
+		d, err = zombiesWithParentMac(ctx)
+	} else {
+		d, err = zombiesWithParentLinux(ctx)
 	}
-	return zombiesWithParentLinux(ctx)
+	// z.name and the parent comm are both attacker-settable via
+	// prctl(PR_SET_NAME) — strip control/ANSI-escape bytes before this reaches
+	// the rendered table.
+	return sanitizeDetails(d), err
 }
 
 func zombiesWithParentLinux(ctx context.Context) (*models.Details, error) {
