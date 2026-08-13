@@ -1,7 +1,6 @@
 package collectors
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"fmt"
@@ -117,8 +116,8 @@ func localeSafeExec(ctx context.Context, name string, args ...string) (source.Re
 	cmd := exec.CommandContext(ctx, source.ResolveTrustedTool(name), args...)
 	cmd.Env = localeSafeEnv()
 	cmd.WaitDelay = 100 * time.Millisecond // force-kill after context cancel
-	var so, se bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &so, &se
+	so, se := source.NewCapWriter(source.MaxCapturedOutput), source.NewCapWriter(source.MaxCapturedOutput)
+	cmd.Stdout, cmd.Stderr = so, se
 	// cmd.Run() calls Wait() internally on every path, so the child is always
 	// reaped — no zombie can leak (see BUG-021).
 	err := cmd.Run()

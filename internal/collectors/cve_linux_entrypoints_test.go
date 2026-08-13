@@ -61,7 +61,7 @@ func TestIsUbuntu(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("sh", []string{"-c", "grep -i ubuntu /etc/os-release"}, "ID=ubuntu\n", 0)
 	})
-	if !isUbuntu() {
+	if !isUbuntu(context.Background()) {
 		t.Error("expected isUbuntu() to report true when grep matches")
 	}
 }
@@ -70,8 +70,28 @@ func TestIsUbuntu_NotUbuntu(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("sh", []string{"-c", "grep -i ubuntu /etc/os-release"}, "", 1) // grep: no match, exit 1
 	})
-	if isUbuntu() {
+	if isUbuntu(context.Background()) {
 		t.Error("expected isUbuntu() to report false when grep finds no match")
+	}
+}
+
+// TestIsUbuntuPropagatesContext covers internal-collectors-07-07: isUbuntu
+// must run its `grep /etc/os-release` check through the caller's ctx, not a
+// detached context.Background() — otherwise the subprocess is decoupled from
+// both the CVE collector's Timeout() and the runner's overall deadline, and
+// can't be cancelled or killed if it ever wedges.
+func TestIsUbuntuPropagatesContext(t *testing.T) {
+	spy := &ctxSpyExecSource{stdout: "ID=ubuntu\n"}
+	prev := SetSource(spy)
+	defer SetSource(prev)
+
+	isUbuntu(withCtxMarker(context.Background()))
+
+	if spy.gotCtx == nil {
+		t.Fatal("isUbuntu never called Run — test setup problem")
+	}
+	if !markedCtx(spy.gotCtx) {
+		t.Error("isUbuntu did not propagate the caller's context — it used a detached context.Background() instead")
 	}
 }
 

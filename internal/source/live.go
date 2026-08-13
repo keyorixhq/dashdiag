@@ -1,7 +1,6 @@
 package source
 
 import (
-	"bytes"
 	"context"
 	"errors"
 	"os"
@@ -63,8 +62,8 @@ func (l Live) Run(ctx context.Context, name string, args ...string) (Result, err
 // inherited $PATH) before exec — see trustedexec.go.
 func defaultExec(ctx context.Context, name string, args ...string) (Result, error) {
 	cmd := exec.CommandContext(ctx, ResolveTrustedTool(name), args...)
-	var so, se bytes.Buffer
-	cmd.Stdout, cmd.Stderr = &so, &se
+	so, se := NewCapWriter(MaxCapturedOutput), NewCapWriter(MaxCapturedOutput)
+	cmd.Stdout, cmd.Stderr = so, se
 	err := cmd.Run()
 	res := Result{Stdout: so.Bytes(), Stderr: se.Bytes()}
 	if err != nil {

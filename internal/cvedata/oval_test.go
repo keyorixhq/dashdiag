@@ -226,6 +226,19 @@ func TestParseRHELOVAL_Errors(t *testing.T) {
 	}
 }
 
+// TestParseRHELOVAL_RejectsOversizedFeed covers internal-cvedata-02-04 /
+// read-bounding-06: ParseRHELOVAL must not decode an unbounded amount of XML.
+// Go's stdlib bzip2 is decode-only (see the BZ2Suffix test below), so this
+// proves the cap via a plain XML file longer than a shrunk cap instead of an
+// actual bzip2 bomb — the cap applies to the reader regardless of whether it
+// came from bzip2.NewReader or the raw file.
+func TestParseRHELOVAL_RejectsOversizedFeed(t *testing.T) {
+	withShrunkFeedCap(t, 50) // rhelOVAL is >800 bytes — well past this
+	if _, err := ParseRHELOVAL(writeFixture(t, "rhel-big.xml", rhelOVAL)); err == nil {
+		t.Error("expected ParseRHELOVAL to reject a feed exceeding the decompressed size cap")
+	}
+}
+
 // TestParseRHELOVAL_BZ2SuffixUsesBzip2Reader exercises the ".bz2"
 // reader-selection branch. Go's stdlib compress/bzip2 is decode-only, so
 // real compressed content can't be produced here, but a .bz2-suffixed path
@@ -379,6 +392,17 @@ func TestParseUbuntuOVAL_Errors(t *testing.T) {
 	}
 }
 
+// TestParseUbuntuOVAL_RejectsOversizedFeed covers internal-cvedata-01-04 /
+// read-bounding-07: same cap as ParseRHELOVAL, proven the same way (a plain
+// XML file longer than a shrunk cap — see that test's comment for why bzip2
+// isn't used directly here).
+func TestParseUbuntuOVAL_RejectsOversizedFeed(t *testing.T) {
+	withShrunkFeedCap(t, 50)
+	if _, err := ParseUbuntuOVAL(writeFixture(t, "ubuntu-big.xml", ubuntuOVAL)); err == nil {
+		t.Error("expected ParseUbuntuOVAL to reject a feed exceeding the decompressed size cap")
+	}
+}
+
 // TestParseUbuntuOVAL_BZ2SuffixUsesBzip2Reader exercises the ".bz2"
 // reader-selection branch. Go's stdlib compress/bzip2 is decode-only, so
 // real compressed content can't be produced here, but a .bz2-suffixed path
@@ -475,6 +499,17 @@ func TestLoadOVAL_Errors(t *testing.T) {
 	}
 	if _, err := loadOVAL(writeFixture(t, "bad.xml", "<broken")); err == nil {
 		t.Error("malformed XML should error")
+	}
+}
+
+// TestLoadOVAL_RejectsOversizedFeed covers internal-cvedata-01-03 /
+// read-bounding-05: same cap as ParseRHELOVAL/ParseUbuntuOVAL, proven the
+// same way (see ParseRHELOVAL_RejectsOversizedFeed's comment for why bzip2
+// isn't used directly here).
+func TestLoadOVAL_RejectsOversizedFeed(t *testing.T) {
+	withShrunkFeedCap(t, 50)
+	if _, err := loadOVAL(writeFixture(t, "suse-big.xml", suseOVAL)); err == nil {
+		t.Error("expected loadOVAL to reject a feed exceeding the decompressed size cap")
 	}
 }
 
