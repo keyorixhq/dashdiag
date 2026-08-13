@@ -586,6 +586,12 @@ func printAppArmorSection(info *models.SecurityInfo, mode output.OutputMode) {
 			fmt.Printf("  %s  All profiles enforcing\n", asciiOr("ok", secIconOK, mode))
 		}
 		switch {
+		case info.AppArmorDenialsUnreadable:
+			// The journalctl scan itself failed — distinct from journalctl's
+			// own "exit 1, zero matches" convention (the routine clean case,
+			// which leaves this false). Must not print the same green "No
+			// denials" line a genuinely clean, actually-audited host gets.
+			fmt.Printf("  %s  denial log could not be read — NOT audited (try: sudo dsd security)\n", asciiOr("unverified", "❓", mode))
 		case len(info.AppArmorGroups) > 0:
 			fmt.Printf("  %s   %d denial group(s) in last 24h:\n", asciiOr(secLvlWarn, secIconWarn, mode), len(info.AppArmorGroups))
 			for i, g := range info.AppArmorGroups {

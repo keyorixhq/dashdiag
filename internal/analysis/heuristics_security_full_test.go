@@ -178,6 +178,18 @@ func TestCheckAppArmorDenials_Clean(t *testing.T) {
 	}
 }
 
+// TestCheckAppArmorDenials_Unreadable is the regression test for the
+// false-OK fix (internal-models-03-01/11-05): a journalctl scan failure
+// (AppArmorDenialsUnreadable=true) must disclose an INFO, not silently read
+// the same as TestCheckAppArmorDenials_Clean's genuinely-audited-and-clean
+// zero-value case.
+func TestCheckAppArmorDenials_Unreadable(t *testing.T) {
+	got := checkAppArmorDenials(models.SecurityInfo{AppArmorDenialsUnreadable: true})
+	if !hasInsightMsg(got, "INFO", "could not be read") {
+		t.Errorf("unreadable AppArmor denial log must produce an INFO disclosure, got %+v", got)
+	}
+}
+
 // TestCheckPAMFailures_Clean is the same boundary guard for PAM module
 // failures: no PAMModuleFailures must yield no insight.
 func TestCheckPAMFailures_Clean(t *testing.T) {

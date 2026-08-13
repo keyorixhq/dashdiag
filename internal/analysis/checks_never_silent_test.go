@@ -46,6 +46,14 @@ var neverSilentChecks = []neverSilentCheck{
 		wantSubstr: "could not be read",
 	},
 	{
+		name:    "checkAppArmorDenials: journalctl scan itself failed",
+		checkFn: "checkAppArmorDenials",
+		run: func() []models.Insight {
+			return checkAppArmorDenials(models.SecurityInfo{AppArmorDenialsUnreadable: true})
+		},
+		wantSubstr: "could not be read",
+	},
+	{
 		name:    "checkPackageDBHealth: DB/lock probe itself failed to run",
 		checkFn: "checkPackageDBHealth",
 		run: func() []models.Insight {

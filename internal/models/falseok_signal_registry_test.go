@@ -55,6 +55,7 @@ var guardedUnverifiedSignals = map[string]string{
 	"SecurityInfo.FirewallUnreadable":           "collectors/firewall_barename_linux_test.go (nft unreadable → INFO)",
 	"SecurityInfo.FirewallConfigOnlyUnverified": "collectors/security_linux_firewall_test.go TestDetectNFTables_ConfigFileFallback + cmd/security_report_test.go (FIXED: nft absent + on-disk config now discloses unverified instead of a false FirewallActive=true)",
 	"SecurityInfo.AuditRulesUnreadable":         "cis/rules_test.go TestEvaluate_AuditUnreadableNotFailed (4.1.1 non-root → Skipped, not Fail) + collectors/medium_low_linux_test.go TestAuditRulesFromOutput",
+	"SecurityInfo.AppArmorDenialsUnreadable":    "analysis/heuristics_security_full_test.go TestCheckAppArmorDenials_Unreadable + cmd/security_selinux_apparmor_test.go TestPrintAppArmorSectionUnreadable (a genuine journalctl scan failure, distinct from its own exit-1 zero-matches convention, → INFO/❓, never the same green 'No denials' a genuinely-audited-clean host gets)",
 	"AuditInfo.AuditLogSizeUnreadable":          "analysis/heuristics_round6_test.go TestCheckAuditd (non-root → INFO, not a silent 0-size OK)",
 	"AuditInfo.RulesUnreadable":                 "analysis/heuristics_security.go checkAuditd (FIXED: auditctl -l failure now emits an explicit INFO instead of a silent rules_loaded=0)",
 	"AuditInfo.EventsUnreadable":                "analysis/heuristics_security.go checkAuditd (FIXED: ausearch failure now emits an explicit INFO instead of a silent events_last_1h=0)",

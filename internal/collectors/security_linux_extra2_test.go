@@ -466,8 +466,33 @@ func TestParseSELinuxExtras_FullDeepDiagnosis(t *testing.T) {
 	if info.AppArmorDenials != 1 || len(info.AppArmorGroups) != 1 {
 		t.Errorf("expected 1 AppArmor denial group, got denials=%d groups=%+v", info.AppArmorDenials, info.AppArmorGroups)
 	}
+	if info.AppArmorDenialsUnreadable {
+		t.Error("AppArmorDenialsUnreadable = true, want false — the journalctl scan succeeded")
+	}
 	if len(info.PAMLockedAccounts) != 1 || info.PAMLockedAccounts[0] != "alice" {
 		t.Errorf("expected PAMLockedAccounts=[alice], got %+v", info.PAMLockedAccounts)
+	}
+}
+
+// TestParseSELinuxExtras_AppArmorJournalctlFails is the regression test for
+// the false-OK fix: a genuine journalctl scan failure (not its own "exit 1,
+// zero matches" --grep convention) must set AppArmorDenialsUnreadable,
+// distinguishing it from a genuinely clean host — both previously left
+// AppArmorGroups/AppArmorDenials at their identical empty/zero values.
+func TestParseSELinuxExtras_AppArmorJournalctlFails(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("journalctl", []string{"-t", "kernel", "-g", `apparmor="DENIED"`,
+			"--no-pager", "--since", "24 hours ago", "-o", "short"}, "", 2) // exit 2, a real failure
+		b.PutCmdNotFound("faillock", []string{"--user", ""})
+		b.PutFile("/var/log/secure", []byte(""))
+	})
+	info := &models.SecurityInfo{AppArmorMode: "enforce"}
+	parseSELinuxExtras(context.Background(), info)
+	if !info.AppArmorDenialsUnreadable {
+		t.Error("AppArmorDenialsUnreadable = false, want true — journalctl failed with a real error")
+	}
+	if info.AppArmorDenials != 0 || info.AppArmorGroups != nil {
+		t.Errorf("expected zero-value denials on a scan failure, got denials=%d groups=%+v", info.AppArmorDenials, info.AppArmorGroups)
 	}
 }
 

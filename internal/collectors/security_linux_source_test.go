@@ -487,7 +487,10 @@ func TestCollectAppArmorDenials(t *testing.T) {
 		b.PutCmd("journalctl", []string{"-t", "kernel", "-g", `apparmor="DENIED"`,
 			"--no-pager", "--since", "24 hours ago", "-o", "short"}, lines, 0)
 	})
-	got := collectAppArmorDenials(context.Background())
+	got, readable := collectAppArmorDenials(context.Background())
+	if !readable {
+		t.Error("readable = false, want true — journalctl succeeded")
+	}
 	if len(got) != 1 {
 		t.Fatalf("expected exactly 1 grouped denial (ALLOWED must be excluded), got %d: %+v", len(got), got)
 	}
@@ -515,7 +518,7 @@ func TestCollectAppArmorDenials_MultiGroupSortOrder(t *testing.T) {
 		b.PutCmd("journalctl", []string{"-t", "kernel", "-g", `apparmor="DENIED"`,
 			"--no-pager", "--since", "24 hours ago", "-o", "short"}, lines, 0)
 	})
-	got := collectAppArmorDenials(context.Background())
+	got, _ := collectAppArmorDenials(context.Background())
 	if len(got) != 3 {
 		t.Fatalf("expected 3 distinct groups, got %d: %+v", len(got), got)
 	}
@@ -544,7 +547,7 @@ func TestCollectAppArmorDenials_PathThenOperationTiebreak(t *testing.T) {
 		b.PutCmd("journalctl", []string{"-t", "kernel", "-g", `apparmor="DENIED"`,
 			"--no-pager", "--since", "24 hours ago", "-o", "short"}, lines, 0)
 	})
-	got := collectAppArmorDenials(context.Background())
+	got, _ := collectAppArmorDenials(context.Background())
 	if len(got) != 4 {
 		t.Fatalf("expected 4 distinct groups, got %d: %+v", len(got), got)
 	}
@@ -562,27 +565,54 @@ func TestCollectAppArmorDenials_PathThenOperationTiebreak(t *testing.T) {
 	}
 }
 
-// TestCollectAppArmorDenials_NoneOrError guards the two "nothing to report"
-// paths: journalctl erroring out and journalctl succeeding with empty/no-match
-// output must both return nil, not a spurious entry.
+// TestCollectAppArmorDenials_NoneOrError guards the three "nothing to
+// report" paths: journalctl's own "exit 1, zero matches" --grep convention
+// (the routine clean case) and a genuinely empty/no-match output must both
+// return (nil, true=readable) — but a REAL scan failure (a different exit
+// code, or the command failing to run at all) must return (nil,
+// false=unreadable), the false-OK fix's regression case (internal-models-
+// 03-01/11-05): before this, all three collapsed to the same bare nil, with
+// no way to tell "genuinely clean" apart from "couldn't check".
 func TestCollectAppArmorDenials_NoneOrError(t *testing.T) {
-	t.Run("journalctl errors", func(t *testing.T) {
+	t.Run("journalctl's own exit-1 zero-matches convention is readable", func(t *testing.T) {
 		withFixtureSource(t, func(b *source.Bundle) {
 			b.PutCmd("journalctl", []string{"-t", "kernel", "-g", `apparmor="DENIED"`,
 				"--no-pager", "--since", "24 hours ago", "-o", "short"}, "", 1)
 		})
-		if got := collectAppArmorDenials(context.Background()); got != nil {
-			t.Errorf("expected nil on journalctl error, got %+v", got)
+		got, readable := collectAppArmorDenials(context.Background())
+		if got != nil {
+			t.Errorf("expected nil on journalctl's zero-matches exit, got %+v", got)
+		}
+		if !readable {
+			t.Error("readable = false, want true — exit 1 with no output is journalctl's routine no-match convention, not a failure")
 		}
 	})
 
-	t.Run("empty output", func(t *testing.T) {
+	t.Run("empty output with a clean exit is readable", func(t *testing.T) {
 		withFixtureSource(t, func(b *source.Bundle) {
 			b.PutCmd("journalctl", []string{"-t", "kernel", "-g", `apparmor="DENIED"`,
 				"--no-pager", "--since", "24 hours ago", "-o", "short"}, "", 0)
 		})
-		if got := collectAppArmorDenials(context.Background()); got != nil {
+		got, readable := collectAppArmorDenials(context.Background())
+		if got != nil {
 			t.Errorf("expected nil on empty journalctl output, got %+v", got)
+		}
+		if !readable {
+			t.Error("readable = false, want true — a clean exit 0 with no output is a genuinely quiet log")
+		}
+	})
+
+	t.Run("a real scan failure is unreadable", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutCmd("journalctl", []string{"-t", "kernel", "-g", `apparmor="DENIED"`,
+				"--no-pager", "--since", "24 hours ago", "-o", "short"}, "", 2) // exit 2: NOT journalctl's grep-no-match convention
+		})
+		got, readable := collectAppArmorDenials(context.Background())
+		if got != nil {
+			t.Errorf("expected nil on a real journalctl failure, got %+v", got)
+		}
+		if readable {
+			t.Error("readable = true, want false — exit 2 is a real failure, not journalctl's grep-no-match convention")
 		}
 	})
 }
