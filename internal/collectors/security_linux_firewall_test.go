@@ -149,20 +149,31 @@ func TestDetectNFTables_ActiveWithSSHRule(t *testing.T) {
 
 // TestDetectNFTables_ConfigFileFallback exercises the on-disk-config branch:
 // nft binary absent from $PATH and sbin, but /etc/nftables.conf exists.
+//
+// internal-collectors-29-03: config-file PRESENCE does not prove a ruleset is
+// actually loaded — the nft binary itself is absent, so it can never be
+// confirmed. This must NOT claim FirewallActive=true (the exact false-OK the
+// live-ruleset rewrite exists to prevent for the tool-present case); it must
+// disclose FirewallConfigOnlyUnverified and return false so parseFirewall's
+// backend chain still checks iptables, since the real active backend might
+// not be nftables at all.
 func TestDetectNFTables_ConfigFileFallback(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		// No lookPath / sbin PutStat entries at all -> sbinToolPath("nft") == "".
 		b.PutGlob("/etc/nftables.conf", []string{"/etc/nftables.conf"})
 	})
 	info := &models.SecurityInfo{}
-	if !detectNFTables(context.Background(), info) {
-		t.Fatal("expected detectNFTables to report true via the config-file fallback")
+	if detectNFTables(context.Background(), info) {
+		t.Fatal("expected detectNFTables to report false via the config-file fallback (chain must continue to iptables)")
 	}
-	if !info.FirewallActive || info.FirewallType != "nftables" {
-		t.Errorf("expected FirewallActive=true FirewallType=nftables, got %+v", info)
+	if info.FirewallActive {
+		t.Error("expected FirewallActive=false — a config file does not prove a loaded ruleset")
 	}
-	if !info.SSHAllowed {
-		t.Error("config-file fallback must conservatively set SSHAllowed=true (rules unread)")
+	if !info.FirewallConfigOnlyUnverified {
+		t.Error("expected FirewallConfigOnlyUnverified=true")
+	}
+	if info.FirewallType != "nftables" {
+		t.Errorf("FirewallType = %q, want nftables", info.FirewallType)
 	}
 }
 
@@ -189,6 +200,30 @@ func TestParseFirewall_FallsThroughToUFW(t *testing.T) {
 	parseFirewall(context.Background(), info)
 	if !info.FirewallActive || info.FirewallType != "ufw" {
 		t.Errorf("expected the dispatcher to fall through to ufw, got %+v", info)
+	}
+}
+
+// TestParseFirewall_NFTConfigOnlyFallsThroughToIPTables guards the
+// internal-collectors-29-03 fix at the dispatcher-chain level: an nftables
+// config file on disk with no nft binary must NOT stop the chain at a
+// confident "active" — it must fall through and let a live iptables ruleset
+// (the actually-enforced backend) win the verdict.
+func TestParseFirewall_NFTConfigOnlyFallsThroughToIPTables(t *testing.T) {
+	withCombinedFixture(t, map[string][]byte{"lookpath/iptables": []byte("/usr/sbin/iptables")}, nil, func(b *source.Bundle) {
+		b.PutCmdNotFound("firewall-cmd", []string{"--state"})
+		b.PutCmdNotFound("ufw", []string{"status"})
+		// No lookPath/sbin entries for "nft" -> sbinToolPath("nft") == "".
+		b.PutGlob("/etc/nftables.conf", []string{"/etc/nftables.conf"})
+		b.PutCmd("iptables", []string{"-L", "-n", "--line-numbers"},
+			"Chain INPUT (policy DROP)\nnum  target     prot opt source               destination\n1    ACCEPT     tcp  --  0.0.0.0/0            0.0.0.0/0            tcp dpt:22\n", 0)
+	})
+	info := &models.SecurityInfo{}
+	parseFirewall(context.Background(), info)
+	if !info.FirewallActive || info.FirewallType != "iptables" {
+		t.Errorf("expected the dispatcher to fall through to the live iptables ruleset, got %+v", info)
+	}
+	if !info.FirewallConfigOnlyUnverified {
+		t.Error("expected FirewallConfigOnlyUnverified=true to survive from the nftables probe")
 	}
 }
 

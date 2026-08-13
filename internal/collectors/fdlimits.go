@@ -95,6 +95,13 @@ func deletedFilesFromEntries(pid string, fds []string) (count int, sizeGB float6
 	return count, sizeGB
 }
 
+// unlimitedFDHotThreshold is the absolute open-FD count that flags a process
+// with an "unlimited" RLIMIT_NOFILE soft limit as hot. UsedPct against
+// math.MaxInt32 is always ~0% for any realistic fdCount, so the normal >70%
+// threshold can never fire for such a process — this is the fallback signal
+// (internal-collectors-12-02).
+const unlimitedFDHotThreshold = 10000
+
 func hotProcInfo(pid string, fdCount int) (models.FDProcessInfo, bool) {
 	f, err := openFile(filepath.Join("/proc", pid, "limits")) // #nosec G304 -- root is hardcoded to /proc; pid is from OS directory listing, not user input
 	if err != nil {
@@ -105,8 +112,14 @@ func hotProcInfo(pid string, fdCount int) (models.FDProcessInfo, bool) {
 	if softLimit <= 0 {
 		return models.FDProcessInfo{}, false
 	}
+	unlimited := softLimit == math.MaxInt32
 	usedPct := float64(fdCount) / float64(softLimit) * 100
-	if usedPct <= 70 {
+	switch {
+	case unlimited:
+		if fdCount < unlimitedFDHotThreshold {
+			return models.FDProcessInfo{}, false
+		}
+	case usedPct <= 70:
 		return models.FDProcessInfo{}, false
 	}
 	// Skip socket-activated transient helpers (sshd-auth, systemd per-connection
@@ -119,11 +132,12 @@ func hotProcInfo(pid string, fdCount int) (models.FDProcessInfo, bool) {
 	nameData, _ := readFile(filepath.Join("/proc", pid, "comm")) // #nosec G304 -- root is hardcoded to /proc; pid is from OS directory listing, not user input
 	name := strings.TrimSpace(string(nameData))
 	return models.FDProcessInfo{
-		PID:       pidInt,
-		Name:      name,
-		OpenFDs:   fdCount,
-		SoftLimit: softLimit,
-		UsedPct:   usedPct,
+		PID:                pidInt,
+		Name:               name,
+		OpenFDs:            fdCount,
+		SoftLimit:          softLimit,
+		UsedPct:            usedPct,
+		SoftLimitUnlimited: unlimited,
 	}, true
 }
 
@@ -207,8 +221,22 @@ func (c *FDLimitsCollector) scanProcesses(ctx context.Context) fdProcScan {
 		s.DeletedOpenSizeGB += ds
 	}
 	// Sort by FD pressure desc, PID asc as a tiebreaker so equal-pressure processes
-	// order stably (and the top-5 cut is deterministic).
+	// order stably (and the top-5 cut is deterministic). Unlimited-rlimit entries
+	// sort first regardless of UsedPct (which is always ~0% for them and not
+	// comparable to a real percentage) — they represent unbounded risk and must
+	// not be pushed out of the top-5 cut by bounded processes below their own
+	// limit (internal-collectors-12-02).
 	sort.Slice(s.Hot, func(i, j int) bool {
+		iUnlim, jUnlim := s.Hot[i].SoftLimitUnlimited, s.Hot[j].SoftLimitUnlimited
+		if iUnlim != jUnlim {
+			return iUnlim
+		}
+		if iUnlim {
+			if s.Hot[i].OpenFDs != s.Hot[j].OpenFDs {
+				return s.Hot[i].OpenFDs > s.Hot[j].OpenFDs
+			}
+			return s.Hot[i].PID < s.Hot[j].PID
+		}
 		if s.Hot[i].UsedPct != s.Hot[j].UsedPct {
 			return s.Hot[i].UsedPct > s.Hot[j].UsedPct
 		}

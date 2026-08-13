@@ -85,6 +85,14 @@ var neverSilentChecks = []neverSilentCheck{
 		wantSubstr: "forensics unavailable",
 	},
 	{
+		name:    "checkOOM: kernel log scan truncated by a scanner error",
+		checkFn: "checkOOM",
+		run: func() []models.Insight {
+			return checkOOM(models.OOMInfo{EventsCountUnverified: true})
+		},
+		wantSubstr: "may be incomplete",
+	},
+	{
 		name:    "checkElasticsearch: reachable but cluster health unread",
 		checkFn: "checkElasticsearch",
 		run: func() []models.Insight {

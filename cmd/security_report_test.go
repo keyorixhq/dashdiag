@@ -115,6 +115,24 @@ func TestPrintSecurityReportFirewall(t *testing.T) {
 		t.Errorf("an unreadable ruleset must say not verified, not 'none detected', got:\n%s", unreadable)
 	}
 
+	// internal-collectors-29-03: nft binary absent, only an on-disk config file
+	// found — must NOT claim "active" (config presence doesn't prove a loaded
+	// ruleset), and must not say "none detected" either (there IS circumstantial
+	// evidence). Distinct wording from FirewallUnreadable's "run as root", since
+	// running as root wouldn't help — the tool itself is missing.
+	configOnly := captureStdout(t, func() {
+		printSecurityReport(&models.SecurityInfo{FirewallConfigOnlyUnverified: true, FirewallType: "nftables"}, nil, output.ModePlain, 0)
+	})
+	if strings.Contains(configOnly, "Firewall: nftables active") {
+		t.Errorf("a config-file-only nftables state must not claim active, got:\n%s", configOnly)
+	}
+	if strings.Contains(configOnly, "none detected") {
+		t.Errorf("a config-file-only nftables state must not say none detected, got:\n%s", configOnly)
+	}
+	if !strings.Contains(configOnly, "not verified") {
+		t.Errorf("a config-file-only nftables state should say not verified, got:\n%s", configOnly)
+	}
+
 	none := captureStdout(t, func() { printSecurityReport(&models.SecurityInfo{}, nil, output.ModePlain, 0) })
 	if !strings.Contains(none, "Firewall: none detected") {
 		t.Errorf("genuinely no firewall should say none detected, got:\n%s", none)
