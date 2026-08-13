@@ -54,16 +54,16 @@ func TestCheckSSHWeakMACs_Umac64EtmAndSha1_96(t *testing.T) {
 		t.Errorf("umac-64-etm@openssh.com must be flagged (short tag length regardless of ETM), got %+v", etm)
 	}
 
-	sha1_96 := checkSSHWeakMACs(models.SecurityInfo{SSHMACs: "hmac-sha1-96,hmac-sha2-256"})
-	if len(sha1_96) == 0 || !strings.Contains(sha1_96[0].Message, "hmac-sha1-96") {
-		t.Errorf("hmac-sha1-96 must be flagged, got %+v", sha1_96)
+	sha196 := checkSSHWeakMACs(models.SecurityInfo{SSHMACs: "hmac-sha1-96,hmac-sha2-256"})
+	if len(sha196) == 0 || !strings.Contains(sha196[0].Message, "hmac-sha1-96") {
+		t.Errorf("hmac-sha1-96 must be flagged, got %+v", sha196)
 	}
 
 	// hmac-sha1-96-etm@openssh.com stays borderline-acceptable, same as the
 	// plain hmac-sha1-etm@openssh.com case — must NOT be flagged.
-	sha1_96_etm := checkSSHWeakMACs(models.SecurityInfo{SSHMACs: "hmac-sha1-96-etm@openssh.com,hmac-sha2-256"})
-	if len(sha1_96_etm) != 0 {
-		t.Errorf("hmac-sha1-96-etm@openssh.com is ETM and must not be flagged, got %+v", sha1_96_etm)
+	sha196Etm := checkSSHWeakMACs(models.SecurityInfo{SSHMACs: "hmac-sha1-96-etm@openssh.com,hmac-sha2-256"})
+	if len(sha196Etm) != 0 {
+		t.Errorf("hmac-sha1-96-etm@openssh.com is ETM and must not be flagged, got %+v", sha196Etm)
 	}
 }
 
