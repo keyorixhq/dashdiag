@@ -45,6 +45,15 @@ func (m SingleSelectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cursor++
 			}
 		case "enter", " ":
+			// An empty options list is only reachable if a future caller builds
+			// it dynamically (today's two call sites — cmd/hook.go's
+			// hookOptions, internal/init/firstrun.go's profile list — are
+			// hardcoded non-empty), but m.cursor stays 0 either way, and
+			// options[0] on a zero-length slice panics the whole process.
+			if len(m.options) == 0 {
+				m.done = true
+				return m, tea.Quit
+			}
 			m.chosen = m.options[m.cursor]
 			m.done = true
 			return m, tea.Quit
@@ -129,6 +138,11 @@ func (m MultiSelectModel) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				m.cursor++
 			}
 		case " ":
+			// Same empty-options guard as SingleSelectModel — m.cursor stays 0
+			// on an empty list, and m.selected[0] would panic.
+			if len(m.options) == 0 {
+				break
+			}
 			m.selected[m.cursor] = !m.selected[m.cursor]
 		case "enter":
 			m.done = true // NOSONAR — same body as ctrl+c/q: both quit; confirm and cancel both terminate the selector

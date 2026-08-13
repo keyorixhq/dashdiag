@@ -167,6 +167,28 @@ func TestSingleSelectModel_Update(t *testing.T) {
 	}
 }
 
+// TestSingleSelectModel_Update_EmptyOptionsNoPanic is the regression test for
+// internal-tui-01-01: pressing enter/space with an empty options list indexed
+// options[cursor] on a zero-length slice, panicking the whole process. Both
+// call sites are hardcoded non-empty today, but the shared TUI helper itself
+// must not crash if a future caller builds the list dynamically and it comes
+// back empty.
+func TestSingleSelectModel_Update_EmptyOptionsNoPanic(t *testing.T) {
+	t.Parallel()
+	m := SingleSelectModel{options: nil, cursor: 0}
+	got, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	sm, ok := got.(SingleSelectModel)
+	if !ok {
+		t.Fatalf("Update() returned type %T, want SingleSelectModel", got)
+	}
+	if !sm.done {
+		t.Errorf("done = false, want true (enter on empty options should still terminate the selector)")
+	}
+	if isQuitCmd(t, cmd) != true {
+		t.Errorf("expected a quit cmd for enter on empty options")
+	}
+}
+
 func TestSingleSelectModel_Init(t *testing.T) {
 	t.Parallel()
 	m := SingleSelectModel{}
@@ -332,6 +354,23 @@ func TestMultiSelectModel_Update(t *testing.T) {
 				t.Errorf("isQuitCmd = %v, want %v", isQuitCmd(t, cmd), tc.wantQuit)
 			}
 		})
+	}
+}
+
+// TestMultiSelectModel_Update_EmptyOptionsNoPanic is the MultiSelectModel
+// counterpart of TestSingleSelectModel_Update_EmptyOptionsNoPanic — pressing
+// space with an empty options list indexed m.selected[m.cursor] on a
+// zero-length slice.
+func TestMultiSelectModel_Update_EmptyOptionsNoPanic(t *testing.T) {
+	t.Parallel()
+	m := MultiSelectModel{options: nil, selected: nil, cursor: 0}
+	got, _ := m.Update(tea.KeyMsg{Type: tea.KeySpace})
+	sm, ok := got.(MultiSelectModel)
+	if !ok {
+		t.Fatalf("Update() returned type %T, want MultiSelectModel", got)
+	}
+	if sm.done {
+		t.Errorf("done = true, want false (space must not terminate the selector)")
 	}
 }
 

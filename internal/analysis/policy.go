@@ -67,8 +67,22 @@ type PolicyFile struct {
 }
 
 // LoadPolicy parses a policy YAML file and returns the PolicyFile.
+// maxPolicyFileBytes bounds how large a policy YAML file LoadPolicy will
+// read. A real policy file (a handful of threshold overrides) is a few
+// hundred bytes; this is generous headroom while still stopping an
+// oversized or corrupted file from being read fully into memory before
+// yaml.Unmarshal ever runs.
+const maxPolicyFileBytes = 1 << 20 // 1 MiB
+
 func LoadPolicy(path string) (*PolicyFile, error) {
-	data, err := os.ReadFile(path) // #nosec G304 -- user-provided path, expected
+	fi, err := os.Stat(path)
+	if err != nil {
+		return nil, fmt.Errorf("cannot stat policy file %q: %w", path, err)
+	}
+	if fi.Size() > maxPolicyFileBytes {
+		return nil, fmt.Errorf("policy file %q is %d bytes, exceeds %d byte limit", path, fi.Size(), maxPolicyFileBytes)
+	}
+	data, err := os.ReadFile(path) // #nosec G304 -- user-provided path, expected; size-checked above
 	if err != nil {
 		return nil, fmt.Errorf("cannot read policy file %q: %w", path, err)
 	}

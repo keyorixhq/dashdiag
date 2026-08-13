@@ -101,6 +101,67 @@ func TestLoadBaseline_Errors(t *testing.T) {
 	}
 }
 
+// TestLoadBaseline_OversizedFileRejected is the regression test for
+// internal-baseline-01-06: LoadBaseline's default (path) branch read the
+// whole file into memory via os.ReadFile with no maximum size before
+// json.Unmarshal was even attempted. An oversized baseline/capture-derived
+// JSON document referenced by path must be rejected before being read fully
+// into memory.
+func TestLoadBaseline_OversizedFileRejected(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "huge.json")
+	huge := oversizedHostnameSnapshotJSON(t)
+	if err := os.WriteFile(path, huge, 0o644); err != nil {
+		t.Fatalf("failed to write test fixture: %v", err)
+	}
+
+	if _, err := LoadBaseline(path); err == nil {
+		t.Fatal("expected an error for an oversized baseline file, got nil")
+	}
+}
+
+// oversizedHostnameSnapshotJSON builds a valid, otherwise-parseable Snapshot
+// JSON document (a real object with a huge Hostname string) that exceeds
+// maxBaselineFileBytes. Without a size cap, json.Unmarshal would happily
+// parse this and return no error at all — the test must fail for the right
+// reason (the oversized-ness itself gets rejected), not from an incidental
+// JSON syntax error a naive junk-padded fixture would produce instead.
+func oversizedHostnameSnapshotJSON(t *testing.T) []byte {
+	t.Helper()
+	prefix := []byte(`{"hostname":"`)
+	suffix := []byte(`"}`)
+	fill := maxBaselineFileBytes + 2 - int64(len(prefix)+len(suffix))
+	buf := make([]byte, 0, len(prefix)+int(fill)+len(suffix))
+	buf = append(buf, prefix...)
+	for i := int64(0); i < fill; i++ {
+		buf = append(buf, 'x')
+	}
+	buf = append(buf, suffix...)
+	return buf
+}
+
+// TestLoadBaseline_StdinOversizedRejected is the stdin counterpart:
+// LoadBaseline("-") did io.ReadAll(os.Stdin) with no cap either.
+func TestLoadBaseline_StdinOversizedRejected(t *testing.T) {
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatal(err)
+	}
+	old := os.Stdin
+	os.Stdin = r
+	t.Cleanup(func() { os.Stdin = old })
+
+	huge := oversizedHostnameSnapshotJSON(t)
+	go func() {
+		_, _ = w.Write(huge)
+		_ = w.Close()
+	}()
+
+	if _, err := LoadBaseline("-"); err == nil {
+		t.Fatal("expected an error for oversized stdin input, got nil")
+	}
+}
+
 // SaveBaseline and SaveGolden must surface a marshal failure rather than writing
 // a partial file. A channel in Raw is unmarshalable by encoding/json.
 func TestSave_MarshalError(t *testing.T) {
