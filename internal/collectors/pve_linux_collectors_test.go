@@ -519,12 +519,15 @@ func TestCollectPVEGuests_Happy(t *testing.T) {
 		b.PutCmd("pvesh", []string{"get", "/nodes/localhost/lxc", "--output-format", "json"},
 			`[{"vmid":200,"name":"ct1","status":"paused"}]`, 0)
 	})
-	guests, running, stopped, paused := collectPVEGuests(context.Background())
+	guests, running, stopped, paused, verified := collectPVEGuests(context.Background())
 	if len(guests) != 3 {
 		t.Fatalf("expected 3 guests, got %d", len(guests))
 	}
 	if running != 1 || stopped != 1 || paused != 1 {
 		t.Errorf("running=%d stopped=%d paused=%d, want 1/1/1", running, stopped, paused)
+	}
+	if !verified {
+		t.Error("expected verified=true when both qemu and lxc queries succeed")
 	}
 }
 
@@ -534,9 +537,15 @@ func TestCollectPVEGuests_QemuFailsLXCSucceeds(t *testing.T) {
 		b.PutCmd("pvesh", []string{"get", "/nodes/localhost/lxc", "--output-format", "json"},
 			`[{"vmid":200,"name":"ct1","status":"running"}]`, 0)
 	})
-	guests, running, _, _ := collectPVEGuests(context.Background())
+	guests, running, _, _, verified := collectPVEGuests(context.Background())
 	if len(guests) != 1 || running != 1 {
 		t.Errorf("expected 1 running guest from lxc despite qemu failure, got %d guests running=%d", len(guests), running)
+	}
+	// internal-models-11-02: a partial failure (qemu errored even though lxc
+	// succeeded and returned real guests) must still report verified=false —
+	// the guest list is incomplete, not confirmed exhaustive.
+	if verified {
+		t.Error("expected verified=false when the qemu sub-query failed, even though lxc succeeded")
 	}
 }
 
@@ -546,9 +555,12 @@ func TestCollectPVEGuests_BadJSON(t *testing.T) {
 			"not valid json", 0)
 		b.PutCmdNotFound("pvesh", []string{"get", "/nodes/localhost/lxc", "--output-format", "json"})
 	})
-	guests, _, _, _ := collectPVEGuests(context.Background())
+	guests, _, _, _, verified := collectPVEGuests(context.Background())
 	if len(guests) != 0 {
 		t.Errorf("expected 0 guests when JSON is invalid, got %d", len(guests))
+	}
+	if verified {
+		t.Error("expected verified=false when JSON is invalid")
 	}
 }
 
@@ -677,7 +689,7 @@ func TestCollectPVEBridges_Happy(t *testing.T) {
 			`[{"iface":"vmbr0","type":"bridge","active":1,"bridge_ports":"eno1"},{"iface":"eno1","type":"eth","active":1}]`, 0)
 		b.PutFile("/sys/class/net/vmbr0/bridge/stp_state", []byte("1\n"))
 	})
-	bridges := collectPVEBridges(context.Background())
+	bridges, verified := collectPVEBridges(context.Background())
 	if len(bridges) != 1 {
 		t.Fatalf("expected 1 bridge (eth iface excluded), got %d", len(bridges))
 	}
@@ -685,14 +697,25 @@ func TestCollectPVEBridges_Happy(t *testing.T) {
 	if br.Name != "vmbr0" || !br.Active || !br.HasUplink || !br.STPEnabled {
 		t.Errorf("bridge = %+v", br)
 	}
+	if !verified {
+		t.Error("expected verified=true on a successful query")
+	}
 }
 
+// TestCollectPVEBridges_QueryFails guards internal-models-11-03: a failed
+// network query must report verified=false, distinguishing it from a
+// genuinely bridge-less node (which cannot happen on a real PVE node, but the
+// zero-value result must not be silently trusted as if it could).
 func TestCollectPVEBridges_QueryFails(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmdNotFound("pvesh", []string{"get", "/nodes/localhost/network", "--output-format", "json"})
 	})
-	if got := collectPVEBridges(context.Background()); got != nil {
-		t.Errorf("expected nil, got %v", got)
+	bridges, verified := collectPVEBridges(context.Background())
+	if bridges != nil {
+		t.Errorf("expected nil, got %v", bridges)
+	}
+	if verified {
+		t.Error("expected verified=false on a query failure")
 	}
 }
 
@@ -701,8 +724,12 @@ func TestCollectPVEBridges_BadJSON(t *testing.T) {
 		b.PutCmd("pvesh", []string{"get", "/nodes/localhost/network", "--output-format", "json"},
 			"not valid json", 0)
 	})
-	if got := collectPVEBridges(context.Background()); got != nil {
-		t.Errorf("expected nil on bad JSON, got %v", got)
+	bridges, verified := collectPVEBridges(context.Background())
+	if bridges != nil {
+		t.Errorf("expected nil on bad JSON, got %v", bridges)
+	}
+	if verified {
+		t.Error("expected verified=false on bad JSON")
 	}
 }
 

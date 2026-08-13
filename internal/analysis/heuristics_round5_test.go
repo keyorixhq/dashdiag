@@ -69,13 +69,17 @@ func TestCheckPVEBackups(t *testing.T) {
 	neverGuest := []models.PVEBackupStatus{{VMID: 100, Name: "vm", LastBackupDays: -1}}
 	staleGuest := []models.PVEBackupStatus{{VMID: 100, Name: "vm", LastBackupDays: 10}}
 
-	assertLevel(t, checkPVEBackups(models.PVEInfo{BackupAgeDays: 3, BackupStatuses: backedUp}), "")        // recent, VM covered
-	assertLevel(t, checkPVEBackups(models.PVEInfo{BackupAgeDays: -1, BackupStatuses: neverGuest}), "CRIT") // no backup at all
-	assertLevel(t, checkPVEBackups(models.PVEInfo{BackupAgeDays: 10, BackupStatuses: staleGuest}), "WARN") // stale node-wide
-	assertLevel(t, checkPVEBackups(models.PVEInfo{BackupAgeDays: 3, RecentBackups: []models.PVEBackupTask{{Status: "ERROR"}}}), "WARN")
+	// GuestsVerified: true throughout this function — these fixtures represent
+	// a successful guest enumeration feeding the per-VM audit; the enumeration-
+	// failure case (GuestsVerified: false) is covered separately below by
+	// TestCheckPVEBackups_GuestsUnverifiedNotSilentlyVoidsAudit.
+	assertLevel(t, checkPVEBackups(models.PVEInfo{BackupAgeDays: 3, BackupStatuses: backedUp, GuestsVerified: true}), "")        // recent, VM covered
+	assertLevel(t, checkPVEBackups(models.PVEInfo{BackupAgeDays: -1, BackupStatuses: neverGuest, GuestsVerified: true}), "CRIT") // no backup at all
+	assertLevel(t, checkPVEBackups(models.PVEInfo{BackupAgeDays: 10, BackupStatuses: staleGuest, GuestsVerified: true}), "WARN") // stale node-wide
+	assertLevel(t, checkPVEBackups(models.PVEInfo{BackupAgeDays: 3, RecentBackups: []models.PVEBackupTask{{Status: "ERROR"}}, GuestsVerified: true}), "WARN")
 	// FALSE-POSITIVE GUARD: a fresh / template-only node (no backable guests →
 	// empty BackupStatuses) has nothing to back up, so "no backup" must NOT CRIT.
-	assertLevel(t, checkPVEBackups(models.PVEInfo{BackupAgeDays: -1, BackupVerified: true}), "")
+	assertLevel(t, checkPVEBackups(models.PVEInfo{BackupAgeDays: -1, BackupVerified: true, GuestsVerified: true}), "")
 
 	// PER-VM GAP: the node's global age is healthy (1 day) because most guests back
 	// up, but one guest has never been backed up — it must still be flagged, not
@@ -84,7 +88,7 @@ func TestCheckPVEBackups(t *testing.T) {
 		{VMID: 100, Name: "ok-vm", LastBackupDays: 1},
 		{VMID: 101, Name: "forgotten-vm", LastBackupDays: -1},
 	}
-	if got := checkPVEBackups(models.PVEInfo{BackupAgeDays: 1, BackupStatuses: mixed}); !hasInsight(got, "WARN", "no backup") {
+	if got := checkPVEBackups(models.PVEInfo{BackupAgeDays: 1, BackupStatuses: mixed, GuestsVerified: true}); !hasInsight(got, "WARN", "no backup") {
 		t.Errorf("a never-backed-up VM must be flagged even when global age is healthy, got %+v", got)
 	}
 	// PER-VM STALE while the node's global age is recent.
@@ -92,8 +96,46 @@ func TestCheckPVEBackups(t *testing.T) {
 		{VMID: 100, Name: "ok-vm", LastBackupDays: 1},
 		{VMID: 101, Name: "old-vm", LastBackupDays: 30},
 	}
-	if got := checkPVEBackups(models.PVEInfo{BackupAgeDays: 1, BackupStatuses: mixedStale}); !hasInsight(got, "WARN", "older than 7 days") {
+	if got := checkPVEBackups(models.PVEInfo{BackupAgeDays: 1, BackupStatuses: mixedStale, GuestsVerified: true}); !hasInsight(got, "WARN", "older than 7 days") {
 		t.Errorf("a stale per-VM backup must be flagged when global age is healthy, got %+v", got)
+	}
+}
+
+// TestCheckPVEBackups_GuestsUnverifiedNotSilentlyVoidsAudit guards
+// internal-models-11-02: BackupStatuses is built per-guest from p.Guests, so
+// a guest-enumeration failure leaves it empty regardless of BackupVerified —
+// the CRIT below (gated on len(BackupStatuses)>0) can never fire for a real
+// host with VMs that simply couldn't be listed. The disclosure must fire
+// ADDITIONALLY to (never instead of) whatever the vzdump-task-based checks
+// still find from RecentBackups/BackupAgeDays.
+func TestCheckPVEBackups_GuestsUnverifiedNotSilentlyVoidsAudit(t *testing.T) {
+	t.Parallel()
+
+	// Guest enumeration failed (GuestsVerified: false, BackupStatuses empty)
+	// but BackupVerified is true and BackupAgeDays looks fine — the OLD code's
+	// early-return only fired when BackupVerified was ALSO false, so this
+	// exact combination silently produced zero insights (a false "all clean").
+	insights := checkPVEBackups(models.PVEInfo{
+		BackupVerified: true,
+		BackupAgeDays:  1,
+		GuestsVerified: false,
+	})
+	if len(insights) != 1 || !insights[0].Unverified {
+		t.Fatalf("expected a single Unverified INFO insight, got %+v", insights)
+	}
+
+	// The disclosure must not swallow a real WARN/CRIT the vzdump-task-based
+	// checks (which don't depend on Guests) can still derive.
+	withRealFinding := checkPVEBackups(models.PVEInfo{
+		BackupVerified: true,
+		BackupAgeDays:  10, // stale
+		GuestsVerified: false,
+	})
+	if !hasInsight(withRealFinding, "WARN", "days ago") {
+		t.Errorf("expected the stale-backup WARN to survive alongside the GuestsVerified disclosure, got %+v", withRealFinding)
+	}
+	if !hasLevel(withRealFinding, "INFO") {
+		t.Errorf("expected the GuestsVerified disclosure to still be present, got %+v", withRealFinding)
 	}
 }
 

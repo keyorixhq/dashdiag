@@ -5,7 +5,9 @@ package collectors
 import (
 	"bufio"
 	"context"
+	"errors"
 	"io"
+	"io/fs"
 	"math"
 	"strconv"
 	"strings"
@@ -43,6 +45,15 @@ func (c *RAIDCollector) Timeout() time.Duration { return 2 * time.Second }
 func (c *RAIDCollector) Collect(_ context.Context) (interface{}, error) {
 	f, err := openFile("/proc/mdstat")
 	if err != nil {
+		if !errors.Is(err, fs.ErrNotExist) {
+			// internal-models-11-01: /proc/mdstat is a kernel-provided virtual
+			// file present on virtually every Linux host, with or without RAID
+			// configured — a non-ENOENT failure (permission, hardened LSM
+			// policy, procfs oddities) means the read genuinely failed, not
+			// that RAID is absent. Disclose it rather than silently reading
+			// as the same "no RAID configured" clean result.
+			return &models.RAIDInfo{ReadFailed: true}, nil
+		}
 		// mdstat not present — no RAID configured, silent OK
 		return &models.RAIDInfo{}, nil
 	}

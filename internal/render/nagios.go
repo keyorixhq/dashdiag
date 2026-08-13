@@ -35,16 +35,45 @@ func NagiosLine(results []runner.Result, insights []models.Insight) (string, int
 		}
 	}
 
+	// internal-render-03-03: a collector that errors (r.Err != nil) never becomes
+	// a CRIT/WARN insight — ApplyThresholds only emits an INFO "check could not
+	// run" disclosure for it (see internal/analysis), which every OTHER renderer
+	// (the live table, --report, --report-html) already accounts for. This
+	// renderer only ever inspected `insights` for CRIT/WARN, so a run where every
+	// collector failed (nothing to derive a finding from, hence zero CRIT/WARN)
+	// still printed a clean "DASHDIAG OK - all checks passed" to Icinga/Nagios/
+	// check_mk — the exact false-OK a monitoring plugin must never emit.
+	var failed []string
+	failedSeen := map[string]bool{}
+	for _, r := range results {
+		if r.Err != nil && !failedSeen[r.Name] {
+			failedSeen[r.Name] = true
+			failed = append(failed, r.Name)
+		}
+	}
+
 	switch {
 	case len(crit) > 0:
 		detail := fmt.Sprintf("%d critical", len(crit))
 		if len(warn) > 0 {
 			detail += fmt.Sprintf(", %d warning", len(warn))
 		}
+		if len(failed) > 0 {
+			detail += fmt.Sprintf(", %d check(s) failed to run", len(failed))
+		}
 		all := append(append([]string{}, crit...), warn...)
+		all = append(all, failed...)
 		return fmt.Sprintf("DASHDIAG CRITICAL - %s: %s", detail, strings.Join(all, ", ")), 2
 	case len(warn) > 0:
-		return fmt.Sprintf("DASHDIAG WARNING - %d warning: %s", len(warn), strings.Join(warn, ", ")), 1
+		detail := fmt.Sprintf("%d warning", len(warn))
+		all := append([]string{}, warn...)
+		if len(failed) > 0 {
+			detail += fmt.Sprintf(", %d check(s) failed to run", len(failed))
+			all = append(all, failed...)
+		}
+		return fmt.Sprintf("DASHDIAG WARNING - %s: %s", detail, strings.Join(all, ", ")), 1
+	case len(failed) > 0:
+		return fmt.Sprintf("DASHDIAG WARNING - %d check(s) failed to run: %s", len(failed), strings.Join(failed, ", ")), 1
 	default:
 		return "DASHDIAG OK - all checks passed", 0
 	}
