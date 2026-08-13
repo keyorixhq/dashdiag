@@ -30,6 +30,10 @@ copy a local binary over first.
 Hosts are [user@]host[:not-supported] strings (use ~/.ssh/config for ports/users).
 Provide them as arguments and/or via --hosts-file (one per line, # comments ok).
 
+Host key checking follows your ~/.ssh/config as-is (fleet never overrides it) —
+an unknown host key fails closed rather than prompting, since fleet always runs
+non-interactively. Pass --accept-new-host-keys to trust-on-first-use instead.
+
 Examples:
   dsd fleet web1 web2 db1
   dsd fleet --hosts-file hosts.txt
@@ -49,6 +53,7 @@ func init() {
 	fleetCmd.Flags().Duration("timeout", 45*time.Second, "overall timeout per host")
 	fleetCmd.Flags().Int("concurrency", 8, "max hosts checked in parallel")
 	fleetCmd.Flags().Bool("report-html", false, "write a self-contained fleet HTML report (printable to PDF) to dsd-fleet-report-<date>.html")
+	fleetCmd.Flags().Bool("accept-new-host-keys", false, "trust-on-first-use unknown host keys (like ssh's StrictHostKeyChecking=accept-new); default respects your ~/.ssh/config instead")
 }
 
 func runFleet(cmd *cobra.Command, args []string) error {
@@ -71,13 +76,15 @@ func runFleet(cmd *cobra.Command, args []string) error {
 	connectTimeout, _ := cmd.Flags().GetDuration("connect-timeout")
 	timeout, _ := cmd.Flags().GetDuration("timeout")
 	concurrency, _ := cmd.Flags().GetInt("concurrency")
+	acceptNewHostKeys, _ := cmd.Flags().GetBool("accept-new-host-keys")
 
 	opts := fleet.Options{
-		RemoteCmd:      remoteCmd,
-		BinPath:        binPath,
-		ConnectTimeout: connectTimeout,
-		RunTimeout:     timeout,
-		Concurrency:    concurrency,
+		RemoteCmd:         remoteCmd,
+		BinPath:           binPath,
+		ConnectTimeout:    connectTimeout,
+		RunTimeout:        timeout,
+		Concurrency:       concurrency,
+		AcceptNewHostKeys: acceptNewHostKeys,
 	}
 
 	plain, _ := cmd.Flags().GetBool("plain")
