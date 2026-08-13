@@ -84,7 +84,8 @@ func FuzzParseOOMEvents(f *testing.F) {
 	f.Add("Killed process -1 (\x00) ")
 	f.Add("Out of memory\x00\xff\xfe garbage")
 	f.Fuzz(func(t *testing.T, out string) {
-		for _, e := range parseOOMEvents(out) {
+		events, _ := parseOOMEvents(out)
+		for _, e := range events {
 			if e.PID < 0 {
 				t.Fatalf("OOM event has negative PID %d from %q", e.PID, out)
 			}

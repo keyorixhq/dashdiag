@@ -52,6 +52,10 @@ type HardwareMemory struct {
 	CorrectedErrors   int64        `json:"corrected_errors"`
 	TotalGB           float64      `json:"total_gb"`
 	Slots             []MemorySlot `json:"slots,omitempty"`
+	// EDACCountersUnreadable is true when EDACAvailable but at least one
+	// controller's ce_count/ue_count could not be read/parsed — Corrected/
+	// UncorrectedErrors are then an incomplete sum, not proof of zero errors.
+	EDACCountersUnreadable bool `json:"edac_counters_unreadable,omitempty"`
 }
 
 // HardwareCPU holds CPU info from /proc/cpuinfo and cpufreq sysfs.

@@ -316,6 +316,16 @@ func updateKVMCounts(info *models.KVMInfo, vm *models.KVMVM) {
 func kvmCollectNetworks(ctx context.Context, info *models.KVMInfo) {
 	out, err := runCmd(ctx, "virsh", "net-list", "--all")
 	if err != nil {
+		// internal-collectors-18-04: mirrors kvmCollectVMs' enum-failed guard —
+		// returning silently left Networks empty and NetworksInactive at 0,
+		// indistinguishable from a host with no libvirt networks defined at all.
+		// Guarded on Status=="" so a VM enumeration failure (checked first, and
+		// the more severe of the two) keeps its own reason rather than being
+		// silently overwritten by this one.
+		if info.Status == "" {
+			info.Status = "enum-failed"
+			info.StatusReason = "libvirt is up but `virsh net-list` failed — network states could not be read"
+		}
 		return
 	}
 	for _, line := range strings.Split(out, "\n") {

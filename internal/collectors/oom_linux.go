@@ -59,7 +59,8 @@ func (c *OOMCollector) Collect(ctx context.Context) (interface{}, error) {
 		usedDmesg = true
 	}
 
-	events := parseOOMEvents(out)
+	events, truncated := parseOOMEvents(out)
+	info.EventsCountUnverified = truncated
 	if usedDmesg {
 		// dmesg has no `--since`; the kernel ring buffer can hold OOM lines from days
 		// ago on a long-running host. Counting them all as "last 24h" produced a CRIT
@@ -121,7 +122,12 @@ func filterOOMRecent(events []models.OOMEvent, cutoff time.Time) []models.OOMEve
 	return kept
 }
 
-func parseOOMEvents(out string) []models.OOMEvent {
+// parseOOMEvents scans out for OOM-kill lines. The second return is true when
+// bufio.Scanner stopped early on a scan error (e.g. bufio.ErrTooLong from a
+// line past its ~64KB default buffer) — any OOM events on lines after that
+// point are silently missing, so the caller must disclose the count as
+// possibly incomplete rather than a verified total (internal-collectors-25-05).
+func parseOOMEvents(out string) ([]models.OOMEvent, bool) {
 	var events []models.OOMEvent
 	seen := map[string]bool{} // deduplicate by pid+process
 	scanner := bufio.NewScanner(strings.NewReader(out))
@@ -148,5 +154,5 @@ func parseOOMEvents(out string) []models.OOMEvent {
 		seen[key] = true
 		events = append(events, ev)
 	}
-	return events
+	return events, scanner.Err() != nil
 }
