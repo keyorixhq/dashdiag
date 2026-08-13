@@ -27,6 +27,13 @@ type NVMeDevice struct {
 	// case), "tool_absent" (nvme-cli genuinely missing), or "error" (present and
 	// privileged but the read still failed). Empty when SmartRead is true.
 	SmartUnreadReason string `json:"smart_unread_reason,omitempty"`
+	// SmartDangerousFieldsUnread is true when SmartRead is true (at least one
+	// recognized field parsed) but one or more of the safety-critical fields —
+	// critical_warning, media_errors, percentage_used — were NOT present in the
+	// smart-log output. SmartRead alone only proves SOME field parsed (e.g. just
+	// power_on_hours); without this, a smart-log missing/garbling exactly the
+	// fields that would raise a CRIT reads as a fully-verified healthy drive.
+	SmartDangerousFieldsUnread bool `json:"smart_dangerous_fields_unread,omitempty"`
 }
 
 // SATADevice holds SMART health data for a SATA/SAS drive.

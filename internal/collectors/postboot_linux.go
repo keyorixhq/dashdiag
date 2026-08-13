@@ -4,6 +4,7 @@ package collectors
 
 import (
 	"context"
+	"errors"
 	"regexp"
 	"strings"
 	"time"
@@ -106,19 +107,33 @@ func countPriorBootsLive(ctx context.Context) (int, error) {
 
 // readPriorBootJournal fills the finding fields from the previous boot's journal.
 func readPriorBootJournal(ctx context.Context, info *models.PostBootInfo) {
-	info.OOMKills, info.OOMVictims = priorBootOOM(ctx)
-	info.KernelPanic, info.PanicHint = priorBootPanic(ctx)
+	info.OOMKills, info.OOMVictims, info.OOMChecked = priorBootOOM(ctx)
+	info.KernelPanic, info.PanicHint, info.PanicChecked = priorBootPanic(ctx)
 	info.UncleanShutdown, info.ShutdownChecked = priorBootUncleanJournal(ctx)
 }
 
+// journalctlGrepNoMatch reports whether err is journalctl's own "exit 1, zero
+// matches" convention for --grep — the routine, healthy case of finding
+// nothing — as opposed to a genuine sub-call failure (spawn failure, a
+// different exit code: ACL change mid-run, journal rotation, a journalctl
+// build without PCRE2/--grep support). Both priorBootOOM and priorBootPanic
+// need this distinction to set their *Checked flag honestly
+// (internal-collectors-26-01): collapsing both cases to "not checked" would
+// falsely disclose the routine clean case, and collapsing both to "checked"
+// would hide a genuine read failure behind a false "0 kills / no panic".
+func journalctlGrepNoMatch(err error) bool {
+	var ce *cmdError
+	return errors.As(err, &ce) && ce.code == 1
+}
+
 // priorBootOOM reuses the OOM parser against the PRIOR boot's kernel log.
-func priorBootOOM(ctx context.Context) (kills int, victims []string) {
+func priorBootOOM(ctx context.Context) (kills int, victims []string, checked bool) {
 	out, err := runCmd(ctx, pbCmdJournalctl, "-k", pbFlagBoot1, svcNoPager,
 		"-o", "short-iso", "--grep", "Out of memory|Killed process")
 	if err != nil {
-		return 0, nil
+		return 0, nil, journalctlGrepNoMatch(err)
 	}
-	events := parseOOMEvents(out)
+	events, truncated := parseOOMEvents(out)
 	seen := map[string]bool{}
 	for _, e := range events {
 		if e.Process != "" && !seen[e.Process] {
@@ -129,7 +144,7 @@ func priorBootOOM(ctx context.Context) (kills int, victims []string) {
 	if len(victims) > 5 {
 		victims = victims[:5]
 	}
-	return len(events), victims
+	return len(events), victims, !truncated
 }
 
 // panicRe matches the fatal kernel signatures (panic, oops, GPF, fatal BUG). Deliberately
@@ -140,18 +155,18 @@ var panicRe = regexp.MustCompile(`Kernel panic|Oops:|general protection fault|BU
 // priorBootPanic reports whether the prior boot logged a fatal kernel event. Uses
 // journalctl's server-side --grep so only matching lines are returned (bounded output,
 // no full-boot-log pull).
-func priorBootPanic(ctx context.Context) (panicked bool, hint string) {
+func priorBootPanic(ctx context.Context) (panicked bool, hint string, checked bool) {
 	out, err := runCmd(ctx, pbCmdJournalctl, "-k", pbFlagBoot1, svcNoPager, "-q", "-o", "cat",
 		"--grep", "Kernel panic|Oops:|general protection fault|BUG: unable to handle|kernel BUG at")
 	if err != nil {
-		return false, ""
+		return false, "", journalctlGrepNoMatch(err)
 	}
 	for _, line := range strings.Split(out, "\n") {
 		if panicRe.MatchString(line) {
-			return true, strings.TrimSpace(truncatePanic(line))
+			return true, strings.TrimSpace(truncatePanic(line)), true
 		}
 	}
-	return false, ""
+	return false, "", true
 }
 
 func truncatePanic(s string) string {

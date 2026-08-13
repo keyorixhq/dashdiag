@@ -411,15 +411,20 @@ func parseDmesgLine(line string, since time.Time) *models.TimelineEvent {
 	msgLower := strings.ToLower(msg)
 	// "out of memory" catches the kernel OOM killer header ("Out of memory: Killed
 	// process ..."), which does not contain the literal token "oom".
-	if strings.Contains(msgLower, "oom") || strings.Contains(msgLower, "out of memory") ||
+	catastrophe := strings.Contains(msgLower, "oom") || strings.Contains(msgLower, "out of memory") ||
 		strings.Contains(msgLower, "panic") || strings.Contains(msgLower, "oops") ||
-		strings.Contains(msgLower, "bug:") {
+		strings.Contains(msgLower, "bug:")
+	if catastrophe {
 		level = "CRIT"
 	}
 	// A few messages the kernel logs at err level are benign-by-platform — present
 	// on every boot with zero operational impact. Downgrade so the timeline doesn't
-	// cry CRIT on a normal box (the catastrophe keywords above still win).
-	if level == "CRIT" && isBenignKernelErr(msgLower) {
+	// cry CRIT on a normal box. internal-collectors-33-02: gated on !catastrophe so
+	// the catastrophe keywords above ACTUALLY win, not just in comment — a message
+	// that legitimately contains BOTH a catastrophe keyword and a benign substring
+	// (e.g. a crafted log line, or coincidental overlap) must stay CRIT, never get
+	// silently downgraded to INFO because isBenignKernelErr also happens to match.
+	if level == "CRIT" && !catastrophe && isBenignKernelErr(msgLower) {
 		level = "INFO"
 	}
 

@@ -164,6 +164,9 @@ func TestNVMeCollector_Collect_SmartLogSuccess(t *testing.T) {
 	if !dev.SmartRead || dev.SmartUnreadReason != "" {
 		t.Errorf("dev = %+v, want SmartRead=true, no unread reason", dev)
 	}
+	if dev.SmartDangerousFieldsUnread {
+		t.Error("SmartDangerousFieldsUnread = true, want false — all three dangerous fields were present")
+	}
 	if dev.Model != "Samsung SSD 980" || dev.PercentageUsed != 7 {
 		t.Errorf("dev = %+v, want Model=Samsung SSD 980 PercentageUsed=7", dev)
 	}
@@ -465,6 +468,38 @@ func TestParseNVMeSmartLogReportsParseSuccess(t *testing.T) {
 	}
 	if d2.PercentageUsed != 7 {
 		t.Errorf("PercentageUsed = %d, want 7", d2.PercentageUsed)
+	}
+	if d2.SmartDangerousFieldsUnread {
+		t.Error("SmartDangerousFieldsUnread = true, want false — all three dangerous fields were present")
+	}
+}
+
+// TestParseNVMeSmartLog_DangerousFieldMissing is the regression guard for
+// internal-collectors-24-01: a smart-log that includes only a benign field
+// (power_on_hours) while critical_warning/media_errors/percentage_used are
+// absent must still return parsedAny=true (so SmartRead becomes true), but
+// SmartDangerousFieldsUnread must flag that the safety-critical fields were
+// never actually read — SmartRead alone does not prove the drive is
+// verified-healthy.
+func TestParseNVMeSmartLog_DangerousFieldMissing(t *testing.T) {
+	t.Parallel()
+	var d models.NVMeDevice
+	out := "power_on_hours			: 500\n" // only a benign field present
+	if !parseNVMeSmartLog(out, &d) {
+		t.Fatal("expected parsedAny=true — power_on_hours is a recognized field")
+	}
+	if !d.SmartDangerousFieldsUnread {
+		t.Error("SmartDangerousFieldsUnread = false, want true — critical_warning/media_errors/percentage_used were never present")
+	}
+
+	// Partial: two of three dangerous fields present, one missing (media_errors).
+	var d2 models.NVMeDevice
+	partial := "critical_warning			: 0\npercentage_used			: 7%\n"
+	if !parseNVMeSmartLog(partial, &d2) {
+		t.Fatal("expected parsedAny=true")
+	}
+	if !d2.SmartDangerousFieldsUnread {
+		t.Error("SmartDangerousFieldsUnread = false, want true — media_errors is missing")
 	}
 }
 

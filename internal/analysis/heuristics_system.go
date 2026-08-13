@@ -1081,8 +1081,15 @@ func checkOOM(oom models.OOMInfo) []models.Insight {
 			},
 		)}
 	}
+	var out []models.Insight
+	if oom.EventsCountUnverified {
+		out = append(out, unverifiedInsight("INFO", "OOM",
+			"OOM event count may be incomplete — a kernel log line exceeded the scan buffer limit",
+			[]string{"to inspect: journalctl -k --since '24 hours ago' | grep -i 'out of memory'"},
+		))
+	}
 	if oom.EventsLast24h == 0 {
-		return nil
+		return out
 	}
 	var victims []string
 	seen := map[string]bool{}
@@ -1099,7 +1106,7 @@ func checkOOM(oom models.OOMInfo) []models.Insight {
 	// CRIT, not WARN: an OOM kill is a real failure (a process was killed). The
 	// logs path already CRITs on OOM kills in the last hour; this 24h-window path
 	// must agree, else a kill 60+ min ago would only WARN and exit 1 not 2.
-	return []models.Insight{insight("CRIT", "OOM",
+	out = append(out, insight("CRIT", "OOM",
 		msg,
 		[]string{
 			"to inspect: journalctl -k | grep -i 'oom\\|killed process'",
@@ -1108,7 +1115,8 @@ func checkOOM(oom models.OOMInfo) []models.Insight {
 			inspectPsMemHead,
 			"note: OOM kills are silent — services may restart without apparent cause",
 		},
-	)}
+	))
+	return out
 }
 
 func checkMTE(m models.MTEInfo) []models.Insight {

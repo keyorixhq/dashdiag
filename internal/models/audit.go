@@ -7,6 +7,13 @@ type AuditInfo struct {
 	RulesLoaded    int     `json:"rules_loaded,omitempty"`
 	EventsLast1h   int     `json:"events_last_1h,omitempty"`
 	AuditLogSizeGB float64 `json:"audit_log_size_gb,omitempty"`
+	// RulesUnreadable/EventsUnreadable are true when auditctl -l / ausearch
+	// failed (typically non-root) — distinct from a genuinely zero rule count
+	// or zero recent events. Without these, a non-root run against a host with
+	// hundreds of loaded rules and heavy recent audit activity reads as an
+	// unconfigured auditd to any consumer of the raw counts.
+	RulesUnreadable  bool `json:"rules_unreadable,omitempty"`
+	EventsUnreadable bool `json:"events_unreadable,omitempty"`
 	// AuditLogSizeUnreadable is true when /var/log/audit/audit.log exists but
 	// could not be stat'd (the 0700 root:root audit dir denies non-root) —
 	// distinct from a genuinely small log. Without it, a non-root run can't
