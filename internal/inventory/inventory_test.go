@@ -203,6 +203,28 @@ func TestReadMachineIDFrom(t *testing.T) {
 	})
 }
 
+// TestReadTrim_SanitizesControlChars guards Finding internal-inventory-01-02:
+// readTrim (used by readKernel/readMachineID/readDMI/readBlockDevices) only
+// did TrimSpace, assuming kernel-exposed sysfs/DMI values are printable text
+// with nothing enforcing that. A crafted DMI/block-device string carrying raw
+// ANSI/OSC escape sequences must not survive into the Inventory string field.
+func TestReadTrim_SanitizesControlChars(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "evil-attr")
+	evil := "evil" + string(rune(0x1b)) + "[2Jname\n"
+	if err := os.WriteFile(path, []byte(evil), 0o644); err != nil {
+		t.Fatalf("writing fixture: %v", err)
+	}
+	got := readTrim(path)
+	if strings.ContainsRune(got, 0x1b) {
+		t.Errorf("readTrim(%q) = %q, still contains a raw ESC byte", path, got)
+	}
+	if !strings.Contains(got, "evil[2Jname") {
+		t.Errorf("readTrim(%q) = %q, expected printable payload to survive", path, got)
+	}
+}
+
 func TestReadMachineID_RealFallbackChain(t *testing.T) {
 	t.Parallel()
 	// Smoke test for the zero-arg wrapper: must not panic regardless of
@@ -349,6 +371,71 @@ func TestToCSV_FlatKeyValue(t *testing.T) {
 	// Empty fields must be omitted (no cpu.threads row when 0).
 	if strings.Contains(csv, "cpu.threads") {
 		t.Errorf("zero field should be omitted:\n%s", csv)
+	}
+}
+
+// TestToCSV_EscapesFormulaInjection guards Finding internal-inventory-01-01
+// (CWE-1236): a hardware-derived string value (drive model/serial, DMI
+// vendor, NIC name, etc.) that starts with '=', '+', '-', '@', or a tab must
+// be prefixed with a leading apostrophe so Excel/Google Sheets treats the
+// cell as text instead of evaluating it as a formula when an operator opens
+// `dsd inventory --csv` output — e.g. a BadUSB-style storage device or a
+// hypervisor fabricating SMBIOS data reporting "=HYPERLINK(...)" as its
+// serial number.
+func TestToCSV_EscapesFormulaInjection(t *testing.T) {
+	t.Parallel()
+	inv := models.Inventory{
+		Tool:   "dsd",
+		Drives: []models.InventoryDrive{{Device: "/dev/sda", Model: `=HYPERLINK("http://evil","x")`, Serial: "+1+1"}},
+		System: models.InventorySystem{Vendor: "-2+3", Serial: "@SUM(1,1)"},
+	}
+	csv, err := ToCSV(inv)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, unwanted := range []string{
+		`drive.0.model,=HYPERLINK`,
+		`drive.0.serial,+1+1`,
+		`system.vendor,-2+3`,
+		`system.serial,@SUM`,
+	} {
+		if strings.Contains(csv, unwanted) {
+			t.Errorf("CSV contains an unescaped formula-leading cell %q:\n%s", unwanted, csv)
+		}
+	}
+	for _, want := range []string{
+		// encoding/csv quotes any cell containing a comma/quote — the escaped
+		// HYPERLINK cell ends up quoted, but the leading apostrophe survives.
+		`drive.0.model,"'=HYPERLINK`,
+		`drive.0.serial,'+1+1`,
+		`system.vendor,'-2+3`,
+		`system.serial,"'@SUM`,
+	} {
+		if !strings.Contains(csv, want) {
+			t.Errorf("CSV missing escaped cell %q:\n%s", want, csv)
+		}
+	}
+}
+
+// TestEscapeCSVFormula covers the boundary cases directly: each dangerous
+// leading byte gets a prefix, ordinary text and empty strings pass through
+// unchanged.
+func TestEscapeCSVFormula(t *testing.T) {
+	t.Parallel()
+	cases := []struct{ in, want string }{
+		{"", ""},
+		{"normal text", "normal text"},
+		{"=cmd", "'=cmd"},
+		{"+1", "'+1"},
+		{"-1", "'-1"},
+		{"@SUM(1,1)", "'@SUM(1,1)"},
+		{"\ttabbed", "'\ttabbed"},
+		{"\rcr", "'\rcr"},
+	}
+	for _, c := range cases {
+		if got := escapeCSVFormula(c.in); got != c.want {
+			t.Errorf("escapeCSVFormula(%q) = %q, want %q", c.in, got, c.want)
+		}
 	}
 }
 
