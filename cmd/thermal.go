@@ -41,6 +41,9 @@ func runThermal(cmd *cobra.Command, _ []string) error {
 	watchFlag, _ := cmd.Flags().GetBool("watch")
 	if watchFlag {
 		interval, _ := cmd.Flags().GetDuration("watch-interval")
+		if err := validateWatchInterval(interval); err != nil {
+			return err
+		}
 		return watchThermal(ctx, interval, mode)
 	}
 
