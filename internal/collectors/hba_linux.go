@@ -4,6 +4,7 @@ package collectors
 
 import (
 	"context"
+	"math"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -110,9 +111,13 @@ func readSysfsHexIntOK(path string) (int, bool) {
 	s = strings.TrimPrefix(s, "0X")
 	// bitSize 0 means "must fit in int" — int is 32-bit on some platforms, and
 	// this rejects a sysfs value too large for that outright instead of
-	// silently wrapping it on truncation to int below.
+	// silently wrapping it on truncation to int below. The explicit range
+	// check on n is redundant with that (ParseInt already errors on
+	// out-of-range for bitSize 0) but is kept so the int(n) conversion below
+	// is self-evidently safe to static analysis, not just by ParseInt's
+	// documented-but-not-statically-visible bitSize=0 behavior.
 	n, err := strconv.ParseInt(s, 16, 0)
-	if err != nil {
+	if err != nil || n < math.MinInt || n > math.MaxInt {
 		return 0, false
 	}
 	return int(n), true
