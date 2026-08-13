@@ -111,16 +111,21 @@ func PrintInsightChanges(w io.Writer, added, resolved []models.Insight, changed 
 		fmt.Fprintln(w, StyleDim.Render("  · no change"))
 		return
 	}
+	// ins.Check/Message are built by analysis heuristics over collector raw
+	// data (process names, mount paths, device labels, etc.) that can
+	// originate from attacker-influenced sources on the diagnosed host — this
+	// block re-renders every refresh of `dsd health --watch`, so strip
+	// control/ANSI-escape bytes before any of it reaches the live terminal.
 	for _, ins := range added {
 		st := styleForStatus(ins.Level)
-		fmt.Fprintf(w, "  %s %s %s: %s\n", st.Render("🆕"), st.Render(ins.Level), ins.Check, ins.Message)
+		fmt.Fprintf(w, "  %s %s %s: %s\n", st.Render("🆕"), st.Render(ins.Level), output.SanitizeControl(ins.Check), output.SanitizeControl(ins.Message))
 	}
 	for _, c := range changed {
 		arrow := fmt.Sprintf("%s→%s", c.FromLevel, c.ToLevel)
 		st := styleForStatus(c.ToLevel)
-		fmt.Fprintf(w, "  %s %s %s: %s\n", st.Render("↕"), st.Render(arrow), c.Insight.Check, c.Insight.Message)
+		fmt.Fprintf(w, "  %s %s %s: %s\n", st.Render("↕"), st.Render(arrow), output.SanitizeControl(c.Insight.Check), output.SanitizeControl(c.Insight.Message))
 	}
 	for _, ins := range resolved {
-		fmt.Fprintf(w, "  %s %s %s: %s\n", StyleOK.Render("✅"), StyleOK.Render("resolved"), ins.Check, StyleDim.Render(ins.Message))
+		fmt.Fprintf(w, "  %s %s %s: %s\n", StyleOK.Render("✅"), StyleOK.Render("resolved"), output.SanitizeControl(ins.Check), StyleDim.Render(output.SanitizeControl(ins.Message)))
 	}
 }

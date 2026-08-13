@@ -157,6 +157,28 @@ func TestPrintInsightChanges(t *testing.T) {
 	})
 }
 
+// TestPrintInsightChangesSanitizesControlChars guards Finding
+// internal-render-04-02: ins.Check/Message are built by analysis heuristics
+// over collector raw data (process names, mount paths, device labels) that
+// can originate from attacker-influenced sources, and this block re-renders
+// every refresh of `dsd health --watch` with no control-character stripping.
+func TestPrintInsightChangesSanitizesControlChars(t *testing.T) {
+	evil := "evil\x1b[2Jname"
+	added := []models.Insight{ins("CRIT", "Disk"+evil, evil)}
+	resolved := []models.Insight{ins("WARN", "Network", evil)}
+	changed := []InsightChange{{Insight: ins("CRIT", "CPU", evil), FromLevel: "WARN", ToLevel: "CRIT"}}
+
+	var buf bytes.Buffer
+	PrintInsightChanges(&buf, added, resolved, changed, output.ModeHuman)
+	out := buf.String()
+	if strings.ContainsRune(out, 0x1b) {
+		t.Errorf("PrintInsightChanges output still contains a raw ESC byte:\n%s", out)
+	}
+	if !strings.Contains(out, "evil[2Jname") {
+		t.Errorf("expected printable payload to survive sanitization, got:\n%s", out)
+	}
+}
+
 // TestInsightChangesPerDeviceDistinct pins that two devices with the same issue
 // are tracked as distinct signatures. The number-normalization collapses
 // fluctuating values, but it must NOT collapse a device index embedded in an
