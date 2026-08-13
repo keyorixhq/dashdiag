@@ -9,18 +9,23 @@ import (
 )
 
 // readEDACCounts reads the kernel EDAC (ECC memory error) counters from sysfs.
-// Returns whether EDAC is present, and the summed corrected (CE) and
-// uncorrected (UE) error counts across all memory controllers. Cheap — a few
-// sysfs reads, no exec — so it is safe to call from the fast health path as well
-// as the heavier hardware collector. Shared by both so the two paths can't drift.
-func readEDACCounts() (available bool, corrected, uncorrected int64) {
+// Returns whether EDAC is present, the summed corrected (CE) and uncorrected
+// (UE) error counts across all memory controllers, and whether any counter
+// read/parse failed (internal-collectors-11-03: a TOCTOU window between the
+// existence check and the read, or an unexpected sysfs value, must not
+// silently collapse to a clean "0 errors" — that reads as verified-healthy on
+// exactly the failing-memory-subsystem hosts where the sysfs interface is
+// least reliable). Cheap — a few sysfs reads, no exec — so it is safe to call
+// from the fast health path as well as the heavier hardware collector. Shared
+// by both so the two paths can't drift.
+func readEDACCounts() (available bool, corrected, uncorrected int64, countersUnreadable bool) {
 	return readEDACCountsFrom("/sys/devices/system/edac/mc")
 }
 
-func readEDACCountsFrom(edacRoot string) (available bool, corrected, uncorrected int64) {
+func readEDACCountsFrom(edacRoot string) (available bool, corrected, uncorrected int64, countersUnreadable bool) {
 	entries, err := readDirNames(edacRoot)
 	if err != nil {
-		return false, 0, 0 // EDAC sysfs absent — common on VMs / consumer HW
+		return false, 0, 0, false // EDAC sysfs absent — common on VMs / consumer HW
 	}
 	// available is true ONLY when a real memory controller (mc0, mc1, …) is
 	// registered. The edac/mc *class* dir exists even on non-ECC hardware (just
@@ -39,20 +44,26 @@ func readEDACCountsFrom(edacRoot string) (available bool, corrected, uncorrected
 			continue
 		}
 		available = true
-		corrected += readEDACCounter(filepath.Join(mcDir, "ce_count"))
-		uncorrected += readEDACCounter(filepath.Join(mcDir, "ue_count"))
+		ce, ceOK := readEDACCounter(filepath.Join(mcDir, "ce_count"))
+		ue, ueOK := readEDACCounter(filepath.Join(mcDir, "ue_count"))
+		if !ceOK || !ueOK {
+			countersUnreadable = true
+			continue // don't fold a failed read's 0 into the sum as if it were real
+		}
+		corrected += ce
+		uncorrected += ue
 	}
-	return available, corrected, uncorrected
+	return available, corrected, uncorrected, countersUnreadable
 }
 
-func readEDACCounter(path string) int64 {
+func readEDACCounter(path string) (int64, bool) {
 	b, err := readFile(path) // #nosec G304 -- hardcoded /sys EDAC path
 	if err != nil {
-		return 0
+		return 0, false
 	}
 	n, err := strconv.ParseInt(strings.TrimSpace(string(b)), 10, 64)
 	if err != nil {
-		return 0
+		return 0, false
 	}
-	return n
+	return n, true
 }

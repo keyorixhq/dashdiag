@@ -192,7 +192,15 @@ func checkMemory(mem models.MemoryInfo, thresh Thresholds, ctrCtx platform.Conta
 	// ECC memory errors (physical hosts). Now collected in the fast health path,
 	// so a failing DIMM surfaces in routine `dsd health`, not only `dsd hardware`.
 	if mem.EDACAvailable {
+		// Never suppress a genuine CRIT/WARN from whatever counters WERE read
+		// successfully — a real detected error on one controller must still
+		// surface even if another controller's read failed.
 		out = append(out, eccInsights(mem.CorrectedErrors, mem.UncorrectedErrors, "Memory")...)
+		if mem.EDACCountersUnreadable {
+			out = append(out, unverifiedInsight("INFO", "Memory",
+				"ECC error counters could not be fully read — the corrected/uncorrected counts above may be incomplete",
+				[]string{"to inspect: edac-util -s 4"}))
+		}
 	}
 	out = append(out, memHotplugInsights(mem)...)
 	return out

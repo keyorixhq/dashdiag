@@ -70,6 +70,15 @@ StandardOutput=journal
 StandardError=journal
 `
 
+// githubWorkflow's install step matches the flags install.sh's own header
+// comment documents as the canonical one-liner: -f (fail closed on a
+// non-2xx/error page instead of piping it into the shell), --proto/--proto-redir
+// '=https' (blocks a redirect mid-fetch from downgrading to plain HTTP), the
+// raw.githubusercontent.com source install.sh itself is fetched from (one
+// fewer redirect hop than a short-link redirector), and `sh` (install.sh's own
+// shebang, not an assumed `bash`). Once running, install.sh fails closed on an
+// unverified binary checksum by default — this only hardens the outer fetch of
+// install.sh itself, the same way every curl call inside install.sh already is.
 const githubWorkflow = `name: DashDiag Health Check
 on:
   push:
@@ -82,7 +91,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install DashDiag
-        run: curl -sSL https://dashdiag.sh/install.sh | bash
+        run: curl -fsSL --proto '=https' --proto-redir '=https' https://raw.githubusercontent.com/keyorixhq/dashdiag/main/install.sh | sh
       - name: System health check
         run: dsd health
 `
