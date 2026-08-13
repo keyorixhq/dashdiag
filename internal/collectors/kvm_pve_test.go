@@ -247,7 +247,10 @@ func TestUpdateKVMCounts(t *testing.T) {
 		{models.KVMInShutdown, false, 1, 0, 0, 0, 0, 0},
 		{models.KVMIdle, false, 1, 0, 0, 0, 0, 0},
 		{models.KVMBlocked, false, 1, 0, 0, 0, 0, 0},
-		{"", false, 0, 1, 0, 0, 0, 0}, // dominfo failed → unreadable, not healthy
+		{"", false, 0, 1, 0, 0, 0, 0},                  // dominfo failed → unreadable, not healthy
+		{"in crash-recovery", false, 0, 1, 0, 0, 0, 0}, // internal-collectors-18-07: unrecognized non-empty
+		// state (future libvirt release, modified virsh) must not silently vanish
+		// from every counter — counted the same as the unreadable (empty) case.
 		{models.KVMShutOff, true, 0, 0, 0, 1, 0, 0},
 		{models.KVMShutOff, false, 0, 0, 0, 0, 0, 0}, // deliberately stopped, no autostart → silent
 	}
