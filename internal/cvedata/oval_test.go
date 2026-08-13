@@ -227,6 +227,22 @@ func TestParseRHELOVAL_Errors(t *testing.T) {
 	}
 }
 
+// TestParseRHELOVAL_EmptyDefinitionsErrors covers internal-cvedata-02-01: XML
+// that decodes successfully but yields zero <definition> elements (a
+// truncated download that still closes its tags, or a CDN/object-storage XML
+// error body served instead of the real feed) must fail loudly, matching
+// loadOVAL's guard for the SUSE path and parseUbuntuOVALVersionAware's for
+// the Debian/Ubuntu path — not silently read as "scanned successfully, found
+// nothing" for the RHEL/Rocky/AlmaLinux/CentOS/Fedora vendor path, which
+// ScanOVALPackages dispatches to for that entire distro family.
+func TestParseRHELOVAL_EmptyDefinitionsErrors(t *testing.T) {
+	t.Parallel()
+	empty := `<?xml version="1.0"?><oval_definitions><definitions></definitions></oval_definitions>`
+	if _, err := ParseRHELOVAL(writeFixture(t, "empty-defs.xml", empty)); err == nil {
+		t.Error("zero-definitions OVAL must error, not read as a clean empty scan")
+	}
+}
+
 // TestParseRHELOVAL_RejectsOversizedFeed covers internal-cvedata-02-04 /
 // read-bounding-06: ParseRHELOVAL must not decode an unbounded amount of XML.
 // Go's stdlib bzip2 is decode-only (see the BZ2Suffix test below), so this
