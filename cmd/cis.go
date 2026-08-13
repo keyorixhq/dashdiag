@@ -182,18 +182,18 @@ func printCISReport(report models.CISReport, failOnly, stig bool, mode output.Ou
 		icon := cisIcon(r, mode)
 		idPad := fmt.Sprintf("%-8s", r.ID)
 		fmt.Printf("  %s %s%s%s  %s\n",
-			icon, colourFor(r.Status, colour), idPad, resetColour(colour), r.Description)
+			icon, colourFor(r.Status, colour), idPad, resetColour(colour), output.SanitizeControl(r.Description))
 
 		if r.Status == models.CISFail {
 			if r.Finding != "" {
-				fmt.Printf("           %sfinding:%s %s\n", dim(colour), resetColour(colour), r.Finding)
+				fmt.Printf("           %sfinding:%s %s\n", dim(colour), resetColour(colour), output.SanitizeControl(r.Finding))
 			}
 			if r.Remediation != "" {
-				fmt.Printf("           %sto fix: %s %s\n", dim(colour), resetColour(colour), r.Remediation)
+				fmt.Printf("           %sto fix: %s %s\n", dim(colour), resetColour(colour), output.SanitizeControl(r.Remediation))
 			}
 		}
 		if r.Status == models.CISManual && r.Finding != "" {
-			fmt.Printf("           %scheck:  %s %s\n", dim(colour), resetColour(colour), r.Finding)
+			fmt.Printf("           %scheck:  %s %s\n", dim(colour), resetColour(colour), output.SanitizeControl(r.Finding))
 		}
 		// Every skip's reason was recorded (skipr/unverifiedr always set
 		// Finding) but never shown here — a false-clean-adjacent bug in its
@@ -204,7 +204,7 @@ func printCISReport(report models.CISReport, failOnly, stig bool, mode output.Ou
 			if r.Unverified {
 				label = cisUnverifiedLabel
 			}
-			fmt.Printf("           %s%s%s %s\n", dim(colour), label, resetColour(colour), r.Finding)
+			fmt.Printf("           %s%s%s %s\n", dim(colour), label, resetColour(colour), output.SanitizeControl(r.Finding))
 		}
 	}
 
@@ -306,13 +306,13 @@ func printNIS2Article(g cis.NIS2ArticleGroup, failOnly, colour bool, mode output
 		ruleIcon := cisIcon(r, mode)
 		idPad := fmt.Sprintf("%-8s", r.ID)
 		fmt.Printf("         %s %s%s%s  %s\n",
-			ruleIcon, colourFor(r.Status, colour), idPad, resetColour(colour), r.Description)
+			ruleIcon, colourFor(r.Status, colour), idPad, resetColour(colour), output.SanitizeControl(r.Description))
 		if r.Status == models.CISFail {
 			if r.Finding != "" {
-				fmt.Printf("                    %sfinding:%s %s\n", dim(colour), resetColour(colour), r.Finding)
+				fmt.Printf("                    %sfinding:%s %s\n", dim(colour), resetColour(colour), output.SanitizeControl(r.Finding))
 			}
 			if r.Remediation != "" {
-				fmt.Printf("                    %sto fix: %s %s\n", dim(colour), resetColour(colour), r.Remediation)
+				fmt.Printf("                    %sto fix: %s %s\n", dim(colour), resetColour(colour), output.SanitizeControl(r.Remediation))
 			}
 		}
 		if r.Status == models.CISSkipped && r.Finding != "" {
@@ -320,7 +320,7 @@ func printNIS2Article(g cis.NIS2ArticleGroup, failOnly, colour bool, mode output
 			if r.Unverified {
 				label = cisUnverifiedLabel
 			}
-			fmt.Printf("                    %s%s%s %s\n", dim(colour), label, resetColour(colour), r.Finding)
+			fmt.Printf("                    %s%s%s %s\n", dim(colour), label, resetColour(colour), output.SanitizeControl(r.Finding))
 		}
 	}
 	printNIS2Summary(g, colour)
@@ -421,13 +421,13 @@ func printBSIReq(g cis.BSIReqGroup, failOnly, colour bool, mode output.OutputMod
 		ruleIcon := cisIcon(r, mode)
 		idPad := fmt.Sprintf("%-8s", r.ID)
 		fmt.Printf("         %s %s%s%s  %s\n",
-			ruleIcon, colourFor(r.Status, colour), idPad, resetColour(colour), r.Description)
+			ruleIcon, colourFor(r.Status, colour), idPad, resetColour(colour), output.SanitizeControl(r.Description))
 		if r.Status == models.CISFail {
 			if r.Finding != "" {
-				fmt.Printf("                    %sfinding:%s %s\n", dim(colour), resetColour(colour), r.Finding)
+				fmt.Printf("                    %sfinding:%s %s\n", dim(colour), resetColour(colour), output.SanitizeControl(r.Finding))
 			}
 			if r.Remediation != "" {
-				fmt.Printf("                    %sto fix: %s %s\n", dim(colour), resetColour(colour), r.Remediation)
+				fmt.Printf("                    %sto fix: %s %s\n", dim(colour), resetColour(colour), output.SanitizeControl(r.Remediation))
 			}
 		}
 		if r.Status == models.CISSkipped && r.Finding != "" {
@@ -435,7 +435,7 @@ func printBSIReq(g cis.BSIReqGroup, failOnly, colour bool, mode output.OutputMod
 			if r.Unverified {
 				label = cisUnverifiedLabel
 			}
-			fmt.Printf("                    %s%s%s %s\n", dim(colour), label, resetColour(colour), r.Finding)
+			fmt.Printf("                    %s%s%s %s\n", dim(colour), label, resetColour(colour), output.SanitizeControl(r.Finding))
 		}
 	}
 	printBSISummary(g, colour)

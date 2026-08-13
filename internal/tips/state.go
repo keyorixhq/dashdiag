@@ -2,9 +2,12 @@ package tips
 
 import (
 	"encoding/json"
+	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
+	"syscall"
 )
 
 type State struct {
@@ -27,16 +30,28 @@ type State struct {
 	ErrorExits      int            `json:"error_exits"`
 }
 
+// stateFilePath returns the state file's absolute path, or "" if it can't be
+// determined ($HOME unset — a stripped cron/systemd/CI/container
+// environment). "" is a deliberate sentinel, never a relative fallback: a
+// relative ".dsd/state.json" would resolve against whatever CWD dsd happens
+// to run from — e.g. a shared/world-writable working directory — letting a
+// symlink planted there redirect Save()'s write. Callers must check for "".
 func stateFilePath() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return ".dsd/state.json"
+		return ""
 	}
 	return filepath.Join(home, ".dsd", "state.json")
 }
 
 func LoadState() (*State, error) {
 	path := stateFilePath()
+	if path == "" {
+		return &State{
+			TipsEnabled:   true,
+			CommandCounts: make(map[string]int),
+		}, nil
+	}
 	data, err := os.ReadFile(filepath.Clean(path))
 	if os.IsNotExist(err) {
 		return &State{
@@ -59,6 +74,9 @@ func LoadState() (*State, error) {
 
 func (s *State) Save() error {
 	path := stateFilePath()
+	if path == "" {
+		return fmt.Errorf("tips: cannot determine state file path ($HOME unresolved)")
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0750); err != nil {
 		return err
 	}
@@ -67,7 +85,21 @@ func (s *State) Save() error {
 		return err
 	}
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0600); err != nil {
+	// O_NOFOLLOW: refuse to write through a pre-existing symlink at tmp
+	// rather than following it and clobbering its target — same hazard
+	// cmd/root.go's createOutFile guards for --out.
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|syscall.O_NOFOLLOW, 0600) // #nosec G304 -- tmp is derived from stateFilePath(), not user input
+	if errors.Is(err, syscall.ELOOP) {
+		return fmt.Errorf("tips: refusing to write through a symlink at %q", tmp)
+	}
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
 		return err
 	}
 	return os.Rename(tmp, path)

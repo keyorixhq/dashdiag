@@ -3,9 +3,11 @@ package selfupdate
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 )
 
@@ -24,16 +26,25 @@ type checkCache struct {
 // cachePath is overridable in tests.
 var cachePath = defaultCachePath
 
+// defaultCachePath returns the update-check cache's absolute path, or "" if
+// it can't be determined ($HOME unset). "" is a deliberate sentinel
+// loadCache/saveCache check for, never a relative fallback: a relative
+// ".dsd/update-check.json" would resolve against whatever — possibly
+// attacker-writable — CWD dsd happens to run from.
 func defaultCachePath() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return filepath.Join(".dsd", "update-check.json")
+		return ""
 	}
 	return filepath.Join(home, ".dsd", "update-check.json")
 }
 
 func loadCache() *checkCache {
-	data, err := os.ReadFile(cachePath())
+	path := cachePath()
+	if path == "" {
+		return nil
+	}
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil
 	}
@@ -46,6 +57,9 @@ func loadCache() *checkCache {
 
 func saveCache(c *checkCache) error {
 	path := cachePath()
+	if path == "" {
+		return fmt.Errorf("selfupdate: cannot determine cache path ($HOME unresolved)")
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
 	}
@@ -54,7 +68,21 @@ func saveCache(c *checkCache) error {
 		return err
 	}
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil { //nolint:gosec // public version string, not a secret
+	// O_NOFOLLOW: refuse to write through a pre-existing symlink at tmp
+	// rather than following it — same hazard cmd/root.go's createOutFile
+	// guards for --out.
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|syscall.O_NOFOLLOW, 0o644) //nolint:gosec // public version string, not a secret
+	if errors.Is(err, syscall.ELOOP) {
+		return fmt.Errorf("selfupdate: refusing to write through a symlink at %q", tmp)
+	}
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
 		return err
 	}
 	return os.Rename(tmp, path)

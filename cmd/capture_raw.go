@@ -20,6 +20,7 @@ import (
 
 	"github.com/spf13/cobra"
 
+	"github.com/keyorixhq/dashdiag/internal/baseline"
 	"github.com/keyorixhq/dashdiag/internal/collectors"
 	"github.com/keyorixhq/dashdiag/internal/cvedata"
 	"github.com/keyorixhq/dashdiag/internal/output"
@@ -109,7 +110,7 @@ func runCaptureRaw(cmd *cobra.Command) error {
 
 	out, _ := cmd.Flags().GetString("out")
 	if out == "" {
-		out = fmt.Sprintf("dsd-raw-%s-%s.tar.gz", fileHost, time.Now().Format("20060102-150405"))
+		out = captureRawDefaultOutPath(fileHost, time.Now())
 	}
 	if err := b.SaveTarball(out); err != nil {
 		return fmt.Errorf("writing bundle: %w", err)
@@ -134,6 +135,17 @@ func runCaptureRaw(cmd *cobra.Command) error {
 	}
 	fmt.Fprintln(os.Stderr, "   Send it through a trusted channel; don't post it publicly.")
 	return nil
+}
+
+// captureRawDefaultOutPath builds the default --raw bundle filename when
+// --out isn't given. fileHost is the OS/container hostname, which is not
+// always operator-chosen (a container orchestrator, cloud-init from a
+// spoofable DHCP option 12, a shared multi-tenant host) — sanitize before it
+// reaches a filename, same as baseline.SafeHostname's own doc comment names
+// this threat. Split out of runCaptureRaw (which also reads the real
+// os.Hostname()) so this path-safety property is unit-testable.
+func captureRawDefaultOutPath(fileHost string, now time.Time) string {
+	return fmt.Sprintf("dsd-raw-%s-%s.tar.gz", baseline.SafeHostname(fileHost), now.Format("20060102-150405"))
 }
 
 func hostnameOr(def string) string {

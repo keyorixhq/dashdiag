@@ -241,6 +241,84 @@ func TestInstallPreDeployWriteError(t *testing.T) {
 	}
 }
 
+// TestInstallPreDeployRefusesSymlink guards cmd-08-05: on a shared/reused
+// working directory, another local user could pre-plant a symlink at
+// scripts/check-health.sh pointing at a file the installing user can write
+// but the attacker cannot. Plain os.WriteFile follows the symlink and
+// deposits a fixed, world-executable script at the attacker-chosen
+// destination. installPreDeploy must refuse to write through it.
+func TestInstallPreDeployRefusesSymlink(t *testing.T) {
+	dir := t.TempDir()
+	oldWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWd) })
+
+	if err := os.Mkdir(filepath.Join(dir, "scripts"), 0o750); err != nil {
+		t.Fatalf("Mkdir scripts: %v", err)
+	}
+	victim := filepath.Join(t.TempDir(), "victim.sh")
+	if err := os.WriteFile(victim, []byte("original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(victim, filepath.Join(dir, "scripts", "check-health.sh")); err != nil {
+		t.Fatal(err)
+	}
+
+	errOut := captureStderr(t, func() { installPreDeploy(false) })
+	if errOut == "" {
+		t.Error("expected an error refusing to write through the symlink")
+	}
+	data, err := os.ReadFile(victim) //nolint:gosec // test-controlled path
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "original" {
+		t.Errorf("victim file was overwritten: %q", data)
+	}
+}
+
+// TestInstallGitHookRefusesSymlink is installGitHook's counterpart to
+// TestInstallPreDeployRefusesSymlink — same hazard, .git/hooks/pre-push.
+func TestInstallGitHookRefusesSymlink(t *testing.T) {
+	dir := t.TempDir()
+	oldWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWd) })
+
+	if err := os.MkdirAll(filepath.Join(dir, ".git", "hooks"), 0o750); err != nil {
+		t.Fatalf("MkdirAll .git/hooks: %v", err)
+	}
+	victim := filepath.Join(t.TempDir(), "victim.sh")
+	if err := os.WriteFile(victim, []byte("original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(victim, filepath.Join(dir, ".git", "hooks", "pre-push")); err != nil {
+		t.Fatal(err)
+	}
+
+	errOut := captureStderr(t, func() { installGitHook(false) })
+	if errOut == "" {
+		t.Error("expected an error refusing to write through the symlink")
+	}
+	data, err := os.ReadFile(victim) //nolint:gosec // test-controlled path
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "original" {
+		t.Errorf("victim file was overwritten: %q", data)
+	}
+}
+
 // TestInstallGitHubActionsMkdirError exercises installGitHubActions'
 // MkdirAll-error branch: a plain file named ".github" blocks directory
 // creation.

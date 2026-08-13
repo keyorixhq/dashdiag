@@ -67,6 +67,24 @@ func TestPrintSecurityReportListeningPorts(t *testing.T) {
 	}
 }
 
+// TestPrintSecurityReportListeningPorts_StripsControlChars guards terminal
+// escape injection: the process name comes from /proc/<pid>/comm, which is
+// attacker-influenced (a process can name itself anything), and must not
+// carry raw control bytes into the terminal.
+func TestPrintSecurityReportListeningPorts_StripsControlChars(t *testing.T) {
+	out := captureStdout(t, func() {
+		printSecurityReport(&models.SecurityInfo{ListeningPorts: []models.PortEntry{
+			{Port: 31337, Protocol: "tcp", Process: "evil\x1b]0;pwned\x07", Expected: false},
+		}}, nil, output.ModePlain, 0)
+	})
+	if strings.Contains(out, "\x1b") {
+		t.Errorf("printSecurityReport output still contains ESC byte:\n%s", out)
+	}
+	if !strings.Contains(out, "evil]0;pwned") {
+		t.Errorf("printSecurityReport output missing sanitized process name:\n%s", out)
+	}
+}
+
 func TestPrintSecurityReportSudoNopasswd(t *testing.T) {
 	none := captureStdout(t, func() { printSecurityReport(&models.SecurityInfo{}, nil, output.ModePlain, 0) })
 	if !strings.Contains(none, "Sudo NOPASSWD entries: none") {

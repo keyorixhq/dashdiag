@@ -107,12 +107,25 @@ type drbd9Resource struct {
 // parseDRBD9JSON converts drbdsetup's JSON into DRBDInfo. Extracted from the exec
 // path so the field/state mapping is unit-testable against real tool output.
 func parseDRBD9JSON(data []byte, version string) *models.DRBDInfo {
-	var raw []drbd9Resource
-	if err := json.Unmarshal(data, &raw); err != nil {
+	// Decode the top-level array as raw messages first, then each resource
+	// individually — a single malformed resource (e.g. a field-type mismatch
+	// from a drbdsetup version skew) must not discard every OTHER resource
+	// that decoded fine. Unmarshaling straight into []drbd9Resource made one
+	// bad element fail the whole parse, silently swallowing a real
+	// split-brain/diskless CRIT on a sibling resource into "Unverified".
+	var rawMsgs []json.RawMessage
+	if err := json.Unmarshal(data, &rawMsgs); err != nil {
+		// Not even a syntactically valid JSON array — nothing usable.
 		return nil
 	}
 	info := &models.DRBDInfo{Version: version}
-	for _, r := range raw {
+	decodeFailures := 0
+	for _, msg := range rawMsgs {
+		var r drbd9Resource
+		if err := json.Unmarshal(msg, &r); err != nil {
+			decodeFailures++
+			continue
+		}
 		res := models.DRBDResource{LocalRole: r.Role}
 		if len(r.Devices) > 0 {
 			res.Minor = r.Devices[0].Minor
@@ -120,6 +133,13 @@ func parseDRBD9JSON(data []byte, version string) *models.DRBDInfo {
 		}
 		applyDRBD9Connection(&res, r)
 		info.Resources = append(info.Resources, res)
+	}
+	if len(info.Resources) == 0 && decodeFailures > 0 {
+		// Every resource failed to decode — nothing usable came out of this
+		// parse. Report it the same way a fully malformed document would (the
+		// caller treats a nil return as "unknown", not "genuinely zero
+		// resources").
+		return nil
 	}
 	return info
 }

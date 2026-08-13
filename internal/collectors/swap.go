@@ -94,7 +94,7 @@ func (c *SwapCollector) Collect(ctx context.Context) (any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("opening vmstat: %w", err)
 	}
-	pin1, pout1, _ := parseVMStat(r1)
+	pin1, pout1, err1 := parseVMStat(r1)
 	_ = r1.Close()
 
 	select {
@@ -108,18 +108,27 @@ func (c *SwapCollector) Collect(ctx context.Context) (any, error) {
 	if err != nil {
 		return nil, fmt.Errorf("opening vmstat (2nd): %w", err)
 	}
-	pin2, pout2, _ := parseVMStat(r2)
+	pin2, pout2, err2 := parseVMStat(r2)
 	_ = r2.Close()
 
-	info := &models.SwapInfo{
-		PagesInPerSec:  float64(pin2 - pin1),
-		PagesOutPerSec: float64(pout2 - pout1),
-	}
-	if pin2 < pin1 {
-		info.PagesInPerSec = 0
-	}
-	if pout2 < pout1 {
-		info.PagesOutPerSec = 0
+	info := &models.SwapInfo{}
+	if err1 != nil || err2 != nil {
+		// A truncated/partial vmstat read on either sample would otherwise mix
+		// a real cumulative counter with a zero/partial one when computing the
+		// delta, fabricating a paging rate (often a large spurious spike) with
+		// false confidence. -1 is the established "unmeasured" sentinel the
+		// analysis layer already treats as inactive (see swapInUse/checkSwap).
+		info.PagesInPerSec = -1
+		info.PagesOutPerSec = -1
+	} else {
+		info.PagesInPerSec = float64(pin2 - pin1)
+		info.PagesOutPerSec = float64(pout2 - pout1)
+		if pin2 < pin1 {
+			info.PagesInPerSec = 0
+		}
+		if pout2 < pout1 {
+			info.PagesOutPerSec = 0
+		}
 	}
 
 	// /proc/swaps for totals

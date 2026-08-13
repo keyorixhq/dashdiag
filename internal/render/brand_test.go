@@ -67,6 +67,19 @@ func TestLogoDataURI(t *testing.T) {
 	if err == nil {
 		t.Error("http:// URI must be rejected")
 	}
+	// An https:// URL containing a quote must be rejected — logoDataURI returns
+	// template.URL, which html/template emits verbatim with NO escaping, so an
+	// unquoted-attribute-breakout character would inject arbitrary HTML/JS into
+	// the report.
+	_, err = logoDataURI(`https://evil.example/x.png" onerror="alert(1)`)
+	if err == nil {
+		t.Error("https:// URL containing a quote must be rejected (HTML attribute breakout)")
+	}
+	// Same risk for a data: URI carrying a quote in its (unvalidated) MIME params.
+	_, err = logoDataURI(`data:image/png;base64,AAAA" onerror="alert(1)`)
+	if err == nil {
+		t.Error("data: URI containing a quote must be rejected (HTML attribute breakout)")
+	}
 	// SVG files are rejected.
 	dir := t.TempDir()
 	svg := filepath.Join(dir, "logo.svg")

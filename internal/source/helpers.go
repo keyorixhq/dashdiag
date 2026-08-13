@@ -12,7 +12,10 @@ func writeJSON(path string, v any) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(path, data, 0o644)
+	// 0o600: bundle index/metadata files can carry sensitive host data
+	// (hostnames, IPs, config contents) — see the Save() comment on why this
+	// isn't left to the caller's directory permissions alone.
+	return os.WriteFile(path, data, 0o600)
 }
 
 func readJSON(path string, v any) error {
