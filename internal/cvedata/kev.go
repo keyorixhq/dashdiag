@@ -153,7 +153,7 @@ func LoadKEV(path string) (*KEVCatalog, error) {
 	}
 
 	var doc kevFile
-	if err := json.NewDecoder(r).Decode(&doc); err != nil {
+	if err := json.NewDecoder(boundDecompressed(r)).Decode(&doc); err != nil {
 		return nil, fmt.Errorf("parsing KEV catalog: %w", err)
 	}
 

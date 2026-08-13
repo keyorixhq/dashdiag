@@ -243,7 +243,7 @@ func loadOVAL(path string) (*ovalDefinitions, error) {
 	}
 
 	var oval ovalDefinitions
-	dec := xml.NewDecoder(r)
+	dec := xml.NewDecoder(boundDecompressed(r))
 	if err := dec.Decode(&oval); err != nil {
 		return nil, fmt.Errorf("parsing OVAL XML: %w", err)
 	}

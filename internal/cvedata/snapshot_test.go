@@ -4,6 +4,7 @@ import (
 	"compress/gzip"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -110,6 +111,36 @@ func TestLoadSnapshot_Gzip(t *testing.T) {
 	}
 	if _, ok := s.Lookup("CVE-2021-1234"); !ok {
 		t.Error("gzip snapshot should contain the CVE")
+	}
+}
+
+// TestLoadSnapshot_RejectsGzipBomb covers internal-cvedata-02-03 /
+// read-bounding-08: a snapshot whose compressed size is tiny but decompresses
+// to more than maxDecompressedFeedBytes must be rejected rather than decoded
+// fully into memory. Shrinks the cap so the fixture doesn't need to be
+// gigabyte-scale.
+func TestLoadSnapshot_RejectsGzipBomb(t *testing.T) {
+	withShrunkFeedCap(t, 1024) // 1KiB
+
+	dir := t.TempDir()
+	path := filepath.Join(dir, "bomb.json.gz")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Otherwise-valid snapshot JSON with a large, highly compressible padding
+	// field (json.Decode ignores fields it doesn't recognize) — well past the
+	// shrunk cap once decompressed, but the compressed form is tiny.
+	payload := `{"_source":"test","cves":{},"padding":"` + strings.Repeat("a", 10*1024) + `"}`
+	gw := gzip.NewWriter(f)
+	if _, err := gw.Write([]byte(payload)); err != nil {
+		t.Fatal(err)
+	}
+	_ = gw.Close()
+	_ = f.Close()
+
+	if _, err := LoadSnapshot(path); err == nil {
+		t.Error("expected LoadSnapshot to reject a snapshot exceeding the decompressed size cap")
 	}
 }
 

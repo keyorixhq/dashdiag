@@ -123,6 +123,28 @@ func TestDecodeValidBase64NotGzip(t *testing.T) {
 	}
 }
 
+// TestDecodeRejectsGzipBomb covers read-bounding-01: a crafted blob whose
+// compressed form is tiny but decompresses far past any real report size must
+// be rejected rather than fully materialized into memory. Uses a highly
+// compressible payload (all zero bytes) so the encoded blob itself stays
+// small while the decompressed size exceeds maxDecodedReportBytes.
+func TestDecodeRejectsGzipBomb(t *testing.T) {
+	t.Parallel()
+	const overCap = 64*1024*1024 + 10*1024*1024 // past the 64MiB decode cap
+	huge := make([]byte, overCap)
+	blob := Encode(huge)
+	if len(blob) > 100*1024 {
+		t.Fatalf("test payload didn't compress as expected: blob is %d bytes", len(blob))
+	}
+	_, err := Decode(blob)
+	if err == nil {
+		t.Fatal("expected error decoding oversized decompressed payload, got nil")
+	}
+	if !strings.Contains(err.Error(), "exceeds maximum decoded size") {
+		t.Errorf("expected size-cap error, got: %v", err)
+	}
+}
+
 func TestDecodeUnsupportedVersion(t *testing.T) {
 	bad := beginMarker + "\nv999\nQUJD\n" + endMarker + "\n"
 	_, err := Decode(bad)
