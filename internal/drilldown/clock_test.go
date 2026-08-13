@@ -176,6 +176,38 @@ func TestClockTrackingMac_TimedRunningWithSNTP(t *testing.T) {
 	}
 }
 
+// TestClockTrackingMac_DSD_OFFLINE_SkipsSNTP is a regression guard for
+// internal-drilldown-01-05: clockTrackingMac used to unconditionally run
+// `sntp -t 1 time.apple.com` -- a real outbound UDP query to Apple's time
+// servers -- whenever a Clock WARN/CRIT insight is drilled down on macOS,
+// with no opt-out. Under DSD_OFFLINE, sntp must never be invoked at all:
+// swapRunCmd's default branch calls t.Fatalf on any command other than
+// pgrep, so this fails loudly (not just via a missing kv entry) if the gate
+// is ever removed or bypassed.
+func TestClockTrackingMac_DSD_OFFLINE_SkipsSNTP(t *testing.T) {
+	t.Setenv("DSD_OFFLINE", "1")
+	swapRunCmd(t, func(_ context.Context, name string, args ...string) (string, error) {
+		switch name {
+		case "pgrep":
+			return "4242\n", nil
+		default:
+			t.Fatalf("unexpected command under DSD_OFFLINE: %s %v (sntp must not run)", name, args)
+			return "", nil
+		}
+	})
+
+	got, err := clockTrackingMac(context.Background())
+	if err != nil {
+		t.Fatalf("clockTrackingMac: %v", err)
+	}
+	if got.KV["timed_running"] != "yes" {
+		t.Errorf("local (non-network) checks must still run under DSD_OFFLINE, got %+v", got.KV)
+	}
+	if _, ok := got.KV["sntp_result"]; ok {
+		t.Errorf("expected no sntp_result under DSD_OFFLINE, got %+v", got.KV)
+	}
+}
+
 func TestClockTrackingMac_TimedNotRunning(t *testing.T) {
 	swapRunCmd(t, func(_ context.Context, name string, args ...string) (string, error) {
 		switch name {

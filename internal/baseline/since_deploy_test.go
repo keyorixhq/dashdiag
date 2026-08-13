@@ -73,6 +73,34 @@ func TestParseProcStart(t *testing.T) {
 	}
 }
 
+// TestParseProcStart_CommWithSpace guards against silently misparsing
+// starttime when comm (field 2) contains a space — a real, common case (many
+// processes/threads use multi-word names, e.g. Firefox's "Web Content").
+// Naively splitting the whole record on whitespace shifts every field after
+// comm by one, so the wrong token gets parsed as starttime — not a crash,
+// but a wrong deploy-time signal reported with false confidence.
+func TestParseProcStart_CommWithSpace(t *testing.T) {
+	boot := time.Unix(1700000000, 0)
+	// 20 real fields after comm (state..starttime): 19 zeros then starttime=500.
+	rest := make([]string, 20)
+	for i := range rest {
+		rest[i] = "0"
+	}
+	rest[19] = "500"
+	rec := "1234 (Web Content) " + strings.Join(rest, " ")
+
+	ts, name, ok := parseProcStart(strings.NewReader(rec), boot)
+	if !ok {
+		t.Fatal("expected valid record to parse")
+	}
+	if name != "Web Content" {
+		t.Errorf("name: got %q, want %q (comm containing a space must not be truncated)", name, "Web Content")
+	}
+	if want := boot.Add(5 * time.Second); !ts.Equal(want) {
+		t.Errorf("start time: got %v, want %v (field offset must not shift when comm has a space)", ts, want)
+	}
+}
+
 // errReader always fails on Read, exercising parseProcStart's io.ReadAll
 // error branch.
 type errReader struct{}

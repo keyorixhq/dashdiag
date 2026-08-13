@@ -2,6 +2,7 @@ package drilldown
 
 import (
 	"context"
+	"os"
 	"runtime"
 	"strings"
 
@@ -77,13 +78,18 @@ func clockTrackingMac(ctx context.Context) (*models.Details, error) {
 		kv["timed_running"] = "no"
 	}
 
-	// sntp query (available without root on macOS)
-	sntpOut, err2 := runCmd(ctx, "sntp", "-t", "1", "time.apple.com")
-	if err2 == nil {
-		for line := range strings.SplitSeq(sntpOut, "\n") {
-			if strings.Contains(line, "offset") || strings.Contains(line, "stratum") {
-				kv["sntp_result"] = strings.TrimSpace(line)
-				break
+	// sntp query (available without root on macOS) — a real outbound UDP query
+	// to Apple's time servers, unlike chronyc/timedatectl above (which only
+	// read local daemon state). Skip it under DSD_OFFLINE so a Clock
+	// WARN/CRIT drill-down never phones out on an offline/air-gapped run.
+	if os.Getenv("DSD_OFFLINE") == "" {
+		sntpOut, err2 := runCmd(ctx, "sntp", "-t", "1", "time.apple.com")
+		if err2 == nil {
+			for line := range strings.SplitSeq(sntpOut, "\n") {
+				if strings.Contains(line, "offset") || strings.Contains(line, "stratum") {
+					kv["sntp_result"] = strings.TrimSpace(line)
+					break
+				}
 			}
 		}
 	}

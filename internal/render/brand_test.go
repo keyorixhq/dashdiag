@@ -67,6 +67,19 @@ func TestLogoDataURI(t *testing.T) {
 	if err == nil {
 		t.Error("http:// URI must be rejected")
 	}
+	// An https:// URL containing a quote must be rejected — logoDataURI returns
+	// template.URL, which html/template emits verbatim with NO escaping, so an
+	// unquoted-attribute-breakout character would inject arbitrary HTML/JS into
+	// the report.
+	_, err = logoDataURI(`https://evil.example/x.png" onerror="alert(1)`)
+	if err == nil {
+		t.Error("https:// URL containing a quote must be rejected (HTML attribute breakout)")
+	}
+	// Same risk for a data: URI carrying a quote in its (unvalidated) MIME params.
+	_, err = logoDataURI(`data:image/png;base64,AAAA" onerror="alert(1)`)
+	if err == nil {
+		t.Error("data: URI containing a quote must be rejected (HTML attribute breakout)")
+	}
 	// SVG files are rejected.
 	dir := t.TempDir()
 	svg := filepath.Join(dir, "logo.svg")
@@ -131,6 +144,41 @@ func TestBrandBarHTMLLogoOnly(t *testing.T) {
 	}
 	if strings.Contains(got, "brand-name") {
 		t.Errorf("no company set — brand-name span should be absent, got %q", got)
+	}
+}
+
+// TestBrandBarHTMLExternalLogoDiscloses is a regression guard for
+// internal-render-01-06: an https:// logo becomes a silent open-tracking
+// beacon — the report itself carried no indication that opening it makes the
+// viewer's browser load an image from the operator-chosen third-party host,
+// disclosing that recipient's IP/user-agent/open-time. The <img> tag must
+// carry referrerpolicy="no-referrer", and the rendered brand bar must include
+// a human-visible disclosure naming the host, not just an HTML comment only
+// visible via "view source".
+func TestBrandBarHTMLExternalLogoDiscloses(t *testing.T) {
+	resetBrand(t)
+	SetBrand(Brand{Logo: "https://tracker.example.com/logo.png"})
+	got := brandBarHTML()
+	if !strings.Contains(got, `referrerpolicy="no-referrer"`) {
+		t.Errorf("expected the logo <img> to carry referrerpolicy=\"no-referrer\", got %q", got)
+	}
+	if !strings.Contains(got, "brand-logo-disclosure") {
+		t.Errorf("expected a visible external-logo disclosure element, got %q", got)
+	}
+	if !strings.Contains(got, "tracker.example.com") {
+		t.Errorf("expected the disclosure to name the logo host, got %q", got)
+	}
+}
+
+// TestBrandBarHTMLLocalLogoNoDisclosure confirms a self-contained data:/file
+// logo — which never triggers a request when the report is opened — gets no
+// disclosure note.
+func TestBrandBarHTMLLocalLogoNoDisclosure(t *testing.T) {
+	resetBrand(t)
+	SetBrand(Brand{Logo: "data:image/png;base64,AAAA"})
+	got := brandBarHTML()
+	if strings.Contains(got, "brand-logo-disclosure") {
+		t.Errorf("a self-contained data: logo must not get an external-disclosure note, got %q", got)
 	}
 }
 

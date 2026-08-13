@@ -169,6 +169,20 @@ func TestProcUptimeSec_NoClosingParen(t *testing.T) {
 	}
 }
 
+// TestProcUptimeSec_TruncatedRightAtParen covers the rp+2 bounds guard: a
+// stat line (e.g. from a replayed capture bundle — untrusted input) that
+// ends right at, or one byte past, the comm field's closing ')' must not
+// slice past the end of the buffer (raw[rp+2:] would panic when rp+2 >
+// len(raw)).
+func TestProcUptimeSec_TruncatedRightAtParen(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/proc/300/stat", []byte("300 (myapp)"))
+	})
+	if got := procUptimeSec("/proc/300"); got != 0 {
+		t.Errorf("procUptimeSec() = %d, want 0 (truncated right at closing paren)", got)
+	}
+}
+
 // TestProcUptimeSec_TooFewFields covers the "len(fields) < 20 -> 0" branch:
 // a stat line with a valid comm field but fewer than 20 fields after it (so
 // starttime, at index 19, is out of range).
@@ -252,6 +266,18 @@ func TestProcCPUSec_NoClosingParen(t *testing.T) {
 	})
 	if got := procCPUSec("/proc/300"); got != 0 {
 		t.Errorf("procCPUSec() = %v, want 0 (no closing paren)", got)
+	}
+}
+
+// TestProcCPUSec_TruncatedRightAtParen covers the same rp+2 bounds guard as
+// procUptimeSec: a stat line truncated right at the comm field's closing
+// ')' must not slice past the end of the buffer.
+func TestProcCPUSec_TruncatedRightAtParen(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/proc/300/stat", []byte("300 (myapp)"))
+	})
+	if got := procCPUSec("/proc/300"); got != 0 {
+		t.Errorf("procCPUSec() = %v, want 0 (truncated right at closing paren)", got)
 	}
 }
 
@@ -437,6 +463,28 @@ func TestCollectOpenFiles(t *testing.T) {
 	}
 	if len(info.OpenFiles) != 5 {
 		t.Errorf("OpenFiles = %d entries, want 5", len(info.OpenFiles))
+	}
+}
+
+// TestCollectOpenFiles_TruncatedSocketTarget guards against a panic when a
+// "socket:[" fd target is truncated with no trailing "]" — reachable via a
+// replayed capture bundle, which is untrusted input the kernel doesn't
+// generate but dsd must still parse safely (target[8:len-1] with len==8
+// would slice [8:7], start > end).
+func TestCollectOpenFiles_TruncatedSocketTarget(t *testing.T) {
+	base := "/proc/301"
+	withReadlinkFixture(t, map[string]string{
+		base + "/fd/0": "socket:[",
+	}, func(b *source.Bundle) {
+		b.PutDir(base+"/fd", []string{"0"})
+	})
+	info := &models.ProcInfo{}
+	inodes := collectOpenFiles(base, info) // must not panic
+	if len(inodes) != 0 {
+		t.Errorf("expected no inode captured for a truncated socket target, got %+v", inodes)
+	}
+	if info.SocketCount != 1 {
+		t.Errorf("SocketCount = %d, want 1 (still classified as a socket fd)", info.SocketCount)
 	}
 }
 
