@@ -71,6 +71,30 @@ type healthFixGroup struct {
 	cmds  []string
 }
 
+// sanitizeFixCmd neutralizes control characters (newlines, carriage returns,
+// ANSI escapes, and every other C0/DEL byte) in a "to fix:" hint before it is
+// ever grouped or printed. Several heuristics interpolate host-derived data
+// into these hints verbatim (a process name from argv[0]/prctl, a device or
+// mount-point path, an interface name — see internal/analysis/heuristics_*.go)
+// with no escaping, and printHealthFixes renders the result under a literal
+// "$" prompt explicitly intended for copy-paste, some marked "need sudo". An
+// unprivileged local user who controls one of those values could otherwise
+// embed a newline or an ANSI escape sequence to make a SECOND, hidden command
+// appear as part of what looks like one line — exactly the content an
+// operator's "review before running" glance is meant to catch, but can't if
+// it's invisible. Stripping control bytes (replaced with a space so token
+// boundaries survive) closes that specific hidden-content path without
+// mangling the legitimate single-line commands every hint is meant to be.
+func sanitizeFixCmd(cmd string) string {
+	stripped := strings.Map(func(r rune) rune {
+		if r < 0x20 || r == 0x7f {
+			return ' '
+		}
+		return r
+	}, cmd)
+	return strings.TrimSpace(stripped)
+}
+
 // healthFixGroups extracts the "to fix:" commands from WARN/CRIT insights, grouped
 // by subsystem in first-seen order and deduped by (check, command). Pure — no I/O.
 func healthFixGroups(insights []models.Insight) []healthFixGroup {
@@ -86,7 +110,7 @@ func healthFixGroups(insights []models.Insight) []healthFixGroup {
 			if !ok {
 				continue
 			}
-			cmd := strings.TrimSpace(rest)
+			cmd := sanitizeFixCmd(strings.TrimSpace(rest))
 			if cmd == "" {
 				continue
 			}
