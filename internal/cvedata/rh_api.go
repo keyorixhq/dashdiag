@@ -53,7 +53,13 @@ type rhCVEResponse struct {
 //
 // Only enriches when running on a RHEL-family distro (detected via /etc/os-release).
 // Fails silently — enrichment is best-effort and never blocks the primary result.
+// This is a real outbound HTTPS call disclosing the CVE ID being investigated
+// to access.redhat.com; honor DSD_OFFLINE so `dsd cve` can run against an
+// air-gapped or egress-monitored host without it.
 func EnrichFromRHAPI(ctx context.Context, cveID string, result *models.CVEResult) {
+	if os.Getenv("DSD_OFFLINE") != "" {
+		return
+	}
 	// Validate the shape before it ever reaches the URL builder — the sole
 	// current caller upper-cases/trims and checks a "CVE-" prefix, but that
 	// check lives outside this file, so don't rely on it. An unvalidated

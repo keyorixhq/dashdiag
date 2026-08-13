@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html"
 	"html/template"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -146,7 +147,19 @@ func brandBarHTML() string {
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "dsd: logo rejected: %v\n", err)
 		} else if uri != "" {
-			fmt.Fprintf(&sb, `<img class="brand-logo" src="%s" alt="%s">`, uri, html.EscapeString(b.Company))
+			// referrerpolicy strips the report's origin from the request an
+			// https:// logo triggers; loading="lazy" avoids fetching it purely
+			// because a report renderer scrolled past it. Neither stops the load
+			// itself — that's inherent to an operator choosing a remote logo URL
+			// over an embedded file/data: URI — so an https logo also gets a
+			// visible disclosure (below) telling whoever opens the report that
+			// doing so contacts a third-party host, which a self-contained
+			// file/data: logo never does.
+			fmt.Fprintf(&sb, `<img class="brand-logo" src="%s" alt="%s" referrerpolicy="no-referrer" loading="lazy">`,
+				uri, html.EscapeString(b.Company))
+			if note := externalLogoDisclosure(b.Logo); note != "" {
+				sb.WriteString(note)
+			}
 		}
 	}
 	if b.Company != "" {
@@ -154,4 +167,26 @@ func brandBarHTML() string {
 	}
 	sb.WriteString("</div>\n")
 	return sb.String()
+}
+
+// externalLogoDisclosure returns a small visible notice when logo is an
+// https:// URL rather than a self-contained file/data: URI, so a report
+// recipient can see — without inspecting the HTML source — that opening the
+// report causes their browser to load an image from a third-party host
+// (rawLogoHost, revealing the recipient's IP/user-agent/open-time to
+// whoever controls that host). Returns "" for file/data: logos, which never
+// make an outbound request when the report is opened.
+func externalLogoDisclosure(logo string) string {
+	logo = strings.TrimSpace(logo)
+	if !strings.HasPrefix(logo, "https://") {
+		return ""
+	}
+	host := logo
+	if u, err := url.Parse(logo); err == nil && u.Host != "" {
+		host = u.Host
+	}
+	return fmt.Sprintf(
+		`<small class="brand-logo-disclosure" title="Opening this report loads an image from %s.">`+
+			`&#9432; logo loaded from %s</small>`,
+		html.EscapeString(host), html.EscapeString(host))
 }

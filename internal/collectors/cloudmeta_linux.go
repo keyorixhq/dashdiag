@@ -29,6 +29,26 @@ const (
 // document while still bounding a misbehaving/malicious responder.
 const imdsMaxBodyBytes = 1 << 20
 
+// newIMDSHTTPClient returns an http.Client for talking to an instance metadata
+// service, with redirect-following disabled. IMDS endpoints never legitimately
+// redirect; a real IMDS implementation (AWS/Azure/GCP/OCI) always answers
+// requests for its known paths directly. Following a redirect would let a
+// compromised/spoofed responder on the link-local address (or a captive
+// portal/proxy squatting on it) send the client — including the IMDSv2
+// session token carried in X-aws-ec2-metadata-token — to an attacker-chosen
+// host. CheckRedirect returning http.ErrUseLastResponse makes Client.Do
+// return the redirect response itself (a non-2xx status) instead of
+// following it, so callers' existing "non-200 = not metadata" handling
+// rejects it for free.
+func newIMDSHTTPClient(timeout time.Duration) *http.Client {
+	return &http.Client{
+		Timeout: timeout,
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+}
+
 type CloudMetaCollector struct{}
 
 func NewCloudMetaCollector() *CloudMetaCollector     { return &CloudMetaCollector{} }
@@ -80,7 +100,7 @@ func imdsGetLive(ctx context.Context, url string, headers map[string]string) (st
 	for k, v := range headers {
 		req.Header.Set(k, v)
 	}
-	client := &http.Client{Timeout: 2 * time.Second}
+	client := newIMDSHTTPClient(2 * time.Second)
 	resp, err := client.Do(req)
 	if err != nil {
 		return "", err
@@ -103,7 +123,7 @@ func imdsGetLive(ctx context.Context, url string, headers map[string]string) (st
 }
 
 func collectAWS(ctx context.Context, info *models.CloudInfo) bool {
-	client := &http.Client{Timeout: 2 * time.Second}
+	client := newIMDSHTTPClient(2 * time.Second)
 	// IMDSv2 requires a token first. Cached so the live token PUT replays from the
 	// bundle — otherwise replay fails here (no IMDS on the replay box) before the
 	// cached metadata GETs are ever reached.
@@ -327,7 +347,7 @@ func IsCloudInstance() bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 
-	client := &http.Client{Timeout: 500 * time.Millisecond}
+	client := newIMDSHTTPClient(500 * time.Millisecond)
 	if token, err := awsIMDSToken(ctx, client); err == nil {
 		if _, err := imdsGet(ctx, "http://169.254.169.254/latest/meta-data/instance-id",
 			map[string]string{cloudAWSTokenHeader: token}); err == nil {
