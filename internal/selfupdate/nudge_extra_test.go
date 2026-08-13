@@ -22,13 +22,17 @@ func TestDefaultCachePath(t *testing.T) {
 		}
 	})
 
-	t.Run("HOME unresolvable falls back to relative path", func(t *testing.T) {
+	// TestDefaultCachePath/HOME_unresolvable guards internal-selfupdate-01-04:
+	// defaultCachePath previously fell back to the RELATIVE path
+	// ".dsd/update-check.json" when $HOME is unset, resolving against
+	// whatever — possibly attacker-writable — CWD dsd happens to run from.
+	// It must now return "" (a sentinel loadCache/saveCache check for),
+	// never a relative path.
+	t.Run("HOME unresolvable", func(t *testing.T) {
 		// On unix, os.UserHomeDir returns an error when $HOME is empty.
 		t.Setenv("HOME", "")
-		got := defaultCachePath()
-		want := filepath.Join(".dsd", "update-check.json")
-		if got != want {
-			t.Errorf("defaultCachePath() = %q, want %q", got, want)
+		if got := defaultCachePath(); got != "" {
+			t.Errorf(`defaultCachePath() = %q, want "" (never a relative path) when HOME is unavailable`, got)
 		}
 	})
 }
