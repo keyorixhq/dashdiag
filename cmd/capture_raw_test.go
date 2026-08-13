@@ -131,6 +131,53 @@ func TestRunCaptureRaw_DefaultOutPath(t *testing.T) {
 	}
 }
 
+// TestRunCaptureRaw_IdentifiersRedactsDefaultFilename guards
+// redaction-primitives-04: fileHost was captured before Sanitize ran and used
+// verbatim in the default "dsd-raw-<host>-<timestamp>.tar.gz" filename
+// regardless of --identifiers, so the real hostname leaked through the
+// bundle's own default filename even when the bundle's CONTENTS correctly
+// showed a placeholder — a channel Sanitize was never applied to.
+func TestRunCaptureRaw_IdentifiersRedactsDefaultFilename(t *testing.T) {
+	dir := t.TempDir()
+	old, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(old) })
+
+	realHost, err := os.Hostname()
+	if err != nil || realHost == "" {
+		t.Skip("os.Hostname unavailable in this environment")
+	}
+
+	cmd := newBareCaptureRawCmd()
+	_ = cmd.Flags().Set("identifiers", "true")
+	captureStderr(t, func() {
+		if err := runCaptureRaw(cmd); err != nil {
+			t.Fatalf("runCaptureRaw: %v", err)
+		}
+	})
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatal(err)
+	}
+	found := false
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), "dsd-raw-") && strings.HasSuffix(e.Name(), ".tar.gz") {
+			found = true
+			if strings.Contains(e.Name(), realHost) {
+				t.Errorf("default bundle filename disclosed the real hostname despite --identifiers: %q", e.Name())
+			}
+		}
+	}
+	if !found {
+		t.Errorf("expected a default-named dsd-raw-*.tar.gz bundle in %s, got entries: %v", dir, entries)
+	}
+}
+
 // TestCaptureRawDefaultOutPath_SanitizesTraversal guards cmd-01-06: the
 // default --raw bundle filename embeds the OS/container hostname
 // unsanitized. The hostname is not always operator-chosen (a container
