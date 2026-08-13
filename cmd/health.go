@@ -1036,8 +1036,11 @@ func printTopProcsWithCgroup(results []runner.Result, _ output.OutputMode) {
 			if scope == "" {
 				scope = "unknown"
 			}
+			// p.Name comes from /proc/PID/status "Name:", attacker-settable
+			// by any unprivileged local process via prctl(PR_SET_NAME) or a
+			// crafted argv[0] (Finding: internal-collectors-15-04).
 			fmt.Printf("  %-6d  %4.1f%%  %-20s  %s\n",
-				p.PID, p.MemPct, truncateStr(p.Name, 20), scope)
+				p.PID, p.MemPct, truncateStr(output.SanitizeControl(p.Name), 20), scope)
 		}
 		return
 	}
@@ -1061,8 +1064,10 @@ func printTopCPUProcsWithCgroup(results []runner.Result, _ output.OutputMode) {
 			if scope == "" {
 				scope = "unknown"
 			}
+			// p.Name comes from /proc/PID/comm, attacker-settable the same
+			// way (Finding: internal-collectors-15-04).
 			fmt.Printf("  %-6d  %5.1f%%  %-20s  %s\n",
-				p.PID, p.CPUPct, truncateStr(p.Name, 20), scope)
+				p.PID, p.CPUPct, truncateStr(output.SanitizeControl(p.Name), 20), scope)
 		}
 		return
 	}
