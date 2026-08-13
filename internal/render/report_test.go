@@ -34,6 +34,38 @@ func TestBuildMarkdown_AllHealthy(t *testing.T) {
 	}
 }
 
+// TestBuildMarkdown_SanitizesControlChars guards Finding internal-render-03-05:
+// ins.Message/Hints and check.Name/Hostname can carry attacker-controlled
+// substrings (e.g. a process name set via prctl(PR_SET_NAME), surfaced
+// through an FD-limit or similar heuristic) with no character filtering.
+// Markdown doesn't escape raw control/ANSI bytes any more than a terminal
+// does, and this report is explicitly meant to be pasted into incident
+// channels/tickets, so control bytes must be stripped before they reach the
+// generated document.
+func TestBuildMarkdown_SanitizesControlChars(t *testing.T) {
+	t.Parallel()
+	evil := "process evil\x1b[2Jname (PID 1234) has too many FDs open"
+	snap := &baseline.Snapshot{
+		Hostname:  "host\x1b[2Jevil",
+		Timestamp: time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC),
+		Checks:    []baseline.CheckResult{{Name: "FDLimits\x1b[2J", Status: "WARN", Value: evil}},
+	}
+	insights := []models.Insight{
+		{Level: "WARN", Check: "FDLimits\x1b[2J", Message: evil, Hints: []string{"lsof -p 1234\x1b[2J"}},
+	}
+	md := buildMarkdown(snap, insights, time.Second, nil)
+	if strings.ContainsRune(md, 0x1b) {
+		t.Errorf("buildMarkdown output still contains a raw ESC byte:\n%s", md)
+	}
+	// SanitizeControl removes only the ESC byte, not the printable "[2J" text
+	// that followed it, so the surviving payload is "evil[2Jname" — assert the
+	// printable characters around the stripped byte survived, not that they
+	// got glued back together.
+	if !strings.Contains(md, "evil[2Jname") {
+		t.Errorf("expected printable payload to survive sanitization, got:\n%s", md)
+	}
+}
+
 // TestBuildMarkdown_CVESection covers every severity bucket of the CVE section
 // (Critical/Important/Moderate/Low) plus pluralY's singular/plural forms and
 // the "no pending advisories" branch.
