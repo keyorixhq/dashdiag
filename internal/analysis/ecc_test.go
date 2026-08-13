@@ -21,6 +21,15 @@ func TestCheckMemory_ECC(t *testing.T) {
 		{"many corrected ECC -> WARN", models.MemoryInfo{EDACAvailable: true, CorrectedErrors: 500}, "WARN"},
 		{"few corrected ECC -> none", models.MemoryInfo{EDACAvailable: true, CorrectedErrors: 50}, ""},
 		{"EDAC unavailable -> none (gated)", models.MemoryInfo{EDACAvailable: false, UncorrectedErrors: 999}, ""},
+		// internal-collectors-11-03: a counter read failure must disclose INFO
+		// rather than silently reading as a clean "0 errors".
+		{"counters unreadable with zero counts -> INFO, not silent OK",
+			models.MemoryInfo{EDACAvailable: true, EDACCountersUnreadable: true}, "INFO"},
+		// A real detected error from a controller that DID read successfully must
+		// still CRIT even if another controller's read failed — never suppress a
+		// genuine signal because of an unrelated partial-read caveat.
+		{"real uncorrected error still CRITs even when another controller is unreadable",
+			models.MemoryInfo{EDACAvailable: true, UncorrectedErrors: 1, EDACCountersUnreadable: true}, "CRIT"},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
