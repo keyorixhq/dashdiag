@@ -125,18 +125,28 @@ func checkBIND(b models.BINDInfo) []models.Insight {
 		))
 		return out
 	}
-	if b.PortsChecked && (!b.Port53TCP || !b.Port53UDP) {
+	switch {
+	case !b.PortsChecked:
+		out = append(out, unverifiedInsight("INFO", netCatBIND,
+			"could not verify named is listening on port 53 — ss (iproute2) unavailable",
+			[]string{"to install: apt install iproute2  /  dnf install iproute"},
+		))
+	case b.PortsOwnershipUnverified && (!b.Port53TCP || !b.Port53UDP):
+		// Non-root ss couldn't attribute a :53 socket to any process (owner
+		// column blind without root) — Port53TCP/UDP staying false here may be
+		// a false negative, not a real "not listening" outage. Disclose the
+		// gap instead of reporting a WARN we can't actually back up.
+		out = append(out, unverifiedInsight("INFO", netCatBIND,
+			"could not verify named is listening on port 53 — ss cannot attribute socket ownership without root",
+			[]string{"to inspect: sudo ss -tulpn | grep :53"},
+		))
+	case !b.Port53TCP || !b.Port53UDP:
 		out = append(out, insight("WARN", netCatBIND,
 			"named is running but not listening on port 53 — config error or firewall",
 			[]string{
 				"to inspect: ss -tulpn | grep :53",
 				"to inspect: journalctl -u named -n 20 --no-pager",
 			},
-		))
-	} else if !b.PortsChecked {
-		out = append(out, unverifiedInsight("INFO", netCatBIND,
-			"could not verify named is listening on port 53 — ss (iproute2) unavailable",
-			[]string{"to install: apt install iproute2  /  dnf install iproute"},
 		))
 	}
 	if !b.ConfigOK {

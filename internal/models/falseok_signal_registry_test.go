@@ -196,6 +196,7 @@ var guardedUnverifiedSignals = map[string]string{
 	"AuthInfo.Checked":                      "analysis/heuristics_security.go checkAuth (explicit INFO 'SSH auth log could not be read' — already the target pattern)",
 	"AuthInfo.SSHConfigChecked":             "analysis/heuristics_security.go checkAuth (gated: 'unknown policy keeps the WARN' — fails toward warning, not OK)",
 	"BINDInfo.PortsChecked":                 "analysis/heuristics (gated; ss unavailable → explicit INFO disclosure already present)",
+	"BINDInfo.PortsOwnershipUnverified":     "analysis/heuristics_bind_ownership_test.go (non-root ss ownership blind spot → INFO, not a false 'not listening' WARN)",
 	"DockerInfo.IPForwardChecked":           "analysis/heuristics_virt.go (gated; proc unreadable on macOS/proc-less container → unknown, not disabled)",
 	"FstabInfo.Checked":                     "analysis/heuristics_fstab.go (gated, no verdict when unchecked)",
 	"MemoryInfo.MemHotplugChecked":          "analysis/heuristics (gated; hotplug sysfs genuinely absent on non-hotplug kernels — not privilege-related)",

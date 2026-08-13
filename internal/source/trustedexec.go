@@ -45,5 +45,23 @@ func ResolveTrustedTool(name string) string {
 			return candidate
 		}
 	}
-	return name
+	// Not found in any trusted directory. Returning the bare name here would let
+	// exec.Command/CommandContext perform ITS OWN PATH search: Go's os/exec calls
+	// LookPath internally whenever the given name has no path separator
+	// (filepath.Base(name) == name), which searches the process's inherited
+	// $PATH — exactly the untrusted search this function exists to remove. A
+	// caller that resolves a bare tool name via an unrestricted-$PATH lookup
+	// (e.g. collectors/k8s.go's k8sDetectBin PATH fallback for k3s/k0s/
+	// microk8s/kubectl) and then hands that same bare name to runCmd would
+	// silently regain the exact PATH-hijack this function was written to close:
+	// a directory writable by an unprivileged user, placed ahead of the real
+	// tool on a root process's PATH (sudo -E, a permissive secure_path, a
+	// container image with a writable early PATH entry), would still win.
+	// Anchor the name under a directory that can never exist so the caller's
+	// exec fails cleanly with "no such file or directory" instead — this
+	// still only removes the untrusted-$PATH search (never changes tool-
+	// absent behavior or capture/replay command keys, which are keyed on the
+	// original name before this function runs), it just closes the gap where
+	// "not found in trusted dirs" fell through to Go's own PATH resolution.
+	return filepath.Join("/nonexistent-dsd-trusted-tool", name)
 }
