@@ -126,6 +126,29 @@ func TestPrintSystemdHealthFailedUnitSkipsEmptyLogLines(t *testing.T) {
 	}
 }
 
+// TestPrintSystemdHealthFailedUnit_SanitizesLogLine guards Finding:
+// internal-collectors-30-03. LastLogLines is raw journalctl output for the
+// failed unit — a monitored service can log attacker-influenced text
+// verbatim (a crafted request path, malformed protocol line, crash
+// message), and that text must not carry terminal control/escape bytes into
+// the operator's terminal.
+func TestPrintSystemdHealthFailedUnit_SanitizesLogLine(t *testing.T) {
+	info := &models.ServicesDeepInfo{
+		FailedUnitsQueried: true,
+		FailedUnits: []models.SystemdUnit{
+			{Name: "nginx.service", SubState: "failed", LastLogLines: []string{"\x1b[2Jscreen-clear evil"}},
+		},
+		JournalHealthy: true,
+	}
+	out := captureStdout(t, func() { printSystemdHealth(info, output.ModePlain) })
+	if strings.ContainsRune(out, 0x1b) {
+		t.Errorf("failed-unit log output contains a raw ESC byte, got:\n%q", out)
+	}
+	if !strings.Contains(out, "evil") {
+		t.Errorf("printable text around the escape sequence must survive sanitization, got:\n%q", out)
+	}
+}
+
 func TestPrintSystemdHealthJournalCorruption(t *testing.T) {
 	out := captureStdout(t, func() {
 		printSystemdHealth(&models.ServicesDeepInfo{FailedUnitsQueried: true, JournalHealthy: false, JournalLastValid: "2026-01-01"}, output.ModePlain)
@@ -168,6 +191,24 @@ func TestPrintSystemdHealthUserUnits(t *testing.T) {
 	})
 	if !strings.Contains(failed, "1 failed") || !strings.Contains(failed, "pulseaudio.service") {
 		t.Errorf("a failed user unit should be named, got:\n%s", failed)
+	}
+}
+
+// TestPrintSystemdHealthUserUnits_SanitizesLogLine guards the user-units
+// half of Finding: internal-collectors-30-03, a separate print call site
+// from the system-units failed-unit log lines.
+func TestPrintSystemdHealthUserUnits_SanitizesLogLine(t *testing.T) {
+	out := captureStdout(t, func() {
+		printSystemdHealth(&models.ServicesDeepInfo{FailedUnitsQueried: true, JournalHealthy: true,
+			UserUnits: &models.UserUnitsInfo{Available: true, Failed: []models.SystemdUnit{
+				{Name: "pulseaudio.service", LastLogLines: []string{"\x1b[8mhidden\x1b[0m failure"}},
+			}}}, output.ModePlain)
+	})
+	if strings.ContainsRune(out, 0x1b) {
+		t.Errorf("user-unit log output contains a raw ESC byte, got:\n%q", out)
+	}
+	if !strings.Contains(out, "hidden") || !strings.Contains(out, "failure") {
+		t.Errorf("printable text around the escape sequence must survive sanitization, got:\n%q", out)
 	}
 }
 
