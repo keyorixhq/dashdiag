@@ -88,8 +88,10 @@ func printProcTopList(info *models.ProcInfo, mode output.OutputMode) {
 		fmt.Println("  " + strings.Repeat("─", 46))
 	}
 	for _, p := range info.TopProcs {
+		// p.Name comes from /proc/<pid>/comm, fully attacker-controlled by any
+		// local process (argv[0] or prctl PR_SET_NAME) — sanitize before printing.
 		fmt.Printf("  %-8d %-20s %7.1fMB %5.1f%%\n",
-			p.PID, truncateProcStr(p.Name, 20), p.RSSMB, p.MemPct)
+			p.PID, output.SanitizeControl(truncateProcStr(p.Name, 20)), p.RSSMB, p.MemPct)
 	}
 	if human {
 		fmt.Printf("\n  Run `dsd proc <PID>` for detailed analysis of any process above.\n")
@@ -101,7 +103,7 @@ func printProcTopList(info *models.ProcInfo, mode output.OutputMode) {
 func printProcDetail(info *models.ProcInfo, mode output.OutputMode) {
 	human := mode == output.ModeHuman
 	if human {
-		fmt.Fprintf(os.Stdout, "\n🔍  Process %d — %s\n\n", info.PID, info.Name)
+		fmt.Fprintf(os.Stdout, "\n🔍  Process %d — %s\n\n", info.PID, output.SanitizeControl(info.Name))
 	}
 	printProcIdentity(info, mode)
 	printProcState(info, mode)
@@ -118,21 +120,24 @@ func printProcIdentity(info *models.ProcInfo, mode output.OutputMode) {
 	if human {
 		fmt.Fprintln(os.Stdout, "[Identity]")
 	}
+	// info.ParentName/User/CgroupName/Cmdline are /proc-sourced and fully
+	// attacker-influenceable (comm name, cmdline argv, cgroup path) — sanitize
+	// before printing. See cmd-11-01.
 	printProcLine(mode, "PID", fmt.Sprintf("%d", info.PID))
 	if info.PPID > 0 {
 		parent := fmt.Sprintf("%d", info.PPID)
 		if info.ParentName != "" {
-			parent += " (" + info.ParentName + ")"
+			parent += " (" + output.SanitizeControl(info.ParentName) + ")"
 		}
 		printProcLine(mode, "Parent", parent)
 	}
 	if info.User != "" {
-		printProcLine(mode, "User", info.User)
+		printProcLine(mode, "User", output.SanitizeControl(info.User))
 	}
 	if info.CgroupName != "" {
-		printProcLine(mode, "Cgroup", info.CgroupName)
+		printProcLine(mode, "Cgroup", output.SanitizeControl(info.CgroupName))
 	}
-	printProcLine(mode, "Cmdline", truncateProcStr(info.Cmdline, 120))
+	printProcLine(mode, "Cmdline", output.SanitizeControl(truncateProcStr(info.Cmdline, 120)))
 	printProcLine(mode, "Uptime", fmtDuration(info.UptimeSec))
 }
 
@@ -147,7 +152,7 @@ func printProcState(info *models.ProcInfo, mode output.OutputMode) {
 	}
 	printProcLine(mode, "State", stateLabel)
 	if info.WChan != "" && info.WChan != "0" {
-		wDesc := info.WChan
+		wDesc := output.SanitizeControl(info.WChan)
 		if info.DState {
 			wDesc += " ← kernel function blocking this process"
 		}
@@ -211,7 +216,7 @@ func printProcFiles(info *models.ProcInfo, mode output.OutputMode, human bool) {
 			fmt.Fprintln(os.Stdout, "  ⚠️  Deleted shared libraries (restart process after package update):")
 		}
 		for _, lib := range info.DeletedLibs {
-			fmt.Printf("     %s\n", lib)
+			fmt.Printf("     %s\n", output.SanitizeControl(lib))
 		}
 		if human {
 			fmt.Printf("  → to restart: %s\n", analysis.PlatformServiceCmd("systemctl restart <service-name>"))
@@ -235,7 +240,8 @@ func printProcConnections(info *models.ProcInfo, _ output.OutputMode, human bool
 			break
 		}
 		fmt.Printf("  %-6s %-26s %-26s %s\n",
-			c.Protocol, c.LocalAddr, c.RemoteAddr, c.State)
+			output.SanitizeControl(c.Protocol), output.SanitizeControl(c.LocalAddr),
+			output.SanitizeControl(c.RemoteAddr), output.SanitizeControl(c.State))
 		shown++
 	}
 }
@@ -244,7 +250,7 @@ func printDStateGuide(wchan string, pid int) {
 	fmt.Fprintln(os.Stdout, "\n[D-state diagnosis]")
 	fmt.Printf("  This process is in uninterruptible sleep (D).\n")
 	fmt.Printf("  It cannot be killed with SIGKILL while in D-state.\n")
-	fmt.Printf("  wchan=%s — kernel function it is waiting for.\n\n", wchan)
+	fmt.Printf("  wchan=%s — kernel function it is waiting for.\n\n", output.SanitizeControl(wchan))
 	fmt.Printf("  Common causes:\n")
 	fmt.Printf("    - NFS mount: stale/hung NFS server or network path\n")
 	fmt.Printf("    - Block device: disk I/O wait or storage controller issue\n")
@@ -264,11 +270,16 @@ func printProcLine(mode output.OutputMode, label, value string) {
 	}
 }
 
+// truncateProcStr shortens s to at most n runes with an ellipsis, slicing by
+// rune (not byte) so a multibyte UTF-8 character at the cut point is never
+// split into invalid bytes. Cmdline/Name are attacker-influenceable and may
+// contain multibyte UTF-8. See cmd-11-02.
 func truncateProcStr(s string, n int) string {
-	if len(s) <= n {
+	r := []rune(s)
+	if len(r) <= n {
 		return s
 	}
-	return s[:n] + "…"
+	return string(r[:n]) + "…"
 }
 
 func fmtDuration(sec int) string {

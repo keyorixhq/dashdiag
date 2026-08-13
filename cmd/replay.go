@@ -142,8 +142,11 @@ func runReplay(cmd *cobra.Command, args []string) error {
 	defer platform.SetReplayPlatform(b.Manifest.DistroID, b.Manifest.InitSystem, b.Manifest.GOOS)()
 
 	if b.Manifest.Host != "" {
+		// Manifest fields come entirely from the user-supplied bundle file — an
+		// attacker-authored capture controls every one of these strings.
 		fmt.Fprintf(os.Stderr, "replaying: %s  OS: %s  kernel: %s  captured: %s\n\n",
-			b.Manifest.Host, b.Manifest.OS, b.Manifest.Kernel, b.Manifest.Created)
+			output.SanitizeControl(b.Manifest.Host), output.SanitizeControl(b.Manifest.OS),
+			output.SanitizeControl(b.Manifest.Kernel), output.SanitizeControl(b.Manifest.Created))
 	}
 
 	if jsonOut {
@@ -225,9 +228,10 @@ func renderCaptureDiff(base, current *source.Bundle, deep, pkg, gpu, cve, jsonOu
 	_, _, curSnap := replayBundle(current, deep, pkg, gpu, cve)
 
 	if base.Manifest.Host != "" || current.Manifest.Host != "" {
+		// Both bundles are user-supplied captures — sanitize before printing.
 		fmt.Fprintf(os.Stderr, "diffing baseline %s (%s) → current %s (%s)\n\n",
-			base.Manifest.Host, base.Manifest.Created,
-			current.Manifest.Host, current.Manifest.Created)
+			output.SanitizeControl(base.Manifest.Host), output.SanitizeControl(base.Manifest.Created),
+			output.SanitizeControl(current.Manifest.Host), output.SanitizeControl(current.Manifest.Created))
 	}
 
 	mode := output.ModeHuman

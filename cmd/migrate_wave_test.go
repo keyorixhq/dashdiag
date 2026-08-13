@@ -5,6 +5,7 @@ import (
 	"os"
 	"path/filepath"
 	"runtime"
+	"strings"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/baseline"
@@ -395,6 +396,27 @@ func TestCertifyWave_WithBundles_Verbose(t *testing.T) {
 	}
 	if results[0].SrcBundle == nil {
 		t.Error("expected SrcBundle to be set")
+	}
+}
+
+// TestCertifyWave_SanitizesManifestControlChars guards against
+// terminal-escape injection via a bundle's forged Manifest.Host printed to
+// the stderr progress line for every wave entry. See cmd-09-06.
+func TestCertifyWave_SanitizesManifestControlChars(t *testing.T) {
+	const esc = "\x1b[2J"
+	dir := t.TempDir()
+	src := newReplayTestBundle(t, dir, "src.tar.gz", "src-host"+esc)
+	dst := newReplayTestBundle(t, dir, "dst.tar.gz", "dst-host"+esc)
+	pairs := []wavePair{{Src: src, Dst: dst}}
+
+	errOut := captureStderr(t, func() {
+		results := certifyWave(pairs, false, false, false, false)
+		if len(results) != 1 {
+			t.Fatalf("expected 1 result, got %d", len(results))
+		}
+	})
+	if strings.Contains(errOut, esc) {
+		t.Errorf("certifyWave must strip terminal escape sequences from manifest host, got:\n%q", errOut)
 	}
 }
 

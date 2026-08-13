@@ -98,6 +98,20 @@ func TestPrintGCPReport_NICDriverFallback(t *testing.T) {
 	}
 }
 
+// TestPrintGCPReport_NICDriverSanitizesControlChars guards against
+// terminal-escape injection via the NIC driver basename read from a
+// /sys/class/net/*/device/driver symlink — treated as untrusted /sys content
+// per this review's threat model. See cmd-05-04.
+func TestPrintGCPReport_NICDriverSanitizesControlChars(t *testing.T) {
+	const esc = "\x1b[2J"
+	var buf bytes.Buffer
+	printGCPReport(&buf, &models.GCPInfo{IsGCP: true, NICDriver: "virtio_net" + esc}, 10*time.Millisecond, output.ModePlain)
+	out := buf.String()
+	if strings.Contains(out, esc) {
+		t.Errorf("printGCPReport must strip terminal escape sequences from NICDriver, got:\n%q", out)
+	}
+}
+
 func TestPrintGCPReport_Healthy(t *testing.T) {
 	clean := &models.GCPInfo{
 		IsGCP: true, UsesGVNIC: true,

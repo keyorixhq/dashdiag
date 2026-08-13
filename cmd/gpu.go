@@ -233,7 +233,10 @@ func printGPUPerformance(dev models.GPUDevice, mode output.OutputMode) {
 	if len(dev.Processes) > 0 {
 		fmt.Printf("\n  Processes\n")
 		for _, p := range dev.Processes {
-			fmt.Printf("    %-8d %-8s %s\n", p.PID, fmt.Sprintf("%dMB", p.MemUseMB), p.Name)
+			// p.Name is the process comm string reported by nvidia-smi, which any
+			// unprivileged local user holding a GPU context fully controls (argv[0]
+			// or prctl PR_SET_NAME) — sanitize before printing.
+			fmt.Printf("    %-8d %-8s %s\n", p.PID, fmt.Sprintf("%dMB", p.MemUseMB), output.SanitizeControl(p.Name))
 		}
 	}
 }

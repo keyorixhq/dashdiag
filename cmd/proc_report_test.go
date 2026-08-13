@@ -7,6 +7,7 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
@@ -21,6 +22,23 @@ func TestTruncateProcStr(t *testing.T) {
 	}
 	if got := truncateProcStr("a very long process name here", 10); got != "a very lon…" {
 		t.Errorf("truncateProcStr(30, 10) = %q, want 'a very lon…'", got)
+	}
+}
+
+// TestTruncateProcStrRuneAware guards against splitting a multibyte UTF-8
+// character mid-sequence when the cut point lands inside it — a byte-based
+// s[:n] would emit invalid UTF-8. See cmd-11-02.
+func TestTruncateProcStrRuneAware(t *testing.T) {
+	// "日" is 3 bytes in UTF-8; cutting at 5 bytes would split it. Cutting at 5
+	// runes must not.
+	s := "abcd日efgh"
+	got := truncateProcStr(s, 5)
+	if !utf8.ValidString(got) {
+		t.Fatalf("truncateProcStr must never emit invalid UTF-8, got %q (bytes %v)", got, []byte(got))
+	}
+	want := "abcd日…"
+	if got != want {
+		t.Errorf("truncateProcStr(%q, 5) = %q, want %q", s, got, want)
 	}
 }
 
@@ -191,6 +209,66 @@ func TestPrintProcIdentity(t *testing.T) {
 	}
 	if !strings.Contains(full, "root") || !strings.Contains(full, "system:docker") {
 		t.Errorf("User and Cgroup should be shown, got:\n%s", full)
+	}
+}
+
+// TestPrintProcSanitizesControlChars guards against terminal-escape injection
+// via /proc-sourced process fields (Name, Cmdline, ParentName, User,
+// CgroupName, WChan, DeletedLibs, connection fields) — any local process can
+// set these to arbitrary bytes (argv[0], prctl PR_SET_NAME). See cmd-11-01.
+func TestPrintProcSanitizesControlChars(t *testing.T) {
+	const esc = "\x1b[2J"
+
+	identity := captureStdout(t, func() {
+		printProcIdentity(&models.ProcInfo{
+			PID: 100, PPID: 1, ParentName: "sh" + esc, User: "root" + esc,
+			CgroupName: "docker" + esc, Cmdline: "evil" + esc + "cmd",
+		}, output.ModeHuman)
+	})
+	if strings.Contains(identity, esc) {
+		t.Errorf("printProcIdentity must strip terminal escape sequences, got:\n%q", identity)
+	}
+
+	state := captureStdout(t, func() {
+		printProcState(&models.ProcInfo{State: "D", DState: true, WChan: "nfs" + esc + "wait"}, output.ModeHuman)
+	})
+	if strings.Contains(state, esc) {
+		t.Errorf("printProcState must strip terminal escape sequences, got:\n%q", state)
+	}
+
+	files := captureStdout(t, func() {
+		printProcFiles(&models.ProcInfo{DeletedLibs: []string{"/usr/lib/evil" + esc + ".so"}}, output.ModeHuman, true)
+	})
+	if strings.Contains(files, esc) {
+		t.Errorf("printProcFiles must strip terminal escape sequences, got:\n%q", files)
+	}
+
+	conns := captureStdout(t, func() {
+		printProcConnections(&models.ProcInfo{Connections: []models.ProcNetConn{
+			{Protocol: "tcp" + esc, LocalAddr: "1.2.3.4:80" + esc, RemoteAddr: "5.6.7.8:443" + esc, State: "ESTABLISHED" + esc},
+		}}, output.ModeHuman, true)
+	})
+	if strings.Contains(conns, esc) {
+		t.Errorf("printProcConnections must strip terminal escape sequences, got:\n%q", conns)
+	}
+
+	dstate := captureStdout(t, func() { printDStateGuide("nfs"+esc+"wait", 1) })
+	if strings.Contains(dstate, esc) {
+		t.Errorf("printDStateGuide must strip terminal escape sequences, got:\n%q", dstate)
+	}
+
+	topList := captureStdout(t, func() {
+		printProcTopList(&models.ProcInfo{TopProcs: []models.ProcessMemStat{{PID: 1, Name: "evil" + esc}}}, output.ModeHuman)
+	})
+	if strings.Contains(topList, esc) {
+		t.Errorf("printProcTopList must strip terminal escape sequences, got:\n%q", topList)
+	}
+
+	detail := captureStdout(t, func() {
+		printProcDetail(&models.ProcInfo{PID: 1, Name: "evil" + esc, FDReadable: true}, output.ModeHuman)
+	})
+	if strings.Contains(detail, esc) {
+		t.Errorf("printProcDetail must strip terminal escape sequences, got:\n%q", detail)
 	}
 }
 

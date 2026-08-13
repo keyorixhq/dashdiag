@@ -63,7 +63,7 @@ func printCron(info *models.CronInfo, mode output.OutputMode) {
 
 	// Daemon status
 	if info.DaemonActive {
-		printLine(mode, "ok", cronSectionDaemon, info.DaemonName+" active")
+		printLine(mode, "ok", cronSectionDaemon, output.SanitizeControl(info.DaemonName)+" active")
 	} else if info.AnacronPresent {
 		printLine(mode, "info", cronSectionDaemon, "anacron only (no persistent cron daemon)")
 	} else if info.SystemdTimers > 0 {
@@ -96,9 +96,11 @@ func printCron(info *models.CronInfo, mode output.OutputMode) {
 			if f.AgoMin > 0 {
 				ago = fmt.Sprintf("%dm ago", f.AgoMin)
 			}
-			fmt.Printf("     %-40s %s\n", truncate(f.Job, 40), ago)
+			// f.Job/f.Message originate from crontab content and cron/journal log
+			// text, which any local user can influence — sanitize before printing.
+			fmt.Printf("     %-40s %s\n", output.SanitizeControl(truncate(f.Job, 40)), ago)
 			if human && f.Message != "" {
-				fmt.Printf("       → %s\n", truncate(f.Message, 100))
+				fmt.Printf("       → %s\n", output.SanitizeControl(truncate(f.Message, 100)))
 			}
 		}
 	}
@@ -109,9 +111,9 @@ func printCron(info *models.CronInfo, mode output.OutputMode) {
 	} else {
 		printLine(mode, "warn", "Quality issues", fmt.Sprintf("%d file(s)", len(info.QualityIssues)))
 		for _, j := range info.QualityIssues {
-			fmt.Printf("     %s\n", j.Source)
+			fmt.Printf("     %s\n", output.SanitizeControl(j.Source))
 			for _, issue := range j.Issues {
-				fmt.Printf("       → %s\n", issue)
+				fmt.Printf("       → %s\n", output.SanitizeControl(issue))
 			}
 		}
 	}

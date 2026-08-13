@@ -226,11 +226,15 @@ func printSteamOSRemotePlay(info *models.SteamOSInfo, mode output.OutputMode) {
 		label := fmt.Sprintf("%s %d", strings.ToUpper(p.Protocol), p.Port)
 		switch {
 		case p.Bound:
-			who := p.Process
+			// p.Process comes from `ss` socket-owner output, which reflects
+			// /proc/<pid>/comm — attacker-influenceable by any unprivileged
+			// local user (prctl PR_SET_NAME) — sanitize before printing.
+			proc := output.SanitizeControl(p.Process)
+			who := proc
 			if who == "" {
 				who = "bound"
 			} else if p.PID > 0 {
-				who = fmt.Sprintf("%s (PID %d)", p.Process, p.PID)
+				who = fmt.Sprintf("%s (PID %d)", proc, p.PID)
 			}
 			fmt.Printf("  %s%-10s %s\n", asciiOr("ok", iconOKSp, mode), label, who)
 		case p.Optional:

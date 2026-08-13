@@ -257,8 +257,13 @@ func printCertifyReport(src, dst *source.Bundle, verdict string, regressions []b
 	mark := map[string]string{certPass: "✅", certWarn: "⚠️", certFail: "❌"}[verdict]
 	fmt.Printf("%s  MIGRATION CERTIFICATION: %s\n", mark, verdict)
 	fmt.Println(strings.Repeat("─", 60))
-	fmt.Printf("source:      %s (%s)\n", manifestHost(src), manifestOS(src))
-	fmt.Printf("destination: %s (%s)\n", manifestHost(dst), manifestOS(dst))
+	// Manifest.Host/OS are trivially forgeable bundle content (a source or
+	// destination bundle handed to an engineer for a migration issue) —
+	// sanitize before the human-readable report reaches the terminal. The
+	// --json path (emitCertifyJSON) is unaffected: encoding/json already
+	// \u-escapes control bytes below 0x20.
+	fmt.Printf("source:      %s (%s)\n", output.SanitizeControl(manifestHost(src)), output.SanitizeControl(manifestOS(src)))
+	fmt.Printf("destination: %s (%s)\n", output.SanitizeControl(manifestHost(dst)), output.SanitizeControl(manifestOS(dst)))
 	fmt.Println()
 
 	switch {
