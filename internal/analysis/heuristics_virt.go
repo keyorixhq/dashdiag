@@ -25,10 +25,20 @@ func checkKVMVMs(kvm models.KVMInfo) []models.Insight {
 	// Crashed VMs — always CRIT
 	for _, vm := range kvm.VMs {
 		if vm.State == models.KVMCrashed {
+			// vm.Name comes from the libvirt domain definition and is spliced
+			// unescaped into copy-pasteable "to inspect:"/"to restart:" virsh
+			// hints below; validate before use (see looksLikeSafeToken). The
+			// CRIT message itself still shows the raw name — that's display
+			// text, not a shell hint, and already flows through
+			// output.SanitizeControl at the render choke point (PR #991).
+			safeName := vm.Name
+			if !looksLikeSafeToken(safeName) {
+				safeName = "<vm-name>"
+			}
 			hints := []string{
-				fmt.Sprintf("to inspect: virsh console %s", vm.Name),
-				fmt.Sprintf("to inspect: cat /var/log/libvirt/qemu/%s.log | tail -50", vm.Name),
-				fmt.Sprintf("to restart: virsh start %s", vm.Name),
+				fmt.Sprintf("to inspect: virsh console %s", safeName),
+				fmt.Sprintf("to inspect: cat /var/log/libvirt/qemu/%s.log | tail -50", safeName),
+				fmt.Sprintf("to restart: virsh start %s", safeName),
 			}
 			if vm.LastLogError != "" {
 				hints = append([]string{"last log: " + vm.LastLogError}, hints...)

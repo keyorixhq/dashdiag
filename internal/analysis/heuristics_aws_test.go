@@ -114,6 +114,57 @@ func TestCheckAWS_EBSActiveThrottle(t *testing.T) {
 	}
 }
 
+// insightHintsContain reports whether any insight's Hints slice has an entry
+// containing sub — used by the shell-metacharacter-injection regression
+// tests, which must inspect Hints (the copy-pasteable "to inspect:" strings),
+// not Message. Named distinctly from hintsContain (heuristics_vmware_steal_test.go),
+// which takes a bare []string of hints rather than []models.Insight.
+func insightHintsContain(ins []models.Insight, sub string) bool {
+	for _, i := range ins {
+		if hintsContain(i.Hints, sub) {
+			return true
+		}
+	}
+	return false
+}
+
+// TestCheckAWS_ENAHintOmitsShellMetachars is a regression test for the shell-
+// metacharacter-injection class (distinct from the ANSI/control-escape class
+// PR #991 fixed): awsENAInsights used to splice the ENA interface name
+// unescaped into a copy-pasteable "to inspect: ethtool -S <iface> | ..."
+// hint. A crafted interface name containing shell metacharacters must never
+// appear verbatim in a hint.
+func TestCheckAWS_ENAHintOmitsShellMetachars(t *testing.T) {
+	a := models.AWSInfo{
+		IsEC2: true,
+		ENA: []models.ENAStats{{
+			Iface:  "eth0; rm -rf /",
+			Active: map[string]uint64{"pps": 5},
+		}},
+	}
+	got := checkAWS(a)
+	if insightHintsContain(got, "rm -rf /") {
+		t.Errorf("ENA hint must not embed the raw shell-metacharacter interface name verbatim (copy-paste RCE risk): %+v", got)
+	}
+}
+
+// TestCheckAWS_EBSHintOmitsShellMetachars covers ebsThrottleInsight, which
+// used to splice the EBS device name unescaped into a copy-pasteable
+// "to inspect: sudo nvme get-log /dev/<dev> ..." hint.
+func TestCheckAWS_EBSHintOmitsShellMetachars(t *testing.T) {
+	a := models.AWSInfo{
+		IsEC2: true,
+		EBS: []models.EBSStats{{
+			Device:               "nvme1n1`whoami`",
+			VolumeIOPSExceededUs: 2_000_000, ActiveVolumeIOPSUs: 350_000,
+		}},
+	}
+	got := checkAWS(a)
+	if insightHintsContain(got, "whoami") {
+		t.Errorf("EBS hint must not embed the raw shell-metacharacter device name verbatim (copy-paste RCE risk): %+v", got)
+	}
+}
+
 func TestCheckAWS_EBSNeedsRootDegrades(t *testing.T) {
 	// EBS read failed non-root: must surface an explicit "needs root / NOT verified"
 	// rather than a silent OK, and the recognition line must not claim EBS is fine.

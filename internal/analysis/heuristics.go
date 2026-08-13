@@ -1203,6 +1203,45 @@ func unverifiedInsight(level, check, message string, hints []string) models.Insi
 	return ins
 }
 
+// looksLikeSafeToken reports whether s is safe to splice, unescaped, into a
+// "to inspect: <command>"/"to fix: <command>" hint string that this package
+// builds throughout heuristics_*.go and correlate.go — text explicitly meant
+// for an operator to copy-paste into a shell. Many of the identifiers spliced
+// into those hints are collector-sourced and attacker-influenceable: kernel
+// process/comm names (attacker-settable via prctl(PR_SET_NAME), not
+// restricted to a safe charset), Docker/Podman actor names, network
+// interface/device names, and database socket paths/addresses. None of these
+// are validated or shell-escaped by the code that builds the hint, so a
+// crafted identifier containing shell metacharacters (;, |, &, $(...),
+// backticks, redirects, quotes) that an operator pastes verbatim into a root
+// shell is a local privilege escalation mediated entirely by dsd's own
+// diagnostic output. This is a distinct threat from the terminal ANSI/control
+// -escape class output.SanitizeControl already handles at the render choke
+// point (PR #991) — ';' and '|' are ordinary printable runes, not control
+// characters, so that sanitizer does not (and should not) touch them.
+//
+// Rather than attempt shell quoting (fragile and shell-dependent — there is
+// no stdlib shlex-quote), callers validate the token first with this
+// allowlist and fall back to a generic, non-copy-pasteable hint when it
+// fails. The allowlist is deliberately conservative: alnum plus '.', '-',
+// '_', ':', '/', '@' covers hostnames, IPv4/IPv6 addresses, ports, socket
+// paths, interface names (eth0, ens5), device names (nvme0n1), and kernel
+// comm names in their normal form, while excluding every shell metacharacter.
+func looksLikeSafeToken(s string) bool {
+	if s == "" {
+		return false
+	}
+	for _, r := range s {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+		case r == '.' || r == '-' || r == '_' || r == ':' || r == '/' || r == '@':
+		default:
+			return false
+		}
+	}
+	return true
+}
+
 // eccInsights turns EDAC corrected/uncorrected counts into insights. Shared by
 // the health Memory check and the hardware check so their thresholds and wording
 // can't drift. Uncorrected errors are an active RAM fault (CRIT); corrected

@@ -816,13 +816,26 @@ func ruleServiceMemoryLeak(oom *models.OOMInfo) (Correlation, bool) {
 		return Correlation{}, false
 	}
 
+	// leaker is the OOM-killed process's kernel comm name, parsed verbatim from
+	// dmesg by collectors/oom_linux.go. comm is attacker-settable via
+	// prctl(PR_SET_NAME) and is NOT restricted to a safe charset (only length-
+	// capped to 15 bytes) — shell metacharacters are legal. Action is printed
+	// verbatim as a copy-pasteable "next step", so an unvalidated leaker here
+	// is a local privesc if an operator pastes it into a root shell. Validate
+	// before building the command; fall back to a generic, non-pasteable hint
+	// otherwise (see looksLikeSafeToken).
+	action := fmt.Sprintf("check %s memory growth: ps aux | grep %s && journalctl -u %s --since '24h ago' | grep -i 'memory\\|oom'",
+		leaker, leaker, leaker)
+	if !looksLikeSafeToken(leaker) {
+		action = "check the repeatedly OOM-killed process manually (ps aux / journalctl) — its name contains unexpected characters and is withheld from this command suggestion"
+	}
+
 	return Correlation{
 		Name:  "Repeated OOM Kill — Possible Memory Leak",
 		Level: "WARN",
 		Summary: fmt.Sprintf("%s was OOM-killed %d times in the last 24h — this pattern suggests a memory leak rather than general memory pressure",
 			leaker, maxCount),
-		Action: fmt.Sprintf("check %s memory growth: ps aux | grep %s && journalctl -u %s --since '24h ago' | grep -i 'memory\\|oom'",
-			leaker, leaker, leaker),
+		Action: action,
 		Checks: []string{corrCatOOMUpper},
 	}, true
 }
@@ -924,8 +937,16 @@ func ruleDockerOOMCascade(oom *models.OOMInfo, docker *models.DockerInfo) (Corre
 	// Time-aware: look for a docker "oom"/"die" event within 5 min of a kernel OOM kill.
 	if actor, ok := findTimedDockerOOM(oom, docker); ok {
 		action := "docker stats --no-stream"
-		if actor != "" {
+		// actor is a Docker/Podman container name/ID read verbatim from
+		// `docker events` Actor attributes (collectors/docker.go). Docker's own
+		// API constrains names created normally, but this code doesn't itself
+		// enforce that before splicing actor into a copy-pasteable Action
+		// string — validate here too rather than rely on an external, unstated
+		// assumption (see looksLikeSafeToken).
+		if actor != "" && looksLikeSafeToken(actor) {
 			action = "docker inspect " + actor + " && docker logs --tail=50 " + actor
+		} else if actor != "" {
+			action = "docker inspect <container> && docker logs --tail=50 <container> — actor name contains unexpected characters; run `docker ps -a` to find the container"
 		}
 		return Correlation{
 			Name:    "Container OOM Cascade",

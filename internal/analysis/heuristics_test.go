@@ -1201,3 +1201,44 @@ func TestCheckDiskExtrasBtrfsMissingStillCrit(t *testing.T) {
 		t.Errorf("missing device should stay CRIT/DEGRADED, got level=%q msg=%q", level, msg)
 	}
 }
+
+// TestLooksLikeSafeToken is the boundary/threshold test for the shell-
+// metacharacter-injection guard shared by correlate.go and heuristics_*.go
+// (heuristics_aws.go, heuristics_db.go, heuristics_virt.go) — every "to
+// inspect:"/"to fix:" hint that splices an untrusted, collector-sourced
+// identifier now validates it with this allowlist first.
+func TestLooksLikeSafeToken(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name string
+		in   string
+		want bool
+	}{
+		{"empty", "", false},
+		{"plain hostname", "web01", true},
+		{"ipv4 with port", "10.0.0.1:6379", true},
+		{"interface name", "eth0", true},
+		{"device name", "nvme0n1", true},
+		{"path", "/var/run/mysqld/mysqld.sock", true},
+		{"email-like at-sign", "user@host", true},
+		{"process comm", "nginx-worker", true},
+		{"semicolon", "a;touch /x", false},
+		{"pipe", "eth0 | sh", false},
+		{"backtick command substitution", "10.0.0.1`whoami`", false},
+		{"dollar-paren command substitution", "$(id)", false},
+		{"ampersand", "app && curl evil.sh", false},
+		{"space", "has space", false},
+		{"redirect", "foo > /etc/passwd", false},
+		{"single quote", "foo'bar", false},
+		{"double quote", `foo"bar`, false},
+	}
+	for _, tc := range cases {
+		tc := tc
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			if got := looksLikeSafeToken(tc.in); got != tc.want {
+				t.Errorf("looksLikeSafeToken(%q) = %v, want %v", tc.in, got, tc.want)
+			}
+		})
+	}
+}
