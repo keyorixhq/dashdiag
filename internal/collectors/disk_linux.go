@@ -499,17 +499,29 @@ var DiskIOSampleGap = time.Second
 
 // collectDiskIO samples /proc/diskstats twice DiskIOSampleGap apart and
 // returns per-device MB/s read and write rates.
+//
+// measurement-honesty-03: if /proc/diskstats can't be opened on EITHER
+// sample, every device previously still got a models.DiskIOStat entry —
+// before[name]/after[name] on a missing key are zero-value structs, so the
+// delta is always 0. cmd/disk.go's printDiskIO only skips its whole section
+// when len(info.IOStats)==0, which doesn't trigger here (the slice is fully
+// populated with fabricated zeros), so it printed "read: 0.0 MB/s write: 0.0
+// MB/s" under the header "I/O rates (1s sample)" for every device — falsely
+// claiming a real 1-second sample was taken when the underlying read never
+// succeeded even once. Returns nil (not one zero-entry per drive) when
+// either sample failed, so the existing len==0 skip in printDiskIO takes
+// over instead of a fabricated all-zero table.
 func collectDiskIO(drives []models.PhysicalDrive) []models.DiskIOStat {
 	type diskStat struct {
 		readSectors  int64
 		writeSectors int64
 	}
 
-	readStats := func() map[string]diskStat {
+	readStats := func() (map[string]diskStat, bool) {
 		m := make(map[string]diskStat)
 		f, err := openFile("/proc/diskstats") // #nosec G304
 		if err != nil {
-			return m
+			return m, false
 		}
 		defer f.Close() //nolint:errcheck
 		scanner := bufio.NewScanner(f)
@@ -524,14 +536,19 @@ func collectDiskIO(drives []models.PhysicalDrive) []models.DiskIOStat {
 			m[name] = diskStat{rs, ws}
 		}
 		if err := scanner.Err(); err != nil {
-			return m // partial map is still useful; caller tolerates missing devices
+			return m, true // partial map is still useful; caller tolerates missing devices
 		}
-		return m
+		return m, true
 	}
 
-	before := readStats()
+	before, beforeOK := readStats()
 	time.Sleep(DiskIOSampleGap)
-	after := readStats()
+	after, afterOK := readStats()
+	if !beforeOK || !afterOK {
+		// A real read failure on either sample, not a genuinely idle host —
+		// don't fabricate a "measured, 0.0 MB/s" entry for every drive.
+		return nil
+	}
 
 	stats := make([]models.DiskIOStat, 0, len(drives))
 	for _, d := range drives {
