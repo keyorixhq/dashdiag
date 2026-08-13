@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -376,6 +377,30 @@ func TestParseUbuntuOVAL_Errors(t *testing.T) {
 	}
 	if _, err := ParseUbuntuOVAL(writeFixture(t, "bad.xml", "<nope")); err == nil {
 		t.Error("malformed XML should error")
+	}
+}
+
+// TestParseUbuntuOVAL_EmptyDefinitionsErrors covers internal-cvedata-01-01:
+// XML that decodes successfully but yields zero <definition> elements (a
+// truncated download that still closes its tags, or a CDN/object-storage XML
+// error body served instead of the real feed) must fail loudly, matching
+// loadOVAL's guard for the SUSE/RHEL path — not silently read as "scanned
+// successfully, found nothing".
+func TestParseUbuntuOVAL_EmptyDefinitionsErrors(t *testing.T) {
+	t.Parallel()
+	empty := `<?xml version="1.0"?><oval_definitions><definitions></definitions></oval_definitions>`
+	if _, err := ParseUbuntuOVAL(writeFixture(t, "empty-defs.xml", empty)); err == nil {
+		t.Error("zero-definitions OVAL must error, not read as a clean empty scan")
+	}
+}
+
+// TestParseUbuntuOVALVersionAware_EmptyDefinitionsErrors is the same guard on
+// the version-aware parser used by the production ScanUbuntuOVALPackages path.
+func TestParseUbuntuOVALVersionAware_EmptyDefinitionsErrors(t *testing.T) {
+	t.Parallel()
+	empty := `<?xml version="1.0"?><oval_definitions><definitions></definitions></oval_definitions>`
+	if _, err := parseUbuntuOVALVersionAware(strings.NewReader(empty)); err == nil {
+		t.Error("zero-definitions OVAL must error, not read as a clean empty scan")
 	}
 }
 

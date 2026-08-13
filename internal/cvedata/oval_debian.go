@@ -66,6 +66,14 @@ func parseUbuntuOVALVersionAware(r io.Reader) ([]ubuntuVulnEntry, error) {
 	if err := xml.NewDecoder(r).Decode(&defs); err != nil {
 		return nil, fmt.Errorf("parsing OVAL XML: %w", err)
 	}
+	// A real Ubuntu/Debian OVAL feed always contains definitions. Zero means
+	// the download was truncated, a CDN/object-storage error body was served
+	// instead of the real feed, or the input isn't OVAL at all — fail loudly
+	// rather than let the scan silently come back "no vulnerable packages
+	// found". Mirrors loadOVAL's guard for the SUSE/RHEL path (oval.go).
+	if len(defs.Definitions) == 0 {
+		return nil, fmt.Errorf("OVAL feed parsed 0 definitions — truncated, corrupt, or not an OVAL feed")
+	}
 
 	var entries []ubuntuVulnEntry
 	for _, def := range defs.Definitions {
@@ -235,6 +243,9 @@ func ParseUbuntuOVAL(ovalPath string) (map[string]RHELCVERecord, error) {
 	var defs ubuntuOVALDefs
 	if err := xml.NewDecoder(r).Decode(&defs); err != nil {
 		return nil, fmt.Errorf("parsing OVAL XML: %w", err)
+	}
+	if len(defs.Definitions) == 0 {
+		return nil, fmt.Errorf("OVAL file %s parsed 0 definitions — truncated, corrupt, or not an OVAL feed", ovalPath)
 	}
 
 	result := make(map[string]RHELCVERecord, len(defs.Definitions)/4)
