@@ -285,7 +285,10 @@ func printNetReport(info *models.NetworkInfo, mode output.OutputMode, elapsed ti
 			// WiFi interface: IP  "SSID"  band  speed  signal
 			details := iface.IP
 			if iface.WiFi.SSID != "" {
-				details += fmt.Sprintf("  \"%s\"", iface.WiFi.SSID)
+				// SSID is attacker-chosen — any nearby AP can broadcast one
+				// containing terminal control/escape bytes (Finding:
+				// internal-collectors-22-03).
+				details += fmt.Sprintf("  \"%s\"", output.SanitizeControl(iface.WiFi.SSID))
 			}
 			if iface.WiFi.Band != "" {
 				details += fmt.Sprintf("  %s", iface.WiFi.Band)
