@@ -70,6 +70,7 @@ var guardedUnverifiedSignals = map[string]string{
 	"LVMInfo.PVReadFailed":              "analysis/san_unverified_test.go",
 	"LVMInfo.RaidReadFailed":            "analysis/heuristics_round7_test.go",
 	"InfiniBandInfo.ReadFailed":         "analysis/heuristics_round5_test.go TestCheckInfiniBand_ReadFailedNotSilentlyAbsent (/sys/class/infiniband unreadable → INFO, not folded into the same silence as no IB hardware)",
+	"RAIDInfo.ReadFailed":               "analysis/heuristics_storage_raid_readfailed_test.go TestCheckRAID_ReadFailedNotSilentlyAbsent (/proc/mdstat unreadable → INFO, not folded into the same silence as no RAID configured)",
 	"LVMInfo.PresenceReadFailed":        "analysis/san_unverified_test.go TestLVMPresenceCheckFailedNotSilentlyAbsent + cmd/disk_report_test.go TestPrintDiskLVM + cmd/disk_issues_test.go TestDiskHasUnverifiedReads",
 	"DRBDInfo.Unverified":               "analysis/san_unverified_test.go (DRBD 9 non-root → INFO 'needs root', not silent omission)",
 	"ISCSIInfo.NeedsRoot":               "analysis/san_unverified_test.go (active sessions unreadable non-root → INFO, not silent)",
@@ -82,6 +83,8 @@ var guardedUnverifiedSignals = map[string]string{
 	"PVEInfo.TasksVerified":    "analysis/pve_unverified_test.go",
 	"PVEInfo.BackupVerified":   "analysis/pve_unverified_test.go + heuristics_round5_test.go",
 	"PVEInfo.HAVerified":       "analysis/pve_unverified_test.go",
+	"PVEInfo.GuestsVerified":   "analysis/pve_unverified_test.go + heuristics_round5_test.go TestCheckPVEBackups_GuestsUnverifiedNotSilentlyVoidsAudit",
+	"PVEInfo.BridgesVerified":  "cmd/pve.go printPVEBridges (dsd pve-only rendering; bridges have no separate analysis-layer check)",
 
 	// Cloud / virt / other — heuristic folds the unmeasured state to INFO/WARN.
 	"AWSInfo.EBSNeedsRoot":              "analysis/heuristics_aws_test.go (non-root EBS read → INFO)",
