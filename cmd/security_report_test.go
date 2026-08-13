@@ -67,6 +67,26 @@ func TestPrintSecurityReportListeningPorts(t *testing.T) {
 	}
 }
 
+// TestPrintSecurityReportListeningPorts_SanitizesProcess guards Finding:
+// internal-collectors-29-04. p.Process comes from /proc/<pid>/comm, which
+// any unprivileged local process can set to an arbitrary string via
+// prctl(PR_SET_NAME) — a process binding a listening socket with a crafted
+// comm must not be able to inject terminal control/escape bytes into the
+// ports table.
+func TestPrintSecurityReportListeningPorts_SanitizesProcess(t *testing.T) {
+	out := captureStdout(t, func() {
+		printSecurityReport(&models.SecurityInfo{ListeningPorts: []models.PortEntry{
+			{Port: 31337, Protocol: "tcp", Process: "\x1b[2Jevil\x1b[0m", Expected: false},
+		}}, nil, output.ModePlain, 0)
+	})
+	if strings.ContainsRune(out, 0x1b) {
+		t.Errorf("listening-ports output contains a raw ESC byte, got:\n%q", out)
+	}
+	if !strings.Contains(out, "evil") {
+		t.Errorf("printable text around the escape sequence must survive sanitization, got:\n%q", out)
+	}
+}
+
 func TestPrintSecurityReportSudoNopasswd(t *testing.T) {
 	none := captureStdout(t, func() { printSecurityReport(&models.SecurityInfo{}, nil, output.ModePlain, 0) })
 	if !strings.Contains(none, "Sudo NOPASSWD entries: none") {
