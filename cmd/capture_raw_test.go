@@ -12,6 +12,7 @@ import (
 	"runtime"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/spf13/cobra"
 
@@ -174,6 +175,24 @@ func TestRunCaptureRaw_IdentifiersRedactsDefaultFilename(t *testing.T) {
 	}
 	if !found {
 		t.Errorf("expected a default-named dsd-raw-*.tar.gz bundle in %s, got entries: %v", dir, entries)
+	}
+}
+
+// TestCaptureRawDefaultOutPath_SanitizesTraversal guards cmd-01-06: the
+// default --raw bundle filename embeds the OS/container hostname
+// unsanitized. The hostname is not always operator-chosen (a container
+// orchestrator, cloud-init from a spoofable DHCP option 12, a shared
+// multi-tenant host) — a hostname containing '/' or '..' segments must not
+// change where the tarball with the full raw capture bundle gets written.
+func TestCaptureRawDefaultOutPath_SanitizesTraversal(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	got := captureRawDefaultOutPath("../../etc/evil", now)
+	if strings.ContainsAny(got, "/\\") {
+		t.Errorf("captureRawDefaultOutPath(%q) = %q, want no path separators in the result", "../../etc/evil", got)
+	}
+	if strings.HasPrefix(got, "..") {
+		t.Errorf("captureRawDefaultOutPath(%q) = %q, want no leading traversal", "../../etc/evil", got)
 	}
 }
 

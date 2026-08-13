@@ -76,7 +76,7 @@ func GenerateWaveHTMLReport(report WaveReport) (string, error) {
 	ts := time.Now().Format("20060102-150405")
 	filename := fmt.Sprintf("dsd-migration-wave-%s.html", ts)
 	path := filepath.Join(".", filename)
-	if err := os.WriteFile(path, []byte(html), 0o644); err != nil { //nolint:gosec // report file, world-readable intentional
+	if err := writeReportFileNoFollow(path, []byte(html), 0o644); err != nil {
 		return "", fmt.Errorf("writing wave report: %w", err)
 	}
 	return path, nil
