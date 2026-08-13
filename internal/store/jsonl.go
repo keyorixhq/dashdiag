@@ -18,6 +18,14 @@ import (
 
 const maxLineSizeBytes = 1 << 20 // 1 MiB
 
+// maxReadAllEntries bounds how many entries ReadAll(path, "", 0) — the
+// "return everything" mode used by Prune — will accumulate in memory. Retention
+// is otherwise only enforced by Prune itself (365 entries per hostname, and
+// only when a caller opts into --persist), so a store file with many distinct
+// hostnames, or one that's simply never been pruned, is not bounded in
+// aggregate without this.
+const maxReadAllEntries = 200_000
+
 // JSONLStore is an append-only JSONL file store. Concurrent Append calls within
 // a process are safe (mutex-guarded). Cross-process safety relies on the OS
 // guaranteeing that writes smaller than PIPE_BUF are atomic at the VFS layer
@@ -97,7 +105,8 @@ func (s *JSONLStore) History(_ context.Context, hostname string, n int) ([]Entry
 
 // ReadAll reads the last n entries for hostname from path without opening a
 // write handle — safe for concurrent callers and for read-only contexts (e.g.
-// dsd history). Pass n<=0 to return all matching entries.
+// dsd history). Pass n<=0 to return all matching entries, up to
+// maxReadAllEntries.
 func ReadAll(path, hostname string, n int) ([]Entry, error) {
 	if path == "" {
 		return nil, nil // StorePath() couldn't be determined — treat as "no store yet"
@@ -136,7 +145,27 @@ func ReadAll(path, hostname string, n int) ([]Entry, error) {
 			// skipped rather than aborting.
 			if err := json.Unmarshal(line, &e); err == nil {
 				if verr := validateEntry(&e); verr == nil && (hostname == "" || e.Hostname == hostname) {
-					matches = append(matches, e)
+					switch {
+					case n > 0:
+						// A bounded tail request (the common case — dsd history/diff/health
+						// all ask for a small n) is kept as a fixed-size window as we scan,
+						// instead of accumulating every match in the whole file before
+						// truncating at the end. Slicing off the front on overflow keeps
+						// len(matches) <= n at all times; Go's append growth is driven by
+						// current len/cap, not lifetime append count, so the backing array
+						// stays O(n) regardless of how large the store file has grown.
+						matches = append(matches, e)
+						if len(matches) > n {
+							matches = matches[1:]
+						}
+					case len(matches) >= maxReadAllEntries:
+						// n<=0 ("return everything", used by Prune): cap total entries
+						// accumulated so an unpruned or many-hostname store file can't
+						// grow memory use without bound. Keep scanning (not appending
+						// more) so a later oversized-line count is still reported below.
+					default:
+						matches = append(matches, e)
+					}
 				}
 			}
 		}
@@ -151,10 +180,7 @@ func ReadAll(path, hostname string, n int) ([]Entry, error) {
 		fmt.Fprintf(os.Stderr, "dsd: store: %d oversized line(s) in %s skipped (line > %d bytes) — later entries were still read\n", oversized, path, maxLineSizeBytes)
 	}
 
-	if n <= 0 || len(matches) <= n {
-		return matches, nil
-	}
-	return matches[len(matches)-n:], nil
+	return matches, nil
 }
 
 // validVerdicts is Entry.Verdict's documented vocabulary (store.go: "OK |

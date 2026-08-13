@@ -119,6 +119,9 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen // Cobra 
 	watchFlag, _ := cmd.Flags().GetBool("watch")
 	if watchFlag {
 		interval, _ := cmd.Flags().GetDuration("watch-interval")
+		if err := validateWatchInterval(interval); err != nil {
+			return err
+		}
 		return runWatch(ctx, interval, ctrCtx, cloudEnv, profile, mode)
 	}
 

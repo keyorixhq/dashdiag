@@ -60,6 +60,12 @@ func NewLogsCollectorWithProfile(p platform.Profile) *LogsCollector {
 func (c *LogsCollector) Name() string           { return "Logs" }
 func (c *LogsCollector) Timeout() time.Duration { return 10 * time.Second }
 
+// kmsgParseFn is parseKmsg by default. It's a package-level seam (matching the
+// SetSource pattern used elsewhere in this package) so tests can substitute a
+// controllable stand-in to deterministically exercise Collect's timing behavior
+// around the kmsg-parsing step without depending on the real /dev/kmsg device.
+var kmsgParseFn = parseKmsg
+
 func (c *LogsCollector) Collect(ctx context.Context) (interface{}, error) {
 	info := &models.LogsInfo{Available: true}
 
@@ -67,18 +73,18 @@ func (c *LogsCollector) Collect(ctx context.Context) (interface{}, error) {
 		info.NeedsRoot = true
 	}
 
-	done := make(chan struct{})
-	go func() {
-		kmsgCtx, kmsgCancel := context.WithTimeout(ctx, 500*time.Millisecond)
-		defer kmsgCancel()
-		parseKmsg(kmsgCtx, info, c.Lookback)
-		close(done)
-	}()
-	select {
-	case <-done:
-	case <-time.After(600 * time.Millisecond):
-		// kmsg timed out — skip silently, don't block the health check
-	}
+	// parseKmsg (and everything it calls: readKmsgLive's non-blocking /dev/kmsg
+	// reads, its own per-line ctx.Done() checks) already honors cancellation, so
+	// it can run synchronously under its own bounded ctx. Running it in a
+	// background goroutine and only *waiting* up to 600ms (previous shape) did
+	// not stop the goroutine on timeout — Collect proceeded to keep writing the
+	// same *models.LogsInfo (e.g. info.KernelPanics += ... a few lines below)
+	// while the abandoned goroutine could still be mutating it, an unsynchronized
+	// concurrent read/write on shared fields. Calling it inline removes the
+	// shared-mutation race entirely instead of trying to bound it.
+	kmsgCtx, kmsgCancel := context.WithTimeout(ctx, 500*time.Millisecond)
+	kmsgParseFn(kmsgCtx, info, c.Lookback)
+	kmsgCancel()
 
 	info.JournalSizeGB = journalDiskUsage()
 

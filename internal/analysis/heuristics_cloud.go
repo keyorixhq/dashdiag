@@ -80,11 +80,12 @@ func checkCloudInit(c models.CloudInitInfo) []models.Insight {
 	switch {
 	case c.Status == "error" || len(c.Errors) > 0:
 		hints := []string{}
+		const maxCloudInitHintLen = 300
 		for i, e := range c.Errors {
 			if i >= 3 {
 				break
 			}
-			hints = append(hints, "error: "+e)
+			hints = append(hints, "error: "+truncateHint(e, maxCloudInitHintLen))
 		}
 		hints = append(hints,
 			cloudInspectInitLong,
@@ -95,11 +96,12 @@ func checkCloudInit(c models.CloudInitInfo) []models.Insight {
 
 	case strings.Contains(c.ExtendedStatus, "degraded") || len(c.RecoverableErrors) > 0:
 		hints := []string{}
+		const maxCloudInitHintLen = 300
 		for i, e := range c.RecoverableErrors {
 			if i >= 3 {
 				break
 			}
-			hints = append(hints, e)
+			hints = append(hints, truncateHint(e, maxCloudInitHintLen))
 		}
 		hints = append(hints, cloudInspectInitLong)
 		out = append(out, insight("WARN", cloudCatInit,
