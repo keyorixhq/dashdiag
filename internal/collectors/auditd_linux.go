@@ -35,7 +35,12 @@ func (c *AuditCollector) Collect(ctx context.Context) (interface{}, error) {
 		info.Running = true
 	}
 
-	// Rule count
+	// Rule count. auditctl -l typically requires root; on EACCES/failure the
+	// zero value must not read as "genuinely zero rules loaded" — a non-root
+	// run against a host with hundreds of loaded rules would otherwise report
+	// rules_loaded=0, indistinguishable from an unconfigured auditd, to any
+	// consumer (raw --json, a downstream compliance tool) reading the count
+	// directly (internal-collectors-01-03).
 	out, err := runCmd(ctx, "auditctl", "-l")
 	if err == nil {
 		lines := strings.Split(strings.TrimSpace(out), "\n")
@@ -44,6 +49,8 @@ func (c *AuditCollector) Collect(ctx context.Context) (interface{}, error) {
 				info.RulesLoaded++
 			}
 		}
+	} else {
+		info.RulesUnreadable = true
 	}
 
 	// Audit log size. The 0700 root:root audit dir denies non-root — set an
@@ -54,10 +61,13 @@ func (c *AuditCollector) Collect(ctx context.Context) (interface{}, error) {
 		info.AuditLogSizeUnreadable = true
 	}
 
-	// Recent event count from audit log
+	// Recent event count from audit log. Same false-OK risk as RulesLoaded
+	// above — ausearch also typically requires root.
 	out, err = runCmd(ctx, "ausearch", "-ts", "1hour ago", "--raw")
 	if err == nil {
 		info.EventsLast1h = strings.Count(out, "type=")
+	} else {
+		info.EventsUnreadable = true
 	}
 
 	return info, nil

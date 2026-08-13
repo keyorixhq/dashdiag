@@ -1011,6 +1011,16 @@ func checkAuditd(a models.AuditInfo) []models.Insight {
 				"note: required for CIS/STIG compliance",
 			}))
 	}
+	if a.RulesUnreadable {
+		out = append(out, unverifiedInsight("INFO", secCatAuditd,
+			"audit rule count not verified — auditctl -l requires root (re-run as root)",
+			[]string{"to inspect: sudo auditctl -l"}))
+	}
+	if a.EventsUnreadable {
+		out = append(out, unverifiedInsight("INFO", secCatAuditd,
+			"recent audit event count not verified — ausearch requires root (re-run as root)",
+			[]string{"to inspect: sudo ausearch -ts recent --raw"}))
+	}
 	if a.AuditLogSizeUnreadable {
 		out = append(out, unverifiedInsight("INFO", secCatAuditd,
 			"audit log size not verified — /var/log/audit/audit.log is unreadable (re-run as root)",
