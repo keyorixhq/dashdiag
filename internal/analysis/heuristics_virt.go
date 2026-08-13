@@ -334,13 +334,13 @@ func checkPodmanQuadlets(d models.DockerInfo) []models.Insight {
 	var out []models.Insight
 	if len(failed) > 0 {
 		out = append(out, insight("WARN", virtCatDocker,
-			fmt.Sprintf("%d Podman quadlet(s) failed: %s", len(failed), strings.Join(failed, ", ")),
+			fmt.Sprintf("%d Podman quadlet(s) failed: %s", len(failed), strings.Join(firstN(failed, 3), ", ")),
 			[]string{fmt.Sprintf("to inspect: systemctl status %s", firstFailed)},
 		))
 	}
 	if len(inactive) > 0 {
 		out = append(out, insight("WARN", virtCatDocker,
-			fmt.Sprintf("%d Podman quadlet(s) present but not active: %s", len(inactive), strings.Join(inactive, ", ")),
+			fmt.Sprintf("%d Podman quadlet(s) present but not active: %s", len(inactive), strings.Join(firstN(inactive, 3), ", ")),
 			[]string{
 				fmt.Sprintf("to inspect: systemctl status %s", firstInactive),
 				"note: the quadlet file exists but its generated unit is not running (stopped, or a unit-name mismatch)",
@@ -349,7 +349,7 @@ func checkPodmanQuadlets(d models.DockerInfo) []models.Insight {
 	}
 	if len(unverified) > 0 {
 		out = append(out, unverifiedInsight("INFO", virtCatDocker,
-			fmt.Sprintf("could not determine state of %d Podman quadlet(s): %s", len(unverified), strings.Join(unverified, ", ")),
+			fmt.Sprintf("could not determine state of %d Podman quadlet(s): %s", len(unverified), strings.Join(firstN(unverified, 3), ", ")),
 			[]string{"to inspect: systemctl show <unit> --property=ActiveState,LoadState   (systemctl unavailable or unit not found)"},
 		))
 	}
