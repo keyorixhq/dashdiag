@@ -152,6 +152,7 @@ func TestCheckHugePages(t *testing.T) {
 		want string
 	}{
 		{"not configured is silent", models.HugePagesInfo{Configured: 0, THPEnabled: false}, ""},
+		{"meminfo unreadable is INFO, not silent", models.HugePagesInfo{StatusReason: "/proc/meminfo unreadable — huge pages status not verified"}, "INFO"},
 		{"mostly-unused static pages is WARN", models.HugePagesInfo{Configured: 100, Used: 10, ReservedGB: 2}, "WARN"},
 		{"fully-used pages is INFO", models.HugePagesInfo{Configured: 100, Used: 100, ReservedGB: 1}, "INFO"},
 		{"THP always is INFO", models.HugePagesInfo{THPEnabled: true, THPMode: "always"}, "INFO"},

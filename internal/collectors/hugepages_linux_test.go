@@ -99,9 +99,12 @@ func TestHugePagesCollector_Collect_THPNever(t *testing.T) {
 	}
 }
 
-// TestHugePagesCollector_Collect_MeminfoUnreadable guards the graceful
-// degrade: /proc/meminfo missing must still return a non-nil Available=true
-// info (not an error), matching the "return info, nil" early-out in Collect.
+// TestHugePagesCollector_Collect_MeminfoUnreadable is the regression test for
+// the false-OK fix: /proc/meminfo missing must return a non-nil info (not an
+// error) with StatusReason set and Available left false — NOT the old
+// Available=true, which asserted availability off a failed read and read
+// identically to "genuinely no huge pages configured" (also Configured==0,
+// THPEnabled==false).
 func TestHugePagesCollector_Collect_MeminfoUnreadable(t *testing.T) {
 	withFixtureSource(t, func(_ *source.Bundle) {}) // nothing seeded
 	c := NewHugePagesCollector()
@@ -110,8 +113,11 @@ func TestHugePagesCollector_Collect_MeminfoUnreadable(t *testing.T) {
 		t.Fatalf("Collect error: %v", err)
 	}
 	info := raw.(*models.HugePagesInfo) //nolint:errcheck // type asserted in sibling test
-	if !info.Available {
-		t.Error("Available should stay true even when meminfo is unreadable")
+	if info.Available {
+		t.Error("Available should NOT be true when meminfo is unreadable — that asserts availability off a failed read")
+	}
+	if info.StatusReason == "" {
+		t.Error("expected a StatusReason when meminfo is unreadable")
 	}
 	if info.Configured != 0 || info.THPEnabled {
 		t.Errorf("expected zero-value info, got %+v", info)
