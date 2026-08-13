@@ -9,7 +9,7 @@ import (
 )
 
 // collectLinuxExtras is a no-op on non-Linux, non-Darwin platforms.
-func (c *DiskCollector) collectLinuxExtras(_ *models.DiskInfo) { /* no-op */ }
+func (c *DiskCollector) collectLinuxExtras(_ context.Context, _ *models.DiskInfo) { /* no-op */ }
 
 // collectDarwin falls back to base on non-Darwin platforms (never called in practice).
 func (c *DiskCollector) collectDarwin(ctx context.Context) (*models.DiskInfo, error) {

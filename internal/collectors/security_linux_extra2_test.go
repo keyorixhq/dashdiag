@@ -138,7 +138,7 @@ func TestMatchpathconContext(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("matchpathcon", []string{"-n", "/data/app"}, "system_u:object_r:httpd_sys_content_t:s0\n", 0)
 	})
-	if got := matchpathconContext("/data/app"); got != "system_u:object_r:httpd_sys_content_t:s0" {
+	if got := matchpathconContext(context.Background(), "/data/app"); got != "system_u:object_r:httpd_sys_content_t:s0" {
 		t.Errorf("matchpathconContext() = %q", got)
 	}
 }
@@ -147,7 +147,7 @@ func TestMatchpathconContext_Unavailable(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmdNotFound("matchpathcon", []string{"-n", "/data/app"})
 	})
-	if got := matchpathconContext("/data/app"); got != "" {
+	if got := matchpathconContext(context.Background(), "/data/app"); got != "" {
 		t.Errorf("matchpathconContext() = %q, want empty when matchpathcon is unavailable", got)
 	}
 }
@@ -156,7 +156,7 @@ func TestLsZContext(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("ls", []string{"-dZ", "/data/app"}, "unconfined_u:object_r:admin_home_t:s0 /data/app\n", 0)
 	})
-	if got := lsZContext("/data/app"); got != "unconfined_u:object_r:admin_home_t:s0" {
+	if got := lsZContext(context.Background(), "/data/app"); got != "unconfined_u:object_r:admin_home_t:s0" {
 		t.Errorf("lsZContext() = %q", got)
 	}
 }
@@ -165,7 +165,7 @@ func TestLsZContext_Unavailable(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmdNotFound("ls", []string{"-dZ", "/data/app"})
 	})
-	if got := lsZContext("/data/app"); got != "" {
+	if got := lsZContext(context.Background(), "/data/app"); got != "" {
 		t.Errorf("lsZContext() = %q, want empty when ls is unavailable", got)
 	}
 }
@@ -174,7 +174,7 @@ func TestLsZContext_EmptyOutput(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("ls", []string{"-dZ", "/data/app"}, "", 0)
 	})
-	if got := lsZContext("/data/app"); got != "" {
+	if got := lsZContext(context.Background(), "/data/app"); got != "" {
 		t.Errorf("lsZContext() = %q, want empty for blank stdout", got)
 	}
 }

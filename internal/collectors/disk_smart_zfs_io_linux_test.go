@@ -3,6 +3,7 @@
 package collectors
 
 import (
+	"context"
 	"errors"
 	"strings"
 	"testing"
@@ -17,7 +18,7 @@ func TestCollectSMART_NoTool(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmdNotFound("smartctl", nil)
 	})
-	got := collectSMART("sda")
+	got := collectSMART(context.Background(), "sda")
 	if got.Device != "/dev/sda" {
 		t.Errorf("Device = %q, want /dev/sda", got.Device)
 	}
@@ -42,7 +43,7 @@ func TestCollectSMART_HealthyWithAttributes(t *testing.T) {
 				"Power On Hours:                      1200\n",
 			0)
 	})
-	got := collectSMART("nvme0n1")
+	got := collectSMART(context.Background(), "nvme0n1")
 	if !got.Healthy {
 		t.Error("expected Healthy=true for a PASSED verdict")
 	}
@@ -75,7 +76,7 @@ func TestCollectSMART_FailingDriveNonZeroExit(t *testing.T) {
 			"SMART overall-health self-assessment test result: FAILED!\n", 1)
 		b.PutCmd("smartctl", []string{"-A", "/dev/sda"}, "", 1)
 	})
-	got := collectSMART("sda")
+	got := collectSMART(context.Background(), "sda")
 	if got.Healthy {
 		t.Error("expected Healthy=false for a FAILED verdict")
 	}
@@ -93,7 +94,7 @@ func TestCollectSMART_NoVerdictReported(t *testing.T) {
 	}, nil, func(b *source.Bundle) {
 		b.PutCmd("smartctl", []string{"-H", "/dev/sdz"}, "", 2)
 	})
-	got := collectSMART("sdz")
+	got := collectSMART(context.Background(), "sdz")
 	if got.Healthy {
 		t.Error("expected Healthy=false (zero value) when no verdict is present")
 	}
@@ -110,7 +111,7 @@ func TestCollectSMART_NoVerdictButExitZero(t *testing.T) {
 	}, nil, func(b *source.Bundle) {
 		b.PutCmd("smartctl", []string{"-H", "/dev/sdy"}, "some unrelated banner output\n", 0)
 	})
-	got := collectSMART("sdy")
+	got := collectSMART(context.Background(), "sdy")
 	if got.Error != "smartctl: no health status reported" {
 		t.Errorf("Error = %q, want %q", got.Error, "smartctl: no health status reported")
 	}
@@ -129,7 +130,7 @@ func TestCollectZFSPools_ListOnly(t *testing.T) {
 				"config:\n\n\tNAME        STATE     READ WRITE CKSUM\n\ttank        ONLINE       0     0     0\n\nerrors: No known data errors",
 			0)
 	})
-	pools, listFailed := collectZFSPools()
+	pools, listFailed := collectZFSPools(context.Background())
 	if listFailed {
 		t.Fatal("listReadFailed = true, want false")
 	}
@@ -161,7 +162,7 @@ func TestCollectZFSPools_ListFails(t *testing.T) {
 	}, nil, func(b *source.Bundle) {
 		b.PutCmd("zpool", []string{"list", "-H", "-o", "name,size,alloc,free,cap,frag,health"}, "", 1)
 	})
-	pools, listFailed := collectZFSPools()
+	pools, listFailed := collectZFSPools(context.Background())
 	if !listFailed {
 		t.Error("listReadFailed = false, want true")
 	}
@@ -182,7 +183,7 @@ func TestCollectZFSPools_StatusFails(t *testing.T) {
 			"tank\t1T\t400G\t600G\t40%\t5%\tONLINE\n", 0)
 		b.PutCmd("zpool", []string{"status", "tank"}, "", 1)
 	})
-	pools, listFailed := collectZFSPools()
+	pools, listFailed := collectZFSPools(context.Background())
 	if listFailed {
 		t.Fatal("listReadFailed = true, want false")
 	}

@@ -4,8 +4,10 @@ package collectors
 
 import (
 	"context"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/platform"
@@ -285,5 +287,50 @@ func TestCollectLinuxExtras_NonContainerSkipsWindowsAndRunsSMART(t *testing.T) {
 	}
 	if sda.SMART != nil && sda.SMART.Error != "smartctl not installed" {
 		t.Errorf("sda.SMART.Error = %q, want the no-smartctl degrade reason", sda.SMART.Error)
+	}
+}
+
+// TestDiskCollector_ContextCancelledStopsMountScan guards internal-collectors-08-03:
+// Collect's per-mount loop must observe ctx cancellation between iterations,
+// not run to completion regardless of the caller's deadline. A large mount
+// table (e.g. from many attacker-created FUSE mounts pointed at black-holed
+// hosts) combined with statfsToFS's own unrelated 2s-per-mount internal
+// timeout could otherwise blow well past the collector's declared Timeout().
+// With an ALREADY-cancelled context, Collect must return promptly with an
+// error and must not have processed any of the (many) mount entries.
+func TestDiskCollector_ContextCancelledStopsMountScan(t *testing.T) {
+	b := source.NewBundle()
+	var mounts strings.Builder
+	for i := 0; i < 50; i++ {
+		mounts.WriteString("/dev/fake" + strconv.Itoa(i) + " /mnt/fake" + strconv.Itoa(i) + " ext4 rw,relatime 0 0\n")
+	}
+	b.PutFile("/proc/mounts", []byte(mounts.String()))
+	prev := SetSource(&fakeStatfsLookPathSource{
+		Replay: source.NewReplay(b),
+		statfs: map[string]source.StatfsInfo{},
+		found:  map[string]bool{},
+	})
+	t.Cleanup(func() { SetSource(prev) })
+
+	c := NewDiskCollector(platform.ContainerContext{})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // already cancelled before Collect ever starts its mount loop
+
+	start := time.Now()
+	raw, err := c.Collect(ctx)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected an error from Collect with an already-cancelled context, got nil")
+	}
+	if elapsed > 500*time.Millisecond { // generous; statfsTimeout alone is 2s per stale mount
+		t.Errorf("Collect took %v with an already-cancelled context — did not respect cancellation promptly", elapsed)
+	}
+	info, ok := raw.(*models.DiskInfo)
+	if !ok || info == nil {
+		t.Fatalf("expected a partial (possibly empty) *models.DiskInfo even on cancellation, got %#v", raw)
+	}
+	if len(info.Filesystems) != 0 {
+		t.Errorf("expected zero filesystems processed (cancellation caught on the very first iteration), got %d", len(info.Filesystems))
 	}
 }

@@ -29,7 +29,7 @@ func NewThermalCollectorWithContext(inContainer bool) *ThermalCollector {
 func (c *ThermalCollector) Name() string           { return "CPU Thermal" }
 func (c *ThermalCollector) Timeout() time.Duration { return 1 * time.Second }
 
-func (c *ThermalCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *ThermalCollector) Collect(ctx context.Context) (interface{}, error) {
 	info := &models.ThermalInfo{Available: true, CoreTemps: make(map[string]float64)}
 
 	// Inside LXC containers, hwmon sensors read the HOST CPU temperature.
@@ -39,9 +39,16 @@ func (c *ThermalCollector) Collect(_ context.Context) (interface{}, error) {
 		return nil, nil // host sensors are misleading in a container — absent, gate off
 	}
 
-	// Walk /sys/class/hwmon looking for CPU temp sensors
+	// Walk /sys/class/hwmon looking for CPU temp sensors. ctx.Err() is checked
+	// between entries so an adversarial/pathologically large hwmon tree (many
+	// hwmon* devices, or a slow/hanging FUSE-based sysfs) can't run the walk
+	// past the collector's own 1s Timeout() with no way for the runner to
+	// interrupt it.
 	hwmons, _ := glob("/sys/class/hwmon/hwmon*")
 	for _, hwmon := range hwmons {
+		if err := ctx.Err(); err != nil {
+			return info, err
+		}
 		name, err := readFile(filepath.Join(hwmon, "name"))
 		if err != nil {
 			continue
@@ -54,13 +61,13 @@ func (c *ThermalCollector) Collect(_ context.Context) (interface{}, error) {
 		}
 
 		info.Source = driverName
-		readHwmonTemps(hwmon, info)
+		readHwmonTemps(ctx, hwmon, info)
 		break // use first CPU thermal sensor found
 	}
 
 	// Fallback to /sys/class/thermal/thermal_zone* if no hwmon found
 	if info.Source == "" {
-		readThermalZone(info)
+		readThermalZone(ctx, info)
 	}
 
 	if info.Source == "" {
@@ -73,9 +80,12 @@ func (c *ThermalCollector) Collect(_ context.Context) (interface{}, error) {
 
 // readHwmonTemps reads temp*_input files from a hwmon directory.
 // Values are in millidegrees Celsius.
-func readHwmonTemps(hwmon string, info *models.ThermalInfo) {
+func readHwmonTemps(ctx context.Context, hwmon string, info *models.ThermalInfo) {
 	inputs, _ := glob(filepath.Join(hwmon, "temp*_input"))
 	for _, input := range inputs {
+		if ctx.Err() != nil {
+			return
+		}
 		raw, err := readFile(input)
 		if err != nil {
 			continue
@@ -110,9 +120,12 @@ func readSensorLabel(path string) string {
 }
 
 // readThermalZone reads from /sys/class/thermal/thermal_zone* as fallback.
-func readThermalZone(info *models.ThermalInfo) {
+func readThermalZone(ctx context.Context, info *models.ThermalInfo) {
 	zones, _ := glob("/sys/class/thermal/thermal_zone*/temp")
 	for _, zone := range zones {
+		if ctx.Err() != nil {
+			return
+		}
 		raw, err := readFile(zone)
 		if err != nil {
 			continue

@@ -466,8 +466,13 @@ func kvmParseBytes(s string) float64 {
 // The actual daemon check happens in Collect() — this is a cheap binary check.
 // Fallback: Proxmox VE does not use libvirt — it manages QEMU directly, leaving
 // a pid file per running VM in /var/run/qemu-server/ (see BUG-015).
+// Called from buildHealthCollectors BEFORE any collector's Collect(ctx) runs
+// (registration-time gate, same shape as MemcachedAvailable/K8sAvailable/
+// TraefikAvailable/...) — there is no run-scoped context to propagate yet, so
+// context.Background() here is the same established convention those other
+// gate functions already use, not the re-created-context anti-pattern.
 func KVMAvailable() bool {
-	if _, err := runCmdTimeout(2*time.Second, "virsh", "version", "--daemon"); err == nil {
+	if _, err := runCmdTimeout(context.Background(), 2*time.Second, "virsh", "version", "--daemon"); err == nil {
 		return true
 	}
 	return pveHasRunningQEMU()

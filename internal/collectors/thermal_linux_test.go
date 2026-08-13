@@ -4,6 +4,7 @@ package collectors
 
 import (
 	"context"
+	"strconv"
 	"testing"
 	"time"
 
@@ -75,6 +76,41 @@ func TestThermalCollector_Collect_K10TempHappyPath(t *testing.T) {
 	}
 	if info.CoreTemps["temp2"] != 40.0 {
 		t.Errorf("CoreTemps[temp2] = %v, want 40.0 (synthetic label fallback)", info.CoreTemps["temp2"])
+	}
+}
+
+// TestThermalCollector_Collect_ContextCancelled guards internal-collectors-32-06:
+// Collect previously discarded its context entirely (`Collect(_ context.Context)`),
+// so an adversarial/pathologically large hwmon tree (or a slow/hanging
+// FUSE-based sysfs) could stall the walk past the collector's declared 1s
+// Timeout() with no way for the runner to interrupt it. With an ALREADY-
+// cancelled context, Collect must return promptly with an error rather than
+// walking every hwmon entry to completion.
+func TestThermalCollector_Collect_ContextCancelled(t *testing.T) {
+	hwmons := make([]string, 200)
+	for i := range hwmons {
+		hwmons[i] = "/sys/class/hwmon/hwmon" + strconv.Itoa(i)
+	}
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutGlob("/sys/class/hwmon/hwmon*", hwmons)
+		for _, h := range hwmons {
+			b.PutFile(h+"/name", []byte("k10temp\n"))
+		}
+	})
+
+	c := NewThermalCollector()
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // already cancelled before Collect starts walking hwmon entries
+
+	start := time.Now()
+	_, err := c.Collect(ctx)
+	elapsed := time.Since(start)
+
+	if err == nil {
+		t.Fatal("expected an error from Collect with an already-cancelled context, got nil")
+	}
+	if elapsed > 500*time.Millisecond {
+		t.Errorf("Collect took %v with an already-cancelled context — did not respect cancellation promptly", elapsed)
 	}
 }
 
@@ -150,7 +186,7 @@ func TestReadHwmonTemps_BadValueSkipped(t *testing.T) {
 		b.PutFile("/sys/class/hwmon/hwmon0/temp2_label", []byte("Package id 0\n"))
 	})
 	info := &models.ThermalInfo{CoreTemps: make(map[string]float64)}
-	readHwmonTemps("/sys/class/hwmon/hwmon0", info)
+	readHwmonTemps(context.Background(), "/sys/class/hwmon/hwmon0", info)
 	if _, ok := info.CoreTemps["temp1"]; ok {
 		t.Error("a non-numeric temp*_input value must be skipped, not recorded")
 	}
@@ -184,7 +220,7 @@ func TestReadThermalZone_BadValueSkipped(t *testing.T) {
 		b.PutFile("/sys/class/thermal/thermal_zone1/temp", []byte("41000\n"))
 	})
 	info := &models.ThermalInfo{CoreTemps: make(map[string]float64)}
-	readThermalZone(info)
+	readThermalZone(context.Background(), info)
 	if info.CPUTempC != 41.0 {
 		t.Errorf("CPUTempC = %v, want 41.0 (garbage zone skipped)", info.CPUTempC)
 	}
@@ -205,7 +241,7 @@ func TestReadThermalZone_ReadErrorSkipped(t *testing.T) {
 		b.PutFile("/sys/class/thermal/thermal_zone1/temp", []byte("55000\n"))
 	})
 	info := &models.ThermalInfo{CoreTemps: make(map[string]float64)}
-	readThermalZone(info)
+	readThermalZone(context.Background(), info)
 	if info.CPUTempC != 55.0 {
 		t.Errorf("CPUTempC = %v, want 55.0 (failed zone skipped, second zone read)", info.CPUTempC)
 	}
@@ -224,7 +260,7 @@ func TestReadHwmonTemps_ReadErrorSkipped(t *testing.T) {
 		b.PutFile("/sys/class/hwmon/hwmon0/temp2_label", []byte("Tdie\n"))
 	})
 	info := &models.ThermalInfo{CoreTemps: make(map[string]float64)}
-	readHwmonTemps("/sys/class/hwmon/hwmon0", info)
+	readHwmonTemps(context.Background(), "/sys/class/hwmon/hwmon0", info)
 	if info.CPUTempC != 62.0 {
 		t.Errorf("CPUTempC = %v, want 62.0 (failed sensor skipped, second sensor read)", info.CPUTempC)
 	}

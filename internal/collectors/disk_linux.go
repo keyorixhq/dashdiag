@@ -194,8 +194,9 @@ func isVirtualDisk(d models.PhysicalDrive) bool {
 }
 
 // collectSMART runs smartctl -H and -A for a device and parses the result.
-// Requires smartctl to be installed and root/sudo access.
-func collectSMART(devName string) *models.SMARTInfo {
+// Requires smartctl to be installed and root/sudo access. ctx is the caller's
+// collector context, propagated into runCmdTimeout rather than re-created.
+func collectSMART(ctx context.Context, devName string) *models.SMARTInfo {
 	devPath := "/dev/" + devName
 	s := &models.SMARTInfo{Device: devPath}
 
@@ -212,7 +213,7 @@ func collectSMART(devName string) *models.SMARTInfo {
 	// failing drive was dropped, never producing the CRIT). So parse stdout
 	// regardless of exit code; only error out when no verdict is present (e.g. the
 	// device genuinely couldn't be opened).
-	healthOut, err := runCmdTimeout(3*time.Second, "smartctl", "-H", devPath)
+	healthOut, err := runCmdTimeout(ctx, 3*time.Second, "smartctl", "-H", devPath)
 	if healthy, ok := parseSMARTHealth(healthOut); ok {
 		s.Healthy = healthy
 	} else {
@@ -225,7 +226,7 @@ func collectSMART(devName string) *models.SMARTInfo {
 	}
 
 	// Attributes for NVMe: smartctl -A gives wear, temp, errors
-	attrOut, _ := runCmdTimeout(3*time.Second, "smartctl", "-A", devPath)
+	attrOut, _ := runCmdTimeout(ctx, 3*time.Second, "smartctl", "-A", devPath)
 	parseSMARTAttributes(attrOut, s)
 
 	return s
@@ -356,11 +357,16 @@ func trimSMARTError(s string) string {
 // runCmdTimeout runs a command with a hard timeout and returns stdout. The
 // timeout is enforced via context + WaitDelay so a wedged tool (smartctl on a
 // dying disk, zpool on a hung pool, virsh against a stuck libvirtd) can't block
-// the caller indefinitely. Routed through the active source so capture/replay
-// see it. Stdout is returned even on a non-zero exit (smartctl -H prints the
-// failing verdict and exits non-zero), with the exit surfaced as the error.
-func runCmdTimeout(timeout time.Duration, name string, args ...string) (string, error) {
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
+// the caller indefinitely. parent is the caller's own context (the collector's
+// Collect ctx) — deriving from it, rather than context.Background(), means a
+// runner-level cancellation of the whole collector immediately cuts short the
+// command too, instead of the two deadlines being structurally unreachable
+// from each other (CLAUDE.md: "Context must be propagated, never re-created").
+// Routed through the active source so capture/replay see it. Stdout is
+// returned even on a non-zero exit (smartctl -H prints the failing verdict and
+// exits non-zero), with the exit surfaced as the error.
+func runCmdTimeout(parent context.Context, timeout time.Duration, name string, args ...string) (string, error) {
+	ctx, cancel := context.WithTimeout(parent, timeout)
 	defer cancel()
 	res, err := curSource().Run(ctx, name, args...)
 	if err != nil {
@@ -393,9 +399,10 @@ func zfsGate() bool {
 }
 
 // collectZFSPools runs zpool list and status to return pool health.
-// Gate: zfsGate() must be true before calling this.
-func collectZFSPools() (pools []models.ZFSPool, listReadFailed bool) {
-	out, err := runCmdTimeout(5*time.Second, "zpool", "list",
+// Gate: zfsGate() must be true before calling this. ctx is the caller's
+// collector context, propagated into runCmdTimeout rather than re-created.
+func collectZFSPools(ctx context.Context) (pools []models.ZFSPool, listReadFailed bool) {
+	out, err := runCmdTimeout(ctx, 5*time.Second, "zpool", "list",
 		"-H", "-o", "name,size,alloc,free,cap,frag,health")
 	if err != nil {
 		// The zfsGate() caller already confirmed a live ZFS mount, so a failed list
@@ -426,7 +433,7 @@ func collectZFSPools() (pools []models.ZFSPool, listReadFailed bool) {
 		// sick pool and hit the timeout; on error we must NOT leave the counts at 0
 		// and ScrubAgeDays at -1 (which read as "no errors"/"never scrubbed") — flag
 		// it so the verdict says "unverified" instead.
-		statusOut, statusErr := runCmdTimeout(3*time.Second, "zpool", "status", pool.Name)
+		statusOut, statusErr := runCmdTimeout(ctx, 3*time.Second, "zpool", "status", pool.Name)
 		if statusErr != nil {
 			pool.StatusReadFailed = true
 		} else {
@@ -600,7 +607,7 @@ func deviceKernelName(devPath string) string {
 	return ""
 }
 
-func (c *DiskCollector) collectLinuxExtras(result *models.DiskInfo) {
+func (c *DiskCollector) collectLinuxExtras(ctx context.Context, result *models.DiskInfo) {
 	result.Drives = collectPhysicalDrives()
 	enrichDeviceSizes(result.Filesystems)
 
@@ -619,12 +626,12 @@ func (c *DiskCollector) collectLinuxExtras(result *models.DiskInfo) {
 		if isVirtualDisk(*d) || c.ContainerCtx.InContainer {
 			continue
 		}
-		d.SMART = collectSMART(d.Name)
+		d.SMART = collectSMART(ctx, d.Name)
 	}
 
 	// ZFS — zero overhead gate
 	if zfsGate() {
-		result.ZFSPools, result.ZFSListReadFailed = collectZFSPools()
+		result.ZFSPools, result.ZFSListReadFailed = collectZFSPools(ctx)
 	}
 
 	// btrfs — check mounted btrfs filesystems for missing devices and errors
@@ -632,7 +639,7 @@ func (c *DiskCollector) collectLinuxExtras(result *models.DiskInfo) {
 
 	// Busy-filesystem check — only for mounts at WARN/CRIT usage or unexpectedly
 	// read-only (needsBusyCheck gate); zero cost for healthy mounts.
-	collectBusyFilesystems(result.Filesystems)
+	collectBusyFilesystems(ctx, result.Filesystems)
 
 	// I/O stats — deep mode only (requires 1s sleep)
 	if c.Deep {

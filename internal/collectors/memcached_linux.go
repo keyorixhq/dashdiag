@@ -43,10 +43,24 @@ func memcachedCmdSampled(ctx context.Context, network, addr, cmd, sample string,
 	return r.Out, r.Ok
 }
 
+// memcachedMaxReplyBytes bounds how much of a single memcached reply
+// memcachedCmdLive will buffer. The read loop below only had a 2s connection
+// deadline, no cap on bytes accumulated — a process squatting on 127.0.0.1:11211
+// (or [::1]:11211) that answers the initial "version" probe to pass
+// detectMemcached and then streams data as fast as loopback allows without ever
+// sending the terminator could otherwise force an allocation on the order of
+// gigabytes in a single strings.Builder within the 2s window. A real memcached
+// "stats"/"stats settings" reply is a few KB; this is generously sized above
+// that.
+const memcachedMaxReplyBytes = 4 << 20 // 4MiB
+
 // memcachedCmdLive dials addr, sends the memcached text command, and returns the
 // response. For multi-line replies (stats) it reads until the "END" terminator;
 // for a single-line reply (version) it returns the first line. Best-effort with a
-// short deadline so it never hangs a health run.
+// short deadline so it never hangs a health run. The accumulated reply is capped
+// at memcachedMaxReplyBytes regardless of how long the deadline leaves to run —
+// if the cap is hit before a terminator ever arrives, the read bails out rather
+// than continuing to buffer (and re-scan) an ever-growing, uncapped response.
 func memcachedCmdLive(ctx context.Context, network, addr, cmd string, untilEND bool) (string, bool) {
 	var d net.Dialer
 	conn, err := d.DialContext(ctx, network, addr)
@@ -63,7 +77,13 @@ func memcachedCmdLive(ctx context.Context, network, addr, cmd string, untilEND b
 	for {
 		n, err := conn.Read(tmp)
 		if n > 0 {
-			buf.Write(tmp[:n])
+			if remaining := memcachedMaxReplyBytes - buf.Len(); remaining > 0 {
+				if remaining < n {
+					buf.Write(tmp[:remaining])
+				} else {
+					buf.Write(tmp[:n])
+				}
+			}
 		}
 		s := buf.String()
 		if untilEND && strings.Contains(s, "\r\nEND\r\n") {
@@ -74,6 +94,9 @@ func memcachedCmdLive(ctx context.Context, network, addr, cmd string, untilEND b
 		}
 		if err != nil {
 			break
+		}
+		if buf.Len() >= memcachedMaxReplyBytes {
+			break // cap reached without ever seeing a terminator — bail rather than spin to the deadline
 		}
 	}
 	return buf.String(), buf.Len() > 0
