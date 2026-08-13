@@ -7,6 +7,8 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+const noteUnverifiedResult = "note: this is an unverified result, not a clean bill of health"
+
 // packageFixCommands returns the distro-correct (fix, inspect) command pair for
 // a package manager, defaulting to apt's when the manager is unknown.
 func packageFixCommands(pm string) (fixCmd, inspectCmd string) {
@@ -117,7 +119,7 @@ func checkPackageUpdates(pkg models.PackagesInfo) []models.Insight {
 		}
 		return []models.Insight{unverifiedInsight("INFO", "Packages",
 			"could not verify security updates: "+reason,
-			[]string{"note: this is an unverified result, not a clean bill of health"},
+			[]string{noteUnverifiedResult},
 		)}
 	}
 
@@ -132,7 +134,7 @@ func checkPackageUpdates(pkg models.PackagesInfo) []models.Insight {
 			"apt": "apt update", "dnf": "dnf makecache", "yum": "yum makecache",
 			"zypper": "zypper refresh", "tdnf": "tdnf makecache",
 		}[pkg.PackageManager]
-		hints := []string{"note: this is an unverified result, not a clean bill of health"}
+		hints := []string{noteUnverifiedResult}
 		if refresh != "" {
 			hints = append([]string{"to refresh: " + refresh + "  then re-run dsd"}, hints...)
 		}
@@ -145,7 +147,7 @@ func checkPackageUpdates(pkg models.PackagesInfo) []models.Insight {
 	if pkg.Status != "" {
 		return []models.Insight{unverifiedInsight("INFO", "Packages",
 			fmt.Sprintf("could not verify security updates: unrecognized scan status %q", pkg.Status),
-			[]string{"note: this is an unverified result, not a clean bill of health"},
+			[]string{noteUnverifiedResult},
 		)}
 	}
 
