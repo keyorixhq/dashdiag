@@ -4,6 +4,7 @@ package cvedata
 
 import (
 	"context"
+	"fmt"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -155,6 +156,38 @@ func TestEnrichFromRHAPI_ReadOSReleaseErrorIsSilent(t *testing.T) {
 	}
 	if result.CVSS3Score != "" {
 		t.Errorf("result should be untouched, got %+v", result)
+	}
+}
+
+// TestEnrichFromRHAPI_DSD_OFFLINE_SkipsNetworkCall is a regression guard for
+// egress-gate-03: EnrichFromRHAPI used to unconditionally issue a live HTTPS
+// GET to access.redhat.com/hydra/rest/securitydata/cve/<id>.json for every
+// `dsd cve <ID>` run on a RHEL-family host, disclosing the exact CVE ID being
+// investigated to Red Hat with no opt-out and no disclosure anywhere in
+// PRIVACY.md/SECURITY.md/THREAT_MODEL.md. DSD_OFFLINE must short-circuit
+// before ever reaching the network, on a host that otherwise fully qualifies
+// (RHEL, readable os-release) for enrichment.
+func TestEnrichFromRHAPI_DSD_OFFLINE_SkipsNetworkCall(t *testing.T) {
+	withOSRelease(t, "ID=rhel\nVERSION_ID=\"9.4\"\n")
+	t.Setenv("DSD_OFFLINE", "1")
+
+	called := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+		fmt.Fprint(w, `{"threat_severity":"Important"}`)
+	}))
+	defer srv.Close()
+	prevAPI := rhSecurityAPI
+	rhSecurityAPI = srv.URL + "/%s.json"
+	t.Cleanup(func() { rhSecurityAPI = prevAPI })
+
+	result := &models.CVEResult{}
+	EnrichFromRHAPI(context.Background(), "CVE-2024-0008", result)
+	if called {
+		t.Error("EnrichFromRHAPI must not call the network when DSD_OFFLINE is set")
+	}
+	if result.ThreatSev != "" {
+		t.Errorf("result should be untouched under DSD_OFFLINE, got %+v", result)
 	}
 }
 

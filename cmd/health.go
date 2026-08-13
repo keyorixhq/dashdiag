@@ -353,7 +353,8 @@ func printHealthFooter(mode output.OutputMode, qrFlag bool, state *tips.State, e
 
 	// Passive "newer version available" nudge — interactive runs only, reads a
 	// 24h cache (no network in the hot path beyond a bounded one-off refresh),
-	// silenced by DSD_NO_UPDATE_CHECK. Never affects exit code or output data.
+	// silenced by DSD_NO_UPDATE_CHECK or DSD_OFFLINE. Never affects exit code or
+	// output data.
 	if mode == output.ModeHuman {
 		if line := selfupdate.MaybeNudge(version.Version); line != "" {
 			fmt.Println(line)

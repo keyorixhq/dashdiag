@@ -6,6 +6,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"os"
 	"strings"
 	"syscall"
 	"time"
@@ -136,7 +137,19 @@ func nfsCheckMount(ctx context.Context, m *models.NFSMount) {
 // ── server reachability ───────────────────────────────────────────────────────
 
 func nfsCheckServer(m *models.NFSMount) {
-	if m.Server == "" || m.Server == "127.0.0.1" || m.Server == "localhost" {
+	isLoopback := m.Server == "" || m.Server == "127.0.0.1" || m.Server == "localhost"
+	// A non-loopback server dial leaves the machine, to a host taken from the
+	// mount table — not fully trusted (e.g. a container/namespace's mount
+	// table can be set up by whoever configured that namespace). Skip that
+	// dial under DSD_OFFLINE rather than reporting a fabricated
+	// "unreachable" — ServerCheckSkipped tells the heuristic this is
+	// unmeasured, not a real finding. The loopback case never leaves the
+	// machine, so it is unaffected.
+	if !isLoopback && os.Getenv("DSD_OFFLINE") != "" {
+		m.ServerCheckSkipped = true
+		return
+	}
+	if isLoopback {
 		// Loopback — always reachable; port check still useful
 		m.ServerReachable = true
 	} else {
