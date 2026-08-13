@@ -108,13 +108,11 @@ func readSysfsHexIntOK(path string) (int, bool) {
 	}
 	s = strings.TrimPrefix(s, "0x")
 	s = strings.TrimPrefix(s, "0X")
-	n, err := strconv.ParseInt(s, 16, 64)
+	// bitSize 0 means "must fit in int" — int is 32-bit on some platforms, and
+	// this rejects a sysfs value too large for that outright instead of
+	// silently wrapping it on truncation to int below.
+	n, err := strconv.ParseInt(s, 16, 0)
 	if err != nil {
-		return 0, false
-	}
-	// int is 32-bit on some platforms; a sysfs value that doesn't round-trip
-	// through int would silently wrap rather than report a garbled counter.
-	if int64(int(n)) != n {
 		return 0, false
 	}
 	return int(n), true
