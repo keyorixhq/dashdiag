@@ -243,6 +243,9 @@ func printSystemdHealth(info *models.ServicesDeepInfo, mode output.OutputMode) {
 				if line == "" {
 					continue
 				}
+				// LastLogLines is raw journalctl output for the failed unit —
+				// a service can log attacker-influenced text verbatim
+				// (Finding: internal-collectors-30-03).
 				fmt.Printf("       → %s\n", truncate(output.SanitizeControl(line), 100))
 			}
 		}
@@ -298,7 +301,7 @@ func printSystemdHealth(info *models.ServicesDeepInfo, mode output.OutputMode) {
 			for _, u := range info.UserUnits.Failed {
 				fmt.Printf("     %s\n", u.Name)
 				for _, line := range u.LastLogLines {
-					fmt.Printf("       → %s\n", truncate(line, 100))
+					fmt.Printf("       → %s\n", truncate(output.SanitizeControl(line), 100))
 				}
 			}
 		}

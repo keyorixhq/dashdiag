@@ -147,7 +147,10 @@ func printThermalReport(info *models.ThermalInfo, mode output.OutputMode, elapse
 			} else if t >= 85 {
 				icon = asciiOr("warn", iconWarnSp, mode)
 			}
-			fmt.Printf("    %s  %-20s %.1f°C\n", icon, k, t)
+			// k is a hwmon sensor label read verbatim from sysfs
+			// (temp*_label) — untrusted per this codebase's threat model
+			// (Finding: internal-collectors-32-07).
+			fmt.Printf("    %s  %-20s %.1f°C\n", icon, output.SanitizeControl(k), t)
 		}
 	}
 
