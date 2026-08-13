@@ -9,6 +9,8 @@ import (
 
 const catSteamOS = "SteamOS"
 
+const inspectRAUCStatus = "to inspect: rauc status"
+
 // checkSteamOS turns SteamOS / Steam Deck state into insights. Only fires when
 // Detected (gated on platform.IsSteamOS upstream). The single most important
 // signal is a "bad" RAUC boot slot — a bad booted slot blocks updates outright
@@ -116,7 +118,7 @@ func checkSteamOSUpdate(s models.SteamOSInfo) []models.Insight {
 	if !s.RAUCAvailable {
 		out = append(out, unverifiedInsight("INFO", catSteamOS,
 			"RAUC A/B slot health could not be verified — `rauc status` failed or returned no data",
-			[]string{"to inspect: rauc status", "check: systemctl status rauc — is the service up?"},
+			[]string{inspectRAUCStatus, "check: systemctl status rauc — is the service up?"},
 		))
 	}
 
@@ -126,7 +128,7 @@ func checkSteamOSUpdate(s models.SteamOSInfo) []models.Insight {
 			fmt.Sprintf("booted RAUC slot %s has boot status 'bad' — system updates will not install", s.RAUCBootedSlot),
 			[]string{
 				"to fix: sudo rauc status mark-active booted",
-				"to inspect: rauc status",
+				inspectRAUCStatus,
 			},
 		))
 	} else if s.RAUCAvailable && s.RAUCBootedStatus != "" && !strings.EqualFold(s.RAUCBootedStatus, "good") {
@@ -137,7 +139,7 @@ func checkSteamOSUpdate(s models.SteamOSInfo) []models.Insight {
 		out = append(out, unverifiedInsight("INFO", catSteamOS,
 			fmt.Sprintf("booted RAUC slot %s reports an unrecognized boot status %q — could not confirm it is healthy",
 				s.RAUCBootedSlot, s.RAUCBootedStatus),
-			[]string{"to inspect: rauc status"},
+			[]string{inspectRAUCStatus},
 		))
 	}
 	// RAUC inactive slot bad — no rollback safety net.
@@ -153,7 +155,7 @@ func checkSteamOSUpdate(s models.SteamOSInfo) []models.Insight {
 		out = append(out, unverifiedInsight("INFO", catSteamOS,
 			fmt.Sprintf("inactive RAUC slot %s reports an unrecognized boot status %q — could not confirm rollback is available",
 				s.RAUCInactiveSlot, s.RAUCInactiveStatus),
-			[]string{"to inspect: rauc status"},
+			[]string{inspectRAUCStatus},
 		))
 	}
 

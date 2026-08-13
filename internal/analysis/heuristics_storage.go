@@ -18,6 +18,7 @@ const (
 	inspectLVSFmt         = "to inspect: lvs %s/%s"
 	inspectFCHostPrefix   = "to inspect: cat /sys/class/fc_host/"
 	inspectCephDetail     = "to inspect: ceph health detail"
+	inspectMdstat         = "to inspect: cat /proc/mdstat"
 	noteNVMeUnverified    = "note: drive presence is known; wear, media errors, and spare capacity are unverified"
 )
 
@@ -1023,7 +1024,7 @@ func checkRAID(r models.RAIDInfo) []models.Insight {
 	if r.ReadFailed {
 		out = append(out, unverifiedInsight("INFO", "RAID",
 			"RAID array state could not be verified — /proc/mdstat could not be read",
-			[]string{"to inspect: cat /proc/mdstat"}))
+			[]string{inspectMdstat}))
 	}
 	for _, arr := range r.Arrays {
 		switch arr.State {
@@ -1044,7 +1045,7 @@ func checkRAID(r models.RAIDInfo) []models.Insight {
 				fmt.Sprintf("%s (%s) is DEGRADED — %d/%d drives active%s",
 					arr.Name, arr.Level, arr.Active, arr.Total, detail),
 				[]string{
-					"to inspect: cat /proc/mdstat",
+					inspectMdstat,
 					fmt.Sprintf("to inspect: mdadm --detail /dev/%s", arr.Name),
 					"note: replace the failed drive and run: mdadm --add /dev/<array> /dev/<new-drive>",
 					"note: data is at risk until redundancy is restored",
@@ -1055,7 +1056,7 @@ func checkRAID(r models.RAIDInfo) []models.Insight {
 				fmt.Sprintf("%s (%s) is REBUILDING — %.1f%% complete",
 					arr.Name, arr.Level, arr.RebuildPct),
 				[]string{
-					"to inspect: cat /proc/mdstat",
+					inspectMdstat,
 					"note: array is degraded during rebuild — avoid further drive failures",
 					"note: rebuild progress updates every ~30s in /proc/mdstat",
 				},
