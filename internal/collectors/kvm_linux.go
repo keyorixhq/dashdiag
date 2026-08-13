@@ -98,6 +98,16 @@ func kvmCollectVMs(ctx context.Context, info *models.KVMInfo, deep bool) {
 		if name == "" {
 			continue
 		}
+		// A domain name beginning with "-" would be parsed by virsh as an
+		// option rather than the positional domain argument on every
+		// downstream call (dominfo/dumpxml/domblkerror all take name as a
+		// bare argv element, no shell involved) — silently reinterpreting
+		// the subcommand instead of erroring. Skipping is a deliberate
+		// trade: this one oddly-named domain goes unreported rather than
+		// producing misleading results attributed to it.
+		if strings.HasPrefix(name, "-") {
+			continue
+		}
 		vm := kvmDomInfo(ctx, name)
 		kvmCheckDiskErrors(ctx, &vm)
 		kvmReadLastLogError(&vm)

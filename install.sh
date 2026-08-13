@@ -17,6 +17,20 @@
 
 set -e
 
+# Search trusted system directories FIRST, regardless of what the invoking
+# shell's PATH contains -- mirrors internal/source/trustedexec.go's Go-side
+# hardening (ResolveTrustedTool) for the same reason: this script is commonly
+# piped into `sh` right before install_binary's sudo fallback, so a directory
+# writable by another unprivileged local user that got prepended ahead of the
+# real system dirs (a tampered shell profile, a leftover sudo environment, a
+# misconfigured CI/cron PATH) could otherwise substitute a malicious curl,
+# mktemp, mv, or sudo for every bare-name tool this script invokes. Prepending
+# (not replacing) keeps any less-common tool this script doesn't pin -- none,
+# currently, but future-proof -- resolvable from the rest of the inherited
+# PATH.
+PATH="/usr/bin:/bin:/usr/sbin:/sbin:/usr/local/bin:/usr/local/sbin:/opt/homebrew/bin:/opt/homebrew/sbin:${PATH}"
+export PATH
+
 REPO="keyorixhq/dashdiag"
 BINARY="dsd"
 # PREFIX / VERSION are parsed from args in main().
