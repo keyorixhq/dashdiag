@@ -24,7 +24,6 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 	"strings"
 
@@ -94,6 +93,13 @@ var diskRawChecks = map[string]bool{
 	"Btrfs":  true,
 }
 
+// maxCaptureInputBytes caps how much `dsd health --json` output runCapture
+// will read from stdin. A real report tops out in the low single-digit MB
+// even on a large fleet snapshot; a piped stream far larger than that (a
+// misbehaving upstream command, a corrupted/malicious pipe source) must not
+// be read fully into memory just to find out it isn't valid capture input.
+const maxCaptureInputBytes = 64 * 1024 * 1024 // 64MiB
+
 // captureInput is the full JSON structure from dsd health --json.
 type captureInput struct {
 	Hostname string           `json:"hostname"`
@@ -109,7 +115,7 @@ func runCapture(cmd *cobra.Command, args []string) error {
 		return runCaptureRaw(cmd)
 	}
 
-	data, err := io.ReadAll(os.Stdin)
+	data, err := readCapped(os.Stdin, maxCaptureInputBytes)
 	if err != nil {
 		return fmt.Errorf("reading stdin: %w", err)
 	}

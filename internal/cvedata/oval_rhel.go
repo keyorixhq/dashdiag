@@ -82,7 +82,7 @@ func ParseRHELOVAL(ovalPath string) (map[string]RHELCVERecord, error) {
 	}
 
 	var defs rhOVALDefs
-	if err := xml.NewDecoder(r).Decode(&defs); err != nil {
+	if err := xml.NewDecoder(boundDecompressed(r)).Decode(&defs); err != nil {
 		return nil, fmt.Errorf("parsing OVAL XML: %w", err)
 	}
 

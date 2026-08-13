@@ -369,7 +369,7 @@ func checkCVEApt(ctx context.Context, cveID string) *models.CVEResult {
 	result.StatusReason = "apt does not support direct CVE queries — install 'debsecan' for Debian, or check tracker"
 
 	// Detect distro for appropriate tracker URL
-	if isUbuntu() {
+	if isUbuntu(ctx) {
 		result.FallbackURL = "https://ubuntu.com/security/CVE/" + strings.ToLower(cveID)
 	} else if isKali() {
 		result.FallbackURL = "https://security-tracker.debian.org/tracker/" + cveID
@@ -421,8 +421,8 @@ func checkCVEDebsecan(ctx context.Context, cveID string, result *models.CVEResul
 }
 
 // isUbuntu checks /etc/os-release for Ubuntu.
-func isUbuntu() bool {
-	out, _ := runCmd(context.Background(), "sh", "-c",
+func isUbuntu(ctx context.Context) bool {
+	out, _ := runCmd(ctx, "sh", "-c",
 		"grep -i ubuntu /etc/os-release")
 	return strings.Contains(strings.ToLower(out), "ubuntu")
 }
