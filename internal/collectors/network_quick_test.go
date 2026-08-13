@@ -1,10 +1,59 @@
 package collectors
 
 import (
+	"context"
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
+
+// recordingCacheSource wraps a Replay (which never invokes produce, so it can
+// never trigger a live probe either way) and additionally records every key
+// passed to Cached. That lets a test prove a code path was never REACHED
+// (the key was never requested) without depending on whether the underlying
+// source happens to execute produce — the one thing that's true regardless
+// of source backend is that probeConnectivity's live ping/DNS probe is
+// reachable only through cachedJSON("net/connectivity", ...).
+type recordingCacheSource struct {
+	*source.Replay
+	calls *[]string
+}
+
+func (r recordingCacheSource) Cached(key string, produce func() ([]byte, error)) ([]byte, error) {
+	*r.calls = append(*r.calls, key)
+	return r.Replay.Cached(key, produce)
+}
+
+// TestProbeConnectivity_DSD_OFFLINE_SkipsPingAndDNS is a regression guard for
+// egress-gate-02: probeConnectivity used to unconditionally ping 8.8.8.8 and
+// resolve github.com with no opt-out, on every default `dsd health` run.
+// With DSD_OFFLINE set, it must return before ever calling
+// cachedJSON("net/connectivity", ...) — the sole entry point to the live
+// probe — proven here by recording every Cached() key requested, rather
+// than by inspecting the result's ping/DNS fields (which would require this
+// test to actually attempt a live ping/DNS lookup on a fix-reverted build,
+// something no test in this repo may do).
+func TestProbeConnectivity_DSD_OFFLINE_SkipsPingAndDNS(t *testing.T) {
+	t.Setenv("DSD_OFFLINE", "1")
+	var calls []string
+	prev := SetSource(recordingCacheSource{Replay: source.NewReplay(source.NewBundle()), calls: &calls})
+	defer SetSource(prev)
+
+	var result models.NetworkInfo
+	probeConnectivity(context.Background(), "10.0.0.1", "10.0.0.5", &result)
+
+	if !result.ConnectivityProbeDisabled {
+		t.Error("expected ConnectivityProbeDisabled=true when DSD_OFFLINE is set")
+	}
+	for _, k := range calls {
+		if k == "net/connectivity" {
+			t.Fatal(`cachedJSON("net/connectivity", ...) was called despite DSD_OFFLINE — the live ping/DNS probe path was reached`)
+		}
+	}
+}
 
 func TestParseGatewayLinux(t *testing.T) {
 	t.Parallel()
