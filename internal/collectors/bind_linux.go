@@ -137,6 +137,7 @@ func bindCheckPorts(ctx context.Context, info *models.BINDInfo) {
 		return
 	}
 	info.PortsChecked = true
+	privileged := geteuid() == 0
 	for _, line := range strings.Split(out, "\n") {
 		if !strings.Contains(line, ":53 ") && !strings.Contains(line, ":53\t") {
 			continue
@@ -146,14 +147,25 @@ func bindCheckPorts(ctx context.Context, info *models.BINDInfo) {
 		// the port alone credited whatever else happened to hold :53, silently
 		// clearing the "named running but not listening" WARN for a real bind
 		// failure (socket-open error, address-specific bind).
-		if !isBindProcess(line) {
+		if isBindProcess(line) {
+			if strings.HasPrefix(line, "tcp") {
+				info.Port53TCP = true
+			}
+			if strings.HasPrefix(line, "udp") {
+				info.Port53UDP = true
+			}
 			continue
 		}
-		if strings.HasPrefix(line, "tcp") {
-			info.Port53TCP = true
-		}
-		if strings.HasPrefix(line, "udp") {
-			info.Port53UDP = true
+		// Not attributed to named. As non-root, ss -p's owning-process column is
+		// only populated for sockets owned by the invoking UID (no CAP_SYS_PTRACE-
+		// equivalent) — for a :53 socket owned by another user (named/bind
+		// typically runs under its own service account) ss still prints the line
+		// but with an EMPTY users: field, not a wrong owner. That's a privilege
+		// blind spot, not proof named isn't listening. A line that DOES carry a
+		// populated users: field naming some other real process is a genuine
+		// conflict and correctly stays a miss.
+		if !privileged && !hasSSOwnerInfo(line) {
+			info.PortsOwnershipUnverified = true
 		}
 	}
 }
@@ -167,6 +179,16 @@ func isBindProcess(line string) bool {
 		}
 	}
 	return false
+}
+
+// hasSSOwnerInfo reports whether an `ss -tulpn` line carries a populated
+// users:(("name",pid=...)) owner column at all, regardless of which process it
+// names. Distinguishes "we saw the owner and it wasn't named" (a genuine port
+// conflict) from "we couldn't see who owns this socket" (the non-root
+// ownership blind spot — ss can't resolve another UID's /proc/<pid>/fd
+// without root).
+func hasSSOwnerInfo(line string) bool {
+	return strings.Contains(line, "users:((")
 }
 
 // bindQueryTest sends a test query to 127.0.0.1 via dig.
