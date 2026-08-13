@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -206,6 +207,131 @@ func TestJSONLStore_SkipsMalformedLines(t *testing.T) {
 		t.Errorf("expected 2 valid entries, got %d", len(hist))
 	}
 	_ = s.Close()
+}
+
+// TestValidateEntry_VocabularyBoundaries is a direct table-driven boundary
+// test of validateEntry guarding Finding internal-store-01-04: Verdict and
+// each Checks value must fall within their documented vocabulary.
+func TestValidateEntry_VocabularyBoundaries(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name    string
+		e       Entry
+		wantErr bool
+	}{
+		{"valid OK", Entry{Verdict: "OK", Checks: map[string]string{"Disk": "OK"}}, false},
+		{"valid WARN with INFO check", Entry{Verdict: "WARN", Checks: map[string]string{"Disk": "WARN", "Clock": "INFO"}}, false},
+		{"valid CRIT with PENDING check", Entry{Verdict: "CRIT", Checks: map[string]string{"Disk": "PENDING"}}, false},
+		{"empty verdict", Entry{Verdict: "", Checks: map[string]string{}}, true},
+		{"lowercase verdict", Entry{Verdict: "ok", Checks: map[string]string{}}, true},
+		{"verdict INFO not allowed at rollup", Entry{Verdict: "INFO", Checks: map[string]string{}}, true},
+		{"check status not in vocabulary", Entry{Verdict: "OK", Checks: map[string]string{"Disk": "HEALTHY"}}, true},
+		{"check status empty", Entry{Verdict: "OK", Checks: map[string]string{"Disk": ""}}, true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			e := c.e
+			err := validateEntry(&e)
+			if (err != nil) != c.wantErr {
+				t.Errorf("validateEntry(%+v) = %v, wantErr=%v", c.e, err, c.wantErr)
+			}
+		})
+	}
+}
+
+// TestValidateEntry_SanitizesHostnameAndCheckNames guards the content-
+// sanitization half of Finding internal-store-01-04: Hostname and Checks
+// keys (check names) have no fixed vocabulary, so they're stripped of
+// control/ANSI-escape bytes rather than rejected outright.
+func TestValidateEntry_SanitizesHostnameAndCheckNames(t *testing.T) {
+	t.Parallel()
+	evil := "evil\x1b[2Jname"
+	e := Entry{
+		Verdict:  "OK",
+		Hostname: evil,
+		Checks:   map[string]string{evil: "OK"},
+	}
+	if err := validateEntry(&e); err != nil {
+		t.Fatalf("validateEntry: %v", err)
+	}
+	if strings.ContainsRune(e.Hostname, 0x1b) {
+		t.Errorf("Hostname still contains a raw ESC byte: %q", e.Hostname)
+	}
+	for name := range e.Checks {
+		if strings.ContainsRune(name, 0x1b) {
+			t.Errorf("Checks key still contains a raw ESC byte: %q", name)
+		}
+	}
+	if len(e.Checks) != 1 {
+		t.Fatalf("expected 1 check entry to survive, got %d", len(e.Checks))
+	}
+}
+
+// TestReadAll_SkipsEntriesWithInvalidVocabulary guards ReadAll's use of
+// validateEntry end-to-end: a syntactically valid JSON line whose Verdict or
+// a Checks value falls outside the documented vocabulary must be skipped
+// exactly like a malformed (non-JSON) line, per
+// TestJSONLStore_SkipsMalformedLines' precedent.
+func TestReadAll_SkipsEntriesWithInvalidVocabulary(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "store.jsonl")
+
+	good := `{"ts":"2026-01-01T00:00:00Z","host":"h","version":"v1","verdict":"OK","checks":{}}` + "\n"
+	badVerdict := `{"ts":"2026-01-01T00:00:00Z","host":"h","version":"v1","verdict":"NOTAVERDICT","checks":{}}` + "\n"
+	badCheck := `{"ts":"2026-01-01T00:00:00Z","host":"h","version":"v1","verdict":"OK","checks":{"Disk":"HEALTHY"}}` + "\n"
+	if err := os.WriteFile(path, []byte(good+badVerdict+badCheck+good), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := ReadAll(path, "h", 0)
+	if err != nil {
+		t.Fatalf("ReadAll: %v", err)
+	}
+	if len(entries) != 2 {
+		t.Errorf("expected 2 valid entries (bad verdict/check skipped), got %d", len(entries))
+	}
+}
+
+// TestReadAll_SanitizesControlChars guards the end-to-end path: a store file
+// entry carrying raw control/ANSI-escape bytes in its hostname must have
+// them stripped before ReadAll returns it, since cmd/history.go and
+// cmd/diff.go print Hostname/Checks straight to the terminal with no
+// sanitization of their own.
+func TestReadAll_SanitizesControlChars(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "store.jsonl")
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	evil := "evil\x1b[2Jname"
+	ctx := context.Background()
+	if err := s.Append(ctx, Entry{Hostname: evil, Verdict: "OK", Checks: map[string]string{evil: "OK"}}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	entries, err := ReadAll(path, "", 0)
+	if err != nil {
+		t.Fatalf("ReadAll: %v", err)
+	}
+	if len(entries) != 1 {
+		t.Fatalf("expected 1 entry, got %d", len(entries))
+	}
+	if strings.ContainsRune(entries[0].Hostname, 0x1b) {
+		t.Errorf("Hostname still contains a raw ESC byte: %q", entries[0].Hostname)
+	}
+	for name := range entries[0].Checks {
+		if strings.ContainsRune(name, 0x1b) {
+			t.Errorf("Checks key still contains a raw ESC byte: %q", name)
+		}
+	}
 }
 
 func TestStorePath_NonRoot(t *testing.T) {
