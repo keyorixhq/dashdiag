@@ -76,6 +76,61 @@ func TestCheckCloudInit_ErrorsCapAt3(t *testing.T) {
 	}
 }
 
+// TestCheckCloudInit_ErrorHintLengthCapped is the regression test for
+// internal-analysis-03-06: checkCloudInit capped the *number* of cloud-init
+// error strings copied into hints (3) but not the *length* of any individual
+// string. Those strings originate from cloud-init's status.json, itself
+// derived from the (spoofable) datasource metadata response — an oversized
+// single error string must not be embedded verbatim.
+func TestCheckCloudInit_ErrorHintLengthCapped(t *testing.T) {
+	t.Parallel()
+	huge := strings.Repeat("x", 10_000)
+	got := checkCloudInit(models.CloudInitInfo{
+		Available: true,
+		Status:    "error",
+		Errors:    []string{huge},
+	})
+	if len(got) == 0 {
+		t.Fatal("cloud-init error must produce a CRIT insight, got none")
+	}
+	for _, h := range got[0].Hints {
+		if !strings.HasPrefix(h, "error: ") {
+			continue
+		}
+		if len(h) > 400 {
+			t.Errorf("error hint not capped: len=%d (want a bounded length, input was %d bytes)", len(h), len(huge))
+		}
+		return
+	}
+	t.Fatal("no 'error: ' hint found")
+}
+
+// TestCheckCloudInit_RecoverableErrorHintLengthCapped is the recoverable-error
+// counterpart of TestCheckCloudInit_ErrorHintLengthCapped — same missing cap,
+// same fix, other branch of checkCloudInit's switch.
+func TestCheckCloudInit_RecoverableErrorHintLengthCapped(t *testing.T) {
+	t.Parallel()
+	huge := strings.Repeat("y", 10_000)
+	got := checkCloudInit(models.CloudInitInfo{
+		Available:         true,
+		ExtendedStatus:    "degraded",
+		RecoverableErrors: []string{huge},
+	})
+	if len(got) == 0 {
+		t.Fatal("cloud-init degraded status must produce a WARN insight, got none")
+	}
+	for _, h := range got[0].Hints {
+		if !strings.Contains(h, "y") {
+			continue
+		}
+		if len(h) > 400 {
+			t.Errorf("recoverable-error hint not capped: len=%d (want a bounded length, input was %d bytes)", len(h), len(huge))
+		}
+		return
+	}
+	t.Fatal("no recoverable-error hint found")
+}
+
 // TestCheckDNS_ModerateLatencyInfo covers the `else if d.ExternalResolvesOK &&
 // d.ExternalLatencyMs > 200` INFO branch — latency between 200 and 500ms must
 // produce an INFO, not a WARN (which fires at > 500ms).
