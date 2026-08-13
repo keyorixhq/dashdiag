@@ -207,10 +207,13 @@ func printCertResult(r certResult, mode output.OutputMode) {
 	}
 	fmt.Printf("%s  %s%s\n", icon, r.Path, tag)
 	if r.Err != "" {
-		fmt.Printf("   error: %s\n", r.Err)
+		fmt.Printf("   error: %s\n", output.SanitizeControl(r.Err))
 		return
 	}
-	fmt.Printf("   Subject:  %s\n", r.Subject)
+	// Subject CN is attacker-controlled — whoever generated the certificate
+	// (or a MITM presenting one) chooses this string, and it must not carry
+	// raw control bytes to the terminal.
+	fmt.Printf("   Subject:  %s\n", output.SanitizeControl(r.Subject))
 	fmt.Printf("   Expires:  %s", r.Expiry.Format(tlsDateFmt))
 	if r.DaysLeft <= 0 {
 		fmt.Printf(" (EXPIRED %d days ago)\n", -r.DaysLeft)

@@ -61,6 +61,9 @@ func logoDataURI(logo string) (template.URL, error) {
 		return "", fmt.Errorf("http:// logo URLs are not supported; use https:// or a local file path")
 	}
 	if strings.HasPrefix(logo, "https://") {
+		if !isSafeAttrURI(logo) {
+			return "", fmt.Errorf("logo URL contains characters unsafe for an HTML attribute")
+		}
 		return template.URL(logo), nil //nolint:gosec // operator-supplied HTTPS URI, self-contained report
 	}
 	// Validate data: URIs — only image/* MIME types are safe to embed.
@@ -68,6 +71,9 @@ func logoDataURI(logo string) (template.URL, error) {
 	if strings.HasPrefix(logo, "data:") {
 		if !strings.HasPrefix(logo, "data:image/") {
 			return "", fmt.Errorf("data: logo URI must use an image/* MIME type")
+		}
+		if !isSafeAttrURI(logo) {
+			return "", fmt.Errorf("logo data: URI contains characters unsafe for an HTML attribute")
 		}
 		return template.URL(logo), nil //nolint:gosec // validated image/* data URI
 	}
@@ -90,6 +96,20 @@ func logoDataURI(logo string) (template.URL, error) {
 		return "", fmt.Errorf("logo file %q is empty or exceeds %d bytes", logo, maxLogoBytes)
 	}
 	return template.URL(fmt.Sprintf("data:%s;base64,%s", mime, base64.StdEncoding.EncodeToString(data))), nil //nolint:gosec // self-generated data URI
+}
+
+// isSafeAttrURI reports whether s is safe to embed verbatim into an HTML
+// src="..." attribute. logoDataURI returns https:// and data: logo URIs as
+// template.URL, which html/template treats as pre-vetted and emits WITHOUT
+// any escaping (per html/template's docs: "included verbatim in the template
+// output") — so an operator-supplied (or automation-fed) URL/URI containing
+// a quote, angle bracket, or backtick could break out of the attribute and
+// inject arbitrary HTML/JS into the report. A well-formed https:// URL or
+// base64 data: URI never legitimately needs any of these characters.
+func isSafeAttrURI(s string) bool {
+	return !strings.ContainsAny(s, "\"'<>`") && !strings.ContainsFunc(s, func(r rune) bool {
+		return r < 0x20 || r == 0x7f
+	})
 }
 
 func logoMIME(path string) string {

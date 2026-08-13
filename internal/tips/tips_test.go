@@ -145,6 +145,25 @@ func TestMaybePrintTip_WrapsIndex(t *testing.T) {
 	})
 }
 
+// TestMaybePrintTip_NegativeIndexNoPanic guards against a panic when
+// TipIndex is negative. state.json isn't validated on read, so a
+// hand-edited or corrupted file (or a state.json shared/synced across a
+// fleet) can carry a negative tip_index; Go's % keeps the dividend's sign,
+// so idx would go negative and tips[idx] would panic without the fix.
+func TestMaybePrintTip_NegativeIndexNoPanic(t *testing.T) {
+	// No t.Parallel(): withPlainMode mutates the shared isPlainMode package var.
+	withPlainMode(t, false, func() {
+		s := &State{TipsEnabled: true, TipIndex: -1}
+		out := captureStdout(t, func() { MaybePrintTip(s, output.ModeHuman) }) // must not panic
+		if out == "" {
+			t.Error("expected a tip to be printed, got empty output")
+		}
+		if s.TipIndex < 0 || s.TipIndex >= len(tips) {
+			t.Errorf("expected TipIndex advanced into [0, %d), got %d", len(tips), s.TipIndex)
+		}
+	})
+}
+
 func TestMaybePrintTip_ShowsTierLabel(t *testing.T) {
 	// No t.Parallel(): withPlainMode mutates the shared isPlainMode package var.
 	withPlainMode(t, false, func() {

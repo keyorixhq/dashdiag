@@ -40,7 +40,13 @@ func MaybePrintTip(state *State, mode output.OutputMode) {
 		return
 	}
 
+	// TipIndex is loaded from state.json, which isn't validated on read — a
+	// negative value (hand-edited or corrupted) would make Go's %, which keeps
+	// the dividend's sign, return a negative index and panic on tips[idx].
 	idx := state.TipIndex % len(tips)
+	if idx < 0 {
+		idx += len(tips)
+	}
 	tip := tips[idx]
 	n := idx + 1
 
