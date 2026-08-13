@@ -529,3 +529,40 @@ func TestSaveLoadFullRoundTripWithLinksStatsStatfs(t *testing.T) {
 		t.Fatalf("Run = %+v, %v", res, err)
 	}
 }
+
+// TestSavePermissionsAreRestrictive guards internal-source-01-06: a raw
+// bundle can carry sensitive host data (hostnames, IPs, disk serials,
+// journald lines, secrets in captured files/commands). Save() is exported
+// and the caller controls the target directory, so it must not write
+// world/group-readable files or directories itself — that would only be
+// safe by accident of whichever directory a given caller happens to point it
+// at (today, SaveTarball's private 0700 os.MkdirTemp dir; not guaranteed for
+// any future/alternate caller).
+func TestSavePermissionsAreRestrictive(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	b := NewBundle()
+	b.PutFile("/etc/secret", []byte("hunter2"))
+	b.PutCmd("id", nil, "uid=0(root)\n", 0)
+	if err := b.Save(dir); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+
+	checkMode := func(path string, want os.FileMode) {
+		t.Helper()
+		fi, err := os.Stat(path)
+		if err != nil {
+			t.Fatalf("stat %s: %v", path, err)
+		}
+		if got := fi.Mode().Perm(); got != want {
+			t.Errorf("%s: mode = %o, want %o (world/group-readable capture data)", path, got, want)
+		}
+	}
+
+	checkMode(filepath.Join(dir, "files", "blobs"), 0o700)
+	checkMode(filepath.Join(dir, "commands", "blobs"), 0o700)
+	checkMode(filepath.Join(dir, "manifest.json"), 0o600)
+	checkMode(filepath.Join(dir, "files", "index.json"), 0o600)
+	checkMode(filepath.Join(dir, "files", "blobs", "0000"), 0o600)
+	checkMode(filepath.Join(dir, "commands", "blobs", "0000.out"), 0o600)
+}

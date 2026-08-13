@@ -23,6 +23,61 @@ func TestStorePath_Root(t *testing.T) {
 	}
 }
 
+// TestStorePath_HomeDirUnavailable guards internal-store-01-02: StorePath
+// previously fell back to filepath.Join("", ".dsd", "store.jsonl") =
+// ".dsd/store.jsonl" (a RELATIVE path) when $HOME can't be resolved for a
+// non-root process, resolving against whatever — possibly attacker-writable
+// — CWD dsd happens to run from. It must now return "" (a sentinel Open()
+// and ReadAll() check for), never a relative path.
+// No t.Parallel(): t.Setenv mutates the shared HOME env var.
+func TestStorePath_HomeDirUnavailable(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("running as root; StorePath's root branch doesn't consult $HOME")
+	}
+	t.Setenv("HOME", "")
+	if got := StorePath(); got != "" {
+		t.Errorf(`StorePath() = %q, want "" (never a relative path) when HOME is unavailable`, got)
+	}
+}
+
+// TestOpen_EmptyPathFailsClosed guards internal-store-01-02: Open("") (the
+// StorePath()-unresolved sentinel) must fail immediately with no filesystem
+// side effects — no MkdirAll("."), no file created in the CWD.
+func TestOpen_EmptyPathFailsClosed(t *testing.T) {
+	t.Parallel()
+	if _, err := Open(""); err == nil {
+		t.Error(`Open("") should fail when the store path could not be determined`)
+	}
+}
+
+// TestOpen_RefusesSymlink guards the O_NOFOLLOW half of internal-store-01-02:
+// Open() previously used plain O_CREATE|O_WRONLY|O_APPEND (no O_EXCL,
+// follows an existing symlink). A pre-planted symlink at the store path must
+// not have its target opened for append.
+func TestOpen_RefusesSymlink(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	victim := filepath.Join(t.TempDir(), "victim.jsonl")
+	if err := os.WriteFile(victim, []byte("original\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(dir, "store.jsonl")
+	if err := os.Symlink(victim, link); err != nil {
+		t.Fatal(err)
+	}
+
+	if _, err := Open(link); err == nil {
+		t.Fatal("Open should refuse to open a symlink at path")
+	}
+	data, err := os.ReadFile(victim) //nolint:gosec // test-controlled path
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "original\n" {
+		t.Errorf("victim file was modified: %q", data)
+	}
+}
+
 // TestOpen_MkdirAllFails covers the os.MkdirAll error return in Open.
 // Passing a path whose first directory component is an existing regular file
 // makes MkdirAll fail with ENOTDIR before OpenFile is ever called.

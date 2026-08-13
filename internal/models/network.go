@@ -43,6 +43,11 @@ type NetworkInfo struct {
 	CloseWaitCount        int             `json:"close_wait_count"`
 	NATDetected           bool            `json:"nat_detected"`
 	ICMPBlocked           bool            `json:"icmp_blocked,omitempty"` // ICMP unavailable (e.g. no CAP_NET_RAW); TCP fallback used
+	// ConnectivityProbeDisabled is true when the gateway/internet ping and DNS
+	// resolution probe was skipped because DSD_OFFLINE was set, rather than
+	// actually attempted and failed — distinguishes "not measured" from a real
+	// "host appears offline" finding so DSD_OFFLINE never produces a false CRIT.
+	ConnectivityProbeDisabled bool `json:"connectivity_probe_disabled,omitempty"`
 	// Deep metrics (populated by NetworkDeepCollector)
 	TimeWaitCount    int             `json:"time_wait_count,omitempty"`    // TIME_WAIT sockets
 	SynRetransCount  int             `json:"syn_retrans_count,omitempty"`  // TCPSynRetrans — SYN retransmissions

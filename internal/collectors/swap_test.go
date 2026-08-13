@@ -229,6 +229,58 @@ func TestParseSwaps(t *testing.T) {
 	}
 }
 
+// TestSwapCollector_Collect_TruncatedVMStatIsUnmeasured guards against a
+// fabricated paging rate: a vmstat read that parses one real "pswpin N" line
+// before failing (here forced via a token exceeding bufio.Scanner's max
+// size, simulating a truncated read) previously left the OTHER sample's
+// value at its zero default, so pin2-pin1 mixed a real cumulative counter
+// against 0/partial data — a huge spurious PagesInPerSec instead of a
+// disclosed "couldn't measure". -1/-1 is the established sentinel the
+// analysis layer already treats as inactive (see swapInUse/checkSwap).
+func TestSwapCollector_Collect_TruncatedVMStatIsUnmeasured(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("skipping 1s vmstat sampling in short mode")
+	}
+	if runtime.GOOS == "darwin" {
+		t.Skip("vmstat sampling not available on darwin")
+	}
+
+	callCount := 0
+	c := &SwapCollector{
+		ContainerCtx: platform.ContainerContext{},
+		swapsPath:    "/dev/null", // no swap devices
+		readers: swapReaders{
+			vmstatOpen: func() (io.ReadCloser, error) {
+				callCount++
+				if callCount == 1 {
+					return io.NopCloser(strings.NewReader("pswpin 100\npswpout 50\n")), nil
+				}
+				// A real "pswpin" line parses fine, then a single token far past
+				// bufio.Scanner's max size (64KB) forces scanner.Err() != nil —
+				// standing in for a genuinely truncated/partial read.
+				return io.NopCloser(strings.NewReader("pswpin 999999\n" + strings.Repeat("x", 100000))), nil
+			},
+		},
+	}
+
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	result, err := c.Collect(ctx)
+	if err != nil {
+		t.Fatalf("Collect error: %v", err)
+	}
+	info, ok := result.(*models.SwapInfo)
+	if !ok {
+		t.Fatalf("unexpected type %T", result)
+	}
+	if info.PagesInPerSec != -1 || info.PagesOutPerSec != -1 {
+		t.Errorf("PagesInPerSec/PagesOutPerSec = %v/%v, want -1/-1 (unmeasured sentinel), not a fabricated delta",
+			info.PagesInPerSec, info.PagesOutPerSec)
+	}
+}
+
 func TestSwapCollector_Collect_InjectableReaders(t *testing.T) {
 	t.Parallel()
 	if testing.Short() {

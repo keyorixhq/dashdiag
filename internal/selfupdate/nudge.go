@@ -3,9 +3,11 @@ package selfupdate
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"syscall"
 	"time"
 )
 
@@ -24,16 +26,25 @@ type checkCache struct {
 // cachePath is overridable in tests.
 var cachePath = defaultCachePath
 
+// defaultCachePath returns the update-check cache's absolute path, or "" if
+// it can't be determined ($HOME unset). "" is a deliberate sentinel
+// loadCache/saveCache check for, never a relative fallback: a relative
+// ".dsd/update-check.json" would resolve against whatever — possibly
+// attacker-writable — CWD dsd happens to run from.
 func defaultCachePath() string {
 	home, err := os.UserHomeDir()
 	if err != nil {
-		return filepath.Join(".dsd", "update-check.json")
+		return ""
 	}
 	return filepath.Join(home, ".dsd", "update-check.json")
 }
 
 func loadCache() *checkCache {
-	data, err := os.ReadFile(cachePath())
+	path := cachePath()
+	if path == "" {
+		return nil
+	}
+	data, err := os.ReadFile(path)
 	if err != nil {
 		return nil
 	}
@@ -46,6 +57,9 @@ func loadCache() *checkCache {
 
 func saveCache(c *checkCache) error {
 	path := cachePath()
+	if path == "" {
+		return fmt.Errorf("selfupdate: cannot determine cache path ($HOME unresolved)")
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return err
 	}
@@ -54,7 +68,21 @@ func saveCache(c *checkCache) error {
 		return err
 	}
 	tmp := path + ".tmp"
-	if err := os.WriteFile(tmp, data, 0o644); err != nil { //nolint:gosec // public version string, not a secret
+	// O_NOFOLLOW: refuse to write through a pre-existing symlink at tmp
+	// rather than following it — same hazard cmd/root.go's createOutFile
+	// guards for --out.
+	f, err := os.OpenFile(tmp, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|syscall.O_NOFOLLOW, 0o644) //nolint:gosec // public version string, not a secret
+	if errors.Is(err, syscall.ELOOP) {
+		return fmt.Errorf("selfupdate: refusing to write through a symlink at %q", tmp)
+	}
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	if err := f.Close(); err != nil {
 		return err
 	}
 	return os.Rename(tmp, path)
@@ -71,12 +99,15 @@ func RefreshCache(ctx context.Context) (string, error) {
 }
 
 // MaybeNudge returns a one-line "update available" message for interactive use,
-// or "" when up to date / disabled / a dev build. It reads the cache (no
-// network); if the cache is missing or stale it does a single best-effort
-// refresh bounded by nudgeTimeout so the next run is accurate. Fully silenced by
-// DSD_NO_UPDATE_CHECK.
+// or "" when up to date / disabled / a dev build. It reads the cache; if the
+// cache is missing or stale it does a single best-effort HTTPS refresh
+// (RefreshCache -> LatestRelease, a GET to api.github.com) bounded by
+// nudgeTimeout so the next run is accurate. That refresh is the one outbound
+// network call anywhere in dsd's default interactive path, so it honours the
+// shared DSD_OFFLINE opt-out (see internal/platform's "no network calls by
+// default" contract) in addition to the nudge-specific DSD_NO_UPDATE_CHECK.
 func MaybeNudge(current string) string {
-	if os.Getenv("DSD_NO_UPDATE_CHECK") != "" {
+	if os.Getenv("DSD_NO_UPDATE_CHECK") != "" || os.Getenv("DSD_OFFLINE") != "" {
 		return ""
 	}
 	if !isCleanRelease(current) { // dev/describe build — never nag

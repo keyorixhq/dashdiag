@@ -197,9 +197,20 @@ func analyzeDNSQuality(info *models.DNSResolverInfo) {
 		if strings.HasPrefix(opt, "ndots:") {
 			n := 0
 			for _, c := range opt[6:] {
-				if c >= '0' && c <= '9' {
-					n = n*10 + int(c-'0')
+				if c < '0' || c > '9' {
+					continue
 				}
+				// resolv.conf is attacker-influenced (DHCP-supplied, or a hostile
+				// K8s admission webhook/CNI writing the pod's resolv.conf), so a
+				// pathologically long digit string must not be allowed to wrap
+				// int around to a small/negative n — that would silently defeat
+				// the "n > 3" check below and mask a genuine high-ndots hazard.
+				// Real ndots values are single/double digit; stop accumulating
+				// well below the overflow range.
+				if n > 1_000_000 {
+					break
+				}
+				n = n*10 + int(c-'0')
 			}
 			if n > 3 {
 				info.NdotsHigh = n
