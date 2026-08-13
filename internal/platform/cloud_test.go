@@ -130,6 +130,61 @@ func TestDetectCloud_BareMetal(t *testing.T) {
 	}
 }
 
+// TestDetectCloud_DMIDirUnreadable is the regression test for the false-OK
+// fix: a DMI directory that EXISTS but can't be read (a permission error —
+// e.g. a hardened container or a restricted /sys view) must return
+// EnvUnknown, not silently fall through every vendor check (all reading ""
+// from the unreadable dir) to the confident EnvBareMetal default — which
+// selects the STRICTEST IO-latency thresholds of any branch. Distinct from
+// TestDetectCloud_BareMetal, where the directory is genuinely readable and
+// simply empty of recognized vendor markers.
+func TestDetectCloud_DMIDirUnreadable(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root — a 0000-mode directory is still readable by root, can't exercise this path")
+	}
+	dir := t.TempDir()
+	dmiDir := filepath.Join(dir, "dmi")
+	if err := os.MkdirAll(dmiDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(dmiDir, "product_name"), []byte("Standard PC\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(dmiDir, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dmiDir, 0o755) }) // let t.TempDir() clean up
+
+	blockDir := filepath.Join(dir, "block")
+	_ = os.MkdirAll(blockDir, 0o755)
+	got := detectCloudEnvironmentFromPaths(dmiDir, filepath.Join(dir, "uuid"), blockDir, "")
+	if got != EnvUnknown {
+		t.Errorf("detectCloudEnvironmentFromPaths() = %v, want EnvUnknown when the DMI dir exists but can't be stat'd", got)
+	}
+}
+
+// TestDetectCloud_DMIDirAbsent_NotUnknown is the control: a DMI directory
+// that simply doesn't exist (the common case — non-x86 arch, or a container
+// without /sys/class/dmi mounted) must NOT return EnvUnknown — that's the
+// legitimate "no DMI concept here" case every vendor check is designed to
+// fall through on, distinct from an active read failure.
+func TestDetectCloud_DMIDirAbsent_NotUnknown(t *testing.T) {
+	dir := t.TempDir()
+	dmiDir := filepath.Join(dir, "does-not-exist")
+	blockDir := filepath.Join(dir, "block")
+	_ = os.MkdirAll(blockDir, 0o755)
+
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Error(w, "not aws", http.StatusNotFound)
+	}))
+	ts.Close()
+
+	got := detectCloudEnvironmentFromPaths(dmiDir, filepath.Join(dir, "uuid"), blockDir, ts.URL)
+	if got == EnvUnknown {
+		t.Error("detectCloudEnvironmentFromPaths() = EnvUnknown, want a real classification when the DMI dir simply doesn't exist")
+	}
+}
+
 func TestDetectCloud_IMDSTimeout(t *testing.T) {
 	dir, dmiDir := makeDMIDir(t, "", "")
 	blockDir := filepath.Join(dir, "block")
