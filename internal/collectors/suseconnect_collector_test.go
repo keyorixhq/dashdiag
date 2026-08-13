@@ -275,6 +275,59 @@ func TestCollectUbuntuPro_NotAttached(t *testing.T) {
 	}
 }
 
+// TestCollectUbuntuPro_DuplicateKeyLastValueWins guards Finding:
+// internal-collectors-31-04. A raw substring search for `"attached": true`
+// finds ANY occurrence of that byte sequence regardless of position, so a
+// document with the key repeated (a buggy/substituted `pro` binary, or
+// reordered by a wrapper) can make the substring check see the true value
+// even though a real JSON decoder — like every conformant parser, including
+// encoding/json — resolves duplicate keys to the LAST occurrence.
+func TestCollectUbuntuPro_DuplicateKeyLastValueWins(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("pro", []string{"status", "--format", "json"},
+			`{"attached": true, "attached": false}`, 0)
+	})
+	info := &models.SUSEConnectInfo{}
+	collectUbuntuPro(context.Background(), info)
+	if info.Registered || info.Status != "detached" {
+		t.Errorf("info = %+v, want registered=false/detached — the LAST \"attached\" value must win, not merely the first occurrence found by a substring scan", info)
+	}
+}
+
+// TestCollectUbuntuPro_ReindentedJSONStillParses is the flip side: a
+// differently-formatted but semantically identical document (extra
+// whitespace around the colon) is exactly the kind of order/whitespace
+// fragility a substring match is vulnerable to — the old code required an
+// exact `"attached": true` or `"attached":true` byte sequence and would
+// silently miss this shape, reporting a false "detached".
+func TestCollectUbuntuPro_ReindentedJSONStillParses(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("pro", []string{"status", "--format", "json"}, "{\n  \"attached\":   true\n}\n", 0)
+	})
+	info := &models.SUSEConnectInfo{}
+	collectUbuntuPro(context.Background(), info)
+	if !info.Registered || info.Status != "attached" {
+		t.Errorf("info = %+v, want registered=true/attached for reindented-but-equivalent JSON", info)
+	}
+}
+
+// TestCollectUbuntuPro_MalformedJSONDisclosedUnverified guards the fail-
+// closed fallback: unparseable `pro` output must be disclosed as unverified,
+// never silently reported as a confident "detached".
+func TestCollectUbuntuPro_MalformedJSONDisclosedUnverified(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("pro", []string{"status", "--format", "json"}, "not json at all", 0)
+	})
+	info := &models.SUSEConnectInfo{}
+	collectUbuntuPro(context.Background(), info)
+	if info.Registered {
+		t.Error("expected Registered=false for unparseable output")
+	}
+	if !info.StatusUnverified {
+		t.Error("expected StatusUnverified=true for unparseable output — must not silently read as detached")
+	}
+}
+
 func TestSUSEConnectCollector_Collect_RHEL(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutStat("/usr/bin/subscription-manager", source.FileMeta{})
