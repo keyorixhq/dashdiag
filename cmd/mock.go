@@ -142,7 +142,10 @@ func runMock(cmd *cobra.Command, args []string) error {
 	if osName == "" {
 		osName = "Linux"
 	}
-	fmt.Fprintf(os.Stderr, "⚡ DashDiag (dsd) %s — %s · %s\n", v, host, osName)
+	// host/osName come straight from the user-supplied fixture YAML — fixtures
+	// are explicitly designed to be shared/exchanged (e.g. to reproduce a
+	// finding), so treat them as untrusted before printing.
+	fmt.Fprintf(os.Stderr, "⚡ DashDiag (dsd) %s — %s · %s\n", v, output.SanitizeControl(host), output.SanitizeControl(osName))
 	fmt.Fprintf(os.Stderr, "System health — read only checks, usually under 5s\n")
 	fmt.Fprintf(os.Stderr, "%s\n", strings.Repeat("─", 56))
 

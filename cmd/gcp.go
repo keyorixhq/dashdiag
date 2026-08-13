@@ -132,7 +132,10 @@ func printGCPReport(w io.Writer, info *models.GCPInfo, elapsed time.Duration, mo
 	if info.UsesGVNIC {
 		net = "gVNIC"
 	} else if info.NICDriver != "" {
-		net = info.NICDriver
+		// NICDriver is a /sys/class/net/*/device/driver symlink basename —
+		// treated as untrusted per this review's threat model — sanitize
+		// before it reaches the terminal header.
+		net = output.SanitizeControl(info.NICDriver)
 	}
 
 	fmt.Fprintln(w)

@@ -171,11 +171,15 @@ func printDockerDaemon(info *models.DockerInfo, mode output.OutputMode) {
 	if d == nil {
 		return
 	}
+	// Daemon Version/APIVersion/StorageDriver/Compose/LastDaemonError all
+	// originate from `docker inspect`/`docker version`/journal text, which any
+	// local actor able to create a container/image (or a malicious daemon
+	// proxy) can influence — sanitize before they reach the terminal.
 	verStr := ""
 	if d.Version != "" {
-		verStr = d.Version
+		verStr = output.SanitizeControl(d.Version)
 		if d.APIVersion != "" {
-			verStr += fmt.Sprintf(" (API %s)", d.APIVersion)
+			verStr += fmt.Sprintf(" (API %s)", output.SanitizeControl(d.APIVersion))
 		}
 	}
 	driverStr := ""
@@ -185,7 +189,7 @@ func printDockerDaemon(info *models.DockerInfo, mode output.OutputMode) {
 			icon = asciiOr("warn", iconWarnSp, mode)
 		}
 		// normalise: "overlayfs" → "overlay2" display
-		driver := d.StorageDriver
+		driver := output.SanitizeControl(d.StorageDriver)
 		if driver == "overlayfs" {
 			driver = "overlay"
 		}
@@ -196,18 +200,18 @@ func printDockerDaemon(info *models.DockerInfo, mode output.OutputMode) {
 	switch {
 	case d.ComposePlugin != "" && d.ComposeStandalone != "":
 		fmt.Printf("  %s  Compose: v%s (plugin) + v%s (standalone) — both present\n",
-			asciiOr("warn", iconWarnSp, mode), d.ComposePlugin, d.ComposeStandalone)
+			asciiOr("warn", iconWarnSp, mode), output.SanitizeControl(d.ComposePlugin), output.SanitizeControl(d.ComposeStandalone))
 	case d.ComposePlugin != "":
-		fmt.Printf("  %s  Compose: v%s (plugin)\n", asciiOr("ok", iconOK, mode), d.ComposePlugin)
+		fmt.Printf("  %s  Compose: v%s (plugin)\n", asciiOr("ok", iconOK, mode), output.SanitizeControl(d.ComposePlugin))
 	case d.ComposeStandalone != "":
-		fmt.Printf("  %s  Compose: v%s (standalone — deprecated)\n", asciiOr("warn", iconWarnSp, mode), d.ComposeStandalone)
+		fmt.Printf("  %s  Compose: v%s (standalone — deprecated)\n", asciiOr("warn", iconWarnSp, mode), output.SanitizeControl(d.ComposeStandalone))
 	default:
 		fmt.Printf("  %s  Compose: not installed\n", asciiOr("info", iconInfoSp, mode))
 	}
 	if d.RecentErrors > 0 {
 		fmt.Printf("  %s  %d error(s) in last 10m", asciiOr("warn", iconWarnSp, mode), d.RecentErrors)
 		if d.LastDaemonError != "" {
-			fmt.Printf(": %s", d.LastDaemonError)
+			fmt.Printf(": %s", output.SanitizeControl(d.LastDaemonError))
 		}
 		fmt.Println()
 		fmt.Println("     → journalctl -u docker -n 50 --no-pager")
@@ -274,8 +278,11 @@ func printDockerContainers(info *models.DockerInfo, mode output.OutputMode) {
 				exitStr = fmt.Sprintf(" exit:%d (%s)", c.ExitCode, c.ExitLabel)
 			}
 		}
+		// c.Name/State/Image originate from `docker inspect`/`docker ps`, all
+		// settable by anyone able to create a container/image (docker run
+		// --name, image tags) — sanitize before printing.
 		fmt.Printf("  %s  %-20s %-12s %s%s%s%s\n",
-			icon, c.Name, c.State, c.Image, health, restarts, exitStr)
+			icon, output.SanitizeControl(c.Name), output.SanitizeControl(c.State), output.SanitizeControl(c.Image), health, restarts, exitStr)
 	}
 }
 
@@ -313,10 +320,14 @@ func printPodmanQuadlets(info *models.DockerInfo, mode output.OutputMode) {
 		if state == "" {
 			state = "unknown"
 		}
-		fmt.Printf("  %s  %-14s %-9s %s\n", icon, q.Name, state, q.ServiceUnit)
+		// q.Name/State/ServiceUnit come from Podman quadlet unit files, which
+		// anyone able to place a quadlet on the host controls — sanitize.
+		name := output.SanitizeControl(q.Name)
+		unit := output.SanitizeControl(q.ServiceUnit)
+		fmt.Printf("  %s  %-14s %-9s %s\n", icon, name, output.SanitizeControl(state), unit)
 		if q.Failed {
-			fmt.Printf("     → systemctl status %s\n", q.ServiceUnit)
-			fmt.Printf("     → journalctl -u %s -n 20\n", q.ServiceUnit)
+			fmt.Printf("     → systemctl status %s\n", unit)
+			fmt.Printf("     → journalctl -u %s -n 20\n", unit)
 		}
 	}
 }
@@ -372,7 +383,9 @@ func printDockerEvents(info *models.DockerInfo, mode output.OutputMode) {
 		if ev.Action == "oom" {
 			evIcon = asciiOr("fail", iconFail, mode)
 		}
-		fmt.Printf("  %s  %-8s  %s\n", evIcon, ev.Action, ev.Actor)
+		// ev.Actor (container/image name) comes from `docker events`, settable
+		// by anyone able to create a container/image — sanitize.
+		fmt.Printf("  %s  %-8s  %s\n", evIcon, output.SanitizeControl(ev.Action), output.SanitizeControl(ev.Actor))
 	}
 	if info.OOMEvents > 0 {
 		fmt.Printf("  → %d OOM kill(s) — check container memory limits\n", info.OOMEvents)
@@ -398,8 +411,11 @@ func printDockerResources(info *models.DockerInfo, mode output.OutputMode) {
 }
 
 func printDockerLogDriver(ld *models.DockerLogDriverInfo, mode output.OutputMode) {
+	// ld.Driver comes from `docker info`/daemon config — sanitize defensively
+	// alongside the other daemon-sourced strings in this file.
+	driver := output.SanitizeControl(ld.Driver)
 	if ld.Driver == "journald" || ld.Driver == "local" {
-		fmt.Printf("\n[Log driver]  %s (managed/bounded) %s\n", ld.Driver, asciiOr("ok", iconOK, mode))
+		fmt.Printf("\n[Log driver]  %s (managed/bounded) %s\n", driver, asciiOr("ok", iconOK, mode))
 		return
 	}
 	// json-file — check if bounded
@@ -428,7 +444,7 @@ func printDockerLogDriver(ld *models.DockerLogDriverInfo, mode output.OutputMode
 			if cl.SizeMB >= 1024 {
 				icon = asciiOr("fail", iconFail, mode)
 			}
-			fmt.Printf("  %s %-20s  %.0f MB\n", icon, cl.Name, cl.SizeMB)
+			fmt.Printf("  %s %-20s  %.0f MB\n", icon, output.SanitizeControl(cl.Name), cl.SizeMB)
 		}
 	}
 	if hasLarge {

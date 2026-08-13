@@ -136,6 +136,37 @@ func TestRunReplay_ReportAndReportHTML(t *testing.T) {
 	}
 }
 
+// TestRunReplay_SanitizesManifestControlChars guards against terminal-escape
+// injection via an attacker-authored bundle's manifest.json (Host/OS/Kernel/
+// Created) — dsd replay is explicitly designed to accept a customer-supplied
+// or otherwise untrusted capture bundle. See cmd-11-06.
+func TestRunReplay_SanitizesManifestControlChars(t *testing.T) {
+	const esc = "\x1b[2J"
+	dir := t.TempDir()
+	b := source.NewBundle()
+	b.Manifest = source.Manifest{
+		Format: source.FormatVersion,
+		Host:   "evil" + esc + "host",
+		OS:     "Test OS" + esc,
+		Kernel: "6.1" + esc,
+		GOOS:   runtime.GOOS,
+	}
+	path := filepath.Join(dir, "b.tar.gz")
+	if err := b.SaveTarball(path); err != nil {
+		t.Fatalf("SaveTarball: %v", err)
+	}
+
+	cmd := newBareReplayCmd()
+	errOut := captureStderr(t, func() {
+		if err := runReplay(cmd, []string{path}); err != nil {
+			t.Fatalf("runReplay: %v", err)
+		}
+	})
+	if strings.Contains(errOut, esc) {
+		t.Errorf("runReplay must strip terminal escape sequences from manifest fields, got:\n%q", errOut)
+	}
+}
+
 func TestRunReplay_LoadBundleErrors(t *testing.T) {
 	t.Parallel()
 	cmd := newBareReplayCmd()
@@ -188,6 +219,33 @@ func TestRunReplayDiff_BaselineLoadErrors(t *testing.T) {
 	err = runReplayDiff(b, "/nonexistent/baseline.tar.gz", false, false, false, false, false, false)
 	if err == nil {
 		t.Fatal("a nonexistent baseline path should error")
+	}
+}
+
+// TestRenderCaptureDiff_SanitizesManifestControlChars covers the second
+// manifest-printing call site (baseline vs current diff header), distinct
+// from runReplay's single-bundle header. See cmd-11-06.
+func TestRenderCaptureDiff_SanitizesManifestControlChars(t *testing.T) {
+	const esc = "\x1b[2J"
+	dir := t.TempDir()
+	baseP := newReplayTestBundle(t, dir, "base.tar.gz", "base-host"+esc)
+	curP := newReplayTestBundle(t, dir, "current.tar.gz", "current-host"+esc)
+	base, err := loadBundle(baseP)
+	if err != nil {
+		t.Fatal(err)
+	}
+	current, err := loadBundle(curP)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	errOut := captureStderr(t, func() {
+		if err := renderCaptureDiff(base, current, false, false, false, false, false, false); err != nil {
+			t.Fatalf("renderCaptureDiff: %v", err)
+		}
+	})
+	if strings.Contains(errOut, esc) {
+		t.Errorf("renderCaptureDiff must strip terminal escape sequences from manifest fields, got:\n%q", errOut)
 	}
 }
 

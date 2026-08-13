@@ -120,6 +120,24 @@ func TestPrintCronAnacronJobs(t *testing.T) {
 	}
 }
 
+// TestPrintCronSanitizesControlChars guards against terminal-escape injection
+// via cron job/log-derived fields (job name, message, daemon name, quality
+// issue source/detail) — all attacker-influenceable by any local user who can
+// install their own crontab. See finding cmd-02-05 / internal-collectors-06-02.
+func TestPrintCronSanitizesControlChars(t *testing.T) {
+	const esc = "\x1b[2J"
+	out := captureStdout(t, func() {
+		printCron(&models.CronInfo{
+			DaemonActive: true, FailureScanOK: true, DaemonName: "cron" + esc,
+			Failures:      []models.CronFailure{{Job: "evil" + esc + "job", Message: "boom" + esc, AgoMin: 1}},
+			QualityIssues: []models.CronJob{{Source: "/etc/cron" + esc, Issues: []string{"bad" + esc + "issue"}}},
+		}, output.ModeHuman)
+	})
+	if strings.Contains(out, esc) {
+		t.Errorf("printCron must strip terminal escape sequences from cron-derived fields, got:\n%q", out)
+	}
+}
+
 // TestRunCron exercises runCron's real (read-only) collector wiring in
 // --plain and --json mode. Same real-I/O precedent as cpu_report_test.go.
 func TestRunCron(t *testing.T) {

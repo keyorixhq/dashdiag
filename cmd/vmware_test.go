@@ -120,6 +120,23 @@ func TestPrintVMwareReport_NameFallbackAndToolsStopped(t *testing.T) {
 	}
 }
 
+// TestPrintVMwareReport_SanitizesProductNameControlChars guards against
+// terminal-escape injection via DMI/firmware-reported ProductName, printed
+// directly by printVMwareReport — a path that bypasses the Insight.Message
+// pipeline internal/render/health.go otherwise sanitizes. See
+// internal-analysis-13-05.
+func TestPrintVMwareReport_SanitizesProductNameControlChars(t *testing.T) {
+	const esc = "\x1b[2J"
+	var buf bytes.Buffer
+	printVMwareReport(&buf, &models.VMwareInfo{
+		IsGuest: true, ProductName: "VMware7,1" + esc,
+	}, 10*time.Millisecond, output.ModePlain)
+	out := buf.String()
+	if strings.Contains(out, esc) {
+		t.Errorf("printVMwareReport must strip terminal escape sequences from ProductName, got:\n%q", out)
+	}
+}
+
 // printGuestBlock's CRIT branch (the ❌/FAIL icon) is only exercised through a
 // synthetic CRIT-level insight — none of the real VMware/AWS/etc. heuristics
 // this package renders today produce a CRIT, only WARN/INFO.

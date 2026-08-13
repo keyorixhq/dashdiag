@@ -11,6 +11,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/keyorixhq/dashdiag/internal/baseline"
+	"github.com/keyorixhq/dashdiag/internal/output"
 	"github.com/keyorixhq/dashdiag/internal/render"
 	"github.com/keyorixhq/dashdiag/internal/source"
 	"github.com/keyorixhq/dashdiag/internal/version"
@@ -107,13 +108,15 @@ func certifyWave(pairs []wavePair, force, deep, pkg, quiet bool) []waveResult {
 		r := certifyPair(p, force, deep, pkg)
 		if !quiet && r.Verdict != "" {
 			mark := map[string]string{certPass: "✅", certWarn: "⚠️", certFail: "❌"}[r.Verdict]
+			// Manifest.Host is forgeable bundle content (see cmd/migrate.go's
+			// printCertifyReport) — sanitize before the stderr progress line.
 			srcLabel := p.Src
 			if r.SrcBundle != nil {
-				srcLabel = manifestHost(r.SrcBundle)
+				srcLabel = output.SanitizeControl(manifestHost(r.SrcBundle))
 			}
 			dstLabel := p.Dst
 			if r.DstBundle != nil {
-				dstLabel = manifestHost(r.DstBundle)
+				dstLabel = output.SanitizeControl(manifestHost(r.DstBundle))
 			}
 			fmt.Fprintf(os.Stderr, "  %s  %-22s → %-22s  %s\n", mark, srcLabel, dstLabel, r.Verdict)
 		}

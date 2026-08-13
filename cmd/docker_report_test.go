@@ -36,3 +36,68 @@ func TestPrintDockerReportAbsentVsDown(t *testing.T) {
 		t.Errorf("installed-but-down must NOT show the green 'No container runtime detected'; got:\n%s", out2)
 	}
 }
+
+// TestPrintDockerSanitizesControlChars guards against terminal-escape
+// injection via Docker/Podman-sourced strings: any local actor able to
+// create a container/image (docker run --name, image tags) or a malicious
+// daemon proxy controls container Name/Image/State, daemon Version/
+// APIVersion/StorageDriver/Compose versions/LastDaemonError, quadlet
+// Name/ServiceUnit, event Actor, and container-log file names. See
+// finding cmd-04-03.
+func TestPrintDockerSanitizesControlChars(t *testing.T) {
+	const esc = "\x1b[2J"
+
+	daemonOut := captureStdout(t, func() {
+		printDockerDaemon(&models.DockerInfo{Daemon: &models.DockerDaemon{
+			Responding:        true,
+			Version:           "24.0" + esc,
+			APIVersion:        "1.43" + esc,
+			StorageDriver:     "overlay2" + esc,
+			ComposePlugin:     "2.29" + esc,
+			ComposeStandalone: "1.29" + esc,
+			RecentErrors:      1,
+			LastDaemonError:   "boom" + esc,
+		}}, output.ModeHuman)
+	})
+	if strings.Contains(daemonOut, esc) {
+		t.Errorf("printDockerDaemon must strip terminal escape sequences, got:\n%q", daemonOut)
+	}
+
+	containersOut := captureStdout(t, func() {
+		printDockerContainers(&models.DockerInfo{
+			TotalContainers: 1, RunningCount: 1,
+			Containers: []models.ContainerInfo{{Name: "evil" + esc, State: "running" + esc, Image: "img" + esc}},
+		}, output.ModeHuman)
+	})
+	if strings.Contains(containersOut, esc) {
+		t.Errorf("printDockerContainers must strip terminal escape sequences, got:\n%q", containersOut)
+	}
+
+	quadletsOut := captureStdout(t, func() {
+		printPodmanQuadlets(&models.DockerInfo{
+			PodmanQuadlets: []models.PodmanQuadlet{{Name: "q" + esc, ServiceUnit: "svc" + esc, State: "failed" + esc, Failed: true}},
+		}, output.ModeHuman)
+	})
+	if strings.Contains(quadletsOut, esc) {
+		t.Errorf("printPodmanQuadlets must strip terminal escape sequences, got:\n%q", quadletsOut)
+	}
+
+	eventsOut := captureStdout(t, func() {
+		printDockerEvents(&models.DockerInfo{
+			RecentEvents: []models.DockerEvent{{Action: "die" + esc, Actor: "container" + esc}},
+		}, output.ModeHuman)
+	})
+	if strings.Contains(eventsOut, esc) {
+		t.Errorf("printDockerEvents must strip terminal escape sequences, got:\n%q", eventsOut)
+	}
+
+	logDriverOut := captureStdout(t, func() {
+		printDockerLogDriver(&models.DockerLogDriverInfo{
+			Driver:        "json-file",
+			ContainerLogs: []models.DockerContainerLogFile{{Name: "log" + esc, SizeMB: 600}},
+		}, output.ModeHuman)
+	})
+	if strings.Contains(logDriverOut, esc) {
+		t.Errorf("printDockerLogDriver must strip terminal escape sequences, got:\n%q", logDriverOut)
+	}
+}

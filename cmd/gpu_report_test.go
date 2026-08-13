@@ -94,6 +94,20 @@ func TestPrintGPUPerformance(t *testing.T) {
 		t.Errorf("an APU's VRAM line should note shared memory, got:\n%s", apu)
 	}
 
+	// p.Name (nvidia-smi compute-app process name) is fully attacker-controlled
+	// by any unprivileged local user holding a GPU context — must be stripped
+	// of terminal control/escape sequences before printing. See cmd-05-02.
+	const esc = "\x1b[2J"
+	procs := captureStdout(t, func() {
+		printGPUPerformance(models.GPUDevice{
+			TDPLimitW: 100, TDPCurrentW: 50,
+			Processes: []models.GPUProcess{{PID: 123, MemUseMB: 10, Name: "evil" + esc + "proc"}},
+		}, output.ModePlain)
+	})
+	if strings.Contains(procs, esc) {
+		t.Errorf("printGPUPerformance must strip terminal escape sequences from process names, got:\n%q", procs)
+	}
+
 	unreadable := captureStdout(t, func() { printGPUPerformance(models.GPUDevice{Unreadable: true}, output.ModePlain) })
 	if !strings.Contains(unreadable, "fallen off the bus") {
 		t.Errorf("an unreadable device should note it may have fallen off the bus, got:\n%s", unreadable)

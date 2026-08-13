@@ -189,6 +189,25 @@ func TestPrintCertifyReport_WithRegressions(t *testing.T) {
 	}
 }
 
+// TestPrintCertifyReport_SanitizesManifestControlChars guards against
+// terminal-escape injection via bundle Manifest.Host/OS — trivially
+// forgeable content in a source/destination bundle handed to an engineer.
+// See cmd-09-05.
+func TestPrintCertifyReport_SanitizesManifestControlChars(t *testing.T) {
+	const esc = "\x1b[2J"
+	src := &source.Bundle{Manifest: source.Manifest{Host: "src-host" + esc, OS: "Ubuntu 24.04" + esc}}
+	dst := &source.Bundle{Manifest: source.Manifest{Host: "dst-host" + esc, OS: "Ubuntu 24.04" + esc}}
+	srcSnap := &baseline.Snapshot{Hostname: "src-host", Timestamp: time.Now()}
+	dstSnap := &baseline.Snapshot{Hostname: "dst-host", Timestamp: time.Now()}
+
+	out := captureStdout(t, func() {
+		printCertifyReport(src, dst, certPass, nil, srcSnap, dstSnap)
+	})
+	if strings.Contains(out, esc) {
+		t.Errorf("printCertifyReport must strip terminal escape sequences from manifest fields, got:\n%q", out)
+	}
+}
+
 func TestEmitCertifyJSON_FailAndWarnRecordExitCode(t *testing.T) {
 	src := &source.Bundle{Manifest: source.Manifest{Host: "src-host", Created: "2026-01-01"}}
 	dst := &source.Bundle{Manifest: source.Manifest{Host: "dst-host", Created: "2026-01-02"}}

@@ -138,7 +138,11 @@ func printVMwareReport(w io.Writer, info *models.VMwareInfo, elapsed time.Durati
 	sep := strings.Repeat("─", 60)
 	timing := fmt.Sprintf(" in %.1fs", elapsed.Seconds())
 
-	name := info.ProductName
+	// info.ProductName is DMI/firmware-reported (e.g. /sys/class/dmi/id/product_name)
+	// and printed directly, bypassing the Insight.Message pipeline that
+	// internal/render/health.go sanitizes — sanitize here too, defensively,
+	// per this review's threat model that /sys/DMI content is untrusted.
+	name := output.SanitizeControl(info.ProductName)
 	if name == "" {
 		name = "VMware"
 	}

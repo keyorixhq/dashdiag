@@ -372,6 +372,23 @@ func TestPrintSteamOSRemotePlayBoundAndFirewall(t *testing.T) {
 	}
 }
 
+// TestPrintSteamOSRemotePlaySanitizesControlChars guards against
+// terminal-escape injection via the process name bound to a Remote Play
+// port, parsed from `ss` output (ultimately /proc/<pid>/comm) — fully
+// attacker-controlled by any unprivileged local user. See cmd-12-02.
+func TestPrintSteamOSRemotePlaySanitizesControlChars(t *testing.T) {
+	const esc = "\x1b[2J"
+	out := captureStdout(t, func() {
+		printSteamOSRemotePlay(&models.SteamOSInfo{RemotePlay: &models.SteamOSRemotePlay{
+			Ports:         []models.RemotePlayPort{{Protocol: "udp", Port: 27036, Bound: true, Process: "evil" + esc + "proc", PID: 1}},
+			FirewallKnown: true,
+		}}, output.ModePlain)
+	})
+	if strings.Contains(out, esc) {
+		t.Errorf("printSteamOSRemotePlay must strip terminal escape sequences from process names, got:\n%q", out)
+	}
+}
+
 // TestPrintSteamOSDeepExtras covers the Proton/GamescopeErrors/RAUCLastLog
 // branches of printSteamOSDeep, which TestPrintSteamOSDeep doesn't reach.
 func TestPrintSteamOSDeepExtras(t *testing.T) {

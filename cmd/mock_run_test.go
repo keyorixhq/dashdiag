@@ -66,6 +66,36 @@ func TestRunMockDefaultsHostAndOS(t *testing.T) {
 	}
 }
 
+// TestRunMockSanitizesHostOSControlChars guards against terminal-escape
+// injection via a fixture's host/os fields — fixtures are explicitly meant
+// to be shared/exchanged (e.g. to reproduce a finding for support), so the
+// YAML is untrusted content from whoever authored it. See cmd-09-07.
+func TestRunMockSanitizesHostOSControlChars(t *testing.T) {
+	const esc = "\x1b[2J"
+	dir := t.TempDir()
+	path := filepath.Join(dir, "fixture.yaml")
+	// A raw control byte is invalid YAML (the parser rejects it outright), so
+	// the escape sequence must be expressed via YAML's own double-quoted
+	// \x escape — which yaml.v3 decodes to the real ESC byte, exactly like a
+	// fixture author embedding one deliberately would.
+	fixture := "host: \"evil\\x1B[2Jhost\"\n" +
+		"os: \"Ubuntu\\x1B[2J24.04\"\n" +
+		"rows:\n  - name: CPU Load\n    inline: \"1%\"\n"
+	if err := os.WriteFile(path, []byte(fixture), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	c := &cobra.Command{}
+	stderr := captureStderr(t, func() {
+		if err := runMock(c, []string{path}); err != nil {
+			t.Fatalf("runMock: %v", err)
+		}
+	})
+	if strings.Contains(stderr, esc) {
+		t.Errorf("runMock must strip terminal escape sequences from fixture host/os, got:\n%q", stderr)
+	}
+}
+
 func TestRunMockMissingFile(t *testing.T) {
 	c := &cobra.Command{}
 	err := runMock(c, []string{filepath.Join(t.TempDir(), "does-not-exist.yaml")})
