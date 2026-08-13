@@ -13,6 +13,7 @@ import (
 	"strconv"
 	"strings"
 	"time"
+	"unicode"
 )
 
 // Options tunes a fleet run.
@@ -206,6 +207,23 @@ func shellQuote(s string) string {
 	return "'" + strings.ReplaceAll(s, "'", `'\''`) + "'"
 }
 
+// stripControl removes control characters (including ESC, which starts
+// ANSI/OSC/DCS terminal escape sequences) from s, leaving printable text
+// unchanged. fleet/ has no internal package dependencies of its own, so this
+// duplicates the small amount of logic in internal/output.SanitizeControl
+// rather than adding a new cross-package import for one helper.
+func stripControl(s string) string {
+	if !strings.ContainsFunc(s, unicode.IsControl) {
+		return s
+	}
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, s)
+}
+
 // parseHealth extracts counts and the worst level from remote health JSON.
 // Returns false if the output is not parseable health JSON.
 func parseHealth(stdout []byte, res *Result) bool {
@@ -223,23 +241,33 @@ func parseHealth(stdout []byte, res *Result) bool {
 	if rh.Insights == nil {
 		return false
 	}
-	res.Hostname = rh.Hostname
-	res.Version = rh.Version
+	// Hostname/Version/each insight's Check/Level/Message come straight from a
+	// remote host's `dsd health --json` output — a compromised or malicious
+	// host in the fleet controls all of it. Downstream renderers (cmd/fleet.go's
+	// table printer, the HTML report builder) truncate and strip newlines but
+	// never check for other control bytes such as ESC (0x1B), which begins
+	// ANSI/OSC terminal escape sequences — strip them here, at the one place
+	// every fleet result is parsed.
+	res.Hostname = stripControl(rh.Hostname)
+	res.Version = stripControl(rh.Version)
 	var firstCrit, firstWarn string
 	for _, ins := range *rh.Insights {
+		check := stripControl(ins.Check)
+		level := stripControl(ins.Level)
+		message := stripControl(ins.Message)
 		switch ins.Level {
 		case "CRIT":
 			res.Crit++
 			if firstCrit == "" {
-				firstCrit = ins.Message
+				firstCrit = message
 			}
-			res.Issues = append(res.Issues, Issue{Check: ins.Check, Level: ins.Level, Message: ins.Message})
+			res.Issues = append(res.Issues, Issue{Check: check, Level: level, Message: message})
 		case "WARN":
 			res.Warn++
 			if firstWarn == "" {
-				firstWarn = ins.Message
+				firstWarn = message
 			}
-			res.Issues = append(res.Issues, Issue{Check: ins.Check, Level: ins.Level, Message: ins.Message})
+			res.Issues = append(res.Issues, Issue{Check: check, Level: level, Message: message})
 		}
 	}
 	switch {
