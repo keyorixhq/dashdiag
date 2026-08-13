@@ -206,11 +206,11 @@ func TestIsIPMIPresent(t *testing.T) {
 }
 
 // TestIPMICollector_Collect_NotDetected guards the gate-off path: no /dev/ipmi0
-// and no ipmitool on PATH must return an empty IPMIInfo{} without running sdr.
+// and no ipmitool on PATH (lookpath/ipmitool absent from the Cached-key fixture,
+// so hasCmd's exec.LookPath-backed lookup fails) must return an empty
+// IPMIInfo{} without running sdr.
 func TestIPMICollector_Collect_NotDetected(t *testing.T) {
-	withCombinedFixture(t, nil, nil, func(b *source.Bundle) {
-		b.PutCmdNotFound("which", []string{"ipmitool"})
-	})
+	withCombinedFixture(t, nil, nil, nil)
 	c := NewIPMICollector()
 	raw, err := c.Collect(context.Background())
 	if err != nil {
@@ -219,6 +219,32 @@ func TestIPMICollector_Collect_NotDetected(t *testing.T) {
 	info := raw.(*models.IPMIInfo)
 	if info.Available {
 		t.Errorf("expected Available=false when IPMI is not detected, got %+v", info)
+	}
+}
+
+// TestIPMICollector_Collect_IpmitoolOnPATHNoDevice covers
+// internal-collectors-16-04: the presence probe must use the in-process
+// lookPath helper (hasCmd), not shell out to `which` — a minimal/slim
+// container image or embedded distro can omit the standalone `which` utility
+// entirely while genuinely having ipmitool installed. With /dev/ipmi0 absent
+// but "lookpath/ipmitool" resolvable, detection must still proceed to run
+// `ipmitool sdr`, not silently gate off as "no IPMI".
+func TestIPMICollector_Collect_IpmitoolOnPATHNoDevice(t *testing.T) {
+	withCombinedFixture(t,
+		map[string][]byte{"lookpath/ipmitool": []byte("/usr/bin/ipmitool")},
+		nil,
+		func(b *source.Bundle) {
+			b.PutCmd("ipmitool", []string{"sdr", "list", "full"}, "Inlet Temp | 22.000 degrees C | ok\n", 0)
+		},
+	)
+	c := NewIPMICollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.IPMIInfo)
+	if !info.Available {
+		t.Errorf("expected Available=true when ipmitool resolves via lookPath even without /dev/ipmi0, got %+v", info)
 	}
 }
 
