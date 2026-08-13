@@ -240,6 +240,13 @@ func TestCheckNVMe(t *testing.T) {
 		// Device detected via sysfs but SMART log never read (no nvme-cli) → INFO,
 		// not a confident "healthy". Note: no SmartRead, so not via the nvme() helper.
 		{"nvme smart unread is INFO", models.NVMeInfo{Devices: []models.NVMeDevice{{Name: "nvme0"}}}, "INFO"},
+		// internal-collectors-24-01: SmartRead alone only proves SOME field
+		// parsed — a smart-log missing the safety-critical fields must disclose
+		// INFO, not read as a fully-verified healthy drive.
+		{"nvme dangerous fields unread is INFO", nvme(models.NVMeDevice{Name: "nvme0", SmartDangerousFieldsUnread: true}), "INFO"},
+		// A real CRIT that DID parse must still fire even when the dangerous-fields
+		// flag is set for a DIFFERENT reason — never suppress a genuine detected fault.
+		{"nvme dangerous fields unread does not suppress a real CRIT", nvme(models.NVMeDevice{Name: "nvme0", CriticalWarning: 1, SmartDangerousFieldsUnread: true}), "CRIT"},
 		{"nvme spare low is WARN", nvme(models.NVMeDevice{Name: "nvme0", AvailableSparePct: 15}), "WARN"},
 		{"nvme wear >=90 is WARN", nvme(models.NVMeDevice{Name: "nvme0", PercentageUsed: 95}), "WARN"},
 		{"nvme hot is WARN", nvme(models.NVMeDevice{Name: "nvme0", TempC: 75}), "WARN"},

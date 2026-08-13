@@ -135,6 +135,42 @@ func TestHotProcInfo(t *testing.T) {
 			t.Error("expected ok=false when no 'Max open files' line is present (softLimit<=0)")
 		}
 	})
+
+	// internal-collectors-12-02: an "unlimited" soft limit makes UsedPct always
+	// ~0% (fdCount / math.MaxInt32), so the normal >70% threshold can never fire
+	// no matter how many descriptors the process holds — a leaking process with
+	// an unlimited rlimit was silently excluded from the hot-process list
+	// regardless of its real FD count. The absolute-count fallback must catch it.
+	t.Run("unlimited soft limit below absolute threshold not reported", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutFile("/proc/222/limits", []byte(
+				"Limit                     Soft Limit           Hard Limit           Units\n"+
+					"Max open files            unlimited            unlimited            files\n"))
+		})
+		_, ok := hotProcInfo("222", 500) // well below the 10000 absolute threshold
+		if ok {
+			t.Error("expected ok=false when an unlimited-rlimit process holds few FDs")
+		}
+	})
+
+	t.Run("unlimited soft limit above absolute threshold reported", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutFile("/proc/333/limits", []byte(
+				"Limit                     Soft Limit           Hard Limit           Units\n"+
+					"Max open files            unlimited            unlimited            files\n"))
+			b.PutFile("/proc/333/comm", []byte("fd-leaker\n"))
+		})
+		p, ok := hotProcInfo("333", 50000) // well above the 10000 absolute threshold
+		if !ok {
+			t.Fatal("expected ok=true when an unlimited-rlimit process holds many FDs")
+		}
+		if !p.SoftLimitUnlimited {
+			t.Error("expected SoftLimitUnlimited=true")
+		}
+		if p.OpenFDs != 50000 || p.Name != "fd-leaker" {
+			t.Errorf("got %+v, want OpenFDs=50000 Name=fd-leaker", p)
+		}
+	})
 }
 
 // TestDeletedFilesFromEntries guards the open-but-deleted-file detection: a
@@ -272,5 +308,49 @@ func TestScanProcesses_CapsAtFive(t *testing.T) {
 	scan := c.scanProcesses(context.Background())
 	if len(scan.Hot) != 5 {
 		t.Errorf("len(Hot) = %d, want exactly 5 (capped from 6)", len(scan.Hot))
+	}
+}
+
+// TestScanProcesses_UnlimitedNeverPushedOutOfTopFive is the regression guard
+// for internal-collectors-12-02: five bounded processes at 90% usage plus one
+// unlimited-rlimit process holding a huge FD count — the unlimited one has an
+// (arithmetically honest but not comparable) UsedPct near 0%, so a naive
+// UsedPct-desc sort+cap would push it out of the top-5 despite it being the
+// real FD-exhaustion risk. It must survive the cut.
+func TestScanProcesses_UnlimitedNeverPushedOutOfTopFive(t *testing.T) {
+	dirs := make([]string, 0, 6)
+	withFixtureSource(t, func(b *source.Bundle) {
+		fds90 := make([]string, 90)
+		for i := range fds90 {
+			fds90[i] = strconv.Itoa(i)
+		}
+		for i := 1; i <= 5; i++ {
+			pidDir := "/proc/" + strconv.Itoa(i)
+			dirs = append(dirs, pidDir)
+			b.PutDir(pidDir+"/fd", fds90)
+			b.PutFile(pidDir+"/limits", []byte(
+				"Limit                     Soft Limit           Hard Limit           Units\n"+
+					"Max open files            100                  1000                 files\n"))
+			b.PutFile(pidDir+"/comm", []byte("bounded\n"))
+		}
+		fdsUnlimited := make([]string, 50000)
+		for i := range fdsUnlimited {
+			fdsUnlimited[i] = strconv.Itoa(i)
+		}
+		dirs = append(dirs, "/proc/6")
+		b.PutDir("/proc/6/fd", fdsUnlimited)
+		b.PutFile("/proc/6/limits", []byte(
+			"Limit                     Soft Limit           Hard Limit           Units\n"+
+				"Max open files            unlimited            unlimited            files\n"))
+		b.PutFile("/proc/6/comm", []byte("fd-leaker\n"))
+		b.PutGlob("/proc/[0-9]*", dirs)
+	})
+	c := NewFDLimitsCollector()
+	scan := c.scanProcesses(context.Background())
+	if len(scan.Hot) != 5 {
+		t.Fatalf("len(Hot) = %d, want exactly 5 (capped from 6)", len(scan.Hot))
+	}
+	if scan.Hot[0].PID != 6 || !scan.Hot[0].SoftLimitUnlimited {
+		t.Errorf("Hot[0] = %+v, want PID=6 SoftLimitUnlimited=true sorted first", scan.Hot[0])
 	}
 }
