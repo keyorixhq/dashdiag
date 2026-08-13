@@ -46,6 +46,14 @@ var neverSilentChecks = []neverSilentCheck{
 		wantSubstr: "could not be read",
 	},
 	{
+		name:    "checkNVMe: drive enumeration failed (macOS diskutil list)",
+		checkFn: "checkNVMe",
+		run: func() []models.Insight {
+			return checkNVMe(models.NVMeInfo{DrivesListUnreadable: true})
+		},
+		wantSubstr: "could not enumerate drives",
+	},
+	{
 		name:    "checkOCI: on OCI but every sub-check unreachable",
 		checkFn: "checkOCI",
 		run: func() []models.Insight {

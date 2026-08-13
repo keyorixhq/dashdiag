@@ -292,6 +292,22 @@ func TestCheckNVMe_SATAPendingSectorsWarn(t *testing.T) {
 	}
 }
 
+// TestCheckNVMe_DrivesListUnreadable is the regression test for the false-OK
+// fix: a total drive-enumeration failure (macOS diskutil list erroring) must
+// disclose an explicit INFO, never render as "zero drives, nothing to
+// report" — which is what an actually-healthy host with no drive issues also
+// produces from this function.
+func TestCheckNVMe_DrivesListUnreadable(t *testing.T) {
+	t.Parallel()
+	got := checkNVMe(models.NVMeInfo{DrivesListUnreadable: true})
+	if !hasInsightMsg(got, "INFO", "could not enumerate drives") {
+		t.Errorf("DrivesListUnreadable must produce an INFO disclosure, got %+v", got)
+	}
+	if len(got) != 1 {
+		t.Errorf("expected exactly one insight when enumeration failed, got %d: %+v", len(got), got)
+	}
+}
+
 // TestCheckMultipath_EmptyStatusReason covers the `if reason == ""` branch in
 // checkMultipath — when Status=="error" but StatusReason is empty, the function
 // must substitute a generic "multipath paths unreadable" explanation.

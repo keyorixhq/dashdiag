@@ -128,6 +128,16 @@ func sataSmartPlausible(dev models.SATADevice) bool {
 func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen,cyclop // NOSONAR — NVMe + SATA/SAS checks — flat registry of independent per-drive checks
 	var out []models.Insight
 
+	// A total drive-enumeration failure (macOS: diskutil list) must never read
+	// the same as "no drives, nothing to report" — disclose it explicitly.
+	// Devices/SATADevices are necessarily empty in this state, so it's safe to
+	// return early; there is nothing else this function could check.
+	if n.DrivesListUnreadable {
+		return []models.Insight{unverifiedInsight("INFO", "Drives",
+			"could not enumerate drives — diskutil list failed or returned no output",
+			[]string{"to inspect: diskutil list"})}
+	}
+
 	// NVMe drives
 	var implausible, noData []string
 	for _, dev := range n.Devices {

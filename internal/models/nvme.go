@@ -69,8 +69,15 @@ type SATADevice struct {
 // NVMeInfo holds health data for all drives (NVMe + SATA/SAS).
 // Named NVMeInfo for backwards compatibility — now covers all drive types.
 type NVMeInfo struct {
-	Devices      []NVMeDevice `json:"devices"`
-	SATADevices  []SATADevice `json:"sata_devices,omitempty"`
-	Status       string       `json:"status,omitempty"`
-	StatusReason string       `json:"status_reason,omitempty"`
+	Devices     []NVMeDevice `json:"devices"`
+	SATADevices []SATADevice `json:"sata_devices,omitempty"`
+	// DrivesListUnreadable is true when the drive-enumeration step itself
+	// failed (macOS: `diskutil list` errored or returned no output) — distinct
+	// from a genuinely healthy host with no drive issues, which also leaves
+	// Devices/SATADevices empty. Without this, a transient diskutil failure
+	// silently renders as "all drives healthy" instead of "could not
+	// enumerate drives".
+	DrivesListUnreadable bool   `json:"drives_list_unreadable,omitempty"`
+	Status               string `json:"status,omitempty"`
+	StatusReason         string `json:"status_reason,omitempty"`
 }
