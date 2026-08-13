@@ -112,5 +112,10 @@ func readSysfsHexIntOK(path string) (int, bool) {
 	if err != nil {
 		return 0, false
 	}
+	// int is 32-bit on some platforms; a sysfs value that doesn't round-trip
+	// through int would silently wrap rather than report a garbled counter.
+	if int64(int(n)) != n {
+		return 0, false
+	}
 	return int(n), true
 }

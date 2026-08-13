@@ -116,8 +116,14 @@ func lookupUserUID(username string) (uid uint32, ok bool) {
 	if err != nil {
 		return 0, false
 	}
-	n, perr := strconv.Atoi(string(data))
-	if perr != nil || n < 0 {
+	raw := string(data)
+	if raw == "-1" {
+		return 0, false
+	}
+	// ParseUint with bitSize 32 rejects a value that doesn't fit in uint32
+	// outright, instead of a plain Atoi+cast silently wrapping it.
+	n, perr := strconv.ParseUint(raw, 10, 32)
+	if perr != nil {
 		return 0, false
 	}
 	return uint32(n), true
