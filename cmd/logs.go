@@ -174,7 +174,9 @@ func printLogsOOM(info *models.LogsInfo, mode output.OutputMode) {
 	}
 	fmt.Printf("%d\n", info.OOMKills)
 	for _, p := range info.OOMProcesses {
-		fmt.Printf("    %s  %s\n", asciiOr("fail", iconFail, mode), p)
+		// Process names come from the kernel log (dmesg), which is
+		// attacker-influenced — a process can name itself anything.
+		fmt.Printf("    %s  %s\n", asciiOr("fail", iconFail, mode), output.SanitizeControl(p))
 	}
 	fmt.Println("  → to inspect: dmesg | grep -i 'out of memory'")
 }
@@ -187,7 +189,7 @@ func printLogsSegfaults(info *models.LogsInfo, mode output.OutputMode) {
 	}
 	fmt.Printf("%d\n", info.Segfaults)
 	for _, p := range info.SegfaultProcs {
-		fmt.Printf("    %s   %s\n", asciiOr("warn", iconWarn, mode), p)
+		fmt.Printf("    %s   %s\n", asciiOr("warn", iconWarn, mode), output.SanitizeControl(p))
 	}
 	fmt.Println("  → to inspect: dmesg | grep segfault")
 }
@@ -199,7 +201,8 @@ func printLogsCrashLoops(info *models.LogsInfo, mode output.OutputMode) {
 		return
 	}
 	fmt.Println()
-	for _, u := range info.CrashLoops {
+	for _, raw := range info.CrashLoops {
+		u := output.SanitizeControl(raw)
 		unit := strings.Fields(u)[0]
 		fmt.Printf("    %s  %s\n", asciiOr("fail", iconFail, mode), u)
 		fmt.Printf("       → journalctl -u %s -n 20\n", unit)
@@ -216,7 +219,7 @@ func printLogsCrashFiles(info *models.LogsInfo, mode output.OutputMode) {
 		if cf.AgeDays > 0 {
 			ago = fmt.Sprintf("%dd ago", cf.AgeDays)
 		}
-		fmt.Printf("    %s   %-50s %6.1fMB  %s\n", asciiOr("warn", iconWarn, mode), cf.Path, cf.SizeMB, ago)
+		fmt.Printf("    %s   %-50s %6.1fMB  %s\n", asciiOr("warn", iconWarn, mode), output.SanitizeControl(cf.Path), cf.SizeMB, ago)
 	}
 	fmt.Println("  → to analyse: journalctl -k -b -1 | tail -50")
 }

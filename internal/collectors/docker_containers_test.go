@@ -174,6 +174,33 @@ func TestCollectContainers_ListAPIFails(t *testing.T) {
 	}
 }
 
+// TestCollectContainers_ShortContainerID guards against a panic when the
+// Docker API returns an "Id" shorter than the 12-character prefix dsd
+// conventionally displays. A malicious or compromised daemon (or a proxy in
+// front of the socket) fully controls this field, so a naive id[:12] slice
+// is a crash-the-whole-process bug on any Id under 12 bytes.
+func TestCollectContainers_ShortContainerID(t *testing.T) {
+	const shortListJSON = `[
+		{"Id":"ab","Names":["/tiny"],"Image":"scratch:latest","State":"running","Status":"Up 1 second"}
+	]`
+	client := withDockerAPIFixture(t, map[string][]byte{
+		"/containers/json?all=true&size=false": []byte(shortListJSON),
+		// No fixture for /containers/ab/json — detail call fails, which is fine;
+		// the point is that collectContainers itself must not panic on c.ID[:12].
+	}, nil)
+
+	info := &models.DockerInfo{}
+	if err := collectContainers(context.Background(), client, info); err != nil {
+		t.Fatalf("collectContainers: %v", err)
+	}
+	if len(info.Containers) != 1 {
+		t.Fatalf("expected 1 container, got %d", len(info.Containers))
+	}
+	if info.Containers[0].ID != "ab" {
+		t.Errorf("expected short ID %q to pass through unchanged, got %q", "ab", info.Containers[0].ID)
+	}
+}
+
 func TestContainerDetail_ParsesAllFields(t *testing.T) {
 	client := withDockerAPIFixture(t, map[string][]byte{
 		"/containers/deadbeef0000/json": []byte(`{

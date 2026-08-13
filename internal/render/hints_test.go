@@ -6,6 +6,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
 )
 
@@ -76,6 +77,61 @@ func TestPrintHintsStyledGroups(t *testing.T) {
 	}
 	if n := strings.Count(out, "to fix"); n != 1 {
 		t.Errorf("expected one 'to fix' group header, found %d\n---\n%s", n, out)
+	}
+}
+
+// TestPrintHints_StripsControlChars guards terminal escape injection: a hint
+// can splice in attacker-influenced text (e.g. a SUID binary path or a
+// bootname read from the system), and printHints/printHintsPlain must not
+// pass raw control bytes (ESC starts ANSI/OSC escape sequences) straight to
+// the terminal.
+func TestPrintHints_StripsControlChars(t *testing.T) {
+	evil := []string{"to fix: chmod 4755 /tmp/evil\x1b]0;pwned\x07binary"}
+
+	plainOut := captureStdout(t, func() {
+		NewRenderer(output.ModePlain).printHintsPlain(evil)
+	})
+	if strings.Contains(plainOut, "\x1b") {
+		t.Errorf("printHintsPlain output still contains ESC byte: %q", plainOut)
+	}
+	if !strings.Contains(plainOut, "/tmp/evil]0;pwnedbinary") {
+		t.Errorf("printHintsPlain output missing sanitized text: %q", plainOut)
+	}
+
+	styledOut := captureStdout(t, func() {
+		NewRenderer(output.ModeHuman).printHints(evil)
+	})
+	if strings.Contains(styledOut, "\x1b]0;") {
+		t.Errorf("printHints output still contains the injected OSC sequence: %q", styledOut)
+	}
+}
+
+// TestPrintInsightGroup_StripsControlChars guards terminal escape injection
+// on the Check/Message fields — assembled upstream in analysis from
+// attacker-influenced data (comm names, cron/log content, cert fields, ...)
+// — which must not carry raw control bytes into the terminal.
+func TestPrintInsightGroup_StripsControlChars(t *testing.T) {
+	evil := []models.Insight{{
+		Level:   "CRIT",
+		Check:   "Security",
+		Message: "suspicious binary \x1b]0;pwned\x07 detected",
+	}}
+
+	plainOut := captureStdout(t, func() {
+		NewRenderer(output.ModePlain).printInsightGroup(evil)
+	})
+	if strings.Contains(plainOut, "\x1b") {
+		t.Errorf("printInsightGroup (plain) output still contains ESC byte: %q", plainOut)
+	}
+	if !strings.Contains(plainOut, "suspicious binary ]0;pwned detected") {
+		t.Errorf("printInsightGroup (plain) output missing sanitized message: %q", plainOut)
+	}
+
+	styledOut := captureStdout(t, func() {
+		NewRenderer(output.ModeHuman).printInsightGroup(evil)
+	})
+	if strings.Contains(styledOut, "\x1b]0;") {
+		t.Errorf("printInsightGroup (styled) output still contains the injected OSC sequence: %q", styledOut)
 	}
 }
 

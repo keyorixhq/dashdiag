@@ -35,6 +35,25 @@ func TestPrintCertResultExpired(t *testing.T) {
 	}
 }
 
+// TestPrintCertResult_StripsControlChars guards terminal escape injection:
+// the Subject CN is attacker-controlled — whoever generated the certificate
+// (or a MITM presenting one) chooses this string — and must not carry raw
+// control bytes into the terminal.
+func TestPrintCertResult_StripsControlChars(t *testing.T) {
+	out := captureStdout(t, func() {
+		printCertResult(certResult{
+			Path: "/etc/ssl/cert.pem", Subject: "CN=evil\x1b]0;pwned\x07",
+			Expiry: time.Now().AddDate(0, 1, 0), DaysLeft: 30, Level: "OK",
+		}, output.ModePlain)
+	})
+	if strings.Contains(out, "\x1b") {
+		t.Errorf("printCertResult output still contains ESC byte:\n%s", out)
+	}
+	if !strings.Contains(out, "CN=evil]0;pwned") {
+		t.Errorf("printCertResult output missing sanitized subject:\n%s", out)
+	}
+}
+
 func TestPrintCertResultError(t *testing.T) {
 	out := captureStdout(t, func() {
 		printCertResult(certResult{Path: "remote.example:443", Level: "ERR", Err: "connection refused", Remote: true}, output.ModePlain)

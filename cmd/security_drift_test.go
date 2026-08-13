@@ -25,6 +25,24 @@ func TestPrintSecurityDriftNewSUIDIsCritical(t *testing.T) {
 	}
 }
 
+// TestPrintSecurityDriftStripsControlChars guards terminal escape injection:
+// a new cron entry can come from another user's crontab (attacker-writable
+// if that user is compromised), and must not carry raw control bytes into
+// the terminal.
+func TestPrintSecurityDriftStripsControlChars(t *testing.T) {
+	diff := &baseline.SecurityDiff{
+		NewCronEntries:  []string{"* * * * * root evil\x1b]0;pwned\x07"},
+		BaselineSavedAt: time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC),
+	}
+	out := captureStdout(t, func() { printSecurityDrift(diff, output.ModePlain) })
+	if strings.Contains(out, "\x1b") {
+		t.Errorf("printSecurityDrift output still contains ESC byte:\n%s", out)
+	}
+	if !strings.Contains(out, "evil]0;pwned") {
+		t.Errorf("printSecurityDrift output missing sanitized cron entry:\n%s", out)
+	}
+}
+
 func TestPrintSecurityDriftSSHChanges(t *testing.T) {
 	diff := &baseline.SecurityDiff{
 		ChangedSSHFiles: []string{"/etc/ssh/sshd_config"},
