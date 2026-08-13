@@ -1,6 +1,10 @@
 package fleet
 
-import "testing"
+import (
+	"encoding/json"
+	"strings"
+	"testing"
+)
 
 func TestParseHealth_CritsAndWarns(t *testing.T) {
 	js := `{"hostname":"web1","version":"v0.6.1","insights":[
@@ -21,6 +25,58 @@ func TestParseHealth_CritsAndWarns(t *testing.T) {
 	}
 	if r.Worst != "CRIT" || r.TopIssue != "disk 95% full" {
 		t.Errorf("worst=%q top=%q", r.Worst, r.TopIssue)
+	}
+}
+
+// TestParseHealth_SanitizesControlChars guards Finding internal-fleet-01-03:
+// a compromised or malicious host in the fleet can return a `dsd health
+// --json` document whose hostname/version/insight fields carry ANSI/OSC
+// escape sequences; parseHealth is the single place every fleet result is
+// parsed, and none of Hostname/Version/Issue.Check/Level/Message were
+// stripped of control bytes before being stored for later rendering. The
+// payload is built via json.Marshal (rather than a hand-typed JSON literal)
+// so the ESC byte round-trips through a proper JSON string escape, exactly
+// as it would coming from a real remote host.
+func TestParseHealth_SanitizesControlChars(t *testing.T) {
+	esc := string(rune(0x1b))
+	evil := "evil" + esc + "name"
+	type insight struct {
+		Check   string `json:"check"`
+		Level   string `json:"level"`
+		Message string `json:"message"`
+	}
+	payload := struct {
+		Hostname string    `json:"hostname"`
+		Version  string    `json:"version"`
+		Insights []insight `json:"insights"`
+	}{
+		Hostname: evil,
+		Version:  evil,
+		Insights: []insight{{Check: evil, Level: "CRIT", Message: evil}},
+	}
+	js, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	var r Result
+	if ok := parseHealth(js, &r); !ok {
+		t.Fatal("expected parse ok")
+	}
+	if strings.ContainsRune(r.Hostname, 0x1b) {
+		t.Errorf("Hostname still contains a raw ESC byte: %q", r.Hostname)
+	}
+	if strings.ContainsRune(r.Version, 0x1b) {
+		t.Errorf("Version still contains a raw ESC byte: %q", r.Version)
+	}
+	if strings.ContainsRune(r.TopIssue, 0x1b) {
+		t.Errorf("TopIssue still contains a raw ESC byte: %q", r.TopIssue)
+	}
+	if len(r.Issues) != 1 {
+		t.Fatalf("expected 1 issue, got %d", len(r.Issues))
+	}
+	if strings.ContainsRune(r.Issues[0].Check, 0x1b) || strings.ContainsRune(r.Issues[0].Message, 0x1b) {
+		t.Errorf("Issue still contains a raw ESC byte: %+v", r.Issues[0])
 	}
 }
 

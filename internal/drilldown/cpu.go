@@ -18,16 +18,24 @@ import (
 
 // TopProcessesByCPU returns the top n processes sorted by CPU usage %.
 func TopProcessesByCPU(ctx context.Context, n int) (*models.Details, error) {
+	var d *models.Details
+	var err error
 	if runtime.GOOS == "darwin" {
-		return topProcessesByCPUMac(ctx, n)
+		d, err = topProcessesByCPUMac(ctx, n)
+	} else {
+		d, err = topProcessesByCPULinux(ctx, n)
 	}
-	return topProcessesByCPULinux(ctx, n)
+	// name comes from /proc/PID/stat's comm field, attacker-settable via
+	// prctl(PR_SET_NAME) — strip control/ANSI-escape bytes before this reaches
+	// the rendered table.
+	return sanitizeDetails(d), err
 }
 
 type procCPUSample struct {
-	pid      int
-	name     string
-	cpuTicks uint64 // utime + stime
+	pid       int
+	name      string
+	cpuTicks  uint64 // utime + stime
+	startTime string // /proc/PID/stat field 22 — process-instance identity
 }
 
 func topProcessesByCPULinux(ctx context.Context, n int) (*models.Details, error) {
@@ -48,13 +56,14 @@ func topProcessesByCPULinuxAt(ctx context.Context, n int, procRoot string) (*mod
 			// comm may contain spaces/parens — parse from the last ')' so the
 			// utime/stime indices don't shift (e.g. a "Web Content" process).
 			name, rest, ok := parseProcStatComm(string(data))
-			if !ok || len(rest) < 13 {
+			if !ok || len(rest) < 20 {
 				return nil
 			}
 			utime, _ := strconv.ParseUint(rest[11], 10, 64) // stat field 14
 			stime, _ := strconv.ParseUint(rest[12], 10, 64) // stat field 15
+			startTime := rest[19]                           // stat field 22 (starttime, in clock ticks since boot)
 			mu.Lock()
-			samples[pid] = procCPUSample{pid: pid, name: name, cpuTicks: utime + stime}
+			samples[pid] = procCPUSample{pid: pid, name: name, cpuTicks: utime + stime, startTime: startTime}
 			mu.Unlock()
 			return nil
 		})
@@ -89,9 +98,18 @@ func topProcessesByCPULinuxAt(ctx context.Context, n int, procRoot string) (*mod
 		if !ok {
 			continue
 		}
-		// Skip if the counter went backwards — the PID was recycled between the
-		// two samples (process exited, a new one reused the PID). The unsigned
-		// subtraction would otherwise wrap to a huge bogus rate and top the list.
+		// PIDs are recycled by the kernel; a PID that exited and was reused by
+		// an unrelated process between the two samples must not have its two
+		// halves stitched together. /proc/PID/stat's starttime (field 22) is
+		// fixed for the lifetime of a process instance, so a mismatch here
+		// means s0 and s1 sampled two different processes under the same PID.
+		if p1.startTime != p0.startTime {
+			continue
+		}
+		// Skip if the counter went backwards — defends against any remaining
+		// clock/counter anomaly even once startTime confirms same-process
+		// identity. The unsigned subtraction would otherwise wrap to a huge
+		// bogus rate and top the list.
 		if p1.cpuTicks < p0.cpuTicks {
 			continue
 		}

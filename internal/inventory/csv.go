@@ -19,6 +19,28 @@ func ToCSV(inv models.Inventory) (string, error) {
 	return buf.String(), nil
 }
 
+// escapeCSVFormula neutralizes spreadsheet formula injection (CWE-1236).
+// encoding/csv only guards RFC4180 structural correctness (quoting commas/
+// quotes/newlines) — it does not defend against a cell that Excel/Google
+// Sheets will interpret as a formula. Hardware-derived strings (a drive/DMI
+// vendor/model/serial, a NIC name) are attacker-influenceable (e.g. a
+// BadUSB-style device, or a VM/hypervisor fabricating SMBIOS data) and flow
+// into this CSV unchanged. Prefixing a leading '='/'+'/'-'/'@'/tab/CR with a
+// single quote is the standard mitigation: spreadsheet apps treat a leading
+// apostrophe as "this cell is text," neutralizing the formula while keeping
+// the value human-readable.
+func escapeCSVFormula(v string) string {
+	if v == "" {
+		return v
+	}
+	switch v[0] {
+	case '=', '+', '-', '@', '\t', '\r':
+		return "'" + v
+	default:
+		return v
+	}
+}
+
 // writeCSV encodes inv as CSV into dst. Extracted so tests can inject a failing
 // io.Writer to exercise the error path.
 func writeCSV(dst io.Writer, inv models.Inventory) error {
@@ -27,7 +49,7 @@ func writeCSV(dst io.Writer, inv models.Inventory) error {
 
 	add := func(k, v string) {
 		if v != "" {
-			rows = append(rows, []string{k, v})
+			rows = append(rows, []string{k, escapeCSVFormula(v)})
 		}
 	}
 	addInt := func(k string, v int) {
@@ -102,7 +124,7 @@ func writeCSV(dst io.Writer, inv models.Inventory) error {
 func appendGPUCloudRows(rows [][]string, inv models.Inventory) [][]string {
 	add := func(k, v string) {
 		if v != "" {
-			rows = append(rows, []string{k, v})
+			rows = append(rows, []string{k, escapeCSVFormula(v)})
 		}
 	}
 	addInt := func(k string, v int) {

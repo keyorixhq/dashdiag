@@ -17,6 +17,7 @@ import (
 
 	"github.com/keyorixhq/dashdiag/internal/collectors"
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/output"
 	"github.com/keyorixhq/dashdiag/internal/runner"
 	"github.com/keyorixhq/dashdiag/internal/source"
 )
@@ -80,7 +81,43 @@ func dispatch(ctx context.Context, ins models.Insight, results []runner.Result) 
 	if err := json.Unmarshal(data, &out); err != nil {
 		return nil
 	}
-	return out
+	// out may come straight from a replayed capture bundle — an explicitly
+	// untrusted input (docs/THREAT_MODEL.md §1) that is never re-validated by
+	// any parser between the bundle and this return. Strip control/ANSI-escape
+	// bytes here so a hand-crafted bundle can't inject terminal escape
+	// sequences via Title/Note/Rows/KV regardless of which drill-down key it
+	// targets.
+	return sanitizeDetails(out)
+}
+
+// sanitizeDetails strips control characters (including ESC, which starts
+// ANSI/OSC/DCS escape sequences) from every attacker-influenced text field of
+// a drill-down result before it can reach a terminal renderer. Every
+// exported drill-down entry point funnels its result through this — both the
+// live-collection path (process/comm names from /proc, ss output, journal
+// text, filenames) and the replay path (dispatch's json.Unmarshal above) —
+// so callers that bypass dispatch() (cmd/cpu.go, cmd/processes.go call the
+// TopProcessesByCPU/RSS/HungProcesses/ZombiesWithParent exports directly)
+// are covered too.
+func sanitizeDetails(d *models.Details) *models.Details {
+	if d == nil {
+		return nil
+	}
+	d.Title = output.SanitizeControl(d.Title)
+	d.Note = output.SanitizeControl(d.Note)
+	for i, row := range d.Rows {
+		for j, cell := range row {
+			d.Rows[i][j] = output.SanitizeControl(cell)
+		}
+	}
+	if d.KV != nil {
+		clean := make(map[string]string, len(d.KV))
+		for k, v := range d.KV {
+			clean[output.SanitizeControl(k)] = output.SanitizeControl(v)
+		}
+		d.KV = clean
+	}
+	return d
 }
 
 func dispatchLive(ctx context.Context, ins models.Insight, results []runner.Result) (d *models.Details) {
@@ -203,13 +240,16 @@ func walkProcs(ctx context.Context, procRoot string, fn func(pid int) error) err
 	return g.Wait()
 }
 
-// procComm reads procRoot/PID/comm for a process name.
+// procComm reads procRoot/PID/comm for a process name. comm is fully
+// attacker-controlled by the process's owner (prctl(PR_SET_NAME) or a
+// truncated argv[0]) and can contain raw control/ANSI-escape bytes, so the
+// result is sanitized before any caller can place it in a rendered table.
 func procComm(procRoot string, pid int) string {
 	b, err := os.ReadFile(filepath.Join(procRoot, fmt.Sprintf("%d", pid), "comm"))
 	if err != nil {
 		return "?"
 	}
-	return strings.TrimSpace(string(b))
+	return output.SanitizeControl(strings.TrimSpace(string(b)))
 }
 
 // runCmd runs a command with context and returns its combined stdout.

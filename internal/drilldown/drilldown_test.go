@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/collectors"
@@ -80,6 +81,134 @@ func TestDispatch_MalformedCachedJSONReturnsNil(t *testing.T) {
 	got := dispatch(ctx, ins, nil)
 	if got != nil {
 		t.Errorf("expected nil for malformed cached JSON, got %+v", got)
+	}
+}
+
+// TestDispatchSanitizesReplayedControlChars guards Finding internal-drilldown-01-02:
+// a capture bundle is untrusted input (docs/THREAT_MODEL.md §1) and its
+// drilldown\x00... cache entries are json.Unmarshal'd straight into
+// *models.Details with no shape/content validation elsewhere in the replay
+// path. A hand-crafted bundle whose cached Details carries raw ANSI/OSC
+// escape bytes in Title/Note/Rows/KV must NOT reach dispatch()'s caller
+// verbatim — dispatch is the single funnel every drill-down source (live or
+// replayed) returns through.
+func TestDispatchSanitizesReplayedControlChars(t *testing.T) {
+	ins := models.Insight{Level: "WARN", Check: "CPU Load", Message: "load high evil"}
+	key := "drilldown\x00" + ins.Check + "\x00" + ins.Message
+	evil := "\x1b[2J\x1b]0;pwned\x07evilname"
+	want := &models.Details{
+		Type:    tableProcesses,
+		Title:   "Top processes by CPU% " + evil,
+		Columns: []string{"PID", "CPU%", "COMMAND"},
+		Rows:    [][]string{{"4242", "99.9%", evil}},
+		KV:      map[string]string{"log_tail": evil},
+		Note:    "note " + evil,
+	}
+	blob, err := json.Marshal(want)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	rec := source.NewRecorder(source.Live{})
+	prev := collectors.SetSource(rec)
+	if _, err := rec.Cached(key, func() ([]byte, error) { return blob, nil }); err != nil {
+		collectors.SetSource(prev)
+		t.Fatalf("seeding cached drilldown: %v", err)
+	}
+	collectors.SetSource(prev)
+
+	rp := source.NewReplay(rec.Bundle())
+	restore := collectors.SetSource(rp)
+	defer collectors.SetSource(restore)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	got := dispatch(ctx, ins, nil)
+	if got == nil {
+		t.Fatal("expected non-nil replayed Details")
+	}
+	if strings.ContainsAny(got.Title, "\x1b\x07") {
+		t.Errorf("Title still contains raw control bytes: %q", got.Title)
+	}
+	if strings.ContainsAny(got.Note, "\x1b\x07") {
+		t.Errorf("Note still contains raw control bytes: %q", got.Note)
+	}
+	if strings.ContainsAny(got.Rows[0][2], "\x1b\x07") {
+		t.Errorf("Rows still contain raw control bytes: %q", got.Rows[0][2])
+	}
+	if strings.ContainsAny(got.KV["log_tail"], "\x1b\x07") {
+		t.Errorf("KV still contains raw control bytes: %q", got.KV["log_tail"])
+	}
+	// The printable payload itself must survive — sanitizing strips control
+	// bytes, it must not mangle or drop the rest of the string.
+	if !strings.Contains(got.Rows[0][2], "evilname") {
+		t.Errorf("expected printable text to survive sanitization, got %q", got.Rows[0][2])
+	}
+}
+
+// TestSanitizeDetails_StripsAllFields is a direct unit test of the shared
+// helper every drill-down entry point wraps its return value in: control
+// characters (including ESC, the start of ANSI/OSC/DCS sequences) must be
+// stripped from Title, Note, every Row cell, and KV keys/values, while
+// leaving nil untouched and ordinary printable text unchanged.
+func TestSanitizeDetails_StripsAllFields(t *testing.T) {
+	t.Parallel()
+	if got := sanitizeDetails(nil); got != nil {
+		t.Errorf("sanitizeDetails(nil) = %+v, want nil", got)
+	}
+
+	d := &models.Details{
+		Title: "Title\x1b[31m",
+		Note:  "Note\x07bell",
+		Rows:  [][]string{{"1", "proc\x1bname"}},
+		KV:    map[string]string{"k\x1b": "v\x1b"},
+	}
+	got := sanitizeDetails(d)
+	if strings.ContainsAny(got.Title, "\x1b\x07") {
+		t.Errorf("Title not sanitized: %q", got.Title)
+	}
+	if strings.ContainsAny(got.Note, "\x1b\x07") {
+		t.Errorf("Note not sanitized: %q", got.Note)
+	}
+	if strings.ContainsAny(got.Rows[0][1], "\x1b\x07") {
+		t.Errorf("Row cell not sanitized: %q", got.Rows[0][1])
+	}
+	for k, v := range got.KV {
+		if strings.ContainsAny(k, "\x1b\x07") || strings.ContainsAny(v, "\x1b\x07") {
+			t.Errorf("KV entry not sanitized: %q=%q", k, v)
+		}
+	}
+	if !strings.Contains(got.Title, "Title") || !strings.Contains(got.Rows[0][1], "procname") {
+		t.Errorf("printable text was mangled, got Title=%q Row=%q", got.Title, got.Rows[0][1])
+	}
+}
+
+// TestProcComm_StripsControlChars guards Finding internal-drilldown-01-03:
+// /proc/<pid>/comm is fully attacker-controlled (prctl(PR_SET_NAME) or a
+// truncated argv[0]) and procComm's only prior defense was TrimSpace, which
+// does not remove embedded ESC/control bytes.
+func TestProcComm_StripsControlChars(t *testing.T) {
+	t.Parallel()
+	procRoot := t.TempDir()
+	const pid = 4242
+	dir := filepath.Join(procRoot, fmt.Sprintf("%d", pid))
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	// ESC (0x1b) is the control byte that starts the CSI sequence; "[2J" itself
+	// is ordinary printable text and SanitizeControl leaves it as-is — only
+	// the ESC byte is a control rune and gets stripped.
+	evil := "evil\x1b[2Jname\n"
+	if err := os.WriteFile(filepath.Join(dir, "comm"), []byte(evil), 0644); err != nil {
+		t.Fatalf("WriteFile comm: %v", err)
+	}
+
+	got := procComm(procRoot, pid)
+	if strings.ContainsRune(got, 0x1b) {
+		t.Errorf("procComm() = %q, still contains ESC", got)
+	}
+	if got != "evil[2Jname" {
+		t.Errorf("procComm() = %q, want %q", got, "evil[2Jname")
 	}
 }
 

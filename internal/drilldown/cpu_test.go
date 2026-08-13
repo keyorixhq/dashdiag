@@ -11,15 +11,27 @@ import (
 	"time"
 )
 
+// fixtureStartTime is the starttime (stat field 22) written by
+// writeProcStatFixture. All callers get the same constant, so two fixture
+// writes for the "same" pid within one test match by default — tests that
+// specifically need a starttime mismatch (simulating a recycled PID reused by
+// an unrelated process) use writeProcStatFixtureWithStart instead.
+const fixtureStartTime = 1000
+
 func writeProcStatFixture(t *testing.T, procRoot string, pid int, state string, ppid, utime, stime int) {
+	t.Helper()
+	writeProcStatFixtureWithStart(t, procRoot, pid, state, ppid, utime, stime, fixtureStartTime)
+}
+
+func writeProcStatFixtureWithStart(t *testing.T, procRoot string, pid int, state string, ppid, utime, stime, startTime int) {
 	t.Helper()
 	dir := filepath.Join(procRoot, strconv.Itoa(pid))
 	if err := os.MkdirAll(dir, 0755); err != nil {
 		t.Fatalf("MkdirAll: %v", err)
 	}
-	// pid (comm) state ppid pgrp session tty_nr tpgid flags minflt cminflt majflt cmajflt utime stime ...
-	line := fmt.Sprintf("%d (fixtureproc) %s %d 0 0 0 0 0 0 0 0 0 %d %d 0 0 20 0 1 0\n",
-		pid, state, ppid, utime, stime)
+	// pid (comm) state ppid pgrp session tty_nr tpgid flags minflt cminflt majflt cmajflt utime stime cutime cstime priority nice num_threads itrealvalue starttime
+	line := fmt.Sprintf("%d (fixtureproc) %s %d 0 0 0 0 0 0 0 0 0 %d %d 0 0 20 0 1 0 %d\n",
+		pid, state, ppid, utime, stime, startTime)
 	if err := os.WriteFile(filepath.Join(dir, "stat"), []byte(line), 0644); err != nil {
 		t.Fatalf("WriteFile stat: %v", err)
 	}
@@ -137,6 +149,40 @@ func TestTopProcessesByCPULinux_RecycledPIDSkipped(t *testing.T) {
 	}
 	if len(got.Rows) != 0 {
 		t.Errorf("expected the recycled pid to be skipped, got %+v", got.Rows)
+	}
+}
+
+// TestTopProcessesByCPULinux_RecycledPIDHigherCounterDifferentStartTimeSkipped
+// guards Finding internal-drilldown-01-08: the old "cpuTicks went backwards"
+// check alone cannot catch a PID recycled between the two samples if the new
+// process happens to have accrued MORE ticks than the old one's first
+// sample — that case must now be caught by the starttime (stat field 22)
+// identity mismatch, not silently misattributed to whichever process held
+// the PID at the second read.
+func TestTopProcessesByCPULinux_RecycledPIDHigherCounterDifferentStartTimeSkipped(t *testing.T) {
+	procRoot := t.TempDir()
+	const pid = 6
+	writeSystemStatFixture(t, procRoot, 1000)
+	// First sample: original process, starttime=1000, low ticks.
+	writeProcStatFixtureWithStart(t, procRoot, pid, "R", 1, 100, 0, 1000)
+
+	go func() {
+		time.Sleep(100 * time.Millisecond)
+		writeSystemStatFixture(t, procRoot, 1300)
+		// Second sample: PID recycled by an unrelated process (different
+		// starttime) that happens to report a HIGHER tick count — the exact
+		// scenario the plain monotonicity check misses.
+		writeProcStatFixtureWithStart(t, procRoot, pid, "R", 1, 9000, 9000, 2000)
+	}()
+
+	got, err := topProcessesByCPULinuxAt(context.Background(), 5, procRoot)
+	if err != nil {
+		t.Fatalf("topProcessesByCPULinuxAt: %v", err)
+	}
+	for _, row := range got.Rows {
+		if row[0] == strconv.Itoa(pid) {
+			t.Errorf("recycled pid %d with mismatched starttime must be excluded even with a higher counter, got row %+v", pid, row)
+		}
 	}
 }
 

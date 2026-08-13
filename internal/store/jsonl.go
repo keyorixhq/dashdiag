@@ -10,8 +10,10 @@ import (
 	"io"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
+	"unicode"
 )
 
 const maxLineSizeBytes = 1 << 20 // 1 MiB
@@ -139,28 +141,31 @@ func ReadAll(path, hostname string, n int) ([]Entry, error) {
 			oversized++
 		case len(line) > 0:
 			var e Entry
-			// Malformed JSON is skipped rather than aborting, same as before.
-			if err := json.Unmarshal(line, &e); err == nil && (hostname == "" || e.Hostname == hostname) {
-				switch {
-				case n > 0:
-					// A bounded tail request (the common case — dsd history/diff/health
-					// all ask for a small n) is kept as a fixed-size window as we scan,
-					// instead of accumulating every match in the whole file before
-					// truncating at the end. Slicing off the front on overflow keeps
-					// len(matches) <= n at all times; Go's append growth is driven by
-					// current len/cap, not lifetime append count, so the backing array
-					// stays O(n) regardless of how large the store file has grown.
-					matches = append(matches, e)
-					if len(matches) > n {
-						matches = matches[1:]
+			// Malformed JSON, or content outside the documented vocabulary, is
+			// skipped rather than aborting.
+			if err := json.Unmarshal(line, &e); err == nil {
+				if verr := validateEntry(&e); verr == nil && (hostname == "" || e.Hostname == hostname) {
+					switch {
+					case n > 0:
+						// A bounded tail request (the common case — dsd history/diff/health
+						// all ask for a small n) is kept as a fixed-size window as we scan,
+						// instead of accumulating every match in the whole file before
+						// truncating at the end. Slicing off the front on overflow keeps
+						// len(matches) <= n at all times; Go's append growth is driven by
+						// current len/cap, not lifetime append count, so the backing array
+						// stays O(n) regardless of how large the store file has grown.
+						matches = append(matches, e)
+						if len(matches) > n {
+							matches = matches[1:]
+						}
+					case len(matches) >= maxReadAllEntries:
+						// n<=0 ("return everything", used by Prune): cap total entries
+						// accumulated so an unpruned or many-hostname store file can't
+						// grow memory use without bound. Keep scanning (not appending
+						// more) so a later oversized-line count is still reported below.
+					default:
+						matches = append(matches, e)
 					}
-				case len(matches) >= maxReadAllEntries:
-					// n<=0 ("return everything", used by Prune): cap total entries
-					// accumulated so an unpruned or many-hostname store file can't
-					// grow memory use without bound. Keep scanning (not appending
-					// more) so a later oversized-line count is still reported below.
-				default:
-					matches = append(matches, e)
 				}
 			}
 		}
@@ -176,6 +181,67 @@ func ReadAll(path, hostname string, n int) ([]Entry, error) {
 	}
 
 	return matches, nil
+}
+
+// validVerdicts is Entry.Verdict's documented vocabulary (store.go: "OK |
+// WARN | CRIT" — VerdictFromInsights never produces anything else).
+var validVerdicts = map[string]bool{"OK": true, "WARN": true, "CRIT": true}
+
+// validCheckStatuses is Entry.Checks' documented per-check status
+// vocabulary — the same five values CLAUDE.md's model contract defines for
+// any Status field ("OK"|"WARN"|"CRIT"|"INFO"|"PENDING"), broader than
+// Verdict's three because an individual check (not the overall rollup) can
+// be INFO (a collector that errored) or PENDING.
+var validCheckStatuses = map[string]bool{"OK": true, "WARN": true, "CRIT": true, "INFO": true, "PENDING": true}
+
+// validateEntry rejects an Entry whose content doesn't match the vocabulary
+// this package documents, and sanitizes the two fields with no fixed
+// vocabulary (Hostname, and Checks' keys — check names). The store file is
+// meant to be produced only by this package's own Append, but ReadAll treats
+// it as a trust boundary like every other read path in the codebase: a
+// shared/NFS-mounted home directory read by multiple hosts, a restored
+// backup, a downgraded/upgraded dsd version with different field semantics,
+// or direct tampering by any local process with write access to the file
+// could all produce a line that decodes as valid JSON but carries content
+// this package never wrote. Hostname/Checks reach cmd/history.go and
+// cmd/diff.go, which print them straight to the terminal with no
+// sanitization of their own.
+func validateEntry(e *Entry) error {
+	if !validVerdicts[e.Verdict] {
+		return fmt.Errorf("store: verdict %q not in {OK,WARN,CRIT}", e.Verdict)
+	}
+	for name, status := range e.Checks {
+		if !validCheckStatuses[status] {
+			return fmt.Errorf("store: check %q status %q not in {OK,WARN,CRIT,INFO,PENDING}", name, status)
+		}
+	}
+	e.Hostname = stripControl(e.Hostname)
+	// Checks map keys (check names) have no fixed vocabulary — rebuild the
+	// map with sanitized keys. Values are already vocabulary-checked above,
+	// so nothing to strip there.
+	clean := make(map[string]string, len(e.Checks))
+	for name, status := range e.Checks {
+		clean[stripControl(name)] = status
+	}
+	e.Checks = clean
+	return nil
+}
+
+// stripControl removes control characters (including ESC, which starts
+// ANSI/OSC/DCS terminal escape sequences) from s, leaving printable text
+// unchanged. store/ has no dependency on internal/output today, so this
+// duplicates the small amount of logic in output.SanitizeControl rather than
+// adding a new cross-package import for one helper.
+func stripControl(s string) string {
+	if !strings.ContainsFunc(s, unicode.IsControl) {
+		return s
+	}
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, s)
 }
 
 // Close flushes and closes the underlying file.

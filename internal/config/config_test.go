@@ -345,6 +345,120 @@ thresholds:
 	}
 }
 
+// TestLoad_RejectsInvalidValues guards Finding internal-config-01-03: after
+// v.Unmarshal populates Config, no field was validated — a YAML special
+// float (.nan, .inf), a negative threshold/count, or an out-of-range
+// Services port/empty host would pass through Load() unchecked and reach
+// whatever downstream code trusts these fields as pre-validated.
+func TestLoad_RejectsInvalidValues(t *testing.T) {
+	cases := []struct {
+		name string
+		yaml string
+	}{
+		{"NaN threshold", "thresholds:\n  disk_warn_pct: .nan\n"},
+		{"Inf threshold", "thresholds:\n  disk_crit_pct: .inf\n"},
+		{"negative threshold", "thresholds:\n  ram_warn_pct: -5\n"},
+		{"negative ssh_failed_login_warn", "security:\n  ssh_failed_login_warn: -1\n"},
+		{"negative ssh_failed_login_crit", "security:\n  ssh_failed_login_crit: -1\n"},
+		{"out-of-range allowed_ports", "security:\n  allowed_ports: [70000]\n"},
+		{"allowed_ports zero", "security:\n  allowed_ports: [0]\n"},
+		{"service missing name", "services:\n  - host: localhost\n    port: 5432\n"},
+		{"service missing host", "services:\n  - name: postgres\n    port: 5432\n"},
+		{"service port zero", "services:\n  - name: postgres\n    host: localhost\n    port: 0\n"},
+		{"service port out of range", "services:\n  - name: postgres\n    host: localhost\n    port: 70000\n"},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			dir := t.TempDir()
+			cfgFile := filepath.Join(dir, "invalid.yaml")
+			if err := os.WriteFile(cfgFile, []byte(c.yaml), 0644); err != nil {
+				t.Fatalf("write config: %v", err)
+			}
+			_, err := Load(cfgFile)
+			if err == nil {
+				t.Fatalf("Load(%q) = nil error, want a validation error", c.yaml)
+			}
+			if !strings.Contains(err.Error(), "invalid config") {
+				t.Errorf("expected 'invalid config' wrapped error, got %v", err)
+			}
+		})
+	}
+}
+
+// TestLoad_ValidConfigStillLoads guards against Validate() being overly
+// strict: a well-formed config (matching TestLoad_WithServices' shape) must
+// still load without error.
+func TestLoad_ValidConfigStillLoads(t *testing.T) {
+	dir := t.TempDir()
+	yaml := `
+thresholds:
+  disk_warn_pct: 70
+security:
+  ssh_failed_login_warn: 10
+  ssh_failed_login_crit: 30
+  allowed_ports: [22, 443]
+services:
+  - name: postgres
+    host: localhost
+    port: 5432
+    protocol: tcp
+`
+	cfgFile := filepath.Join(dir, "valid.yaml")
+	if err := os.WriteFile(cfgFile, []byte(yaml), 0644); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	if _, err := Load(cfgFile); err != nil {
+		t.Errorf("Load(valid config) = %v, want nil", err)
+	}
+}
+
+// TestConfigValidate_ThresholdBoundaries is a direct table-driven boundary
+// test of ThresholdConfig.validate: exactly 0 is accepted (the floor), just
+// below it is rejected.
+func TestConfigValidate_ThresholdBoundaries(t *testing.T) {
+	t.Parallel()
+	valid := defaults
+	if err := valid.Validate(); err != nil {
+		t.Fatalf("defaults must validate cleanly: %v", err)
+	}
+
+	atFloor := defaults
+	atFloor.Thresholds.DiskWarnPct = 0
+	if err := atFloor.Validate(); err != nil {
+		t.Errorf("DiskWarnPct=0 (the floor) must be accepted: %v", err)
+	}
+
+	belowFloor := defaults
+	belowFloor.Thresholds.DiskWarnPct = -0.001
+	if err := belowFloor.Validate(); err == nil {
+		t.Error("DiskWarnPct=-0.001 (just below the floor) must be rejected")
+	}
+}
+
+// TestConfigValidate_ServicePortBoundaries is a direct table-driven boundary
+// test of ServiceConfig.validate: 1 and 65535 are accepted, 0 and 65536 are
+// rejected.
+func TestConfigValidate_ServicePortBoundaries(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		port    int
+		wantErr bool
+	}{
+		{0, true},
+		{1, false},
+		{65535, false},
+		{65536, true},
+	}
+	for _, c := range cases {
+		cfg := defaults
+		cfg.Services = []ServiceConfig{{Name: "svc", Host: "localhost", Port: c.port}}
+		err := cfg.Validate()
+		if (err != nil) != c.wantErr {
+			t.Errorf("port=%d: err=%v, wantErr=%v", c.port, err, c.wantErr)
+		}
+	}
+}
+
 // TestLoad_InvalidYAML guards internal-config-01-01: a config file that
 // EXISTS but fails to parse must return a non-nil error (surfaced by the
 // caller, e.g. ServicesCollector, as a disclosed INFO) rather than silently

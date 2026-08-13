@@ -2,6 +2,7 @@ package platform
 
 import (
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -32,6 +33,52 @@ func TestSetIdentity(t *testing.T) {
 	defer r2()
 	if got := Hostname(); got != live {
 		t.Errorf("empty override should read live hostname, got %q", got)
+	}
+}
+
+// TestSetIdentitySanitizesControlChars guards Finding internal-platform-01-01:
+// host/osName come straight from a capture bundle manifest — untrusted input
+// per the product's own threat model — with no length limit or character
+// allowlist upstream. A crafted manifest carrying ANSI/OSC escape sequences
+// must not reach Hostname()/OSPrettyName() verbatim (they're written directly
+// into rendered report headers).
+func TestSetIdentitySanitizesControlChars(t *testing.T) {
+	evil := "evil\x1b[2Jname"
+	restore := SetIdentity(evil, evil)
+	defer restore()
+
+	if got := Hostname(); strings.ContainsRune(got, 0x1b) {
+		t.Errorf("Hostname() still contains a raw ESC byte: %q", got)
+	}
+	if got := OSPrettyName(); strings.ContainsRune(got, 0x1b) {
+		t.Errorf("OSPrettyName() still contains a raw ESC byte: %q", got)
+	}
+	if got := Hostname(); !strings.Contains(got, "evil[2Jname") {
+		t.Errorf("expected printable payload to survive sanitization, got %q", got)
+	}
+}
+
+// TestSetReplayPlatformSanitizesControlChars guards Finding
+// internal-platform-01-01 for the replay-platform pin: distroID/initSystem/
+// goos have the same untrusted-manifest provenance as host/osName above.
+// Not marked t.Parallel(): SetReplayPlatform mutates package-level state
+// guarded by idMu but restore() captures a snapshot at call time, so running
+// concurrently with the existing (also-mutating) TestSetReplayPlatform could
+// interleave and restore to the wrong previous value — the same global-
+// mutation-in-parallel-tests hazard this branch exists to avoid.
+func TestSetReplayPlatformSanitizesControlChars(t *testing.T) {
+	evil := "evil\x1b[2Jname"
+	restore := SetReplayPlatform(evil, evil, evil)
+	defer restore()
+
+	if got := ReplayDistroID(); strings.ContainsRune(got, 0x1b) {
+		t.Errorf("ReplayDistroID() still contains a raw ESC byte: %q", got)
+	}
+	if got := ReplayInitSystem(); strings.ContainsRune(got, 0x1b) {
+		t.Errorf("ReplayInitSystem() still contains a raw ESC byte: %q", got)
+	}
+	if got := ReplayGOOS(); strings.ContainsRune(got, 0x1b) {
+		t.Errorf("ReplayGOOS() still contains a raw ESC byte: %q", got)
 	}
 }
 

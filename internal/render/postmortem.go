@@ -17,7 +17,7 @@ func RenderPostMortem(title string, snap *baseline.Snapshot, insights []models.I
 	now := time.Now().UTC().Format(time.RFC3339)
 	fmt.Fprintf(&sb, "#### Incident: %s\n", title)
 	fmt.Fprintf(&sb, "**Server:** %s  |  **Captured:** %s  |  **By:** dsd %s\n\n",
-		snap.Hostname, now, version.Version)
+		output.SanitizeControl(snap.Hostname), now, version.Version)
 
 	sb.WriteString("#### System State at Time of Capture\n")
 	sb.WriteString("| Check | Status | Value | Threshold |\n")
@@ -41,7 +41,13 @@ func RenderPostMortem(title string, snap *baseline.Snapshot, insights []models.I
 		default:
 			statusLabel = "✅ OK"
 		}
-		fmt.Fprintf(&sb, "| %s | %s | %s | — |\n", check.Name, statusLabel, value)
+		// check.Name/value (ins.Message) can carry attacker-controlled
+		// substrings (e.g. a process name from /proc set via
+		// prctl(PR_SET_NAME)) — this postmortem is explicitly designed to be
+		// pasted into incident channels/tickets, and markdown doesn't escape
+		// raw control/ANSI bytes any more than a terminal does.
+		fmt.Fprintf(&sb, "| %s | %s | %s | — |\n",
+			output.SanitizeControl(check.Name), statusLabel, output.SanitizeControl(value))
 	}
 
 	var crits, warns []models.Insight
@@ -57,15 +63,15 @@ func RenderPostMortem(title string, snap *baseline.Snapshot, insights []models.I
 	if len(crits)+len(warns) > 0 {
 		sb.WriteString("\n#### Issues Detected\n")
 		for _, ins := range crits {
-			fmt.Fprintf(&sb, "- ❌ CRIT %s: %s\n", ins.Check, ins.Message)
+			fmt.Fprintf(&sb, "- ❌ CRIT %s: %s\n", output.SanitizeControl(ins.Check), output.SanitizeControl(ins.Message))
 			for _, h := range ins.Hints {
-				fmt.Fprintf(&sb, "  → %s\n", h)
+				fmt.Fprintf(&sb, "  → %s\n", output.SanitizeControl(h))
 			}
 		}
 		for _, ins := range warns {
-			fmt.Fprintf(&sb, "- ⚠️ WARN %s: %s\n", ins.Check, ins.Message)
+			fmt.Fprintf(&sb, "- ⚠️ WARN %s: %s\n", output.SanitizeControl(ins.Check), output.SanitizeControl(ins.Message))
 			for _, h := range ins.Hints {
-				fmt.Fprintf(&sb, "  → %s\n", h)
+				fmt.Fprintf(&sb, "  → %s\n", output.SanitizeControl(h))
 			}
 		}
 	}
@@ -83,7 +89,7 @@ func RenderPostMortem(title string, snap *baseline.Snapshot, insights []models.I
 	if len(hints) > 0 {
 		sb.WriteString("\n#### Recommended Investigation Steps\n")
 		for i, h := range hints {
-			fmt.Fprintf(&sb, "%d. `%s`\n", i+1, h)
+			fmt.Fprintf(&sb, "%d. `%s`\n", i+1, output.SanitizeControl(h))
 		}
 	}
 

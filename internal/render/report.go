@@ -10,6 +10,7 @@ import (
 
 	"github.com/keyorixhq/dashdiag/internal/baseline"
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/output"
 	"github.com/keyorixhq/dashdiag/internal/version"
 )
 
@@ -45,7 +46,7 @@ func buildMarkdown(snap *baseline.Snapshot, insights []models.Insight, elapsed t
 
 	// Header
 	fmt.Fprintf(&b, "# DashDiag Health Report\n\n")
-	fmt.Fprintf(&b, "**Host:** `%s`  \n", snap.Hostname)
+	fmt.Fprintf(&b, "**Host:** `%s`  \n", output.SanitizeControl(snap.Hostname))
 	fmt.Fprintf(&b, "**Date:** %s  \n", snap.Timestamp.Format("2006-01-02 15:04:05 MST"))
 	fmt.Fprintf(&b, "**Scan time:** %.1fs  \n", elapsed.Seconds())
 	fmt.Fprintf(&b, "**Version:** %s  \n\n", version.Version)
@@ -81,15 +82,22 @@ func buildMarkdown(snap *baseline.Snapshot, insights []models.Insight, elapsed t
 			case "INFO":
 				icon = "ℹ️"
 			}
-			fmt.Fprintf(&b, "### %s %s — %s\n\n", icon, ins.Level, ins.Check)
-			fmt.Fprintf(&b, "%s\n\n", ins.Message)
+			fmt.Fprintf(&b, "### %s %s — %s\n\n", icon, ins.Level, output.SanitizeControl(ins.Check))
+			// ins.Message can carry attacker-controlled substrings (e.g. a
+			// process name a local user set via prctl(PR_SET_NAME), surfaced
+			// through an FD-limit or similar heuristic) — markdown doesn't
+			// escape raw control/ANSI bytes any more than a terminal does, and
+			// this report is explicitly designed to be pasted into incident
+			// channels/tickets, so strip them the same way every other
+			// rendered sink in this codebase does.
+			fmt.Fprintf(&b, "%s\n\n", output.SanitizeControl(ins.Message))
 			if len(ins.Hints) > 0 {
 				// One fenced block for ALL remediation lines — a separate fence per
 				// line renders as a stack of tiny code boxes, which looks broken in a
 				// client-facing report.
 				fmt.Fprintf(&b, "**Remediation:**\n\n```\n")
 				for _, h := range ins.Hints {
-					fmt.Fprintf(&b, "%s\n", h)
+					fmt.Fprintf(&b, "%s\n", output.SanitizeControl(h))
 				}
 				fmt.Fprintf(&b, "```\n\n")
 			}
@@ -124,15 +132,16 @@ func buildMarkdown(snap *baseline.Snapshot, insights []models.Insight, elapsed t
 	}
 	rows := make([]checkRow, 0, len(snap.Checks))
 	for _, check := range snap.Checks {
+		name := output.SanitizeControl(check.Name)
 		switch check.Status {
 		case "CRIT":
-			rows = append(rows, checkRow{check.Name, "🔴 CRIT", 3})
+			rows = append(rows, checkRow{name, "🔴 CRIT", 3})
 		case "WARN":
-			rows = append(rows, checkRow{check.Name, "⚠️ WARN", 2})
+			rows = append(rows, checkRow{name, "⚠️ WARN", 2})
 		case "INFO":
-			rows = append(rows, checkRow{check.Name, "ℹ️ INFO", 1})
+			rows = append(rows, checkRow{name, "ℹ️ INFO", 1})
 		default:
-			rows = append(rows, checkRow{check.Name, "✅ OK", 0})
+			rows = append(rows, checkRow{name, "✅ OK", 0})
 		}
 	}
 	sort.Slice(rows, func(i, j int) bool {

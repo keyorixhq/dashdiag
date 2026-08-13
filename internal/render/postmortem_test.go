@@ -67,6 +67,33 @@ func TestRenderPostMortem(t *testing.T) {
 	}
 }
 
+// TestRenderPostMortem_SanitizesControlChars guards Finding
+// internal-render-03-06: check.Name/Value, ins.Check/Message, ins.Hints, and
+// Hostname can all carry attacker-controlled substrings (e.g. a process name
+// from /proc, settable via prctl(PR_SET_NAME)) with no character filtering.
+// This postmortem is explicitly designed to be pasted into incident
+// channels/tickets, and markdown doesn't escape raw control/ANSI bytes any
+// more than a terminal does, so control bytes must be stripped.
+func TestRenderPostMortem_SanitizesControlChars(t *testing.T) {
+	t.Parallel()
+	evil := "evil\x1b[2Jname"
+	snap := &baseline.Snapshot{
+		Hostname:  "host" + evil,
+		Timestamp: time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC),
+		Checks:    []baseline.CheckResult{{Name: "FDLimits" + evil, Status: "WARN", Value: "value" + evil}},
+	}
+	insights := []models.Insight{
+		{Check: "FDLimits" + evil, Level: "WARN", Message: "message" + evil, Hints: []string{"hint" + evil}},
+	}
+	got := RenderPostMortem("incident", snap, insights, output.ModeHuman)
+	if strings.ContainsRune(got, 0x1b) {
+		t.Errorf("RenderPostMortem output still contains a raw ESC byte:\n%s", got)
+	}
+	if !strings.Contains(got, "evil[2Jname") { // ESC byte stripped, surrounding printable text survives
+		t.Errorf("expected printable payload to survive sanitization, got:\n%s", got)
+	}
+}
+
 // TestRenderPostMortem_NoIssues covers the branch where there are no CRIT/WARN
 // insights: the Issues Detected and Recommended Investigation Steps sections
 // must both be entirely absent (not empty headers).
