@@ -96,6 +96,20 @@ func TestCheckPVESubscription(t *testing.T) {
 	assertLevel(t, checkPVESubscription(pve("notfound")), "WARN")
 	assertLevel(t, checkPVESubscription(pve("")), "WARN")
 	assertLevel(t, checkPVESubscription(pve("expired")), "CRIT")
+	// Regression: any status this switch doesn't recognize — the collector's own
+	// "unknown" sentinel (auth file present but unexpected format) or a live
+	// pvesh status this switch predates (e.g. "invalid", "suspended") — must
+	// disclose an INFO rather than silently falling through to a healthy nil,
+	// which the old missing-default switch did for every one of these.
+	unknown := checkPVESubscription(pve("unknown"))
+	if !hasInsightMsg(unknown, "INFO", "not recognized") {
+		t.Errorf(`status "unknown" must produce an INFO disclosure, got %+v`, unknown)
+	}
+	invalid := checkPVESubscription(pve("invalid"))
+	if !hasInsightMsg(invalid, "INFO", "not recognized") {
+		t.Errorf(`status "invalid" must produce an INFO disclosure, got %+v`, invalid)
+	}
+	assertLevel(t, checkPVESubscription(pve("New")), "") // fresh key activation, healthy
 }
 
 func TestCheckJournalConfig(t *testing.T) {

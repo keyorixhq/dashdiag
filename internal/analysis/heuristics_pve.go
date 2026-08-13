@@ -120,8 +120,23 @@ func checkPVESubscription(p models.PVEInfo) []models.Insight {
 				"note: an expired subscription leaves the auth file in place, so presence alone is not proof of an active subscription",
 			},
 		)}
+	case "active", "New":
+		// A confirmed-active subscription (live pvesh) — genuinely healthy, stay
+		// silent. "New" is the real Proxmox API status immediately after a fresh
+		// key activation, before the first entitlement check; treated as healthy
+		// rather than falling into the unrecognized-status disclosure below.
+		return nil
 	}
-	return nil
+	// Any other status is either a live pvesh value this switch doesn't yet
+	// recognize (e.g. "invalid", "suspended" — real Proxmox subscription API
+	// states) or the collector's own "unknown" sentinel (auth file present but
+	// in an unexpected format, collectPVESubscriptionFile). Neither is safe to
+	// silently treat as healthy the way the old missing-default fall-through
+	// did — disclose it instead.
+	return []models.Insight{unverifiedInsight("INFO", pveCatPVE,
+		fmt.Sprintf("Proxmox VE subscription status %q not recognized — could not verify subscription health", p.Subscription.Status),
+		[]string{"to inspect: pvesh get /nodes/localhost/subscription"},
+	)}
 }
 
 func checkPVECluster(p models.PVEInfo) []models.Insight {
