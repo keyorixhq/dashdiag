@@ -91,6 +91,15 @@ func checkSteamOSDevice(s models.SteamOSInfo) []models.Insight {
 				"note: Steam Deck firmware does not enforce Secure Boot; this applies to other handhelds",
 			},
 		))
+	} else if s.SecureBootApplicable && s.SecureBootEnabled == nil {
+		// efivarfs was unmounted, permission-denied, or the SecureBoot variable
+		// was malformed/short — the state was never established, mirroring the
+		// RAUCAvailable pattern below. Don't let this render identically to
+		// "confirmed disabled".
+		out = append(out, unverifiedInsight("INFO", catSteamOS,
+			"Secure Boot state could not be verified — the efivarfs SecureBoot variable could not be read",
+			[]string{"to inspect: cat /sys/firmware/efi/efivars/SecureBoot-*"},
+		))
 	}
 	return out
 }
@@ -120,6 +129,16 @@ func checkSteamOSUpdate(s models.SteamOSInfo) []models.Insight {
 				"to inspect: rauc status",
 			},
 		))
+	} else if s.RAUCAvailable && s.RAUCBootedStatus != "" && !strings.EqualFold(s.RAUCBootedStatus, "good") {
+		// Neither "good" nor "bad" — a rauc version this parser doesn't know
+		// about, or garbled/truncated output. The single most important
+		// update-blocking signal this file covers must not silently read as
+		// fine for a status it doesn't recognize.
+		out = append(out, unverifiedInsight("INFO", catSteamOS,
+			fmt.Sprintf("booted RAUC slot %s reports an unrecognized boot status %q — could not confirm it is healthy",
+				s.RAUCBootedSlot, s.RAUCBootedStatus),
+			[]string{"to inspect: rauc status"},
+		))
 	}
 	// RAUC inactive slot bad — no rollback safety net.
 	if s.RAUCAvailable && strings.EqualFold(s.RAUCInactiveStatus, "bad") {
@@ -129,6 +148,12 @@ func checkSteamOSUpdate(s models.SteamOSInfo) []models.Insight {
 				fmt.Sprintf("to fix: sudo rauc status mark-good %s", s.RAUCInactiveSlot),
 				"or: re-image to restore the slot",
 			},
+		))
+	} else if s.RAUCAvailable && s.RAUCInactiveStatus != "" && !strings.EqualFold(s.RAUCInactiveStatus, "good") {
+		out = append(out, unverifiedInsight("INFO", catSteamOS,
+			fmt.Sprintf("inactive RAUC slot %s reports an unrecognized boot status %q — could not confirm rollback is available",
+				s.RAUCInactiveSlot, s.RAUCInactiveStatus),
+			[]string{"to inspect: rauc status"},
 		))
 	}
 
@@ -140,6 +165,15 @@ func checkSteamOSUpdate(s models.SteamOSInfo) []models.Insight {
 				"to fix: sudo steamos-readonly enable",
 				"note: a writable rootfs is the #1 cause of 'an update broke my packages'",
 			},
+		))
+	} else if !s.ReadonlyKnown {
+		// `steamos-readonly status` failed to run (binary missing, non-zero
+		// exit, permission denied). Mirrors the RAUCAvailable INFO fallback
+		// above — a check that couldn't run must not stay silent, matching
+		// the project-wide "degrade to unmeasured, never silent OK" rule.
+		out = append(out, unverifiedInsight("INFO", catSteamOS,
+			"rootfs writability could not be verified — `steamos-readonly status` failed or is not available",
+			[]string{"to inspect: steamos-readonly status"},
 		))
 	}
 

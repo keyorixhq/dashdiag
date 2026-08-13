@@ -315,6 +315,13 @@ func updateKVMCounts(info *models.KVMInfo, vm *models.KVMVM) {
 		// virsh dominfo failed (kvmDomInfo couldn't read State) — the domain is
 		// defined but its state is unknown. Don't let it pass as healthy.
 		info.VMsUnreadable++
+	default:
+		// A non-empty state string that matches none of the known constants — a
+		// future libvirt/QEMU release introducing a new domain state, or a
+		// modified/wrapped virsh on PATH. Count it the same as the unreadable
+		// case rather than letting it silently vanish from every summary
+		// counter, understating the true count of abnormal/crashed VMs.
+		info.VMsUnreadable++
 	}
 	if vm.DiskIOError {
 		info.DiskIOErrors++

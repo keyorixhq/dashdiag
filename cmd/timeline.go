@@ -87,7 +87,12 @@ func printTimeline(info *models.TimelineInfo, elapsed time.Duration, mode output
 
 	// Event table
 	if len(info.Events) == 0 {
-		fmt.Printf("\n  %s  No errors or warnings found in this window.\n", asciiOr("ok", iconOK, mode))
+		if info.SourcesUnavailable {
+			fmt.Printf("\n  %s  Could not read journald or the kernel log — no events shown (run as root?)\n",
+				asciiOr("info", "ℹ️", mode))
+		} else {
+			fmt.Printf("\n  %s  No errors or warnings found in this window.\n", asciiOr("ok", iconOK, mode))
+		}
 	} else {
 		fmt.Printf("\n  %-8s  %-8s  %-18s  %s\n", "TIME", "LEVEL", "UNIT", "MESSAGE")
 		fmt.Printf("  %s\n", strings.Repeat("─", 60))

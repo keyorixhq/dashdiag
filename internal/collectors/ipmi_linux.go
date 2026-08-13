@@ -37,11 +37,15 @@ func (c *IPMICollector) Timeout() time.Duration { return 8 * time.Second }
 func (c *IPMICollector) Collect(ctx context.Context) (interface{}, error) {
 	info := &models.IPMIInfo{}
 
-	// Detect IPMI availability: kernel driver device or ipmitool in PATH
-	if !fileExists("/dev/ipmi0") {
-		if _, err2 := runCmd(ctx, "which", "ipmitool"); err2 != nil {
-			return info, nil // no IPMI — skip silently
-		}
+	// Detect IPMI availability: kernel driver device or ipmitool in PATH.
+	// Uses the in-process lookPath helper (hasCmd), not an external `which`
+	// invocation — minimal/slim container images and some embedded distros
+	// omit the standalone `which` utility (busybox variants without the which
+	// applet, distroless, etc.), which previously made this probe report
+	// "ipmitool not found" even when it was genuinely installed, silently
+	// disabling the whole IPMI/BMC health check.
+	if !fileExists("/dev/ipmi0") && !hasCmd("ipmitool") {
+		return info, nil // no IPMI — skip silently
 	}
 
 	// Try ipmitool sdr — most portable across vendor implementations

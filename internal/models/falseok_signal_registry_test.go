@@ -42,6 +42,7 @@ var guardedUnverifiedSignals = map[string]string{
 	"ServicesDeepInfo.SSHDStatusUnverified": "cmd/falseok_verdict_test.go TestServicesDeepSSHDUnverifiedNotNone (a suppressed sshd@ instance's unreadable exit status must not render the same green 'none' a genuinely-clean host gets)",
 	"SystemdInfo.SSHDStatusUnverified":      "analysis/heuristics_round2_test.go TestCheckSystemd_SSHDStatusUnverified (INFO, not a silent fold into 'no non-benign sshd@ failures')",
 	"CVEAllResult.ScanFailed":               "cmd/falseok_verdict_test.go (cve) + collectors/cve_stale_metadata_test.go",
+	"CVEAllResult.KEVCatalogReadFailed":     "analysis/heuristics_cve_test.go TestCheckCVEHealth_KEVCatalogReadFailed (a present-but-broken KEV catalog discloses an additional INFO alongside whatever severity insight the plain package-manager rating produces, never a silent drop of the KEV cross-reference)",
 
 	// dsd security — renderer shares health's verdict via the heuristic.
 	"SecurityInfo.NeedsRoot":                    "analysis/heuristics_security_full_test.go + cmd/security_falseok_test.go",

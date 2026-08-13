@@ -28,6 +28,30 @@ func TestCheckPackageDBHealth_EmptyReason(t *testing.T) {
 	}
 }
 
+// TestCheckPackageUpdates_UnrecognizedStatus covers a pkg.Status value outside
+// the three known sentinels ("no-security-repo"/"query-failed"/"stale-metadata")
+// — e.g. a future collector change or a tampered/corrupted `dsd replay` bundle.
+// It must render as an unverified INFO, not fall through to the same silent
+// "0 security updates" result a genuinely clean scan produces.
+func TestCheckPackageUpdates_UnrecognizedStatus(t *testing.T) {
+	t.Parallel()
+	pkg := models.PackagesInfo{
+		Checked:         true,
+		Status:          "garbled-status",
+		SecurityUpdates: 0,
+	}
+	got := checkPackageUpdates(pkg)
+	if len(got) == 0 {
+		t.Fatal("expected an unverified INFO insight, got none (silent false-OK)")
+	}
+	if got[0].Level != "INFO" {
+		t.Errorf("unrecognized status must be INFO, got %q", got[0].Level)
+	}
+	if !strings.Contains(got[0].Message, "unrecognized scan status") {
+		t.Errorf("message must disclose the unrecognized status, got %q", got[0].Message)
+	}
+}
+
 // TestSecurityUpdateInsight_ImportantUpdates covers the ImportantUpdates > 0
 // branch in securityUpdateInsight (lines 213-217): managers that expose per-
 // advisory severity (dnf/zypper) emit a WARN for important (non-critical) advisories.

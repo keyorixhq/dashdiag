@@ -12,15 +12,31 @@ import (
 	"testing"
 )
 
-// minimalUbuntuOVAL is a syntactically valid but empty Ubuntu-flavoured OVAL
+// minimalUbuntuOVAL is a syntactically valid, minimal Ubuntu-flavoured OVAL
 // feed: sniffOVALVendor keys off the "ubuntu.com" marker in the raw content
 // (not full USN semantics), so this is enough to route through
-// ScanUbuntuOVALPackages — the real success path (real, read-only dpkg-query)
-// — with zero definitions, i.e. "no vulnerable packages found".
+// ScanUbuntuOVALPackages — the real success path (real, read-only dpkg-query).
+// Its single definition references a package name that cannot legitimately
+// be installed on the host running this test, so cross-referencing against
+// the real dpkg database still yields "no vulnerable packages found" — a
+// feed with zero <definition> elements no longer represents a legitimate
+// empty result (see internal/cvedata/oval_debian.go's parsed-0-definitions
+// guard: a real feed always has at least one definition, so zero means the
+// download was truncated/corrupt, and this fixture must not look like that).
 const minimalUbuntuOVAL = `<?xml version="1.0"?>
 <!-- generated for ubuntu.com security -->
 <oval_definitions>
-  <definitions></definitions>
+  <definitions>
+    <definition class="vulnerability">
+      <metadata>
+        <reference source="CVE" ref_id="CVE-2099-99999"/>
+        <advisory><severity>low</severity></advisory>
+      </metadata>
+      <criteria>
+        <criterion comment="this-package-does-not-exist-on-any-real-host-xyz123 package in noble is affected and may need fixing."/>
+      </criteria>
+    </definition>
+  </definitions>
 </oval_definitions>
 `
 

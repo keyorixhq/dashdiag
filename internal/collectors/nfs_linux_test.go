@@ -404,6 +404,32 @@ func TestNfsCheckFstab(t *testing.T) {
 		}
 	})
 
+	// internal-collectors-23-06: a real, active mount entry with a trailing
+	// inline comment (a common admin practice) was previously treated as
+	// fully commented-out — the whole line was skipped because it contained
+	// '#' anywhere, so the _netdev check never even ran against it.
+	t.Run("trailing inline comment does not suppress the warning", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutFile("/etc/fstab", []byte("nfs.example.com:/export /mnt/data nfs4 rw 0 0  # backups\n"))
+		})
+		m := &models.NFSMount{Mount: "/mnt/data", Server: "nfs.example.com"}
+		nfsCheckFstab(m)
+		if !hasWarning(m.OptionsWarnings, "_netdev missing") {
+			t.Errorf("expected _netdev warning despite the trailing comment, got %v", m.OptionsWarnings)
+		}
+	})
+
+	t.Run("trailing inline comment with _netdev present does not warn", func(t *testing.T) {
+		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutFile("/etc/fstab", []byte("nfs.example.com:/export /mnt/data nfs4 rw,_netdev 0 0  # backups\n"))
+		})
+		m := &models.NFSMount{Mount: "/mnt/data", Server: "nfs.example.com"}
+		nfsCheckFstab(m)
+		if hasWarning(m.OptionsWarnings, "_netdev missing") {
+			t.Errorf("did not expect _netdev warning, got %v", m.OptionsWarnings)
+		}
+	})
+
 	t.Run("non-matching line skipped", func(t *testing.T) {
 		withFixtureSource(t, func(b *source.Bundle) {
 			b.PutFile("/etc/fstab", []byte("/dev/sda1 / ext4 defaults 0 1\n"))

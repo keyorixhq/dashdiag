@@ -53,6 +53,88 @@ func TestLoadPolicy_InvalidYAML(t *testing.T) {
 	}
 }
 
+// TestLoadPolicy_RejectsOutOfRangePercent covers internal-analysis-13-01: a
+// percentage threshold set above what the metric can ever reach (or the YAML
+// 1.1 literal ".inf") makes the corresponding WARN/CRIT permanently
+// unreachable, silently defeating a CI health gate. LoadPolicy must reject
+// it rather than accepting it verbatim.
+func TestLoadPolicy_RejectsOutOfRangePercent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "policy.yaml")
+	_ = os.WriteFile(path, []byte("ram_crit_pct: 999999999\n"), 0644)
+	if _, err := LoadPolicy(path); err == nil {
+		t.Error("expected an error for ram_crit_pct far above 100, got nil")
+	}
+}
+
+func TestLoadPolicy_RejectsInfPercent(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "policy.yaml")
+	_ = os.WriteFile(path, []byte("disk_crit_pct: .inf\n"), 0644)
+	if _, err := LoadPolicy(path); err == nil {
+		t.Error("expected an error for disk_crit_pct: .inf, got nil")
+	}
+}
+
+func TestLoadPolicy_AcceptsValidPercentBoundary(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "policy.yaml")
+	_ = os.WriteFile(path, []byte("ram_crit_pct: 100\nram_warn_pct: 0.5\n"), 0644)
+	p, err := LoadPolicy(path)
+	if err != nil {
+		t.Fatalf("expected valid boundary percentages to load, got: %v", err)
+	}
+	if p.RAMCritPct != 100 {
+		t.Errorf("ram_crit_pct = %v, want 100", p.RAMCritPct)
+	}
+}
+
+// TestLoadPolicy_RejectsUnrecognizedDenyLevel covers internal-analysis-13-02:
+// PolicyDeniesLevel did a case-sensitive exact match against "WARN"/"CRIT".
+// A non-empty-but-wrong deny list (typo, unrecognized value) previously
+// behaved exactly like an empty one ("deny nothing") since PolicyDeniesLevel's
+// CRIT-only fallback only triggers on len(Deny)==0 — the opposite of what a
+// security-relevant CI gate should do on a config error. LoadPolicy must
+// catch this at parse time instead of silently accepting a gate that gates
+// nothing. (A plain case mismatch like "warn" is normalized, not rejected —
+// see TestLoadPolicy_NormalizesDenyCase.)
+func TestLoadPolicy_RejectsUnrecognizedDenyLevel(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "policy.yaml")
+	_ = os.WriteFile(path, []byte("deny:\n  - Warning\n"), 0644)
+	if _, err := LoadPolicy(path); err == nil {
+		t.Error("expected an error for unrecognized 'Warning' deny entry, got nil")
+	}
+}
+
+// TestLoadPolicy_NormalizesDenyCase ensures a valid-but-differently-cased
+// deny entry is accepted and normalized, so PolicyDeniesLevel's exact match
+// against the canonical "WARN"/"CRIT" insight levels still works correctly.
+func TestLoadPolicy_NormalizesDenyCase(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "policy.yaml")
+	_ = os.WriteFile(path, []byte("deny:\n  - Warn\n"), 0644)
+	p, err := LoadPolicy(path)
+	if err != nil {
+		t.Fatalf("expected 'Warn' to normalize and load, got: %v", err)
+	}
+	if !PolicyDeniesLevel(p, "WARN") {
+		t.Error("normalized deny entry should still deny WARN")
+	}
+}
+
+// TestLoadPolicy_InitTemplateIsValid: the starter template `dsd policy init`
+// prints must itself pass the new validation — a gate this file exists to
+// guard must not immediately reject its own recommended starting point.
+func TestLoadPolicy_InitTemplateIsValid(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "policy.yaml")
+	_ = os.WriteFile(path, []byte(PolicyInitTemplate), 0644)
+	if _, err := LoadPolicy(path); err != nil {
+		t.Errorf("PolicyInitTemplate must validate cleanly, got: %v", err)
+	}
+}
+
 // TestLoadPolicy_OversizedFileRejected is the regression test for
 // internal-analysis-13-03: LoadPolicy read the entire policy file into
 // memory with os.ReadFile and handed it straight to yaml.Unmarshal with no

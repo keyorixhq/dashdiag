@@ -210,7 +210,18 @@ func nfsCheckFstab(m *models.NFSMount) {
 		return
 	}
 	for _, line := range strings.Split(string(data), "\n") {
-		if strings.Contains(line, "#") || !strings.Contains(line, m.Mount) {
+		trimmed := strings.TrimSpace(line)
+		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
+			continue // fully-commented or blank line
+		}
+		// Strip a trailing inline comment (e.g. "... nfs rw 0 0  # backups") —
+		// a real, active mount entry with one was previously treated as fully
+		// commented-out and never matched against m.Mount, silently skipping
+		// the _netdev check even when _netdev really was absent from it.
+		if idx := strings.Index(line, "#"); idx >= 0 {
+			line = line[:idx]
+		}
+		if !strings.Contains(line, m.Mount) {
 			continue
 		}
 		if strings.Contains(line, m.Server) || strings.Contains(line, "nfs") {

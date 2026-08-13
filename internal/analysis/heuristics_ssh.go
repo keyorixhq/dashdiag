@@ -56,22 +56,19 @@ func checkSSHWeakMACs(sec models.SecurityInfo) []models.Insight {
 	if sec.SSHMACs == "" {
 		return nil
 	}
-	// Flag non-ETM weak MACs; ETM variants are accepted as borderline acceptable
-	strictWeak := []string{"hmac-md5", "hmac-sha1,", "hmac-sha1 ", "umac-64@", "hmac-ripemd160"}
-	// hmac-sha1 (non-ETM) — check as standalone token
+	// Flag non-ETM weak hash-based MACs; ETM variants of hmac-sha1 are accepted
+	// as borderline acceptable. umac-64's short tag length is a structural
+	// weakness independent of ETM mode, so both umac-64@ and umac-64-etm@ are
+	// flagged — HasPrefix(m, "umac-64") catches both.
 	var found []string
 	for m := range strings.SplitSeq(sec.SSHMACs, ",") {
 		m = strings.TrimSpace(strings.ToLower(m))
-		for _, weak := range strictWeak {
-			// Match exact token or token followed by nothing (avoid matching hmac-sha1-etm)
-			if m == strings.TrimRight(weak, ", ") ||
-				strings.HasPrefix(m, "hmac-md5") ||
-				strings.HasPrefix(m, "hmac-ripemd160") ||
-				(strings.HasPrefix(m, "umac-64@") && !strings.Contains(m, "etm")) ||
-				m == "hmac-sha1" {
-				found = append(found, m)
-				break
-			}
+		switch {
+		case strings.HasPrefix(m, "hmac-md5"),
+			strings.HasPrefix(m, "hmac-ripemd160"),
+			strings.HasPrefix(m, "umac-64"),
+			strings.HasPrefix(m, "hmac-sha1") && !strings.Contains(m, "etm"):
+			found = append(found, m)
 		}
 	}
 	if len(found) == 0 {

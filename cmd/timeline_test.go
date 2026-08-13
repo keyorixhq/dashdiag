@@ -118,6 +118,16 @@ func TestPrintTimeline(t *testing.T) {
 	if !strings.Contains(out, "Timeline incomplete") {
 		t.Errorf("unavailable sources should render incomplete, not clean, got: %q", out)
 	}
+	// The event-table block itself (printed well before the trailing summary
+	// line, and easy to miss if output is skimmed/piped) must not show the same
+	// green "No errors or warnings found" a genuinely clean window gets when
+	// both sources failed to read — Events is empty for the wrong reason.
+	if strings.Contains(out, "No errors or warnings found") {
+		t.Errorf("unavailable sources must not render the clean-window message in the event table, got: %q", out)
+	}
+	if !strings.Contains(out, "Could not read journald or the kernel log") {
+		t.Errorf("event table should disclose unreadable sources, got: %q", out)
+	}
 
 	issues := &models.TimelineInfo{
 		WindowHours: 1, CritCount: 1, WarnCount: 2,

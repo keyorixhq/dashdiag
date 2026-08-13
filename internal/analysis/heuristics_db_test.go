@@ -24,6 +24,14 @@ func TestCheckPostgres(t *testing.T) {
 		t.Errorf("unreadable metrics should be INFO, got %+v", noMetrics)
 	}
 
+	// Metrics read, but max_connections came back 0 — a real server never
+	// reports that, so it's a malformed/short read, not proof of zero
+	// saturation risk. Must not silently skip the saturation check.
+	zeroMaxConns := checkPostgres(models.PostgresInfo{Detected: true, Accepting: true, MetricsRead: true, MaxConnections: 0, ActiveConns: 5})
+	if !insightWithMsg(zeroMaxConns, "INFO", "could not be assessed") {
+		t.Errorf("max_connections==0 should be an unassessed INFO, not silence, got %+v", zeroMaxConns)
+	}
+
 	// Healthy (accepting, metrics read, low usage) → no insight.
 	healthy := checkPostgres(models.PostgresInfo{
 		Detected: true, Accepting: true, MetricsRead: true,
