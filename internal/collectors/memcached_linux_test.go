@@ -306,6 +306,66 @@ func TestMemcachedCmdLive_UntilEND(t *testing.T) {
 	}
 }
 
+// floodingMemcachedListener starts a listener that answers a "version" probe
+// (so detectMemcached-style callers pass the protocol check), then streams
+// filler bytes continuously WITHOUT ever sending a terminator — simulating a
+// hostile process squatting on the memcached port that tries to force an
+// unbounded read.
+func floodingMemcachedListener(t *testing.T) string {
+	t.Helper()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	t.Cleanup(func() { ln.Close() })
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		buf := make([]byte, 64)
+		_, _ = conn.Read(buf) // consume the command
+		filler := make([]byte, 64*1024)
+		for i := range filler {
+			filler[i] = 'x'
+		}
+		for {
+			if _, err := conn.Write(filler); err != nil {
+				return
+			}
+		}
+	}()
+	return ln.Addr().String()
+}
+
+// TestMemcachedCmdLive_CapsUnboundedReply guards the resource-exhaustion fix:
+// a hostile local listener that never sends a terminator and streams data
+// continuously must not be able to grow memcachedCmdLive's buffer past
+// memcachedMaxReplyBytes, and the call must return well before its 2s
+// connection deadline once the cap is hit (bailing out rather than spinning
+// to the deadline).
+func TestMemcachedCmdLive_CapsUnboundedReply(t *testing.T) {
+	t.Parallel()
+	addr := floodingMemcachedListener(t)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+
+	start := time.Now()
+	out, ok := memcachedCmdLive(ctx, "tcp", addr, "stats", true)
+	elapsed := time.Since(start)
+
+	if !ok {
+		t.Fatal("expected ok=true (some data was read before the cap)")
+	}
+	if len(out) != memcachedMaxReplyBytes {
+		t.Errorf("len(out) = %d, want exactly the cap %d", len(out), memcachedMaxReplyBytes)
+	}
+	if elapsed > 1500*time.Millisecond {
+		t.Errorf("memcachedCmdLive took %v against a flooding listener — want it to bail near-instantly once the cap is hit, not spin toward the 2s deadline", elapsed)
+	}
+}
+
 func TestParseMemcachedStats(t *testing.T) {
 	t.Parallel()
 	t.Run("well-formed multi-line input", func(t *testing.T) {

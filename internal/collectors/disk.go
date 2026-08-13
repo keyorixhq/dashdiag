@@ -134,6 +134,14 @@ func (c *DiskCollector) Collect(ctx context.Context) (any, error) {
 	seen := make(map[string]bool)
 	result := &models.DiskInfo{}
 	for _, e := range entries {
+		// Each iteration can cost up to statfsTimeout (2s, for a stale mount);
+		// with no bound on /proc/mounts entries a large/adversarial mount table
+		// (e.g. many black-holed FUSE mounts) can run this loop far past the
+		// collector's own Timeout(). statfsToFS has no ctx of its own to check,
+		// so bail between iterations instead.
+		if err := ctx.Err(); err != nil {
+			return result, err
+		}
 		if skipFSTypes[e.fsType] || seen[e.mountPoint] {
 			continue
 		}

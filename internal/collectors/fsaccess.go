@@ -79,13 +79,68 @@ func cachedJSON(key string, compute func() (any, error), out any) error {
 	return json.Unmarshal(data, out)
 }
 
-// readFile returns the contents of path via the active source.
-func readFile(path string) ([]byte, error) { return curSource().ReadFile(path) }
+// maxCappedFileBytes bounds how many bytes readFile/openFile return from a
+// single file, mirroring the io.LimitReader cap netaccess_linux.go's
+// httpGetLive and cloudmeta_linux.go's IMDS fetch already apply to network
+// reads (guard_name in the resource-exhaustion review: "io.LimitReader
+// equivalent... absent here"). Unlike an HTTP body, a local read has no
+// natural streaming point at this layer (curSource().ReadFile already
+// returns a fully-materialized []byte for Live, and a malicious `dsd replay`
+// capture bundle can claim an arbitrarily large payload for any key), so this
+// caps what's RETAINED and handed to the parser rather than the underlying
+// read itself — still closes the "unbounded memory downstream" attack path
+// (a huge /var/log/syslog fallback scan, or a crafted oversized bundle entry)
+// even though it can't reduce the one-time Live read cost. Set generous
+// enough for any legitimate /proc, /sys, or log-tail read.
+const maxCappedFileBytes = 16 << 20 // 16MiB
 
-// glob expands a shell pattern (filepath.Glob semantics) via the active source.
-func glob(pattern string) ([]string, error) { return curSource().Glob(pattern) }
+// maxCappedDirEntries bounds how many names glob/readDirNames return, for the
+// same reason: an adversarial replay bundle (or a pathological live glob/dir)
+// must not be able to force allocation of millions of entries.
+const maxCappedDirEntries = 200_000
 
-// openFile reads path via the active source and returns an io.ReadCloser.
+// capFileBytes truncates data to maxCappedFileBytes, KEEPING THE TAIL. Every
+// current caller of readFile/openFile that reads an append-only, ever-growing
+// file (e.g. cron_linux.go's syslog-style fallback scan) cares about the most
+// RECENT bytes; truncating from the front would silently discard exactly the
+// data being asked for.
+func capFileBytes(data []byte) []byte {
+	if len(data) <= maxCappedFileBytes {
+		return data
+	}
+	return data[len(data)-maxCappedFileBytes:]
+}
+
+// capDirEntries truncates names to maxCappedDirEntries.
+func capDirEntries(names []string) []string {
+	if len(names) <= maxCappedDirEntries {
+		return names
+	}
+	return names[:maxCappedDirEntries]
+}
+
+// readFile returns the contents of path via the active source, capped at
+// maxCappedFileBytes (tail-preserving — see capFileBytes).
+func readFile(path string) ([]byte, error) {
+	data, err := curSource().ReadFile(path)
+	if err != nil {
+		return nil, err
+	}
+	return capFileBytes(data), nil
+}
+
+// glob expands a shell pattern (filepath.Glob semantics) via the active
+// source, capped at maxCappedDirEntries matches.
+func glob(pattern string) ([]string, error) {
+	m, err := curSource().Glob(pattern)
+	if err != nil {
+		return nil, err
+	}
+	return capDirEntries(m), nil
+}
+
+// openFile reads path via the active source and returns an io.ReadCloser,
+// capped at maxCappedFileBytes (tail-preserving — see capFileBytes).
 // Use this as a drop-in for os.Open where the caller passes the result to a
 // parser that expects an io.Reader / io.ReadCloser.
 func openFile(path string) (io.ReadCloser, error) {
@@ -93,12 +148,19 @@ func openFile(path string) (io.ReadCloser, error) {
 	if err != nil {
 		return nil, err
 	}
-	return io.NopCloser(bytes.NewReader(data)), nil
+	return io.NopCloser(bytes.NewReader(capFileBytes(data))), nil
 }
 
-// readDirNames returns the sorted entry names of dir via the active source.
-// Use for callers that only need names (no IsDir / Info needed).
-func readDirNames(dir string) ([]string, error) { return curSource().ReadDir(dir) }
+// readDirNames returns the sorted entry names of dir via the active source,
+// capped at maxCappedDirEntries. Use for callers that only need names (no
+// IsDir / Info needed).
+func readDirNames(dir string) ([]string, error) {
+	names, err := curSource().ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	return capDirEntries(names), nil
+}
 
 // readLink returns the target of the symlink at path via the active source, so
 // capture/replay reproduces it instead of os.Readlink hitting the live machine.
