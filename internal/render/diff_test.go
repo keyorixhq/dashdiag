@@ -45,6 +45,49 @@ func TestPrintDiffPlainChange(t *testing.T) {
 	}
 }
 
+// TestPrintDiffSanitizesControlChars guards Finding internal-render-01-02:
+// DiffEntry.Name/Before/After ultimately derive from analysis heuristics that
+// can embed raw collector-reported identifiers (e.g. an NVMe/disk/pool device
+// name) with no character filtering upstream. A crafted Value containing an
+// ESC byte must not reach PrintDiff's output verbatim in either ModePlain or
+// ModeHuman (whose lipgloss .Render does not strip embedded escapes either).
+func TestPrintDiffSanitizesControlChars(t *testing.T) {
+	t.Parallel()
+	evilPayload := "\x1b[2Jevildevice"
+	before := diffSnap("host1", baseline.CheckResult{Name: "Disk", Status: "OK", Value: "/ 24%"})
+	after := diffSnap("host1", baseline.CheckResult{Name: "Disk", Status: "CRIT", Value: "94% " + evilPayload})
+
+	// ModePlain never wraps output in lipgloss styling, so the strict
+	// "no raw ESC byte anywhere" check applies cleanly here.
+	var plainBuf bytes.Buffer
+	if err := PrintDiff(&plainBuf, before, after, output.ModePlain); err != nil {
+		t.Fatalf("PrintDiff(ModePlain): %v", err)
+	}
+	plainOut := plainBuf.String()
+	if strings.ContainsRune(plainOut, 0x1b) {
+		t.Errorf("ModePlain: output still contains a raw ESC byte: %q", plainOut)
+	}
+	if !strings.Contains(plainOut, "evildevice") {
+		t.Errorf("ModePlain: expected printable payload to survive sanitization, got:\n%s", plainOut)
+	}
+
+	// ModeHuman legitimately wraps the line in lipgloss ANSI styling (which
+	// also starts with ESC), so this mode can't assert "no ESC anywhere" —
+	// instead assert the attacker's specific payload no longer appears intact
+	// as a contiguous sequence.
+	var humanBuf bytes.Buffer
+	if err := PrintDiff(&humanBuf, before, after, output.ModeHuman); err != nil {
+		t.Fatalf("PrintDiff(ModeHuman): %v", err)
+	}
+	humanOut := humanBuf.String()
+	if strings.Contains(humanOut, evilPayload) {
+		t.Errorf("ModeHuman: attacker's raw escape payload survived intact: %q", humanOut)
+	}
+	if !strings.Contains(humanOut, "evildevice") {
+		t.Errorf("ModeHuman: expected printable payload to survive sanitization, got:\n%s", humanOut)
+	}
+}
+
 // TestPrintDiffNoChange: identical snapshots report no changes (not a false diff).
 func TestPrintDiffNoChange(t *testing.T) {
 	t.Parallel()

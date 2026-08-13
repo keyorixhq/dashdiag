@@ -80,8 +80,17 @@ func PrintDiff(w io.Writer, before, after *baseline.Snapshot, mode output.Output
 		}
 	} else {
 		for _, e := range changed {
-			name := fmt.Sprintf("  %-12s", e.Name)
-			diff := fmt.Sprintf("%s → %s", e.Before, e.After)
+			// e.Name/Before/After ultimately derive from analysis heuristics
+			// that can embed raw collector-reported identifiers (e.g. an
+			// NVMe/disk/pool device name) with no character filtering upstream
+			// of this print — strip control/ANSI-escape bytes before they
+			// reach the terminal via fmt.Fprintf or lipgloss .Render (which
+			// does not strip embedded escapes on its own).
+			eName := output.SanitizeControl(e.Name)
+			eBefore := output.SanitizeControl(e.Before)
+			eAfter := output.SanitizeControl(e.After)
+			name := fmt.Sprintf("  %-12s", eName)
+			diff := fmt.Sprintf("%s → %s", eBefore, eAfter)
 			if e.Unverified {
 				// Never OK-green and never the plain after-level color here:
 				// this side of the transition wasn't actually verified this
@@ -99,7 +108,7 @@ func PrintDiff(w io.Writer, before, after *baseline.Snapshot, mode output.Output
 				}
 				fmt.Fprintf(w, "%s %s\n", name, styleForStatus(level).Render(diff))
 			} else {
-				fmt.Fprintf(w, "%s %s -> %s\n", name, e.Before, e.After)
+				fmt.Fprintf(w, "%s %s -> %s\n", name, eBefore, eAfter)
 			}
 		}
 	}
@@ -107,7 +116,7 @@ func PrintDiff(w io.Writer, before, after *baseline.Snapshot, mode output.Output
 	if len(unchanged) > 0 {
 		names := make([]string, len(unchanged))
 		for i, e := range unchanged {
-			names[i] = e.Name
+			names[i] = output.SanitizeControl(e.Name)
 		}
 		summary := fmt.Sprintf("Unchanged (%d checks): %s", len(unchanged), strings.Join(names, "  "))
 		fmt.Fprintln(w)
