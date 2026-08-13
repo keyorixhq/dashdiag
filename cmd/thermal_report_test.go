@@ -71,6 +71,23 @@ func TestPrintThermalReportThresholds(t *testing.T) {
 	}
 }
 
+// TestPrintThermalReport_SanitizesSensorLabel guards Finding:
+// internal-collectors-32-07. The sensor label comes verbatim from a
+// temp*_label sysfs file, which this codebase's threat model treats as
+// untrusted /sys content.
+func TestPrintThermalReport_SanitizesSensorLabel(t *testing.T) {
+	out := captureStdout(t, func() {
+		printThermalReport(&models.ThermalInfo{Source: "hwmon", CPUTempC: 55,
+			CoreTemps: map[string]float64{"\x1b[2Jevil": 60}}, output.ModePlain, 0)
+	})
+	if strings.ContainsRune(out, 0x1b) {
+		t.Errorf("sensor label output contains a raw ESC byte, got:\n%q", out)
+	}
+	if !strings.Contains(out, "evil") {
+		t.Errorf("printable text around the escape sequence must survive sanitization, got:\n%q", out)
+	}
+}
+
 // TestRunThermal exercises runThermal's real (read-only) collector wiring in
 // --plain and --json mode (non-watch). Same real-I/O precedent as
 // cpu_report_test.go.

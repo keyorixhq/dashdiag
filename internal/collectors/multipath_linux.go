@@ -65,7 +65,22 @@ func IsMultipathPresent() bool {
 	if _, err := lookPath("multipathd"); err != nil {
 		return false
 	}
-	return anyProcessNamed("multipathd") || multipathMapsPresent("/sys/block")
+	return multipathDaemonRunning() || multipathMapsPresent("/sys/block")
+}
+
+// multipathDaemonRunning reports whether the real multipathd daemon is
+// actually running, via its control socket rather than /proc/<pid>/comm.
+// /proc/<pid>/comm is self-reported and any unprivileged local process can
+// set it to "multipathd" (prctl(PR_SET_NAME) or argv[0]) — that is not proof
+// the daemon is running, and previously let a spoofed comm make
+// IsMultipathPresent() report a running daemon when it wasn't, producing a
+// misleading "multipathd running but paths unreadable" diagnosis instead of
+// the accurate "installed, daemon not running" state (Finding:
+// internal-collectors-21-08). multipathd's control socket lives under /run,
+// which an unprivileged process cannot write to — only the real daemon
+// (started as root) can create it.
+func multipathDaemonRunning() bool {
+	return fileExists("/run/multipathd.sock") || fileExists("/var/run/multipathd.sock")
 }
 
 // multipathMapsPresent reports whether any device-mapper device in sysBlockDir is a

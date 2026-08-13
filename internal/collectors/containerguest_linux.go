@@ -4,6 +4,7 @@ package collectors
 
 import (
 	"context"
+	"math"
 	"os"
 	"path/filepath"
 	"strings"
@@ -37,8 +38,8 @@ func (c *ContainerGuestCollector) Collect(_ context.Context) (interface{}, error
 		InContainer:   cc.InContainer,
 		Runtime:       containerRuntime(cc),
 		CgroupV2:      cc.CgroupVersion == 2,
-		MemLimitBytes: int64(cc.MemLimitMB * 1024 * 1024),
-		CPUQuotaCores: cc.CPULimitCores,
+		MemLimitBytes: safeMemLimitBytes(cc.MemLimitMB),
+		CPUQuotaCores: safeCPUQuotaCores(cc.CPULimitCores),
 		RunAsRoot:     os.Geteuid() == 0,
 	}
 
@@ -82,6 +83,46 @@ func (c *ContainerGuestCollector) Collect(_ context.Context) (interface{}, error
 	info.UnderlyingVM = underlyingVM()
 
 	return info, nil
+}
+
+// maxSaneMemLimitMB bounds a container memory-limit value pulled from
+// platform.ContainerContext before it is converted to bytes. Under `dsd
+// replay`, that value is unmarshalled directly from an attacker-controlled
+// capture-bundle JSON with no validation — Go defines float64->int64
+// conversion of a NaN/Inf/out-of-range value as implementation-defined, not
+// a checked/panicking operation, so an unvalidated crafted MemLimitMB would
+// otherwise produce a garbage int64 that reaches the rendered report. 1 PiB
+// in MB is far beyond any real machine's installed RAM, and comfortably
+// below where the ×1024×1024 byte conversion could overflow int64.
+const maxSaneMemLimitMB = 1 << 30 // 1,073,741,824 MB = 1 PiB
+
+// maxSaneCPUQuotaCores bounds a CPU-quota-in-cores value for the same reason:
+// no real host has anywhere near this many cores, but a crafted replay
+// bundle could supply anything.
+const maxSaneCPUQuotaCores = 1 << 20 // ~1 million cores
+
+// safeMemLimitBytes converts a container memory limit in MB to bytes,
+// rejecting NaN/Inf/negative/implausibly-large values (Finding:
+// internal-collectors-05-05) instead of letting them flow through an
+// unchecked float64->int64 conversion. 0 is the existing "not
+// measured/no limit" sentinel the analysis layer already treats specially
+// (heuristics_containerguest.go gates on MemLimitBytes <= 0), so an invalid
+// input degrades to that same safe, already-understood state.
+func safeMemLimitBytes(mb float64) int64 {
+	if math.IsNaN(mb) || math.IsInf(mb, 0) || mb < 0 || mb > maxSaneMemLimitMB {
+		return 0
+	}
+	return int64(mb * 1024 * 1024)
+}
+
+// safeCPUQuotaCores rejects NaN/Inf/negative/implausibly-large CPU-quota
+// values for the same reason as safeMemLimitBytes, before the value is
+// stored and eventually rendered (e.g. "%.2f cores").
+func safeCPUQuotaCores(cores float64) float64 {
+	if math.IsNaN(cores) || math.IsInf(cores, 0) || cores < 0 || cores > maxSaneCPUQuotaCores {
+		return 0
+	}
+	return cores
 }
 
 func containerRuntime(cc platform.ContainerContext) string {

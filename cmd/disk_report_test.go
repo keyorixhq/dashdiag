@@ -69,6 +69,21 @@ func TestPrintSMARTLine(t *testing.T) {
 	}
 }
 
+// TestPrintSMARTLine_SanitizesError guards Finding: internal-collectors-24-02.
+// s.Error is built from smartctl's JSON open_error/OpenError fields — drive-
+// reported text a hostile device could use to inject terminal control bytes.
+func TestPrintSMARTLine_SanitizesError(t *testing.T) {
+	out := captureStdout(t, func() {
+		printSMARTLine(&models.SMARTInfo{Error: "smartctl: \x1b[31mFAKE\x1b[0m open failed"}, output.ModePlain)
+	})
+	if strings.ContainsRune(out, 0x1b) {
+		t.Errorf("SMART error output contains a raw ESC byte, got:\n%q", out)
+	}
+	if !strings.Contains(out, "FAKE") || !strings.Contains(out, "open failed") {
+		t.Errorf("printable text around the escape sequence must survive sanitization, got:\n%q", out)
+	}
+}
+
 func TestPrintDiskDrives(t *testing.T) {
 	if out := captureStdout(t, func() { printDiskDrives(&models.DiskInfo{}, output.ModePlain) }); out != "" {
 		t.Errorf("no drives should print nothing, got:\n%s", out)
@@ -83,6 +98,23 @@ func TestPrintDiskDrives(t *testing.T) {
 	}
 	if !strings.Contains(out, "SMART") {
 		t.Errorf("a drive with SMART data should render the SMART sub-line, got:\n%s", out)
+	}
+}
+
+// TestPrintDiskDrives_SanitizesModel guards Finding: internal-collectors-24-02.
+// d.Model comes straight from sysfs (`model` file) / smartctl JSON — a
+// hostile device, USB drive, or virtualization backend can embed terminal
+// control/escape bytes in it.
+func TestPrintDiskDrives_SanitizesModel(t *testing.T) {
+	info := &models.DiskInfo{Drives: []models.PhysicalDrive{
+		{Name: "sda", SizeGB: 100, Model: "\x1b[8mHIDDEN\x1b[0m Drive"},
+	}}
+	out := captureStdout(t, func() { printDiskDrives(info, output.ModePlain) })
+	if strings.ContainsRune(out, 0x1b) {
+		t.Errorf("drive model output contains a raw ESC byte, got:\n%q", out)
+	}
+	if !strings.Contains(out, "HIDDEN") || !strings.Contains(out, "Drive") {
+		t.Errorf("printable text around the escape sequence must survive sanitization, got:\n%q", out)
 	}
 }
 

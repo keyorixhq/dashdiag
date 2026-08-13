@@ -4,6 +4,7 @@ package collectors
 
 import (
 	"context"
+	"math"
 	"testing"
 	"time"
 
@@ -313,6 +314,96 @@ func TestCgroupKeyedValue(t *testing.T) {
 	}
 	if got := cgroupKeyedValue("", "oom_kill"); got != 0 {
 		t.Errorf("empty = %d, want 0", got)
+	}
+}
+
+// TestSafeMemLimitBytes guards Finding: internal-collectors-05-05. Under
+// `dsd replay`, ContainerContext.MemLimitMB is unmarshalled directly from an
+// attacker-controlled capture-bundle JSON with no validation, and Go defines
+// float64->int64 conversion of a NaN/Inf/out-of-range value as
+// implementation-defined rather than checked. safeMemLimitBytes must reject
+// those inputs (returning 0, the existing "not measured/no limit" sentinel)
+// instead of letting them flow into an unchecked conversion.
+func TestSafeMemLimitBytes(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		mb   float64
+		want int64
+	}{
+		{"normal value", 512, 512 * 1024 * 1024},
+		{"zero", 0, 0},
+		{"NaN rejected", math.NaN(), 0},
+		{"+Inf rejected", math.Inf(1), 0},
+		{"-Inf rejected", math.Inf(-1), 0},
+		{"negative rejected", -100, 0},
+		{"implausibly large rejected", maxSaneMemLimitMB + 1, 0},
+		{"at the sane ceiling accepted", maxSaneMemLimitMB, maxSaneMemLimitMB * 1024 * 1024},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := safeMemLimitBytes(tt.mb); got != tt.want {
+				t.Errorf("safeMemLimitBytes(%v) = %d, want %d", tt.mb, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestSafeCPUQuotaCores mirrors TestSafeMemLimitBytes for the CPU-quota
+// field, guarding the same Finding: internal-collectors-05-05.
+func TestSafeCPUQuotaCores(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name  string
+		cores float64
+		want  float64
+	}{
+		{"normal value", 2.5, 2.5},
+		{"zero", 0, 0},
+		{"NaN rejected", math.NaN(), 0},
+		{"+Inf rejected", math.Inf(1), 0},
+		{"-Inf rejected", math.Inf(-1), 0},
+		{"negative rejected", -4, 0},
+		{"implausibly large rejected", maxSaneCPUQuotaCores + 1, 0},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := safeCPUQuotaCores(tt.cores); got != tt.want {
+				t.Errorf("safeCPUQuotaCores(%v) = %v, want %v", tt.cores, got, tt.want)
+			}
+		})
+	}
+}
+
+// TestContainerGuestCollector_Collect_RejectsUnsaneContainerContext drives
+// the same guard through Collect() end to end: a replay-bundle-sourced
+// ContainerContext with an implausibly large memory limit and CPU quota
+// (finite, so it survives JSON round-tripping like a real crafted bundle
+// would — NaN/Inf can't be marshalled by encoding/json at all, which is
+// exercised directly at the unit level above) must not flow straight into
+// ContainerGuestInfo.
+func TestContainerGuestCollector_Collect_RejectsUnsaneContainerContext(t *testing.T) {
+	withCombinedFixture(t, map[string][]byte{
+		"platform/container-context": containerContextJSON(t, platform.ContainerContext{
+			InContainer:   true,
+			CgroupVersion: 2,
+			MemLimitMB:    maxSaneMemLimitMB * 1e6,
+			CPULimitCores: maxSaneCPUQuotaCores * 1e6,
+		}),
+	}, nil, nil)
+	c := NewContainerGuestCollector()
+	res, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	info := res.(*models.ContainerGuestInfo)
+	if info.MemLimitBytes != 0 {
+		t.Errorf("MemLimitBytes = %d, want 0 for an implausibly large MemLimitMB", info.MemLimitBytes)
+	}
+	if info.CPUQuotaCores != 0 {
+		t.Errorf("CPUQuotaCores = %v, want 0 for an implausibly large CPULimitCores", info.CPUQuotaCores)
 	}
 }
 

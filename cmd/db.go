@@ -192,7 +192,11 @@ func printMongoState(m *models.MongoDBInfo, mode output.OutputMode) {
 	if !m.Detected {
 		return
 	}
-	fmt.Fprintf(os.Stdout, "\n🍃 MongoDB %s\n", m.Version)
+	// m.Version comes straight from the mongo shell's db.version() result on
+	// the attacker-reachable service at 127.0.0.1:27017 — no privilege is
+	// required to bind that port before the real mongod starts (Finding:
+	// internal-collectors-21-01).
+	fmt.Fprintf(os.Stdout, "\n🍃 MongoDB %s\n", output.SanitizeControl(m.Version))
 	if m.MetricsRead {
 		fmt.Fprintf(os.Stdout, "  %s reachable\n", asciiOr("ok", iconOK, mode))
 		if m.IsReplicaSet {

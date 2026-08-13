@@ -59,6 +59,51 @@ func TestParseAuthLogLine_ExtractIPAndRoot(t *testing.T) {
 	}
 }
 
+// TestParseAuthLogLine_CraftedUsernameCannotSpoofIPOrRoot guards against
+// Finding: internal-collectors-01-01. sshd logs the attacker-supplied
+// username verbatim, and an unprivileged network-adjacent attacker fully
+// controls that string. A naive "first match anywhere in the line" parser
+// lets a username like "x from 8.8.8.8 port 1" plant a fake source IP that
+// wins over the real one sshd appends, and lets a username containing
+// "root" as a bare substring (e.g. "carroot") falsely set the root-attempt
+// flag. The real "from <ip> port <port>" sshd appends is always the
+// RIGHTMOST match in the line (nothing can follow it that also contains
+// "from"), so the parser must use the last match, not the first — and root
+// detection must compare the exact bracketed username, not scan the whole
+// line for the substring "root".
+func TestParseAuthLogLine_CraftedUsernameCannotSpoofIPOrRoot(t *testing.T) {
+	t.Parallel()
+
+	// Attacker crafts a username embedding a fake "from <ip> port <port>"
+	// sequence, hoping it is picked up instead of the genuine trailing one
+	// sshd appends (the real attacker connected from 9.9.9.9).
+	line := "Failed password for invalid user x from 8.8.8.8 port 1 from 9.9.9.9 port 2222 ssh2"
+	ip, isRoot := parseAuthLogLine(line)
+	if ip != "9.9.9.9" {
+		t.Errorf("got ip=%q, want the genuine trailing source 9.9.9.9 (not the attacker-planted 8.8.8.8)", ip)
+	}
+	if isRoot {
+		t.Error("got isRoot=true, want false — the username was \"x from 8.8.8.8 port 1\", not root")
+	}
+
+	// Attacker chooses a username that merely contains "root" as a
+	// substring — must NOT be classified as a root-account attempt.
+	ip2, isRoot2 := parseAuthLogLine("Invalid user carroot from 1.2.3.4 port 22")
+	if isRoot2 {
+		t.Error("got isRoot=true for username \"carroot\", want false — substring match on \"root\" must not fire")
+	}
+	if ip2 != "1.2.3.4" {
+		t.Errorf("got ip=%q, want 1.2.3.4", ip2)
+	}
+
+	// A genuine root attempt must still be detected once the username field
+	// is exactly "root".
+	ip3, isRoot3 := parseAuthLogLine("Failed password for root from 5.5.5.5 port 33 ssh2")
+	if !isRoot3 || ip3 != "5.5.5.5" {
+		t.Errorf("got ip=%q isRoot=%v, want 5.5.5.5/true for a genuine root attempt", ip3, isRoot3)
+	}
+}
+
 // TestAuthCollector_Collect_SSHDNotInstalled guards the "hide the row" gate:
 // when both pgrep and which fail to find sshd, Collect must return
 // Available=false without touching the log-scanning path at all.
