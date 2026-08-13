@@ -21,7 +21,11 @@ func TopProcessesBySwap(ctx context.Context, n int) (*models.Details, error) {
 	if runtime.GOOS == "darwin" {
 		return nil, nil
 	}
-	return topProcessesBySwapLinux(ctx, n)
+	d, err := topProcessesBySwapLinux(ctx, n)
+	// Name comes from /proc/PID/status's Name: field, attacker-settable via
+	// prctl(PR_SET_NAME) — strip control/ANSI-escape bytes before this reaches
+	// the SWAP table's COMMAND column.
+	return sanitizeDetails(d), err
 }
 
 type procSwap struct {

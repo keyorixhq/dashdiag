@@ -30,18 +30,24 @@ func FailedUnitLogs(ctx context.Context, unit string, lines int) (*models.Detail
 		// real-world case, so surface an honest caveat instead of silently
 		// implying "no journal entries" when we simply couldn't read it.
 		if os.Geteuid() != 0 {
-			return &models.Details{
+			// unit is concatenated raw into Title/Note with no validation at
+			// this layer; strip control/ANSI-escape bytes as defense-in-depth
+			// regardless of how well-behaved the current caller is.
+			return sanitizeDetails(&models.Details{
 				Type:  "log_tail",
 				Title: "Recent journal output for " + unit,
 				Note:  "could not read the journal for " + unit + " (needs root or systemd-journal group membership)",
-			}, nil
+			}), nil
 		}
 		return nil, nil
 	}
 
-	return &models.Details{
+	// out is the raw journalctl log text, and unit reaches Title above — both
+	// are attacker-influenceable; strip control/ANSI-escape bytes before this
+	// reaches the rendered log_tail.
+	return sanitizeDetails(&models.Details{
 		Type:  "log_tail",
 		Title: "Recent journal output for " + unit,
 		KV:    map[string]string{"log_tail": out},
-	}, nil
+	}), nil
 }
