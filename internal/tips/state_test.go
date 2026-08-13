@@ -175,16 +175,71 @@ func TestLoadState_StateFileIsDirectory(t *testing.T) {
 	}
 }
 
+// TestStateFilePath_HomeDirUnavailable guards internal-tips-01-02:
+// stateFilePath previously fell back to the RELATIVE path ".dsd/state.json"
+// when $HOME is unset, which resolves against whatever (possibly attacker-
+// writable) CWD dsd happens to run from. It must now return "" — a
+// sentinel callers check for — never a relative path.
 func TestStateFilePath_HomeDirUnavailable(t *testing.T) {
 	// No t.Parallel(): t.Setenv mutates the shared HOME env var.
 	// os.UserHomeDir() returns an error on Unix when $HOME is unset/empty —
 	// exercise the fallback branch in stateFilePath.
 	t.Setenv("HOME", "")
 
-	got := stateFilePath()
-	want := ".dsd/state.json"
-	if got != want {
-		t.Errorf("stateFilePath() = %q, want %q when HOME is unavailable", got, want)
+	if got := stateFilePath(); got != "" {
+		t.Errorf(`stateFilePath() = %q, want "" (never a relative path) when HOME is unavailable`, got)
+	}
+}
+
+// TestSave_NoHomeDirFailsClosed guards internal-tips-01-02: with $HOME
+// unresolved, Save() must return an error and must NOT write anything to
+// the process's current working directory (the old ".dsd/state.json.tmp"
+// relative fallback).
+func TestSave_NoHomeDirFailsClosed(t *testing.T) {
+	// No t.Parallel(): t.Setenv mutates the shared HOME env var, and this
+	// changes CWD.
+	t.Chdir(t.TempDir())
+	t.Setenv("HOME", "")
+
+	s := &State{TipsEnabled: true, CommandCounts: map[string]int{}}
+	if err := s.Save(); err == nil {
+		t.Fatal("Save() should fail when $HOME cannot be resolved")
+	}
+	if _, err := os.Stat(".dsd"); !os.IsNotExist(err) {
+		t.Errorf("Save() must not create ./.dsd when $HOME is unresolved, stat err = %v", err)
+	}
+}
+
+// TestSave_RefusesSymlinkedTmp guards the O_NOFOLLOW half of
+// internal-tips-01-02: Save()'s tmp-file write previously used plain
+// os.WriteFile (follows an existing symlink, no O_EXCL). A pre-planted
+// symlink at state.json.tmp must not have its target overwritten.
+func TestSave_RefusesSymlinkedTmp(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	if err := os.MkdirAll(filepath.Join(dir, ".dsd"), 0o750); err != nil {
+		t.Fatal(err)
+	}
+
+	victim := filepath.Join(t.TempDir(), "victim.json")
+	if err := os.WriteFile(victim, []byte("original"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(victim, filepath.Join(dir, ".dsd", "state.json.tmp")); err != nil {
+		t.Fatal(err)
+	}
+
+	s := &State{TipsEnabled: true, CommandCounts: map[string]int{}}
+	if err := s.Save(); err == nil {
+		t.Fatal("Save() should refuse to write through the symlinked tmp file")
+	}
+
+	data, err := os.ReadFile(victim) //nolint:gosec // test-controlled path
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "original" {
+		t.Errorf("victim file was overwritten: %q", data)
 	}
 }
 

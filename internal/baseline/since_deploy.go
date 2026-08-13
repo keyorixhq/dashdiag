@@ -94,12 +94,24 @@ func parseProcStart(r io.Reader, boot time.Time) (time.Time, string, bool) {
 	if err != nil {
 		return time.Time{}, "", false
 	}
-	fields := strings.Fields(string(data))
-	if len(fields) < 22 {
+	raw := string(data)
+	// comm (field 2) is parenthesized but can itself contain spaces (many
+	// processes/threads use multi-word names, e.g. "Web Content"). Naively
+	// splitting the whole line on whitespace shifts every field after it,
+	// silently misparsing starttime instead of failing cleanly. Find the
+	// closing paren directly instead — same convention as proc_linux.go's
+	// procUptimeSec/procCPUSec.
+	lp := strings.Index(raw, "(")
+	rp := strings.LastIndex(raw, ")")
+	if lp < 0 || rp < lp || rp+2 > len(raw) {
 		return time.Time{}, "", false
 	}
-	name := strings.Trim(fields[1], "()")
-	startTicks, err := strconv.ParseFloat(fields[21], 64)
+	name := raw[lp+1 : rp]
+	fields := strings.Fields(raw[rp+2:])
+	if len(fields) < 20 {
+		return time.Time{}, "", false
+	}
+	startTicks, err := strconv.ParseFloat(fields[19], 64)
 	if err != nil {
 		return time.Time{}, "", false
 	}
@@ -144,7 +156,7 @@ func parseBootTime(r io.Reader) (time.Time, bool) {
 
 func FindBaselineBeforeTime(t time.Time, hostname string) (*Snapshot, error) {
 	dir := baselineDir()
-	entries, err := filepath.Glob(filepath.Join(dir, hostname+"-2*.json"))
+	entries, err := filepath.Glob(filepath.Join(dir, SafeHostname(hostname)+"-2*.json"))
 	if err != nil || len(entries) == 0 {
 		return nil, fmt.Errorf("no baselines found for %s", hostname)
 	}

@@ -337,6 +337,17 @@ func TestReadAll_UnboundedReadCappedAtMaxEntries(t *testing.T) {
 	}
 }
 
+// TestReadAll_EmptyPath guards internal-store-01-02: an empty path (the
+// StorePath()-unresolved sentinel) must be treated like "no store yet", not
+// passed through to os.Open("").
+func TestReadAll_EmptyPath(t *testing.T) {
+	t.Parallel()
+	entries, err := ReadAll("", "h", 10)
+	if err != nil || entries != nil {
+		t.Errorf(`ReadAll(""): got (%v, %v), want (nil, nil)`, entries, err)
+	}
+}
+
 func TestReadAll_MissingFile(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

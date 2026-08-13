@@ -241,6 +241,84 @@ func TestInstallPreDeployWriteError(t *testing.T) {
 	}
 }
 
+// TestInstallPreDeployRefusesSymlink guards cmd-08-05: on a shared/reused
+// working directory, another local user could pre-plant a symlink at
+// scripts/check-health.sh pointing at a file the installing user can write
+// but the attacker cannot. Plain os.WriteFile follows the symlink and
+// deposits a fixed, world-executable script at the attacker-chosen
+// destination. installPreDeploy must refuse to write through it.
+func TestInstallPreDeployRefusesSymlink(t *testing.T) {
+	dir := t.TempDir()
+	oldWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWd) })
+
+	if err := os.Mkdir(filepath.Join(dir, "scripts"), 0o750); err != nil {
+		t.Fatalf("Mkdir scripts: %v", err)
+	}
+	victim := filepath.Join(t.TempDir(), "victim.sh")
+	if err := os.WriteFile(victim, []byte("original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(victim, filepath.Join(dir, "scripts", "check-health.sh")); err != nil {
+		t.Fatal(err)
+	}
+
+	errOut := captureStderr(t, func() { installPreDeploy(false) })
+	if errOut == "" {
+		t.Error("expected an error refusing to write through the symlink")
+	}
+	data, err := os.ReadFile(victim) //nolint:gosec // test-controlled path
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "original" {
+		t.Errorf("victim file was overwritten: %q", data)
+	}
+}
+
+// TestInstallGitHookRefusesSymlink is installGitHook's counterpart to
+// TestInstallPreDeployRefusesSymlink — same hazard, .git/hooks/pre-push.
+func TestInstallGitHookRefusesSymlink(t *testing.T) {
+	dir := t.TempDir()
+	oldWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWd) })
+
+	if err := os.MkdirAll(filepath.Join(dir, ".git", "hooks"), 0o750); err != nil {
+		t.Fatalf("MkdirAll .git/hooks: %v", err)
+	}
+	victim := filepath.Join(t.TempDir(), "victim.sh")
+	if err := os.WriteFile(victim, []byte("original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(victim, filepath.Join(dir, ".git", "hooks", "pre-push")); err != nil {
+		t.Fatal(err)
+	}
+
+	errOut := captureStderr(t, func() { installGitHook(false) })
+	if errOut == "" {
+		t.Error("expected an error refusing to write through the symlink")
+	}
+	data, err := os.ReadFile(victim) //nolint:gosec // test-controlled path
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "original" {
+		t.Errorf("victim file was overwritten: %q", data)
+	}
+}
+
 // TestInstallGitHubActionsMkdirError exercises installGitHubActions'
 // MkdirAll-error branch: a plain file named ".github" blocks directory
 // creation.
@@ -260,6 +338,41 @@ func TestInstallGitHubActionsMkdirError(t *testing.T) {
 	errOut := captureStderr(t, func() { installGitHubActions(false) })
 	if errOut == "" {
 		t.Error("a blocked .github/ directory should produce an error on stderr")
+	}
+}
+
+// TestGitHubWorkflow_InstallStepIsHardened is the regression test for
+// cmd-08-06: the generated workflow's install step used to be
+// `curl -sSL https://dashdiag.sh/install.sh | bash` — no -f (a 404/error page
+// would still pipe straight into the shell), no --proto/--proto-redir
+// restriction (a compromised redirect could downgrade the fetch to plain
+// HTTP), and a redirector short-link instead of the canonical
+// raw.githubusercontent.com source install.sh's own header comment documents.
+// This pins the hardened invocation so a future edit can't silently regress it.
+func TestGitHubWorkflow_InstallStepIsHardened(t *testing.T) {
+	installLine := ""
+	for _, line := range strings.Split(githubWorkflow, "\n") {
+		if strings.Contains(line, "install.sh") {
+			installLine = line
+			break
+		}
+	}
+	if installLine == "" {
+		t.Fatal("githubWorkflow has no install.sh line")
+	}
+	for _, want := range []string{
+		"curl -fsSL",
+		"--proto '=https'",
+		"--proto-redir '=https'",
+		"https://raw.githubusercontent.com/keyorixhq/dashdiag/main/install.sh",
+		"| sh",
+	} {
+		if !strings.Contains(installLine, want) {
+			t.Errorf("githubWorkflow install step missing %q; got %q", want, installLine)
+		}
+	}
+	if strings.Contains(installLine, "| bash") {
+		t.Errorf("githubWorkflow install step should pipe to `sh` (install.sh's own shebang), not bash; got %q", installLine)
 	}
 }
 

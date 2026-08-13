@@ -138,6 +138,16 @@ var mcpPipelineMu sync.Mutex
 // underlying collector run).
 var runHealthOnceFn = runHealthOnce
 
+// mcpToolTimeout additionally bounds toolHealth/toolCapture's collector run
+// on top of whatever cancellation the caller's own ctx carries — the MCP SDK
+// dispatches tools/call with jsonrpc2.Async, so ctx IS a real per-request
+// context, but a client that never cancels still needs a backstop. Matches
+// the product's own <35s completion promise plus headroom for toolCapture's
+// tar/gzip write. Without this, a single hung collector (a real network dial
+// with no timeout of its own, a filtered egress path in a sandboxed
+// environment) had nothing bounding the MCP call if the caller didn't cancel.
+const mcpToolTimeout = 40 * time.Second
+
 // toolHealth runs the full health pipeline and returns the JSON verdict.
 // Equivalent to `dsd health --json [--deep] [--cve]`.
 func toolHealth(ctx context.Context, _ *mcp.CallToolRequest, in mcpHealthInput) (
@@ -146,6 +156,8 @@ func toolHealth(ctx context.Context, _ *mcp.CallToolRequest, in mcpHealthInput) 
 	mcpPipelineMu.Lock()
 	defer mcpPipelineMu.Unlock()
 
+	ctx, cancel := context.WithTimeout(ctx, mcpToolTimeout)
+	defer cancel()
 	ctrCtx := collectors.ContainerContextViaSource()
 	cloudEnv := collectors.CloudEnvironmentViaSource()
 	profile := collectors.ProfileViaSource()
@@ -178,6 +190,8 @@ func toolCapture(ctx context.Context, _ *mcp.CallToolRequest, in mcpCaptureInput
 		in.Sanitize = true
 	}
 
+	ctx, cancel := context.WithTimeout(ctx, mcpToolTimeout)
+	defer cancel()
 	ctrCtx := platform.DetectContainerContext()
 	cloudEnv := platform.DetectCloudEnvironment()
 	profile := platform.Detect()

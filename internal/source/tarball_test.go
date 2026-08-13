@@ -48,6 +48,39 @@ func TestSaveTarballBadDestination(t *testing.T) {
 	}
 }
 
+// TestSaveTarballRefusesSymlink guards cmd-09-02: SaveTarball's dstPath is
+// operator/caller-chosen (--out on `dsd capture --raw`, or an MCP tool's
+// out_path) and can be a fixed/predictable path. tarGzDir's os.OpenFile
+// previously used O_CREATE|O_TRUNC with no O_EXCL/O_NOFOLLOW, so a
+// pre-existing symlink at dstPath would be followed and its target silently
+// overwritten with the bundle. SaveTarball must refuse instead.
+func TestSaveTarballRefusesSymlink(t *testing.T) {
+	t.Parallel()
+
+	victim := filepath.Join(t.TempDir(), "victim.tar.gz")
+	if err := os.WriteFile(victim, []byte("original contents"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(t.TempDir(), "out.tar.gz")
+	if err := os.Symlink(victim, dst); err != nil {
+		t.Fatal(err)
+	}
+
+	b := NewBundle()
+	b.PutFile("/etc/present", []byte("data"))
+	if err := b.SaveTarball(dst); err == nil {
+		t.Fatal("SaveTarball should refuse to write through a pre-existing symlink")
+	}
+
+	data, err := os.ReadFile(victim) //nolint:gosec // test-controlled path
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "original contents" {
+		t.Errorf("victim file was overwritten: %q", data)
+	}
+}
+
 // TestLoadTarballOpenFailure exercises LoadTarball's untarGz open-failure path.
 func TestLoadTarballOpenFailure(t *testing.T) {
 	t.Parallel()
