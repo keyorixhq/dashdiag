@@ -2,8 +2,10 @@ package analysis
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"slices"
+	"strings"
 
 	"gopkg.in/yaml.v3"
 )
@@ -74,7 +76,70 @@ func LoadPolicy(path string) (*PolicyFile, error) {
 	if err := yaml.Unmarshal(data, &p); err != nil {
 		return nil, fmt.Errorf("cannot parse policy file %q: %w", path, err)
 	}
+	if err := validatePolicy(&p); err != nil {
+		return nil, fmt.Errorf("policy file %q: %w", path, err)
+	}
 	return &p, nil
+}
+
+// pctField names a percentage-typed PolicyFile field for range validation.
+type pctField struct {
+	name string
+	val  float64
+}
+
+// validatePolicy rejects threshold values that would silently defeat the CI
+// health gate: a percentage above 100 (or the YAML 1.1 literal ".inf", which
+// gopkg.in/yaml.v3 accepts as +Inf) makes the corresponding WARN/CRIT
+// classification permanently unreachable, since the underlying metric can
+// never reach it. It also validates Deny entries are recognized level names
+// (case-insensitive) and normalizes them to upper-case in place, so a typo'd
+// or wrong-case deny list ("warn" instead of "WARN") is caught as a config
+// error instead of silently behaving as "deny nothing".
+func validatePolicy(p *PolicyFile) error {
+	pcts := []pctField{
+		{"ram_warn_pct", p.RAMWarnPct}, {"ram_crit_pct", p.RAMCritPct},
+		{"slab_warn_pct", p.SlabWarnPct},
+		{"disk_warn_pct", p.DiskWarnPct}, {"disk_crit_pct", p.DiskCritPct},
+		{"swap_warn_pct", p.SwapWarnPct}, {"swap_crit_pct", p.SwapCritPct},
+		{"io_util_warn_pct", p.IOUtilWarnPct}, {"io_util_crit_pct", p.IOUtilCritPct},
+		{"fd_system_warn_pct", p.FDSystemWarnPct}, {"fd_system_crit_pct", p.FDSystemCritPct},
+	}
+	for _, f := range pcts {
+		if f.val == 0 {
+			continue // unset — defaults apply
+		}
+		if math.IsInf(f.val, 0) || math.IsNaN(f.val) || f.val < 0 || f.val > 100 {
+			return fmt.Errorf("%s: %v is not a valid percentage (must be > 0 and <= 100)", f.name, f.val)
+		}
+	}
+
+	// Non-percentage numeric fields must still be finite and non-negative —
+	// ".inf"/negative values are nonsensical thresholds that never trip.
+	others := []pctField{
+		{"cpu_load_warn_multiplier", p.CPULoadWarnMultiplier}, {"cpu_load_crit_multiplier", p.CPULoadCritMultiplier},
+		{"swap_activity_warn", p.SwapActivityWarn}, {"swap_activity_crit", p.SwapActivityCrit},
+		{"io_await_warn_ms", p.IOAwaitWarnMs}, {"io_await_crit_ms", p.IOAwaitCritMs},
+		{"ntp_offset_warn_ms", p.NTPOffsetWarnMs}, {"ntp_offset_crit_ms", p.NTPOffsetCritMs},
+	}
+	for _, f := range others {
+		if f.val == 0 {
+			continue
+		}
+		if math.IsInf(f.val, 0) || math.IsNaN(f.val) || f.val < 0 {
+			return fmt.Errorf("%s: %v is not a valid threshold (must be finite and >= 0)", f.name, f.val)
+		}
+	}
+
+	for i, d := range p.Deny {
+		u := strings.ToUpper(strings.TrimSpace(d))
+		if u != "WARN" && u != "CRIT" {
+			return fmt.Errorf("deny[%d]: %q is not a recognized level (must be WARN or CRIT)", i, d)
+		}
+		p.Deny[i] = u
+	}
+
+	return nil
 }
 
 // ApplyPolicy overrides threshold fields from a policy file.
