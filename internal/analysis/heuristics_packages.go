@@ -76,6 +76,18 @@ func checkPackages(pkg models.PackagesInfo) []models.Insight {
 // updates. It is the strongest false-OK guard in this collector: the security-update
 // count can read a confident "0" while the host literally cannot apply a single update.
 func checkPackageDBHealth(pkg models.PackagesInfo) []models.Insight {
+	// A recognized package manager (apt/dnf/yum/zypper/tdnf) whose DB/lock probe
+	// itself couldn't run (dpkg unusable, no rpm binary, or the probe never got a
+	// turn — see pkgDBHealth/aptDBHealth/rpmDBHealth) leaves DBHealthChecked
+	// false — previously indistinguishable from "checked, clean". Gated on
+	// PackageManager being a real, recognized manager so a host with no package
+	// manager at all ("unknown", the Collect() early-return) doesn't get a
+	// spurious disclosure — DBHealthChecked is legitimately never set there.
+	if pkg.PackageManager != "" && pkg.PackageManager != "unknown" && !pkg.DBHealthChecked {
+		return []models.Insight{unverifiedInsight("INFO", "Packages",
+			"package database health could not be checked — update-blocking corruption/locks are unverified",
+			nil)}
+	}
 	// Defensive: the collector never sets DBUpdatesBlocked without DBHealthChecked
 	// also being true (verified 2026-07-08), but gate on both anyway so a future
 	// collector change can't silently turn an unmeasured state into a WARN.

@@ -46,6 +46,14 @@ var neverSilentChecks = []neverSilentCheck{
 		wantSubstr: "could not be read",
 	},
 	{
+		name:    "checkPackageDBHealth: DB/lock probe itself failed to run",
+		checkFn: "checkPackageDBHealth",
+		run: func() []models.Insight {
+			return checkPackageDBHealth(models.PackagesInfo{PackageManager: "apt", DBHealthChecked: false})
+		},
+		wantSubstr: "could not be checked",
+	},
+	{
 		name:    "checkLaunchd: launchctl list failed",
 		checkFn: "checkLaunchd",
 		run: func() []models.Insight {

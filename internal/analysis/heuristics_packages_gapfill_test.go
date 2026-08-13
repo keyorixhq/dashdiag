@@ -28,6 +28,34 @@ func TestCheckPackageDBHealth_EmptyReason(t *testing.T) {
 	}
 }
 
+// TestCheckPackageDBHealth_ProbeFailed is the regression test for the
+// false-OK fix: a recognized package manager whose DB/lock probe itself
+// couldn't run (DBHealthChecked=false — dpkg unusable, no rpm binary, or the
+// probe never got a turn) must disclose an INFO, not silently read the same
+// as "checked, clean" (both leave DBUpdatesBlocked at its false zero value).
+func TestCheckPackageDBHealth_ProbeFailed(t *testing.T) {
+	t.Parallel()
+	got := checkPackageDBHealth(models.PackagesInfo{PackageManager: "apt", DBHealthChecked: false})
+	if len(got) == 0 || got[0].Level != "INFO" || !strings.Contains(got[0].Message, "could not be checked") {
+		t.Errorf("unchecked DB health on a recognized package manager must INFO, got %+v", got)
+	}
+}
+
+// TestCheckPackageDBHealth_NoPackageManager_NoSpuriousDisclosure is the
+// control: a host with no recognized package manager at all (Collect()'s
+// PackageManager="unknown" early-return, or the zero-value "" in a bare
+// struct) never runs the DB-health probe by design — DBHealthChecked=false
+// there is legitimate and must NOT trigger the new disclosure.
+func TestCheckPackageDBHealth_NoPackageManager_NoSpuriousDisclosure(t *testing.T) {
+	t.Parallel()
+	for _, pm := range []string{"", "unknown"} {
+		got := checkPackageDBHealth(models.PackagesInfo{PackageManager: pm, DBHealthChecked: false})
+		if len(got) != 0 {
+			t.Errorf("PackageManager=%q must not disclose a DB-health gap, got %+v", pm, got)
+		}
+	}
+}
+
 // TestCheckPackageUpdates_UnrecognizedStatus covers a pkg.Status value outside
 // the three known sentinels ("no-security-repo"/"query-failed"/"stale-metadata")
 // — e.g. a future collector change or a tampered/corrupted `dsd replay` bundle.

@@ -191,9 +191,6 @@ var checkExemptions = map[string]string{
 		"checkSystemd.",
 	"checkIPMI": "The preceding Status==\"error\" branch already catches the real sensor-read-failure " +
 		"case, making the plain !Available fall-through safe. See the inline comment on checkIPMI.",
-	"checkPackageDBHealth": "Defensive: the collector never sets DBUpdatesBlocked without " +
-		"DBHealthChecked also being true (verified 2026-07-08), gated on both anyway. See the inline " +
-		"comment on checkPackageDBHealth.",
 	"checkDocker": "StatusReason==\"\" on the !Available path is deliberate, not a gap: the collector " +
 		"(collectors/docker.go) reserves StatusReason for an installed-but-unusable runtime — Podman is " +
 		"daemonless, so \"no socket\" is its normal idle state, not a fault. A host with nothing usable " +
@@ -348,12 +345,12 @@ var checkExemptions = map[string]string{
 		"uptrack-upgrade failure (expired key, unreachable server) still writes to stdout, " +
 		"countKsplicePending finds no matches and the row silently renders OK. Depends on whether uptrack " +
 		"writes its error text to stdout or stderr — not verified from code alone.",
-	"checkPackages": "UNCLEAR: the documented collector invariant (DBUpdatesBlocked never true without " +
-		"DBHealthChecked also true) still holds, but DBHealthChecked=false has no disclosure anywhere. " +
-		"Worse — flagged for follow-up, not this guard — packages_linux.go:200-201 returns checked=true, " +
-		"blocked=false when the very first probe command fails under an already-expired context, " +
-		"asserting a clean DB from a probe that never ran. That collector-layer bug is more severe than " +
-		"this check function's own gap and needs its own fix.",
+	"checkPackages": "FIXED (analysis-layer half): checkPackageDBHealth now discloses DBHealthChecked=false " +
+		"as an INFO for any recognized package manager (see its neverSilentChecks row) — checkPackages " +
+		"inherits that disclosure since it appends checkPackageDBHealth's output directly. Still open, " +
+		"NOT covered by this guard: packages_linux.go:200-201 can return checked=true, blocked=false when " +
+		"the very first probe command fails under an already-expired context — a deeper collector-layer " +
+		"bug (asserting a clean DB from a probe that never ran) that needs its own separate fix.",
 	"checkFirmware": "UNCLEAR: Available=false conflates \"fwupd not installed\" with \"fwupd present but " +
 		"the version/status probe failed\" (D-Bus down, context timeout) — firmware.go sets both the same " +
 		"way, and checkFirmware returns before its own \"could not be verified\" branch could fire. Not a " +
