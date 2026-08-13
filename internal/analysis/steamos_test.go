@@ -71,13 +71,30 @@ func TestCheckSteamOSReadonlyDisabledIsCrit(t *testing.T) {
 	}
 }
 
-func TestCheckSteamOSReadonlyUnknownStaysQuiet(t *testing.T) {
-	// ReadonlyKnown=false means the command could not run — don't assert "writable".
+func TestCheckSteamOSReadonlyUnknownIsInfoNotSilent(t *testing.T) {
+	// ReadonlyKnown=false means `steamos-readonly status` could not run — must
+	// not assert a "writable"/CRIT verdict (that was never established), but
+	// must also not stay completely silent: a writable rootfs is the CRIT this
+	// file calls out as the #1 update-breakage cause, so an unmeasured state
+	// has to disclose as INFO, mirroring the RAUCAvailable pattern.
 	info := models.SteamOSInfo{Detected: true, ReadonlyKnown: false}
-	for _, i := range checkSteamOS(info) {
-		if strings.Contains(i.Message, "readonly") || strings.Contains(i.Message, "writable") {
-			t.Errorf("should not emit a readonly verdict when status unknown: %q", i.Message)
+	got := checkSteamOS(info)
+	for _, i := range got {
+		if strings.Contains(i.Message, "writable") {
+			t.Errorf("should not assert a writable-rootfs verdict when status unknown: %q", i.Message)
 		}
+	}
+	found := false
+	for _, i := range got {
+		// Match on the readonly-specific wording (not the generic "could not be
+		// verified" substring, which the unrelated RAUC-unavailable INFO in this
+		// same test's zero-value struct also happens to contain).
+		if i.Level == "INFO" && strings.Contains(i.Message, "rootfs writability could not be verified") {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("unknown rootfs writability must disclose as INFO, not go silent, got %v", got)
 	}
 }
 
@@ -125,6 +142,39 @@ func TestCheckSteamOSSecureBootEnabledIsWarn(t *testing.T) {
 	}
 }
 
+func TestCheckSteamOSSecureBootUnknownIsInfoNotSilent(t *testing.T) {
+	// efivarfs unreadable/malformed on a non-Deck device: SecureBootEnabled
+	// stays nil. Must not stay silent — the state was never established.
+	info := models.SteamOSInfo{
+		Detected: true, DeviceProductRaw: "ROG Ally RC71L", DeviceRecognised: true,
+		SecureBootApplicable: true, SecureBootEnabled: nil,
+	}
+	got := checkSteamOSDevice(info)
+	if !hasInsightMsg(got, "INFO", "could not be verified") {
+		t.Errorf("unreadable Secure Boot state must disclose as INFO, got %+v", got)
+	}
+}
+
+func TestCheckSteamOSUpdate_UnrecognizedRAUCStatus(t *testing.T) {
+	// A rauc status value that is neither "good" nor "bad" (new rauc version,
+	// garbled output) must not silently read as healthy.
+	booted := checkSteamOSUpdate(models.SteamOSInfo{
+		RAUCAvailable: true, RAUCBootedSlot: "A", RAUCBootedStatus: "unknown",
+		ReadonlyKnown: true, ReadonlyEnabled: true,
+	})
+	if !hasInsightMsg(booted, "INFO", "unrecognized boot status") {
+		t.Errorf("unrecognized booted-slot status must disclose as INFO, got %+v", booted)
+	}
+
+	inactive := checkSteamOSUpdate(models.SteamOSInfo{
+		RAUCAvailable: true, RAUCInactiveSlot: "B", RAUCInactiveStatus: "degraded",
+		ReadonlyKnown: true, ReadonlyEnabled: true,
+	})
+	if !hasInsightMsg(inactive, "INFO", "unrecognized boot status") {
+		t.Errorf("unrecognized inactive-slot status must disclose as INFO, got %+v", inactive)
+	}
+}
+
 func TestCheckSteamOSRemotePlayUnboundPortsWarn(t *testing.T) {
 	info := models.SteamOSInfo{Detected: true, RemotePlay: &models.SteamOSRemotePlay{
 		Ports: []models.RemotePlayPort{
@@ -139,16 +189,21 @@ func TestCheckSteamOSRemotePlayUnboundPortsWarn(t *testing.T) {
 
 func TestCheckSteamOSRemotePlayVRUnboundIsQuiet(t *testing.T) {
 	// All primary bound, only optional VR ports unbound → no WARN.
-	info := models.SteamOSInfo{Detected: true, RAUCAvailable: true, RemotePlay: &models.SteamOSRemotePlay{
-		Ports: []models.RemotePlayPort{
-			{Protocol: "udp", Port: 27031, Bound: true},
-			{Protocol: "udp", Port: 27036, Bound: true},
-			{Protocol: "tcp", Port: 27036, Bound: true},
-			{Protocol: "tcp", Port: 27037, Bound: true},
-			{Protocol: "udp", Port: 10400, Optional: true, Bound: false},
+	info := models.SteamOSInfo{
+		Detected: true, RAUCAvailable: true,
+		RAUCBootedStatus: "good", RAUCInactiveStatus: "good",
+		ReadonlyKnown: true, ReadonlyEnabled: true,
+		RemotePlay: &models.SteamOSRemotePlay{
+			Ports: []models.RemotePlayPort{
+				{Protocol: "udp", Port: 27031, Bound: true},
+				{Protocol: "udp", Port: 27036, Bound: true},
+				{Protocol: "tcp", Port: 27036, Bound: true},
+				{Protocol: "tcp", Port: 27037, Bound: true},
+				{Protocol: "udp", Port: 10400, Optional: true, Bound: false},
+			},
+			FirewallKnown: true,
 		},
-		FirewallKnown: true,
-	}}
+	}
 	if got := checkSteamOS(info); len(got) != 0 {
 		t.Errorf("all primary bound + only VR unbound should be quiet, got %v", got)
 	}
