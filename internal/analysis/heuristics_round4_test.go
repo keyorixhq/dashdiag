@@ -286,6 +286,7 @@ func TestCheckBattery(t *testing.T) {
 		want string
 	}{
 		{"no battery is silent", models.BatteryInfo{Present: false}, ""},
+		{"ioreg failure is INFO, not silent", models.BatteryInfo{Present: false, StatusReason: "battery status unreadable — ioreg failed to run"}, "INFO"},
 		{"healthy charged is clean", models.BatteryInfo{Present: true, HealthPct: 90, Status: "Full"}, ""},
 		{"worn battery is CRIT", models.BatteryInfo{Present: true, HealthPct: 50}, "CRIT"},
 		{"degraded battery is WARN", models.BatteryInfo{Present: true, HealthPct: 70}, "WARN"},

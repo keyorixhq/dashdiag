@@ -24,12 +24,26 @@ func (c *BatteryCollector) Collect(ctx context.Context) (any, error) {
 	info := &models.BatteryInfo{}
 
 	out, err := runCmd(ctx, "ioreg", "-rn", "AppleSmartBattery")
-	if err != nil || out == "" {
+	if err != nil {
+		// A genuine command failure (binary missing, sandboxing, IOKit query
+		// error) is NOT the same fact as "clean exit, no AppleSmartBattery
+		// service" (the legitimate no-battery case, e.g. Mac Studio/mini) —
+		// disclose it so checkBattery doesn't silently read it as "no battery
+		// issues".
+		info.StatusReason = "battery status unreadable — ioreg failed to run"
+		return info, nil
+	}
+	if out == "" {
+		// Clean exit, empty output: no AppleSmartBattery IOKit service —
+		// genuine absence, nothing to disclose.
 		return info, nil
 	}
 
 	kv := parseIORegKV(out)
 	if kv["CurrentCapacity"] == "" {
+		// ioreg ran and returned non-empty output, but the expected field is
+		// missing — an unexpected/malformed result, not a genuine absence.
+		info.StatusReason = "battery status unreadable — ioreg output did not contain CurrentCapacity"
 		return info, nil
 	}
 
