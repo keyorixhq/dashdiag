@@ -2,6 +2,7 @@ package config
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 
@@ -113,7 +114,97 @@ func Load(cfgFile string) (*Config, error) {
 	if err := v.Unmarshal(&cfg); err != nil {
 		return nil, fmt.Errorf("parsing config: %w", err)
 	}
+	if err := cfg.Validate(); err != nil {
+		return nil, fmt.Errorf("invalid config: %w", err)
+	}
 	return &cfg, nil
 }
 
 func Default() *Config { d := defaults; return &d }
+
+// Validate rejects a Config whose values could not have come from a sane
+// hand-edited or generated file: YAML special floats (.nan, .inf, a negative
+// percentage/multiplier) in Thresholds, negative counts or out-of-range
+// ports in Security, and any Services entry missing a required field or
+// carrying a port outside 1-65535. v.Unmarshal has no validation layer of
+// its own, and Config is a public, reusable API — this is the one place
+// positioned to catch a bad value before it fans out to every consumer that
+// trusts these fields as pre-validated.
+func (c Config) Validate() error {
+	if err := c.Thresholds.validate(); err != nil {
+		return fmt.Errorf("thresholds: %w", err)
+	}
+	if err := c.Security.validate(); err != nil {
+		return fmt.Errorf("security: %w", err)
+	}
+	for i, s := range c.Services {
+		if err := s.validate(); err != nil {
+			return fmt.Errorf("services[%d]: %w", i, err)
+		}
+	}
+	return nil
+}
+
+// validate rejects a non-finite (NaN/Inf) or negative threshold. Thresholds
+// are percentages/multipliers/millisecond durations — none are meaningful
+// negative, and a NaN/Inf silently breaks every WARN/CRIT comparison that
+// reads it.
+func (t ThresholdConfig) validate() error {
+	fields := []struct {
+		name string
+		v    float64
+	}{
+		{"disk_warn_pct", t.DiskWarnPct}, {"disk_crit_pct", t.DiskCritPct},
+		{"ram_warn_pct", t.RAMWarnPct}, {"ram_crit_pct", t.RAMCritPct},
+		{"cpu_load_warn_multiplier", t.CPULoadWarnMultiplier}, {"cpu_load_crit_multiplier", t.CPULoadCritMultiplier},
+		{"io_util_warn_pct", t.IOUtilWarnPct}, {"io_util_crit_pct", t.IOUtilCritPct},
+		{"io_await_warn_ms", t.IOAwaitWarnMs}, {"io_await_crit_ms", t.IOAwaitCritMs},
+		{"swap_warn_pct", t.SwapWarnPct}, {"swap_crit_pct", t.SwapCritPct},
+		{"ntp_warn_ms", t.NTPWarnMs}, {"ntp_crit_ms", t.NTPCritMs},
+		{"fd_warn_pct", t.FDWarnPct}, {"fd_crit_pct", t.FDCritPct},
+	}
+	for _, f := range fields {
+		if math.IsNaN(f.v) || math.IsInf(f.v, 0) {
+			return fmt.Errorf("%s: must be a finite number, got %v", f.name, f.v)
+		}
+		if f.v < 0 {
+			return fmt.Errorf("%s: must be >= 0, got %v", f.name, f.v)
+		}
+	}
+	return nil
+}
+
+// validate rejects a negative login-count threshold or an allowed port
+// outside the valid 1-65535 range.
+func (s SecurityConfig) validate() error {
+	if s.SSHFailedLoginWarn < 0 {
+		return fmt.Errorf("ssh_failed_login_warn: must be >= 0, got %d", s.SSHFailedLoginWarn)
+	}
+	if s.SSHFailedLoginCrit < 0 {
+		return fmt.Errorf("ssh_failed_login_crit: must be >= 0, got %d", s.SSHFailedLoginCrit)
+	}
+	for _, p := range s.AllowedPorts {
+		if p < 1 || p > 65535 {
+			return fmt.Errorf("allowed_ports: %d out of range 1-65535", p)
+		}
+	}
+	return nil
+}
+
+// validate rejects a ServiceConfig entry missing its name/host or carrying a
+// port outside the valid 1-65535 range. ServiceConfig is consumed downstream
+// by internal/collectors — an out-of-range port or empty host reaching that
+// layer as "pre-validated" would misbehave silently rather than erroring
+// loudly at config-load time.
+func (s ServiceConfig) validate() error {
+	if s.Name == "" {
+		return fmt.Errorf("name is required")
+	}
+	if s.Host == "" {
+		return fmt.Errorf("host is required (service %q)", s.Name)
+	}
+	if s.Port < 1 || s.Port > 65535 {
+		return fmt.Errorf("port %d out of range 1-65535 (service %q)", s.Port, s.Name)
+	}
+	return nil
+}
