@@ -34,15 +34,22 @@ func TestToolCaptureRequiresOutPath(t *testing.T) {
 
 // TestToolCaptureIdentifiersImpliesSanitize verifies that setting
 // Identifiers=true automatically enables Sanitize even when the caller omits
-// it — keeping the internal bundle consistent with the documented contract.
-// We exercise only the implication gate (the write itself will fail on a
-// nonexistent path, which is fine for this test).
+// it — keeping the internal bundle consistent with the documented contract —
+// and that toolCapture's own JSON response doesn't echo the real hostname
+// (redaction-primitives-05: the bundle FILE correctly showed the placeholder,
+// but a caller that logs/forwards the tool result, a common agent pattern,
+// got the real hostname anyway via the "host" response field). Both
+// assertions share a single toolCapture call (which runs the full live
+// health-collection pipeline) rather than two, since a second parallel call
+// serialized behind mcpPipelineMu pushed the cmd package's test suite over
+// its 180s CI budget.
 func TestToolCaptureIdentifiersImpliesSanitize(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	out := filepath.Join(dir, "out.tar.gz")
-	// We don't check the returned bundle — just that it doesn't error on a
-	// valid path (indicating Sanitize=true was set correctly from Identifiers).
+
+	realHost, hostErr := os.Hostname()
+
 	_, result, err := toolCapture(context.Background(), &mcp.CallToolRequest{},
 		mcpCaptureInput{OutPath: out, Identifiers: true, Sanitize: false})
 	if err != nil {
@@ -54,29 +61,7 @@ func TestToolCaptureIdentifiersImpliesSanitize(t *testing.T) {
 	if result.Bytes <= 0 {
 		t.Errorf("expected positive bundle size, got %d", result.Bytes)
 	}
-}
-
-// TestToolCaptureIdentifiersRedactsResponseHost guards redaction-primitives-05:
-// toolCapture's own JSON response echoed the real, unredacted hostname in its
-// "host" field regardless of Identifiers, even though the bundle FILE
-// contents correctly showed the placeholder — a caller that logs/forwards the
-// tool result (a common agent pattern) got the real hostname anyway.
-func TestToolCaptureIdentifiersRedactsResponseHost(t *testing.T) {
-	t.Parallel()
-	dir := t.TempDir()
-	out := filepath.Join(dir, "out.tar.gz")
-
-	realHost, err := os.Hostname()
-	if err != nil || realHost == "" {
-		t.Skip("os.Hostname unavailable in this environment")
-	}
-
-	_, result, err := toolCapture(context.Background(), &mcp.CallToolRequest{},
-		mcpCaptureInput{OutPath: out, Identifiers: true})
-	if err != nil {
-		t.Fatalf("toolCapture with Identifiers: %v", err)
-	}
-	if result.Host == realHost {
+	if hostErr == nil && realHost != "" && result.Host == realHost {
 		t.Errorf("toolCapture response disclosed the real hostname %q despite Identifiers:true", realHost)
 	}
 }

@@ -160,14 +160,6 @@ type SanitizeOptions struct {
 // every recorded file blob, command output, symlink target, directory listing,
 // glob match, and recorded error string in the bundle, in place. Best-effort
 // (see the package note).
-// redactFunc, redactStrFunc, and redactSliceFunc are the three redaction
-// closures Sanitize builds once (capturing opts/host) and threads through to
-// each per-section helper below — splitting Sanitize into these helpers is
-// what keeps its own cyclomatic complexity under the project's cyclop limit.
-type redactFunc func(data []byte) ([]byte, int)
-type redactStrFunc func(s string) (string, int)
-type redactSliceFunc func(items []string) ([]string, int)
-
 func (b *Bundle) Sanitize(opts SanitizeOptions) SanitizeReport {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -221,10 +213,8 @@ func (b *Bundle) Sanitize(opts SanitizeOptions) SanitizeReport {
 	b.sanitizeFiles(redact, redactStr, &rep)
 	b.sanitizeCmds(redact, redactStr, &rep)
 	b.sanitizeLinks(redactStr, &rep)
-	b.sanitizeStats(redactStr, &rep)
-	b.sanitizeStatfss(redactStr, &rep)
-	b.sanitizeDirs(redactSlice, &rep)
-	b.sanitizeGlobs(redactSlice, &rep)
+	b.sanitizeStatErrs(redactStr, &rep)
+	b.sanitizeDirsGlobs(redactSlice, &rep)
 
 	// The host's own hostname also lives in the manifest metadata.
 	if opts.Identifiers && host != "" && host != "host" {
@@ -233,7 +223,10 @@ func (b *Bundle) Sanitize(opts SanitizeOptions) SanitizeReport {
 	return rep
 }
 
-func (b *Bundle) sanitizeFiles(redact redactFunc, redactStr redactStrFunc, rep *SanitizeReport) {
+// sanitizeFiles rewrites every recorded file blob and its error text in
+// place, force-redacting known live-credential and sensitive-env cache keys
+// by path (they carry no lexical marker for the generic content patterns).
+func (b *Bundle) sanitizeFiles(redact func([]byte) ([]byte, int), redactStr func(string) (string, int), rep *SanitizeReport) {
 	for path, fr := range b.files {
 		var n int
 		if len(fr.data) > 0 {
@@ -257,18 +250,19 @@ func (b *Bundle) sanitizeFiles(redact redactFunc, redactStr redactStrFunc, rep *
 	}
 }
 
-// sanitizeCmds redacts stdout/stderr content AND the command's own argv —
-// persist.go's Save() writes argv verbatim into commands/index.json as
-// cmdIndexEntry.Argv, so a secret passed as a CLI argument (e.g. a
-// diagnostic tool invoked with a token flag) must be redacted the same way
-// stdout/stderr already are. Argv lives in the map KEY (see cmdKey), so a
-// redacted argv means a new key — rebuild the map rather than mutate
-// mid-range. Argv redaction is secrets-only (not identifiers): the command
-// index is also a replay LOOKUP key (getCmd matches on the live argv), and
-// the identifiers-in-argv tradeoff (probe-target IPs surviving as lookup
-// keys) is already a documented, accepted caveat — this only closes the
-// secrets gap, which was undocumented and unmitigated.
-func (b *Bundle) sanitizeCmds(redact redactFunc, redactStr redactStrFunc, rep *SanitizeReport) {
+// sanitizeCmds rewrites every recorded command's stdout/stderr, error text,
+// and argv in place. persist.go's Save() writes argv verbatim into
+// commands/index.json as cmdIndexEntry.Argv, so a secret passed as a CLI
+// argument (e.g. a diagnostic tool invoked with a token flag) must be
+// redacted the same way stdout/stderr already are. Argv lives in the map
+// KEY (see cmdKey), so a redacted argv means a new key — rebuild the map
+// rather than mutate mid-range. Argv redaction is secrets-only (not
+// identifiers): the command index is also a replay LOOKUP key (getCmd
+// matches on the live argv), and the identifiers-in-argv tradeoff
+// (probe-target IPs surviving as lookup keys) is already a documented,
+// accepted caveat — this only closes the secrets gap, which was
+// undocumented and unmitigated.
+func (b *Bundle) sanitizeCmds(redact func([]byte) ([]byte, int), redactStr func(string) (string, int), rep *SanitizeReport) {
 	newCmds := make(map[string]cmdRec, len(b.cmds))
 	for key, cr := range b.cmds {
 		var n int
@@ -295,7 +289,8 @@ func (b *Bundle) sanitizeCmds(redact redactFunc, redactStr redactStrFunc, rep *S
 	b.cmds = newCmds
 }
 
-func (b *Bundle) sanitizeLinks(redactStr redactStrFunc, rep *SanitizeReport) {
+// sanitizeLinks rewrites every recorded symlink target and error text in place.
+func (b *Bundle) sanitizeLinks(redactStr func(string) (string, int), rep *SanitizeReport) {
 	for path, rec := range b.links {
 		var n int
 		if red, k := redactStr(rec.target); k > 0 {
@@ -313,7 +308,10 @@ func (b *Bundle) sanitizeLinks(redactStr redactStrFunc, rep *SanitizeReport) {
 	}
 }
 
-func (b *Bundle) sanitizeStats(redactStr redactStrFunc, rep *SanitizeReport) {
+// sanitizeStatErrs rewrites the recorded error text on every stat/statfs
+// entry — the only field on either that can carry a leaked secret (e.g. a
+// path containing a token, echoed back in an ENOENT error string).
+func (b *Bundle) sanitizeStatErrs(redactStr func(string) (string, int), rep *SanitizeReport) {
 	for path, rec := range b.stats {
 		if red, n := redactStr(rec.errText); n > 0 {
 			rec.errText = red
@@ -321,9 +319,6 @@ func (b *Bundle) sanitizeStats(redactStr redactStrFunc, rep *SanitizeReport) {
 			rep.TotalRedactions += n
 		}
 	}
-}
-
-func (b *Bundle) sanitizeStatfss(redactStr redactStrFunc, rep *SanitizeReport) {
 	for path, rec := range b.statfss {
 		if red, n := redactStr(rec.errText); n > 0 {
 			rec.errText = red
@@ -333,16 +328,14 @@ func (b *Bundle) sanitizeStatfss(redactStr redactStrFunc, rep *SanitizeReport) {
 	}
 }
 
-func (b *Bundle) sanitizeDirs(redactSlice redactSliceFunc, rep *SanitizeReport) {
+// sanitizeDirsGlobs rewrites every directory-listing and glob-match entry.
+func (b *Bundle) sanitizeDirsGlobs(redactSlice func([]string) ([]string, int), rep *SanitizeReport) {
 	for pattern, entries := range b.dirs {
 		if red, n := redactSlice(entries); n > 0 {
 			b.dirs[pattern] = red
 			rep.TotalRedactions += n
 		}
 	}
-}
-
-func (b *Bundle) sanitizeGlobs(redactSlice redactSliceFunc, rep *SanitizeReport) {
 	for pattern, entries := range b.globs {
 		if red, n := redactSlice(entries); n > 0 {
 			b.globs[pattern] = red
