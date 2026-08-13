@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"context"
 	"os"
+	"regexp"
 	"sort"
 	"strings"
 	"time"
@@ -71,19 +72,12 @@ func (c *AuthCollector) Collect(ctx context.Context) (interface{}, error) {
 			continue
 		}
 		info.FailedLast24h++
-		if strings.Contains(lower, "root") {
+		ip, isRoot := parseAuthLogLine(line)
+		if isRoot {
 			info.RootAttempts++
 		}
-		// Extract source IP: "from 1.2.3.4 port"
-		if i := strings.Index(line, " from "); i >= 0 {
-			rest := line[i+6:]
-			if j := strings.Index(rest, " port"); j >= 0 {
-				ip := rest[:j]
-				ip = strings.TrimSpace(ip)
-				if ip != "" {
-					counts[ip]++
-				}
-			}
+		if ip != "" {
+			counts[ip]++
 		}
 	}
 
@@ -172,15 +166,58 @@ func readAuthLogFrom(ctx context.Context, candidates []string) (content string, 
 	return "", false, denied
 }
 
-// parseAuthLogLine is kept for unit tests
+// sshLoginMarkerRe matches the fixed, sshd-authored text that always precedes
+// the attacker-controlled username field in a failed-login log line. Because
+// these markers are written by sshd itself and the username always comes
+// after them, the FIRST occurrence in the line is always the genuine one —
+// anything a crafted username echoes back to mimic a marker can only appear
+// later, inside the username's own text.
+var sshLoginMarkerRe = regexp.MustCompile(`Failed password for (?:invalid user )?|Invalid user |Connection closed by authenticating user `)
+
+// sshFromPortRe matches the "from <ip> port <port>" suffix sshd appends
+// after the username in "Failed password"/"Invalid user" lines.
+var sshFromPortRe = regexp.MustCompile(`from (\S+) port \d+`)
+
+// parseAuthLogLine extracts the source IP and whether a failed-login attempt
+// targeted the root account from a single sshd auth-log line. Handles both
+// journalctl -o cat output (bare message) and syslog-formatted auth.log/
+// secure/messages lines (with a "Jul 8 10:00:00 host sshd[123]: " prefix).
+//
+// sshd logs the attacker-supplied username verbatim, and that username is
+// arbitrary attacker-chosen text — it can itself contain a fake
+// " from <ip> port <port>" sequence, or the substring "root". A naive
+// first-match-anywhere-in-the-line search picks up the attacker's fake
+// fields instead of the real ones sshd appended. This parser is anchored
+// against that: the username is bracketed between the FIRST marker match
+// (always genuine, sshd-authored) and the LAST "from <ip> port <port>"
+// match (always genuine — sshd appends the real one after the username, so
+// it is necessarily the rightmost occurrence). Only the exact bracketed
+// username is compared against "root", not the whole line.
 func parseAuthLogLine(line string) (ip string, isRoot bool) {
-	lower := strings.ToLower(line)
-	isRoot = strings.Contains(lower, "root")
-	if i := strings.Index(line, " from "); i >= 0 {
-		rest := line[i+6:]
-		if j := strings.Index(rest, " port"); j >= 0 {
-			ip = strings.TrimSpace(rest[:j])
-		}
+	loc := sshLoginMarkerRe.FindStringIndex(line)
+	if loc == nil {
+		return "", false
 	}
-	return ip, isRoot
+	marker := line[loc[0]:loc[1]]
+	rest := line[loc[1]:]
+
+	if strings.HasPrefix(marker, "Connection closed") {
+		// This message shape has no "from" keyword — the IP follows the
+		// username directly with no unambiguous delimiter, so (matching
+		// prior behavior) no IP is extracted here. Only the first
+		// whitespace-delimited token — the username — is checked for root.
+		user, _, _ := strings.Cut(rest, " ")
+		return "", user == "root"
+	}
+
+	matches := sshFromPortRe.FindAllStringIndex(rest, -1)
+	if len(matches) == 0 {
+		return "", false
+	}
+	last := matches[len(matches)-1]
+	user := strings.TrimSpace(rest[:last[0]])
+	if fields := strings.Fields(rest[last[0]:last[1]]); len(fields) >= 2 {
+		ip = fields[1]
+	}
+	return ip, user == "root"
 }
