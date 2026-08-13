@@ -2,8 +2,10 @@ package store
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 )
@@ -254,6 +256,84 @@ func TestReadAll_AllHosts(t *testing.T) {
 	}
 	if len(h1) != 2 {
 		t.Errorf("ReadAll h1: got %d entries, want 2", len(h1))
+	}
+}
+
+// TestReadAll_TailWindowOrderedAfterManyWraps is a correctness check for the
+// internal-store-01-05 fix: ReadAll(n>0) now keeps only a fixed-size window
+// of the last n matches as it scans (instead of accumulating every match in
+// the file before truncating at the end), to bound memory to O(n) rather
+// than O(file size). This confirms the rewritten sliding-window logic still
+// returns exactly the last n entries in the correct oldest-first order after
+// far more than n entries have been scanned (multiple "wraps" of the
+// window).
+func TestReadAll_TailWindowOrderedAfterManyWraps(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "store.jsonl")
+
+	s, err := Open(path)
+	if err != nil {
+		t.Fatalf("Open: %v", err)
+	}
+	ctx := context.Background()
+	const total = 47
+	for i := range total {
+		if err := s.Append(ctx, Entry{Hostname: "h", Verdict: fmt.Sprintf("v%d", i)}); err != nil {
+			t.Fatalf("Append: %v", err)
+		}
+	}
+	if err := s.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	const n = 5
+	got, err := ReadAll(path, "h", n)
+	if err != nil {
+		t.Fatalf("ReadAll: %v", err)
+	}
+	if len(got) != n {
+		t.Fatalf("got %d entries, want %d", len(got), n)
+	}
+	for i := range n {
+		want := fmt.Sprintf("v%d", total-n+i)
+		if got[i].Verdict != want {
+			t.Errorf("got[%d].Verdict = %q, want %q (oldest-first order of the last %d entries)", i, got[i].Verdict, want, n)
+		}
+	}
+}
+
+// TestReadAll_UnboundedReadCappedAtMaxEntries is the regression test for
+// internal-store-01-05: ReadAll(path, "", 0) — the "return everything" mode
+// used by Prune — accumulated every matching entry in the whole file with no
+// limit before applying the (nonexistent, for n<=0) tail truncation. A store
+// file with more than maxReadAllEntries matching lines must not have all of
+// them loaded into memory.
+func TestReadAll_UnboundedReadCappedAtMaxEntries(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "store.jsonl")
+
+	// Write the fixture directly (not via s.Append) — 200k+ individual mutex-
+	// guarded Append calls would make this test needlessly slow; the file
+	// format is a plain one-JSON-object-per-line, so building it directly is
+	// equivalent and fast.
+	line := `{"host":"h","verdict":"OK"}` + "\n"
+	var buf strings.Builder
+	over := maxReadAllEntries + 10
+	for range over {
+		buf.WriteString(line)
+	}
+	if err := os.WriteFile(path, []byte(buf.String()), 0o644); err != nil {
+		t.Fatalf("failed to write test fixture: %v", err)
+	}
+
+	got, err := ReadAll(path, "h", 0)
+	if err != nil {
+		t.Fatalf("ReadAll: %v", err)
+	}
+	if len(got) > maxReadAllEntries {
+		t.Errorf("ReadAll returned %d entries, want capped at %d", len(got), maxReadAllEntries)
 	}
 }
 

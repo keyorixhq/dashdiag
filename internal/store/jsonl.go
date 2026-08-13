@@ -13,6 +13,14 @@ import (
 
 const maxLineSizeBytes = 1 << 20 // 1 MiB
 
+// maxReadAllEntries bounds how many entries ReadAll(path, "", 0) — the
+// "return everything" mode used by Prune — will accumulate in memory. Retention
+// is otherwise only enforced by Prune itself (365 entries per hostname, and
+// only when a caller opts into --persist), so a store file with many distinct
+// hostnames, or one that's simply never been pruned, is not bounded in
+// aggregate without this.
+const maxReadAllEntries = 200_000
+
 // JSONLStore is an append-only JSONL file store. Concurrent Append calls within
 // a process are safe (mutex-guarded). Cross-process safety relies on the OS
 // guaranteeing that writes smaller than PIPE_BUF are atomic at the VFS layer
@@ -73,7 +81,8 @@ func (s *JSONLStore) History(_ context.Context, hostname string, n int) ([]Entry
 
 // ReadAll reads the last n entries for hostname from path without opening a
 // write handle — safe for concurrent callers and for read-only contexts (e.g.
-// dsd history). Pass n<=0 to return all matching entries.
+// dsd history). Pass n<=0 to return all matching entries, up to
+// maxReadAllEntries.
 func ReadAll(path, hostname string, n int) ([]Entry, error) {
 	f, err := os.Open(path) //nolint:gosec // path comes from StorePath(), not user input
 	if err != nil {
@@ -92,22 +101,40 @@ func ReadAll(path, hostname string, n int) ([]Entry, error) {
 		if err := json.Unmarshal(sc.Bytes(), &e); err != nil {
 			continue // skip malformed lines rather than aborting
 		}
-		if hostname == "" || e.Hostname == hostname {
+		if hostname != "" && e.Hostname != hostname {
+			continue
+		}
+		switch {
+		case n > 0:
+			// A bounded tail request (the common case — dsd history/diff/health
+			// all ask for a small n) is kept as a fixed-size window as we scan,
+			// instead of accumulating every match in the whole file before
+			// truncating at the end. Slicing off the front on overflow keeps
+			// len(matches) <= n at all times; Go's append growth is driven by
+			// current len/cap, not lifetime append count, so the backing array
+			// stays O(n) regardless of how large the store file has grown.
+			matches = append(matches, e)
+			if len(matches) > n {
+				matches = matches[1:]
+			}
+		case len(matches) >= maxReadAllEntries:
+			// n<=0 ("return everything", used by Prune): cap total entries
+			// accumulated so an unpruned or many-hostname store file can't
+			// grow memory use without bound. Keep scanning (not breaking) so
+			// a later oversized-line error is still reported below.
+		default:
 			matches = append(matches, e)
 		}
 	}
 	if err := sc.Err(); err != nil {
-		if errors.Is(err, bufio.ErrTooLong) {
-			fmt.Fprintf(os.Stderr, "dsd: store: oversized line in %s skipped (line > %d bytes)\n", path, maxLineSizeBytes)
-			return matches, nil // return what we have
+		if !errors.Is(err, bufio.ErrTooLong) {
+			return nil, fmt.Errorf("store: scanning %s: %w", path, err)
 		}
-		return nil, fmt.Errorf("store: scanning %s: %w", path, err)
+		fmt.Fprintf(os.Stderr, "dsd: store: oversized line in %s skipped (line > %d bytes)\n", path, maxLineSizeBytes)
+		// fall through and return what we have, as before
 	}
 
-	if n <= 0 || len(matches) <= n {
-		return matches, nil
-	}
-	return matches[len(matches)-n:], nil
+	return matches, nil
 }
 
 // Close flushes and closes the underlying file.
