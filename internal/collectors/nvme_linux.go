@@ -114,6 +114,9 @@ func (c *NVMeCollector) Collect(ctx context.Context) (interface{}, error) {
 // SmartRead=true left the all-zero health fields reading as a healthy drive.
 func parseNVMeSmartLog(out string, dev *models.NVMeDevice) bool {
 	parsedAny := false
+	sawCriticalWarning := false
+	sawMediaErrors := false
+	sawPercentageUsed := false
 	for _, line := range strings.Split(out, "\n") {
 		line = strings.TrimSpace(line)
 		parts := strings.SplitN(line, ":", 2)
@@ -126,6 +129,7 @@ func parseNVMeSmartLog(out string, dev *models.NVMeDevice) bool {
 		switch key {
 		case "critical_warning":
 			dev.CriticalWarning = parseBitmask(val)
+			sawCriticalWarning = true
 		case "temperature":
 			// Format: "111 °F (317 K)" — extract Kelvin and convert
 			dev.TempC = parseNVMeTemp(val)
@@ -135,8 +139,10 @@ func parseNVMeSmartLog(out string, dev *models.NVMeDevice) bool {
 			dev.SpareThresholdPct = parseInt(strings.TrimSuffix(val, "%"))
 		case "percentage_used":
 			dev.PercentageUsed = parseInt(strings.TrimSuffix(val, "%"))
+			sawPercentageUsed = true
 		case "media_errors":
 			dev.MediaErrors = parseInt64(val)
+			sawMediaErrors = true
 		case "unsafe_shutdowns":
 			dev.UnsafeShutdowns = parseInt64(val)
 		case "power_on_hours":
@@ -148,6 +154,11 @@ func parseNVMeSmartLog(out string, dev *models.NVMeDevice) bool {
 		}
 		parsedAny = true // reached only when a known case matched
 	}
+	// internal-collectors-24-01: parsedAny (and so SmartRead) goes true on ANY
+	// single recognized field — a smart-log that includes only a benign field
+	// like power_on_hours, while critical_warning/media_errors/percentage_used
+	// are missing or garbled, must not read as a fully-verified healthy drive.
+	dev.SmartDangerousFieldsUnread = !sawCriticalWarning || !sawMediaErrors || !sawPercentageUsed
 	return parsedAny
 }
 
