@@ -87,6 +87,20 @@ func TestScanUbuntuOVALPackages_ParseError(t *testing.T) {
 	}
 }
 
+// TestScanUbuntuOVALPackages_RejectsOversizedFeed covers the same
+// maxDecompressedFeedBytes cap as ParseUbuntuOVAL (ScanUbuntuOVALPackages is
+// a separate parse path through parseUbuntuOVALVersionAware, not covered by
+// a distinct finding ID but sharing the identical unbounded-decode bug
+// pattern). Fails during XML decode, before any dpkg query, so it doesn't
+// depend on dpkg-query being installed. Not t.Parallel(): shrinks a package
+// global via withShrunkFeedCap.
+func TestScanUbuntuOVALPackages_RejectsOversizedFeed(t *testing.T) {
+	withShrunkFeedCap(t, 50) // ubuntuOVAL (oval_test.go) is well past this
+	if _, err := ScanUbuntuOVALPackages(context.Background(), writeFixture(t, "ubuntu-scan-big.xml", ubuntuOVAL)); err == nil {
+		t.Error("expected ScanUbuntuOVALPackages to reject a feed exceeding the decompressed size cap")
+	}
+}
+
 // withResolveDpkgQuery swaps resolveDpkgQuery for the duration of the test,
 // restoring the original on cleanup. Since internal-cvedata-01-05,
 // QueryInstalledDPKG resolves "dpkg-query" via source.ResolveTrustedTool

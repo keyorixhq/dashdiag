@@ -56,6 +56,24 @@ func TestRunCapture_InvalidJSON(t *testing.T) {
 	}
 }
 
+// TestRunCapture_RejectsOversizedStdin covers cmd-01-05: runCapture must not
+// buffer an unbounded amount of stdin. Before this fix a piped stream far
+// larger than any real `dsd health --json` output (a misbehaving upstream
+// command, a malicious/corrupted pipe source) would be read fully into
+// memory before JSON parsing even started.
+func TestRunCapture_RejectsOversizedStdin(t *testing.T) {
+	huge := strings.Repeat("a", maxCaptureInputBytes+(2<<20))
+	withHookStdin(t, huge)
+	cmd := newBareCaptureCmd()
+	err := runCapture(cmd, nil)
+	if err == nil {
+		t.Fatal("expected an error for stdin exceeding maxCaptureInputBytes, got nil")
+	}
+	if !strings.Contains(err.Error(), "exceeds maximum size") {
+		t.Errorf("expected a size-cap error, got: %v", err)
+	}
+}
+
 func TestRunCapture_NoChecks(t *testing.T) {
 	withHookStdin(t, `{"hostname":"h","checks":[]}`)
 	cmd := newBareCaptureCmd()

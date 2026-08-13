@@ -5,6 +5,7 @@
 package fleet
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -310,12 +311,54 @@ func (r *Result) finalize(start time.Time) {
 	r.ElapsedMs = r.Elapsed.Milliseconds()
 }
 
-// sshRun runs cmd on host and returns combined stdout.
+// sshOutputMaxBytes caps how much of a remote command's stdout sshRun will
+// buffer. `dsd health --json` output is at most a few MB even on a large
+// snapshot; a compromised or misbehaving remote host must not be able to make
+// the orchestrating machine buffer unbounded memory just by printing a lot to
+// stdout over the SSH session.
+const sshOutputMaxBytes = 16 << 20 // 16MiB
+
+// capBuffer accumulates up to limit bytes and silently discards the rest, so
+// exec.Cmd's streaming copy can never allocate more than the cap regardless
+// of how much the remote/child process writes. Write always reports the full
+// slice as consumed and never errors, so a capped writer never aborts the
+// command early.
+type capBuffer struct {
+	buf   bytes.Buffer
+	limit int
+}
+
+func (w *capBuffer) Write(p []byte) (int, error) {
+	if remaining := w.limit - w.buf.Len(); remaining > 0 {
+		if remaining < len(p) {
+			w.buf.Write(p[:remaining])
+		} else {
+			w.buf.Write(p)
+		}
+	}
+	return len(p), nil
+}
+
+// sshRun runs cmd on host and returns its stdout, capped at sshOutputMaxBytes.
+// Mirrors os/exec.Cmd.Output()'s behaviour of populating ExitError.Stderr on a
+// non-zero exit (capped at 32KiB there too, matching Output()'s own internal
+// limit) but with a bounded stdout buffer instead of Output()'s unbounded one.
 func sshRun(ctx context.Context, opts Options, host, cmd string) ([]byte, error) {
 	// "--" terminates ssh option parsing so a host that survived validation can
 	// never be reinterpreted as a flag; ValidateHost is the primary guard.
 	args := append(sshBaseArgs(opts), "--", host, cmd)
-	return exec.CommandContext(ctx, "ssh", args...).Output() // NOSONAR — hardcoded binary, PATH lookup is intentional
+	c := exec.CommandContext(ctx, "ssh", args...) // NOSONAR — hardcoded binary, PATH lookup is intentional
+	stdout := &capBuffer{limit: sshOutputMaxBytes}
+	stderr := &capBuffer{limit: 32 << 10}
+	c.Stdout = stdout
+	c.Stderr = stderr
+	err := c.Run()
+	if err != nil {
+		if ee, ok := err.(*exec.ExitError); ok {
+			ee.Stderr = stderr.buf.Bytes()
+		}
+	}
+	return stdout.buf.Bytes(), err
 }
 
 func scp(ctx context.Context, opts Options, localPath, host, remotePath string) error {

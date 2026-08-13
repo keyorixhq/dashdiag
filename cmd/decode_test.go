@@ -91,6 +91,42 @@ func TestRunDecode_DashArgReadsStdin(t *testing.T) {
 	}
 }
 
+// TestRunDecode_RejectsOversizedFile covers cmd-03-02: runDecode must not
+// read an unbounded amount of raw (pre-decode) input from a file or stdin.
+// Before the blob is even base64/gzip-decoded, the raw bytes were read with
+// a bare os.ReadFile/io.ReadAll — a huge file (not even a valid blob) would
+// be fully buffered just to find that out.
+func TestRunDecode_RejectsOversizedFile(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	p := filepath.Join(dir, "huge.txt")
+	f, err := os.Create(p)
+	if err != nil {
+		t.Fatal(err)
+	}
+	chunk := make([]byte, 1<<20) // 1MiB, reused
+	for written := 0; written < maxRawBlobBytes+(2<<20); written += len(chunk) {
+		if _, err := f.Write(chunk); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := f.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	cmd := newBareDecodeCmd()
+	err = runDecode(cmd, []string{p})
+	if err == nil {
+		t.Fatal("expected an error decoding a file exceeding maxRawBlobBytes, got nil")
+	}
+	// The oversized-input rejection must fire, not just "no blob markers found"
+	// (which an unbounded read of the same all-zero content would also hit,
+	// masking a missing cap as a false pass).
+	if !strings.Contains(err.Error(), "exceeds maximum size") {
+		t.Errorf("expected a size-cap error, got: %v", err)
+	}
+}
+
 func TestRunDecode_MissingFileErrors(t *testing.T) {
 	t.Parallel()
 	cmd := newBareDecodeCmd()
