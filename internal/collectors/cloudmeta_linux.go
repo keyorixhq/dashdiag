@@ -187,9 +187,12 @@ func awsIMDSToken(ctx context.Context, client *http.Client) (string, error) {
 			return nil, e
 		}
 		defer resp.Body.Close() //nolint:errcheck
-		buf := make([]byte, 256)
-		n, _ := resp.Body.Read(buf)
-		return buf[:n], nil
+		// A single fixed-buffer Read() is not guaranteed by the io.Reader
+		// contract to return all available bytes in one call (e.g. under
+		// chunked transfer-encoding) — a short first read silently truncates
+		// the token, corrupting every tokened metadata GET that follows.
+		// Match imdsGetLive's ReadAll+LimitReader pattern instead.
+		return io.ReadAll(io.LimitReader(resp.Body, imdsMaxBodyBytes))
 	})
 	return string(data), err
 }

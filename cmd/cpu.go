@@ -176,7 +176,9 @@ func printCPUReport(ctx context.Context, cpu *models.CPUInfo, freq *models.CPUFr
 		cpuLine(cpuIcon(thermal.CPUTempC, 80, 95, mode), "CPU temp:", fmt.Sprintf("%.1f°C", thermal.CPUTempC))
 		if len(thermal.CoreTemps) > 1 {
 			for name, temp := range thermal.CoreTemps {
-				cpuLine(cpuIcon(temp, 80, 95, mode), name+":", fmt.Sprintf("%.1f°C", temp))
+				// name is a hwmon sensor label read verbatim from sysfs —
+				// untrusted (Finding: internal-collectors-32-07).
+				cpuLine(cpuIcon(temp, 80, 95, mode), output.SanitizeControl(name)+":", fmt.Sprintf("%.1f°C", temp))
 			}
 		}
 	}

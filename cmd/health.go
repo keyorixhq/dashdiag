@@ -1067,6 +1067,9 @@ func printTopCPUProcsWithCgroup(results []runner.Result, _ output.OutputMode) {
 			if scope == "" {
 				scope = "unknown"
 			}
+			// p.Name comes from /proc/PID/comm, attacker-settable the same
+			// way (Finding: internal-collectors-15-04); scope comes from
+			// /proc/PID/cgroup, attacker-influenced too.
 			name := output.SanitizeControl(truncateStr(p.Name, 20))
 			scope = output.SanitizeControl(scope)
 			fmt.Printf("  %-6d  %5.1f%%  %-20s  %s\n",

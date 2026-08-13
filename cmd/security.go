@@ -317,7 +317,10 @@ func printListeningPortsSection(info *models.SecurityInfo, mode output.OutputMod
 			icon = asciiOr("ok", secIconOK, mode)
 			tag = " ← PVE service port (expected)"
 		}
-		proc := p.Process
+		// p.Process comes from /proc/<pid>/comm, which any unprivileged local
+		// process can set to an arbitrary string via prctl(PR_SET_NAME)
+		// (Finding: internal-collectors-29-04).
+		proc := output.SanitizeControl(p.Process)
 		if proc == "" {
 			proc = "unknown"
 		}

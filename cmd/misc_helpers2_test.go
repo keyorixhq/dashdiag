@@ -90,6 +90,24 @@ func TestPrintTopProcsWithCgroup(t *testing.T) {
 	}
 }
 
+// TestPrintTopProcsWithCgroup_SanitizesName guards Finding:
+// internal-collectors-15-04. p.Name comes from /proc/PID/status "Name:",
+// attacker-settable by any unprivileged local process via
+// prctl(PR_SET_NAME) or a crafted argv[0].
+func TestPrintTopProcsWithCgroup_SanitizesName(t *testing.T) {
+	out := captureStdout(t, func() {
+		printTopProcsWithCgroup([]runner.Result{{Data: &models.HealthDeepInfo{
+			TopProcs: []models.ProcessMemStat{{PID: 100, Name: "\x1b[2Jevil", MemPct: 5.5}},
+		}}}, output.ModePlain)
+	})
+	if strings.ContainsRune(out, 0x1b) {
+		t.Errorf("process name output contains a raw ESC byte, got:\n%q", out)
+	}
+	if !strings.Contains(out, "evil") {
+		t.Errorf("printable text around the escape sequence must survive sanitization, got:\n%q", out)
+	}
+}
+
 // TestPrintTopProcsWithCgroup_StripsControlChars guards terminal escape
 // injection: process name and cgroup scope both come from /proc, which is
 // attacker-influenced (a process can name itself anything via prctl or
@@ -131,6 +149,23 @@ func TestPrintTopCPUProcsWithCgroup(t *testing.T) {
 	})
 	if !strings.Contains(unknownScope, "unknown") {
 		t.Errorf("an empty cgroup scope should fall back to unknown, got:\n%s", unknownScope)
+	}
+}
+
+// TestPrintTopCPUProcsWithCgroup_SanitizesName guards the CPU-list half of
+// Finding: internal-collectors-15-04 — p.Name comes from /proc/PID/comm,
+// attacker-settable the same way.
+func TestPrintTopCPUProcsWithCgroup_SanitizesName(t *testing.T) {
+	out := captureStdout(t, func() {
+		printTopCPUProcsWithCgroup([]runner.Result{{Data: &models.HealthDeepInfo{
+			TopCPUProcs: []models.ProcessCPUStat{{PID: 200, Name: "\x1b[2Jevil", CPUPct: 88.5}},
+		}}}, output.ModePlain)
+	})
+	if strings.ContainsRune(out, 0x1b) {
+		t.Errorf("process name output contains a raw ESC byte, got:\n%q", out)
+	}
+	if !strings.Contains(out, "evil") {
+		t.Errorf("printable text around the escape sequence must survive sanitization, got:\n%q", out)
 	}
 }
 

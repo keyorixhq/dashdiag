@@ -519,6 +519,26 @@ func TestPrintNetReportVerdict(t *testing.T) {
 	}
 }
 
+// TestPrintNetReportWiFi_SanitizesSSID guards Finding:
+// internal-collectors-22-03. SSID is attacker-chosen — any nearby AP can
+// broadcast one containing terminal control/escape bytes, and the host
+// merely scanning/associating captures it verbatim.
+func TestPrintNetReportWiFi_SanitizesSSID(t *testing.T) {
+	out := captureStdout(t, func() {
+		printNetReport(&models.NetworkInfo{PrimaryInterface: "wlan0", Interfaces: []models.InterfaceInfo{
+			{Name: "wlan0", IP: "10.0.0.9", Up: true, WiFi: &models.WiFiInfo{
+				SSID: "\x1b]0;pwned\x07Evil", SignalDBm: -55,
+			}},
+		}}, output.ModePlain, 0, platform.ContainerContext{})
+	})
+	if strings.ContainsRune(out, 0x1b) || strings.ContainsRune(out, 0x07) {
+		t.Errorf("SSID output contains a raw control byte, got:\n%q", out)
+	}
+	if !strings.Contains(out, "Evil") {
+		t.Errorf("printable text around the escape sequence must survive sanitization, got:\n%q", out)
+	}
+}
+
 // TestPrintNetReportWiFiInterface covers the WiFi-interface detail line (band,
 // rate, signal-quality glyph tiers, and RxDrops) — the non-WiFi branch is
 // already exercised by TestPrintNetReportVerdict's eth0 interface.

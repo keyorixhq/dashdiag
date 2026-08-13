@@ -230,7 +230,11 @@ func (r *Renderer) printRow(res runner.Result, insights []models.Insight) {
 
 	icon := output.StatusIcon(levelToStatusKey(level), r.mode)
 	name := fmt.Sprintf("%-12s", res.Name)
-	fmt.Fprintln(os.Stdout, r.formatStatusLine(name, icon, level, msg))
+	// msg is either an Insight.Message (untrusted collector text — same as
+	// printInsightGroup) or an inlineData() summary, several of which also
+	// surface untrusted collector fields directly (e.g. inlineSessions'
+	// session User). Sanitize at this single row-formatting choke point.
+	fmt.Fprintln(os.Stdout, r.formatStatusLine(name, icon, level, output.SanitizeControl(msg)))
 
 	if ins != nil && ins.Details != nil && (r.mode == output.ModeHuman || r.mode == output.ModePlain) {
 		r.renderDetails(ins.Details)
@@ -1574,20 +1578,42 @@ func (r *Renderer) PrintSummary(insights []models.Insight, elapsed time.Duration
 
 func (r *Renderer) printInsightGroup(ins []models.Insight) {
 	for _, i := range ins {
-		// Check/Message can carry attacker-influenced text (comm names, cron/log
-		// content, cert fields, ...) assembled upstream in analysis — sanitize at
-		// this terminal-print boundary rather than at every construction site.
+		// Check/Message/Hints routinely embed collector-sourced text that is
+		// not trustworthy (process/comm names, cron and journal log lines,
+		// subprocess output, sysfs labels, cert fields — see the adversarial
+		// review's terminal-injection findings, e.g. internal-collectors-06-02,
+		// -08-01, -18-03, -21-02, -21-03, -25-04). Sanitize once here, the
+		// single choke point every insight passes through before reaching
+		// the terminal, rather than at each of the dozens of analysis call
+		// sites that build these strings.
 		check := output.SanitizeControl(i.Check)
-		message := output.SanitizeControl(i.Message)
+		msg := output.SanitizeControl(i.Message)
+		hints := sanitizeHints(i.Hints)
 		if r.mode == output.ModeHuman {
 			icon := styleForStatus(i.Level).Render(output.StatusIcon(levelToStatusKey(i.Level), r.mode))
-			fmt.Fprintf(os.Stdout, "%s  %s: %s\n", icon, StyleBold.Render(check), message)
-			r.printHints(i.Hints)
+			fmt.Fprintf(os.Stdout, "%s  %s: %s\n", icon, StyleBold.Render(check), msg)
+			r.printHints(hints)
 		} else {
-			fmt.Fprintf(os.Stdout, "%s: %s: %s\n", i.Level, check, message)
-			r.printHintsPlain(i.Hints)
+			fmt.Fprintf(os.Stdout, "%s: %s: %s\n", i.Level, check, msg)
+			r.printHintsPlain(hints)
 		}
 	}
+}
+
+// sanitizeHints strips control/escape characters from each hint before
+// display. Hints can embed untrusted collector-sourced text (e.g. "last
+// error: <raw journal text>", "sample AVC: <raw audit line>"), unlike the
+// static "to inspect:"/"to fix:" prefixes printHints/printHintsPlain key off
+// of, which are always analysis-authored and untouched by this.
+func sanitizeHints(hints []string) []string {
+	if len(hints) == 0 {
+		return hints
+	}
+	out := make([]string, len(hints))
+	for i, h := range hints {
+		out[i] = output.SanitizeControl(h)
+	}
+	return out
 }
 
 // printHints groups hints by their prefix (to inspect / to fix) and prints them

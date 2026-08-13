@@ -57,12 +57,26 @@ func TestLooksLikeHost(t *testing.T) {
 		{"monitoring", true}, // starts with "mon" but is a host, not Monday
 		{"fe80::1", true},    // IPv6
 		{"-", true},          // local-login marker — the FROM column IS present (just empty)
+		// Finding: internal-collectors-30-02 — a dotted hostname ending in
+		// "am"/"pm" used to be misclassified as a LOGIN@ time stamp because
+		// the (bare-suffix) am/pm check ran BEFORE the dot check. This is
+		// the realistic exploit shape: with sshd's UseDNS, the FROM column
+		// is the resolved PTR hostname, which an attacker who controls
+		// their own reverse-DNS record can pick freely.
+		{"attacker.example.pm", true}, // real ccTLD, ends in "pm"
+		{"vps.badguy.cam", true},      // ends in "am"
+		// Bare (dotless) words that merely end in "am"/"pm" must NOT be
+		// mistaken for a 12-hour login time — only a digit-led whole-string
+		// match like "9am"/"9:00pm" (wAmPmLogin) counts.
+		{"team", true},
+		{"program", true},
 		// LOGIN@ timestamps (no FROM column)
 		{"", false},
 		{"10:00", false},
 		{"08:23", false},
 		{"9:00am", false},
 		{"11:30pm", false},
+		{"9am", false},
 		{"Mon", false},
 		{"Tue08", false},
 		{"Wed14", false},
