@@ -65,6 +65,14 @@ type CVEAllResult struct {
 	// CISA Known Exploited Vulnerabilities catalog. KEVCVEs lists those CVE IDs.
 	KEVCount int      `json:"kev_count,omitempty"`
 	KEVCVEs  []string `json:"kev_cves,omitempty"`
+
+	// KEVCatalogReadFailed is true when a KEV sidecar file was found but could
+	// NOT be loaded (corrupt JSON, truncated gzip, wrong schema) — as opposed
+	// to no sidecar file existing at all (a normal, silent no-op for air-gapped
+	// hosts). A present-but-broken catalog must not read identically to "no
+	// catalog" — it silently suppresses the KEV-driven CRIT escalation with no
+	// indication cross-referencing didn't actually run.
+	KEVCatalogReadFailed bool `json:"kev_catalog_read_failed,omitempty"`
 }
 
 // CVEAdvisory is one pending security advisory from a full scan.

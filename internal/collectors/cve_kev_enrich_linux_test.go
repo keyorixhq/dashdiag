@@ -31,11 +31,20 @@ func TestEnrichCVEAllWithKEV_NoCatalogAvailable(t *testing.T) {
 	if r.KEVCount != 0 || r.KEVCVEs != nil {
 		t.Errorf("expected no KEV annotation with no catalog file present, got %+v", r)
 	}
+	// No sidecar file anywhere is the normal, expected state for most hosts —
+	// must NOT be conflated with a present-but-broken catalog.
+	if r.KEVCatalogReadFailed {
+		t.Errorf("a missing catalog is not a load failure, got KEVCatalogReadFailed=true")
+	}
 }
 
 // TestEnrichCVEAllWithKEV_CatalogFileMalformed guards the LoadKEV-error branch:
 // a catalog file that EXISTS but fails to parse (malformed JSON) must leave the
-// result unannotated (return early), not panic or propagate the parse error.
+// result unannotated (return early), not panic or propagate the parse error —
+// but, unlike a genuinely-absent catalog (internal-collectors-06-03), it must
+// mark KEVCatalogReadFailed so the analysis layer can disclose that KEV
+// cross-referencing did not actually run, instead of reading identically to
+// "no catalog available".
 func TestEnrichCVEAllWithKEV_CatalogFileMalformed(t *testing.T) {
 	home := isolateCVEHome(t)
 	kevDir := filepath.Join(home, ".dsd", "kev")
@@ -53,6 +62,9 @@ func TestEnrichCVEAllWithKEV_CatalogFileMalformed(t *testing.T) {
 	EnrichCVEAllWithKEV(r)
 	if r.KEVCount != 0 || r.KEVCVEs != nil {
 		t.Errorf("a malformed catalog file must leave the result unannotated, got %+v", r)
+	}
+	if !r.KEVCatalogReadFailed {
+		t.Errorf("a present-but-malformed catalog must set KEVCatalogReadFailed, got false")
 	}
 }
 

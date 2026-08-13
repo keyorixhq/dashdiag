@@ -61,14 +61,18 @@ func annotateCVEAllWithKEV(cat *cvedata.KEVCatalog, r *models.CVEAllResult) {
 
 // EnrichCVEAllWithKEV loads the CISA KEV catalog from standard sidecar paths (if
 // present) and annotates the scan result with how many pending advisories are
-// actively exploited. No-op when no catalog file is available, so it is safe to
-// call unconditionally on any host.
+// actively exploited. A missing sidecar file is a normal no-op (most hosts don't
+// have one). A sidecar file that IS present but fails to load (corrupt/truncated/
+// wrong schema) is a different case — mark it so the analysis layer can disclose
+// that KEV cross-referencing did not actually run, instead of silently reading
+// identically to "no catalog".
 func EnrichCVEAllWithKEV(r *models.CVEAllResult) {
 	if r == nil {
 		return
 	}
 	cat, err := cvedata.LoadKEVFromStandardPaths()
 	if err != nil {
+		r.KEVCatalogReadFailed = true
 		return
 	}
 	annotateCVEAllWithKEV(cat, r)

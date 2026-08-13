@@ -29,6 +29,41 @@ func TestCheckCVEHealthKEVFiresCrit(t *testing.T) {
 	}
 }
 
+// TestCheckCVEHealth_KEVCatalogReadFailed covers internal-collectors-06-03: a
+// present-but-broken KEV catalog (corrupt JSON, truncated gzip, wrong schema)
+// previously read identically to "no catalog available" — silently
+// suppressing the KEV-driven CRIT escalation with no indication
+// cross-referencing didn't run. It must now append an additional INFO
+// alongside whatever severity insight the plain package-manager rating
+// still produces.
+func TestCheckCVEHealth_KEVCatalogReadFailed(t *testing.T) {
+	r := models.CVEAllResult{
+		PackageManager:       "zypper",
+		Critical:             []models.CVEAdvisory{{ID: "A"}},
+		KEVCatalogReadFailed: true,
+	}
+	insights := checkCVEHealth(r)
+	if len(insights) != 2 {
+		t.Fatalf("expected the CRIT plus an additional KEV-unread INFO, got %d: %+v", len(insights), insights)
+	}
+	if !hasInsight(insights, "CRIT", "critical security advisory") {
+		t.Errorf("the underlying severity CRIT must still fire, got %+v", insights)
+	}
+	if !hasInsight(insights, "INFO", "KEV cross-reference could not run") {
+		t.Errorf("expected an INFO disclosing the failed KEV cross-reference, got %+v", insights)
+	}
+}
+
+// A clean scan (nothing pending) with a broken KEV catalog must stay quiet —
+// there was nothing for a working catalog to have escalated, so disclosing
+// the load failure here would be pure noise.
+func TestCheckCVEHealth_KEVCatalogReadFailedButNothingPendingStaysQuiet(t *testing.T) {
+	r := models.CVEAllResult{PackageManager: "zypper", KEVCatalogReadFailed: true}
+	if got := checkCVEHealth(r); len(got) != 0 {
+		t.Errorf("expected silence when nothing is pending, got %+v", got)
+	}
+}
+
 // Critical-rated advisories with no KEV match fire CRIT.
 func TestCheckCVEHealthCriticalFiresCrit(t *testing.T) {
 	r := models.CVEAllResult{

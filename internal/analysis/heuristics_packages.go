@@ -273,6 +273,27 @@ func checkPackageExtras(pkg models.PackagesInfo) []models.Insight {
 // so its bucket is inferred from the package name — capped at a single honest
 // WARN (no name-only CRIT, no "CVSS >= X" claim). See the apt branch below.
 func checkCVEHealth(r models.CVEAllResult) []models.Insight {
+	out := cveHealthSeverityInsights(r)
+
+	// A present-but-broken KEV catalog silently suppressed the KEV-driven CRIT
+	// escalation above — say so whenever there was anything pending that a
+	// working catalog could have escalated, so the operator knows the severity
+	// shown reflects the package manager's own rating only, not confirmed
+	// active-exploitation status.
+	if r.KEVCatalogReadFailed && r.KEVCount == 0 &&
+		(len(r.Critical) > 0 || len(r.Important) > 0 || len(r.Moderate) > 0 || len(r.Low) > 0) {
+		out = append(out, unverifiedInsight("INFO", "CVE",
+			"KEV cross-reference could not run — the CISA KEV catalog file is present but failed to load",
+			[]string{"note: active-exploitation status for pending CVEs above could not be confirmed"},
+		))
+	}
+	return out
+}
+
+// cveHealthSeverityInsights is the severity-bucketing body of checkCVEHealth,
+// split out so the KEV-catalog-load-failure disclosure above can be appended
+// alongside whatever severity insight this produces, rather than replacing it.
+func cveHealthSeverityInsights(r models.CVEAllResult) []models.Insight {
 	withFix := func(hints []string) []string {
 		if r.FixCommand != "" {
 			hints = append(hints, "to fix: "+r.FixCommand)
