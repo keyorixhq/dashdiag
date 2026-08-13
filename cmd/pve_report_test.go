@@ -36,9 +36,23 @@ func TestPrintPVENodeSubscription(t *testing.T) {
 }
 
 func TestPrintPVEGuestsNone(t *testing.T) {
-	out := captureStdout(t, func() { printPVEGuests(&models.PVEInfo{}, output.ModePlain) })
+	out := captureStdout(t, func() { printPVEGuests(&models.PVEInfo{GuestsVerified: true}, output.ModePlain) })
 	if !strings.Contains(out, "none") {
 		t.Errorf("no guests should report none, got:\n%s", out)
+	}
+}
+
+// TestPrintPVEGuestsEnumerationFailed guards internal-models-11-02: a zero
+// guest count with GuestsVerified=false means the pvesh qemu/lxc query
+// itself failed, not that the node genuinely has no VMs/CTs — it must not
+// print the same "none" a real guest-less node gets.
+func TestPrintPVEGuestsEnumerationFailed(t *testing.T) {
+	out := captureStdout(t, func() { printPVEGuests(&models.PVEInfo{GuestsVerified: false}, output.ModePlain) })
+	if strings.Contains(out, "]  none") {
+		t.Errorf("a failed guest enumeration must not print the clean 'none' line, got:\n%s", out)
+	}
+	if !strings.Contains(out, "NOT verified") {
+		t.Errorf("a failed guest enumeration must disclose NOT verified, got:\n%s", out)
 	}
 }
 
@@ -269,6 +283,32 @@ func TestPrintPVEBridges(t *testing.T) {
 	})
 	if !strings.Contains(stpOn, "STP: ON") || !strings.Contains(stpOn, "boot delay") {
 		t.Errorf("STP enabled should warn of boot delay, got:\n%s", stpOn)
+	}
+}
+
+// TestPrintPVEBridges_QueryFailedNotSilentlyEmpty guards internal-models-11-03:
+// every real PVE node has at least one bridge, so an empty Bridges slice with
+// BridgesVerified=false must disclose the query failure rather than printing
+// nothing — indistinguishable from a section that was never meant to appear.
+func TestPrintPVEBridges_QueryFailedNotSilentlyEmpty(t *testing.T) {
+	out := captureStdout(t, func() {
+		printPVEBridges(&models.PVEInfo{Bridges: nil, BridgesVerified: false}, output.ModePlain)
+	})
+	if !strings.Contains(out, "NOT verified") {
+		t.Errorf("a failed bridge query must disclose NOT verified, got:\n%s", out)
+	}
+}
+
+// TestPrintPVEBridges_VerifiedEmptyStaysSilent is the non-regression
+// counterpart: BridgesVerified=true with a genuinely empty list (should not
+// happen on a real node, but the collector contract allows it) must NOT print
+// a false "not verified" disclosure.
+func TestPrintPVEBridges_VerifiedEmptyStaysSilent(t *testing.T) {
+	out := captureStdout(t, func() {
+		printPVEBridges(&models.PVEInfo{Bridges: nil, BridgesVerified: true}, output.ModePlain)
+	})
+	if out != "" {
+		t.Errorf("a verified-empty bridge list must stay silent, got:\n%s", out)
 	}
 }
 
