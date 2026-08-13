@@ -27,8 +27,15 @@ func IsFirstRun() bool {
 }
 
 func RunWizard(_ output.OutputMode) error {
-	profile := DetectServerProfile()
-	fmt.Printf("Detected server type: %s\n", profile)
+	profile, ok := DetectServerProfile()
+	if ok {
+		fmt.Printf("Detected server type: %s\n", profile)
+	} else {
+		// The process scan itself failed (ReadDir("/proc") error on Linux, or
+		// `ps aux` errored/timed out on macOS) — "general" here is a fallback
+		// default, not a confirmed detection, and must not be presented as one.
+		fmt.Printf("Detected server type: %s (process list unavailable — please verify)\n", profile)
+	}
 	chosen, err := tui.RunSingleSelect(
 		"Confirm server profile (affects default thresholds):",
 		[]string{"web", "database", "kubernetes", "proxmox", "general"},

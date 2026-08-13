@@ -18,8 +18,15 @@ import (
 // (not const) so tests can shrink it rather than waiting out the real value.
 var psTimeout = 5 * time.Second
 
-func DetectServerProfile() string {
-	return classifyProfile(runningProcessNames())
+// DetectServerProfile returns the best-guess server profile and whether the
+// process list itself was actually readable. ok=false means the process
+// scan failed entirely (ReadDir("/proc") error, or `ps aux` errored/timed
+// out on macOS) — classifyProfile(nil) then falls through to the same
+// "general" default a genuinely daemon-free host also produces, so callers
+// must check ok rather than trusting the profile string alone.
+func DetectServerProfile() (profile string, ok bool) {
+	names, ok := runningProcessNames()
+	return classifyProfile(names), ok
 }
 
 func classifyProfile(procs []string) string {
@@ -37,21 +44,25 @@ func classifyProfile(procs []string) string {
 	}
 }
 
-func runningProcessNames() []string {
+// runningProcessNames returns the host's process list and whether the scan
+// itself succeeded. ok=false (scan failed) and "genuinely zero/unrecognized
+// processes" (scan succeeded, ok=true, names empty or none matched) must stay
+// distinguishable — both previously collapsed to the same nil slice.
+func runningProcessNames() (names []string, ok bool) {
 	if runtime.GOOS == "linux" {
 		return linuxProcessNames()
 	}
 	return darwinProcessNames()
 }
 
-func linuxProcessNames() []string {
+func linuxProcessNames() ([]string, bool) {
 	return linuxProcessNamesFrom("/proc")
 }
 
-func linuxProcessNamesFrom(procDir string) []string {
+func linuxProcessNamesFrom(procDir string) ([]string, bool) {
 	entries, err := os.ReadDir(procDir)
 	if err != nil {
-		return nil
+		return nil, false
 	}
 	var names []string
 	for _, e := range entries {
@@ -63,17 +74,17 @@ func linuxProcessNamesFrom(procDir string) []string {
 			names = append(names, strings.TrimSpace(string(data)))
 		}
 	}
-	return names
+	return names, true
 }
 
-func darwinProcessNames() []string {
+func darwinProcessNames() ([]string, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), psTimeout)
 	defer cancel()
 	cmd := exec.CommandContext(ctx, "ps", "aux") // NOSONAR — hardcoded binary
 	cmd.WaitDelay = 100 * time.Millisecond       // force-kill after context cancel (matches localeSafeExec)
 	out, err := cmd.Output()
 	if err != nil {
-		return nil
+		return nil, false
 	}
 	var names []string
 	for line := range strings.SplitSeq(string(out), "\n") {
@@ -83,7 +94,7 @@ func darwinProcessNames() []string {
 			names = append(names, parts[len(parts)-1])
 		}
 	}
-	return names
+	return names, true
 }
 
 func containsAny(list []string, targets ...string) bool {

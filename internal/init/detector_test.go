@@ -65,9 +65,12 @@ func TestClassifyProfile(t *testing.T) {
 func TestDetectServerProfile_Smoke(t *testing.T) {
 	t.Parallel()
 	valid := map[string]bool{"web": true, "database": true, "kubernetes": true, "proxmox": true, "general": true}
-	got := DetectServerProfile()
+	got, ok := DetectServerProfile()
 	if !valid[got] {
 		t.Errorf("DetectServerProfile() = %q, want one of the known profile names", got)
+	}
+	if !ok {
+		t.Error("DetectServerProfile() ok = false, want true — the real process list should be readable in this test environment")
 	}
 }
 
@@ -77,7 +80,10 @@ func TestDetectServerProfile_Smoke(t *testing.T) {
 // BSD-style "ps aux" column layout — COMMAND as the 11th field — matches).
 func TestDarwinProcessNames_Smoke(t *testing.T) {
 	t.Parallel()
-	names := darwinProcessNames()
+	names, ok := darwinProcessNames()
+	if !ok {
+		t.Fatal("darwinProcessNames() ok = false, want true — `ps aux` should succeed in this test environment")
+	}
 	if len(names) == 0 {
 		t.Skip("no process names parsed from `ps aux` in this environment")
 	}
@@ -89,14 +95,18 @@ func TestDarwinProcessNames_Smoke(t *testing.T) {
 }
 
 // With PATH cleared, exec.Command("ps", "aux") cannot find the "ps" binary,
-// so darwinProcessNames() takes its error branch and returns nil — exercises
-// that path without needing a real macOS host. t.Setenv forbids t.Parallel()
-// per Go's testing package (same constraint as firstrun_test.go).
+// so darwinProcessNames() takes its error branch and returns (nil, false) —
+// exercises that path without needing a real macOS host. t.Setenv forbids
+// t.Parallel() per Go's testing package (same constraint as firstrun_test.go).
 func TestDarwinProcessNames_PsNotFound(t *testing.T) {
 	t.Setenv("PATH", "")
 
-	if names := darwinProcessNames(); names != nil {
-		t.Errorf("darwinProcessNames() = %v, want nil when `ps` is not on PATH", names)
+	names, ok := darwinProcessNames()
+	if names != nil {
+		t.Errorf("darwinProcessNames() names = %v, want nil when `ps` is not on PATH", names)
+	}
+	if ok {
+		t.Error("darwinProcessNames() ok = true, want false — the scan itself failed, must not read as a genuine empty result")
 	}
 }
 
@@ -128,7 +138,7 @@ func TestDarwinProcessNamesBoundsHungPs(t *testing.T) {
 	defer func() { psTimeout = oldTimeout }()
 
 	start := time.Now()
-	names := darwinProcessNames()
+	names, ok := darwinProcessNames()
 	elapsed := time.Since(start)
 
 	if elapsed > 2*time.Second {
@@ -136,6 +146,9 @@ func TestDarwinProcessNamesBoundsHungPs(t *testing.T) {
 	}
 	if names != nil {
 		t.Errorf("darwinProcessNames() = %v, want nil when ps is killed for exceeding its deadline", names)
+	}
+	if ok {
+		t.Error("darwinProcessNames() ok = true, want false — a killed/timed-out ps is a scan failure, not a genuine empty result")
 	}
 }
 
@@ -145,7 +158,7 @@ func TestDarwinProcessNamesBoundsHungPs(t *testing.T) {
 // reachable on this Linux test host and is recorded as a known gap.
 func TestRunningProcessNames_Smoke(t *testing.T) {
 	t.Parallel()
-	_ = runningProcessNames()
+	_, _ = runningProcessNames()
 	if runtime.GOOS != "linux" && runtime.GOOS != "darwin" {
 		t.Skip("unexpected GOOS for this smoke test")
 	}
@@ -172,15 +185,28 @@ func TestLinuxProcessNamesFrom(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	got := linuxProcessNamesFrom(dir)
+	got, ok := linuxProcessNamesFrom(dir)
 	if len(got) != 1 || got[0] != "systemd" {
 		t.Errorf("linuxProcessNamesFrom() = %v, want [systemd]", got)
 	}
+	if !ok {
+		t.Error("linuxProcessNamesFrom() ok = false, want true — the directory was readable")
+	}
 }
 
+// TestLinuxProcessNamesFrom_MissingDir is the regression test for the
+// false-OK fix: a ReadDir failure (missing/unreadable /proc) must return
+// ok=false, distinguishing it from a genuinely process-free directory —
+// both previously returned the identical nil slice with no way to tell them
+// apart, which left classifyProfile(nil) silently defaulting to "general"
+// on a scan failure the same way it does on a real daemon-free host.
 func TestLinuxProcessNamesFrom_MissingDir(t *testing.T) {
 	t.Parallel()
-	if got := linuxProcessNamesFrom("/nonexistent/proc-dir"); got != nil {
+	got, ok := linuxProcessNamesFrom("/nonexistent/proc-dir")
+	if got != nil {
 		t.Errorf("linuxProcessNamesFrom() = %v, want nil for missing dir", got)
+	}
+	if ok {
+		t.Error("linuxProcessNamesFrom() ok = true, want false when the directory can't be read")
 	}
 }
