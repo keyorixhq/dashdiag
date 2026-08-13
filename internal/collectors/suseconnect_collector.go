@@ -2,6 +2,7 @@ package collectors
 
 import (
 	"context"
+	"encoding/json"
 	"slices"
 	"strings"
 	"time"
@@ -155,12 +156,31 @@ func collectUbuntuPro(ctx context.Context, info *models.SUSEConnectInfo) *models
 		return info
 	}
 
-	out = strings.ToLower(out)
-	if strings.Contains(out, `"attached": true`) || strings.Contains(out, `"attached":true`) {
-		info.Registered = true
+	// Decode the actual JSON field rather than lowercasing the whole body and
+	// substring-searching for `"attached": true` — that match was order- and
+	// whitespace-fragile (a differently-formatted but semantically identical
+	// document, e.g. reindented output, would silently miss) and does not
+	// resolve duplicate keys the way a real JSON parser does (last value
+	// wins), so it can pick up a stale/decoy occurrence instead of the
+	// actual final value.
+	var status struct {
+		Attached bool `json:"attached"`
+	}
+	if jsonErr := json.Unmarshal([]byte(out), &status); jsonErr != nil {
+		// `pro`'s JSON shape is not a stability-guaranteed contract. Don't
+		// guess from unparseable output — disclose it as unverified rather
+		// than defaulting to "detached", which would read as a confident
+		// (and possibly wrong) entitlement verdict.
+		info.Registered = false
+		info.Status = strings.TrimSpace(out)
+		info.StatusUnverified = true
+		return info
+	}
+
+	info.Registered = status.Attached
+	if status.Attached {
 		info.Status = "attached"
 	} else {
-		info.Registered = false
 		info.Status = "detached"
 	}
 	return info

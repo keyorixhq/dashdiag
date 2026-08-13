@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"path/filepath"
+	"regexp"
 	"strings"
 	"time"
 
@@ -30,14 +31,28 @@ const (
 	fixZypperSecurity = "zypper patch --category security"
 )
 
+// cveIDStrictPattern validates a caller-supplied CVE identifier end to end
+// (CVE-YYYY-NNNN, four or more sequence digits), not merely its prefix.
+// Anchored, unlike cveIDPattern (cve_kev.go), which is deliberately
+// unanchored for extracting CVE mentions out of free-form advisory text.
+// A caller-supplied ID that fails this check is rejected outright rather
+// than being echoed into CVEResult.CVE — it is then concatenated unescaped
+// into fallback advisory URLs, passed as an argv element to package-manager
+// tools, and printed to the terminal by `dsd cve`, so anything past the
+// literal CVE- prefix must be exactly a year and a sequence number.
+var cveIDStrictPattern = regexp.MustCompile(`^CVE-\d{4}-\d{4,}$`)
+
 // CheckCVE queries the system package manager to determine if a CVE
 // is affecting the current system. Supports zypper, dnf (4+5), and apt.
 // Falls back to OVAL file auto-discovery when package manager has stale metadata.
 func CheckCVE(ctx context.Context, cveID string) *models.CVEResult {
 	cveID = strings.TrimSpace(strings.ToUpper(cveID))
-	if !strings.HasPrefix(cveID, "CVE-") {
+	if !cveIDStrictPattern.MatchString(cveID) {
+		// Do not echo the rejected input back into CVEResult.CVE — it failed
+		// validation precisely because it may carry more than a CVE ID
+		// (arbitrary/control-character text), and that field is later
+		// printed to the terminal and concatenated into advisory URLs.
 		return &models.CVEResult{
-			CVE:          cveID,
 			Status:       models.CVEUnknown,
 			StatusReason: "invalid CVE ID format — expected CVE-YYYY-NNNNN",
 		}

@@ -16,6 +16,11 @@ import (
 var (
 	wDayLogin  = regexp.MustCompile(`^(?i)(mon|tue|wed|thu|fri|sat|sun)\d*$`)
 	wDateLogin = regexp.MustCompile(`^\d{1,2}[A-Za-z]{3}\d{2}$`)
+	// wAmPmLogin matches a 12-hour LOGIN@ time stamp ("9am", "9:00am",
+	// "12:30PM") — never a host, since it requires the WHOLE string to start
+	// with digits and end in exactly "am"/"pm". Deliberately narrower than a
+	// bare HasSuffix(s, "am"/"pm") check (see looksLikeHost).
+	wAmPmLogin = regexp.MustCompile(`(?i)^\d{1,2}(:\d{2})?\s*(am|pm)$`)
 )
 
 // SessionsCollector reads active login sessions via `w -h`.
@@ -174,9 +179,25 @@ func looksLikeHost(s string) bool {
 		// checks already exclude From=="-".
 		return true
 	}
-	lower := strings.ToLower(s)
-	// "9:00am" / "9:00pm" — a login time, never a host.
-	if strings.HasSuffix(lower, "am") || strings.HasSuffix(lower, "pm") {
+	// IPv4/FQDN always contain a dot, and none of the LOGIN@ timestamp shapes
+	// this function guards against (12-hour time, day-of-week, date stamp)
+	// ever do — so a dot is checked FIRST, before any timestamp-shape
+	// heuristic below, making it an unambiguous, unspoofable "this is a
+	// host" signal. This used to run last (as the "IPv4/FQDN have a dot"
+	// check below), which let a dotted hostname ending in "am"/"pm" (e.g. a
+	// real host under the .pm ccTLD, or a domain an attacker controls) be
+	// misclassified as a LOGIN@ time stamp by the suffix check that ran
+	// first — and with `UseDNS` sshd logs the resolved PTR hostname as the
+	// FROM value, so an attacker who controls their own reverse-DNS record
+	// could pick one ending in "am"/"pm" to suppress the RemoteCount/RootSSH
+	// signal for their own login (Finding: internal-collectors-30-02).
+	if strings.Contains(s, ".") {
+		return true
+	}
+	// "9am" / "9:00pm" — a 12-hour login time, never a host. Anchored to the
+	// WHOLE string (wAmPmLogin), not a bare suffix check, so it can't fire
+	// on an ordinary word that merely ends in "am"/"pm".
+	if wAmPmLogin.MatchString(s) {
 		return false
 	}
 	// A colon means either a time ("10:00" — digits before the colon) or an IPv6
@@ -188,10 +209,7 @@ func looksLikeHost(s string) bool {
 	if wDayLogin.MatchString(s) || wDateLogin.MatchString(s) {
 		return false
 	}
-	// IPv4 / FQDN have a dot; a bare hostname contains a letter.
-	if strings.Contains(s, ".") {
-		return true
-	}
+	// A bare (dotless) hostname contains a letter.
 	return strings.IndexFunc(s, func(r rune) bool {
 		return (r >= 'a' && r <= 'z') || (r >= 'A' && r <= 'Z')
 	}) >= 0

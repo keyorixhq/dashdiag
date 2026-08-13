@@ -290,18 +290,36 @@ func TestIsMultipathPresent(t *testing.T) {
 }
 
 // TestIsMultipathPresent_LookpathAndProcess drives the full gate: lookPath
-// success (via Cached "lookpath/multipathd") AND anyProcessNamed.
+// success (via Cached "lookpath/multipathd") AND multipathDaemonRunning.
 func TestIsMultipathPresent_LookpathAndProcess(t *testing.T) {
 	t.Run("present via running daemon", func(t *testing.T) {
 		withCombinedFixture(t,
 			map[string][]byte{"lookpath/multipathd": []byte("/sbin/multipathd")},
 			nil,
 			func(b *source.Bundle) {
-				b.PutDir("/proc", []string{"100"})
-				b.PutFile("/proc/100/comm", []byte("multipathd\n"))
+				b.PutDir("/proc", []string{})
+				b.PutStat("/run/multipathd.sock", source.FileMeta{})
 			})
 		if !IsMultipathPresent() {
-			t.Error("expected true when multipathd is on PATH and the daemon process is running")
+			t.Error("expected true when multipathd is on PATH and its control socket exists")
+		}
+	})
+
+	// Finding: internal-collectors-21-08 — /proc/<pid>/comm is self-reported
+	// by any unprivileged local process, so a fake "multipathd" comm with NO
+	// real control socket and NO sysfs multipath maps must NOT be read as
+	// "daemon running". This is the exact spoof the finding described.
+	t.Run("comm alone (no control socket) is not proof of a running daemon", func(t *testing.T) {
+		withCombinedFixture(t,
+			map[string][]byte{"lookpath/multipathd": []byte("/sbin/multipathd")},
+			nil,
+			func(b *source.Bundle) {
+				b.PutDir("/proc", []string{"100"})
+				b.PutFile("/proc/100/comm", []byte("multipathd\n"))
+				b.PutDir("/sys/block", []string{"sda"})
+			})
+		if IsMultipathPresent() {
+			t.Error("expected false: a spoofed /proc/<pid>/comm alone must not count as a running daemon")
 		}
 	})
 
@@ -419,8 +437,7 @@ func TestMultipathCollector_Collect_ShowPathsSucceeds(t *testing.T) {
 		map[string][]byte{"lookpath/multipathd": []byte("/sbin/multipathd")},
 		nil,
 		func(b *source.Bundle) {
-			b.PutDir("/proc", []string{"100"})
-			b.PutFile("/proc/100/comm", []byte("multipathd\n"))
+			b.PutStat("/run/multipathd.sock", source.FileMeta{})
 			b.PutCmd("multipathd", []string{"show", "paths", "format", "%d %t %s %m"}, multipathShowOK, 0)
 		})
 	c := NewMultipathCollector()
@@ -444,8 +461,7 @@ func TestMultipathCollector_Collect_ShowPathsFailsFallsBackToDashL(t *testing.T)
 		map[string][]byte{"lookpath/multipathd": []byte("/sbin/multipathd")},
 		nil,
 		func(b *source.Bundle) {
-			b.PutDir("/proc", []string{"100"})
-			b.PutFile("/proc/100/comm", []byte("multipathd\n"))
+			b.PutStat("/run/multipathd.sock", source.FileMeta{})
 			b.PutCmd("multipathd", []string{"show", "paths", "format", "%d %t %s %m"}, "", 1)
 			b.PutCmd("multipath", []string{"-l"}, multipathLOK, 0)
 		})
@@ -471,8 +487,7 @@ func TestMultipathCollector_Collect_BothCommandsFail(t *testing.T) {
 		map[string][]byte{"lookpath/multipathd": []byte("/sbin/multipathd")},
 		nil,
 		func(b *source.Bundle) {
-			b.PutDir("/proc", []string{"100"})
-			b.PutFile("/proc/100/comm", []byte("multipathd\n"))
+			b.PutStat("/run/multipathd.sock", source.FileMeta{})
 			b.PutCmd("multipathd", []string{"show", "paths", "format", "%d %t %s %m"}, "", 1)
 			b.PutCmd("multipath", []string{"-l"}, "", 1)
 		})
@@ -502,8 +517,7 @@ func TestMultipathCollector_Collect_NoDevicesGatesOff(t *testing.T) {
 		map[string][]byte{"lookpath/multipathd": []byte("/sbin/multipathd")},
 		nil,
 		func(b *source.Bundle) {
-			b.PutDir("/proc", []string{"100"})
-			b.PutFile("/proc/100/comm", []byte("multipathd\n"))
+			b.PutStat("/run/multipathd.sock", source.FileMeta{})
 			b.PutCmd("multipathd", []string{"show", "paths", "format", "%d %t %s %m"},
 				"dev dm_st  vend/prod/rev     multipath\n", 0)
 		})

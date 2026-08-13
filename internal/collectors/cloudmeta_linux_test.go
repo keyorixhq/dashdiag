@@ -5,6 +5,7 @@ package collectors
 import (
 	"context"
 	"errors"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -286,6 +287,67 @@ func TestImdsGet_LiveError(t *testing.T) {
 	}
 	if got != "" {
 		t.Errorf("got = %q, want empty on error", got)
+	}
+}
+
+// ── awsIMDSToken (direct, via a fake RoundTripper) ──────────────────────────
+
+// chunkyReadCloser simulates a response body that trickles bytes out a few
+// at a time rather than handing them all back on the first Read() call — the
+// io.Reader contract explicitly permits this (e.g. under chunked transfer-
+// encoding), and a caller that assumes a single Read() drains the body will
+// silently truncate.
+type chunkyReadCloser struct {
+	data      []byte
+	pos       int
+	chunkSize int
+}
+
+func (r *chunkyReadCloser) Read(p []byte) (int, error) {
+	if r.pos >= len(r.data) {
+		return 0, io.EOF
+	}
+	n := r.chunkSize
+	if n > len(p) {
+		n = len(p)
+	}
+	if remaining := len(r.data) - r.pos; n > remaining {
+		n = remaining
+	}
+	copy(p, r.data[r.pos:r.pos+n])
+	r.pos += n
+	return n, nil
+}
+
+func (r *chunkyReadCloser) Close() error { return nil }
+
+// TestAwsIMDSToken_FullBodyReadAcrossMultipleReads guards Finding:
+// internal-collectors-04-04. awsIMDSToken used to read the token with a
+// single fixed-256-byte-buffer Read() call, discarding its error — not
+// guaranteed by the io.Reader contract to drain the whole body in one call
+// (e.g. under chunked transfer-encoding), so a slow/misbehaving IMDS
+// responder could silently truncate the cached token. It must instead read
+// the FULL body (io.ReadAll+LimitReader, matching imdsGetLive's already-
+// fixed pattern), even when the underlying reader trickles bytes out a few
+// at a time.
+func TestAwsIMDSToken_FullBodyReadAcrossMultipleReads(t *testing.T) {
+	withLiveCachedFixture(t)
+
+	longToken := strings.Repeat("A", 300) // longer than the old 256-byte buffer
+	client := &http.Client{Transport: roundTripFunc(func(*http.Request) (*http.Response, error) {
+		return &http.Response{
+			StatusCode: http.StatusOK,
+			Body:       &chunkyReadCloser{data: []byte(longToken), chunkSize: 40},
+		}, nil
+	})}
+
+	token, err := awsIMDSToken(context.Background(), client)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if token != longToken {
+		t.Errorf("token = %d bytes (%q...), want the full %d-byte token — a short Read must not silently truncate it",
+			len(token), token[:min(20, len(token))], len(longToken))
 	}
 }
 

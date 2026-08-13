@@ -136,7 +136,11 @@ func printDiskDrives(info *models.DiskInfo, mode output.OutputMode) {
 		sizeStr := diskFmtGB(d.SizeGB)
 		modelStr := ""
 		if d.Model != "" {
-			modelStr = "  [" + d.Model + "]"
+			// Model is drive-reported (sysfs `model` file / smartctl JSON) —
+			// a hostile device, USB drive, or virtualization backend can
+			// embed control/escape bytes in it (Finding:
+			// internal-collectors-24-02).
+			modelStr = "  [" + output.SanitizeControl(d.Model) + "]"
 		}
 		fmt.Printf("  %-12s %-6s %-5s %s%s\n",
 			d.Name, sizeStr, string(d.Type), mountStr, modelStr)
@@ -368,7 +372,9 @@ func printDiskSteamOS(info *models.DiskInfo, mode output.OutputMode) {
 // printSMARTLine renders a compact SMART summary line indented under the drive.
 func printSMARTLine(s *models.SMARTInfo, mode output.OutputMode) {
 	if s.Error != "" {
-		fmt.Printf("             SMART: %s\n", s.Error)
+		// s.Error is built from smartctl's JSON open_error field / OpenError —
+		// drive-reported text (Finding: internal-collectors-24-02).
+		fmt.Printf("             SMART: %s\n", output.SanitizeControl(s.Error))
 		return
 	}
 	// A virtual/cloud volume (e.g. AWS EBS) answers the SMART health query with
