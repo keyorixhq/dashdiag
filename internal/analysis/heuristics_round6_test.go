@@ -234,16 +234,28 @@ func TestCheckDBus(t *testing.T) {
 }
 
 func TestCheckLaunchd(t *testing.T) {
-	assertLevel(t, checkLaunchd(models.LaunchdInfo{}), "")
-	assertLevel(t, checkLaunchd(models.LaunchdInfo{Failed: []models.LaunchdService{{Label: "com.example.daemon"}}}), "WARN")
+	assertLevel(t, checkLaunchd(models.LaunchdInfo{Checked: true}), "")
+	assertLevel(t, checkLaunchd(models.LaunchdInfo{Checked: true, Failed: []models.LaunchdService{{Label: "com.example.daemon"}}}), "WARN")
 
 	// More than 3 failed services truncates the inline list and appends a "+N more" suffix.
-	many := checkLaunchd(models.LaunchdInfo{Failed: []models.LaunchdService{
+	many := checkLaunchd(models.LaunchdInfo{Checked: true, Failed: []models.LaunchdService{
 		{Label: "com.example.one"}, {Label: "com.example.two"},
 		{Label: "com.example.three"}, {Label: "com.example.four"}, {Label: "com.example.five"},
 	}})
 	if !hasInsightMsg(many, "WARN", "(+2 more)") {
 		t.Errorf("expected a '+2 more' suffix when more than 3 services failed, got %+v", many)
+	}
+}
+
+// TestCheckLaunchd_NotChecked is the regression test for the false-OK fix: a
+// `launchctl list` failure (Checked=false) must disclose an explicit INFO,
+// never silently render as "checked every service, zero failures" — which is
+// exactly what a genuinely healthy Mac (Checked=true, Failed=nil) also
+// produces from this function.
+func TestCheckLaunchd_NotChecked(t *testing.T) {
+	got := checkLaunchd(models.LaunchdInfo{})
+	if !hasInsightMsg(got, "INFO", "could not be checked") {
+		t.Errorf("Checked=false must produce an INFO disclosure, got %+v", got)
 	}
 }
 

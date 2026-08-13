@@ -215,6 +215,7 @@ var guardedUnverifiedSignals = map[string]string{
 	"VMwareInfo.SCSIDisksChecked":           "analysis/heuristics (gated; no sd* disks on an NVMe-only guest is normal)",
 	"SteamOSRemotePlay.ARPChecked":          "internal only (json:\"-\", not part of the --json contract); analysis gates on it before firing the isolation-suspected insight",
 	"SessionsInfo.Checked":                  "analysis/heuristics_system.go checkSessions (FIXED: `w` unavailable now emits an explicit INFO, not a silent skip indistinguishable from 'nobody logged in')",
+	"LaunchdInfo.Checked":                   "analysis/checks_never_silent_test.go (checkLaunchd row) + heuristics_round6_test.go TestCheckLaunchd_NotChecked (FIXED: launchctl list failure now emits an explicit INFO, not a silent 'checked, zero failures')",
 
 	// "*Measured" — cgroup read-success flags. Host /proc-derived values can't be
 	// validly scored against a container's cgroup limit when the cgroup side

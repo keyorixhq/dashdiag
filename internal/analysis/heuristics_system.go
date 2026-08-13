@@ -1271,6 +1271,11 @@ func checkHugePages(h models.HugePagesInfo) []models.Insight {
 }
 
 func checkLaunchd(l models.LaunchdInfo) []models.Insight {
+	if !l.Checked {
+		return []models.Insight{unverifiedInsight("INFO", "Launchd",
+			"launchd service check skipped — `launchctl list` failed, so service health could not be checked",
+			[]string{"to inspect: launchctl list"})}
+	}
 	if len(l.Failed) == 0 {
 		return nil
 	}

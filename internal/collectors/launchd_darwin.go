@@ -30,9 +30,13 @@ func (c *LaunchdCollector) Collect(ctx context.Context) (any, error) {
 	// -     1       com.example.myapp   ← failed (non-zero exit, no PID)
 	out, err := runCmd(ctx, "launchctl", "list")
 	if err != nil {
+		// A total scan failure must not read the same as "checked every
+		// service, zero failures" — Checked stays false so checkLaunchd can
+		// tell the difference.
 		return info, nil
 	}
 
+	info.Checked = true
 	info.Total, info.Running, info.Failed = parseLaunchctlList(out)
 	return info, nil
 }

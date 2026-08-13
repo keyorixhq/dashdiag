@@ -46,6 +46,14 @@ var neverSilentChecks = []neverSilentCheck{
 		wantSubstr: "could not be read",
 	},
 	{
+		name:    "checkLaunchd: launchctl list failed",
+		checkFn: "checkLaunchd",
+		run: func() []models.Insight {
+			return checkLaunchd(models.LaunchdInfo{})
+		},
+		wantSubstr: "could not be checked",
+	},
+	{
 		name:    "checkNVMe: drive enumeration failed (macOS diskutil list)",
 		checkFn: "checkNVMe",
 		run: func() []models.Insight {
