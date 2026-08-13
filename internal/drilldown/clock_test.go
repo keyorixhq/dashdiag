@@ -80,16 +80,22 @@ func TestParseTimedatectl_EmptyInput(t *testing.T) {
 // — see the equivalent comment on TestTopProcessesByCPU_RealProc in
 // cpu_test.go for the general rationale. On Linux this calls through to
 // clockTrackingLinux, which is already covered in detail below via
-// swapRunCmd; here it just proves ClockTracking itself doesn't panic/error
-// when neither chronyc nor timedatectl is installed (the golang:1.26 test
-// image has neither, so this exercises the graceful nil,nil degrade path).
-// Must not run with t.Parallel() — see swapRunCmd's doc comment; this test
-// doesn't swap runCmd itself, but it shares the package-level var with the
-// serial group below and must stay ordered with it.
+// swapRunCmd; here it just proves ClockTracking itself doesn't panic when
+// neither chronyc nor timedatectl is installed (the golang:1.26 test image
+// has neither). That case now returns a real error (the false-OK fix — see
+// TestClockTrackingLinux_NoToolingAvailable), not the old graceful nil,nil,
+// so both outcomes are accepted here: (Details, nil) when a tool happens to
+// be present, or (nil, realErr) when neither is. Must not run with
+// t.Parallel() — see swapRunCmd's doc comment; this test doesn't swap runCmd
+// itself, but it shares the package-level var with the serial group below
+// and must stay ordered with it.
 func TestClockTracking_RealDispatch(t *testing.T) {
 	got, err := ClockTracking(context.Background())
 	if err != nil {
-		t.Fatalf("ClockTracking: %v", err)
+		if got != nil {
+			t.Errorf("ClockTracking: got non-nil Details alongside a real error: %+v", got)
+		}
+		return // neither chronyc nor timedatectl available — expected in this test image
 	}
 	if got != nil && got.Type != tableKV {
 		t.Errorf("unexpected shape: %+v", got)
@@ -140,14 +146,23 @@ func TestClockTrackingLinux_FallsBackToTimedatectl(t *testing.T) {
 	}
 }
 
+// TestClockTrackingLinux_NoToolingAvailable is the regression test for the
+// false-OK fix: when NEITHER chronyc nor timedatectl is available, a Clock
+// WARN/CRIT fired because something looked wrong with time sync — the
+// missing supporting detail is a real gap, not "nothing more to show" (the
+// nil,nil this used to return, indistinguishable from a genuinely quiet
+// drill-down). Must now return a real error so dispatchLive discloses it.
 func TestClockTrackingLinux_NoToolingAvailable(t *testing.T) {
 	swapRunCmd(t, func(context.Context, string, ...string) (string, error) {
 		return "", errNotFound
 	})
 
 	got, err := clockTrackingLinux(context.Background())
-	if got != nil || err != nil {
-		t.Errorf("clockTrackingLinux() = (%+v, %v), want (nil, nil) when neither tool is available", got, err)
+	if got != nil {
+		t.Errorf("clockTrackingLinux() Details = %+v, want nil", got)
+	}
+	if err == nil {
+		t.Error("clockTrackingLinux() error = nil, want a real error when neither tool is available")
 	}
 }
 
