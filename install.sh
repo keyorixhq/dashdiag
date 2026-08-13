@@ -215,11 +215,36 @@ signature_unenforced() {
     warn "$msg -- verified checksum only"
 }
 
+# refuse_symlinked_prefix guards install_binary's mkdir -p step against a
+# symlink-follow attack (install-script-02): `mkdir -p` walks and creates
+# EVERY missing path component, following any symlink already present along
+# the way -- unlike the final `mv "$TMPFILE" "$DEST"` step, which uses
+# rename(2) and therefore replaces a destination symlink atomically rather
+# than writing through it (that half of the original finding was already
+# safe). Under a NON-DEFAULT --prefix whose parent directory is already
+# attacker-writable, an attacker could pre-plant PREFIX (or PREFIX/bin) as a
+# symlink so `sudo mkdir -p` silently creates real directories -- and the
+# eventual sudo-owned $DEST -- somewhere the attacker chose instead, e.g.
+# inside another root-owned directory the attacker couldn't otherwise reach.
+# The default --prefix (/usr/local, root-owned already) is not exposed to
+# this: an unprivileged attacker can't plant a symlink there in the first
+# place. -L (not -e) specifically detects "is a symlink", independent of
+# whether the link target exists, is a directory, or is dangling.
+refuse_symlinked_prefix() {
+    if [ -L "$PREFIX" ]; then
+        die "${PREFIX} is a symlink -- refusing to install through it (possible symlink attack). Pass a real directory via --prefix."
+    fi
+    if [ -L "$INSTALL_DIR" ]; then
+        die "${INSTALL_DIR} is a symlink -- refusing to install through it (possible symlink attack). Pass a real directory via --prefix."
+    fi
+}
+
 # ── install ───────────────────────────────────────────────────────────────────
 install_binary() {
     TMPFILE="$1"
     INSTALL_DIR="${PREFIX}/bin"
     DEST="${INSTALL_DIR}/${BINARY}"
+    refuse_symlinked_prefix
 
     # Try without sudo first
     if mkdir -p "$INSTALL_DIR" 2>/dev/null && mv "$TMPFILE" "$DEST" 2>/dev/null; then
@@ -229,6 +254,7 @@ install_binary() {
 
     # Fall back to sudo
     info "Installing to ${DEST} (requires sudo)..."
+    refuse_symlinked_prefix
     sudo mkdir -p "$INSTALL_DIR"
     sudo mv "$TMPFILE" "$DEST"
     sudo chmod +x "$DEST"
