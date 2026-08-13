@@ -142,16 +142,21 @@ func printSecurityDrift(diff *baseline.SecurityDiff, mode output.OutputMode) {
 
 	fmt.Printf("\n🔍 Security drift since %s\n", dateStr)
 
+	// Every field below is attacker-influenced (SUID/SSH-config paths, sudoers
+	// text, another user's crontab content) — strip control bytes before
+	// printing to the terminal.
 	if len(diff.NewSUIDs) > 0 {
 		fmt.Println("\nNew SUID binaries (not in baseline):")
-		for _, s := range diff.NewSUIDs {
+		for _, raw := range diff.NewSUIDs {
+			s := output.SanitizeControl(raw)
 			fmt.Printf("  %s  %s  [investigate: ls -la && file]\n", asciiOr(secLvlFail, iconFail, mode), s)
 		}
 	}
 
 	if len(diff.ChangedSSHFiles) > 0 {
 		fmt.Println("\nChanged SSH config files:")
-		for _, f := range diff.ChangedSSHFiles {
+		for _, raw := range diff.ChangedSSHFiles {
+			f := output.SanitizeControl(raw)
 			fmt.Printf("  %s  %s  (modified since baseline)\n", asciiOr(secLvlWarn, secIconWarn, mode), f)
 			fmt.Printf("     → Review changes to %s and restart sshd if intentional\n", f)
 			fmt.Println("     → Or: git diff if sshd_config is version-controlled")
@@ -160,7 +165,8 @@ func printSecurityDrift(diff *baseline.SecurityDiff, mode output.OutputMode) {
 
 	if len(diff.AddedSSHFiles) > 0 {
 		fmt.Println("\nNew SSH config files (not in baseline):")
-		for _, f := range diff.AddedSSHFiles {
+		for _, raw := range diff.AddedSSHFiles {
+			f := output.SanitizeControl(raw)
 			fmt.Printf("  %s  %s  (added since baseline)\n", asciiOr(secLvlWarn, secIconWarn, mode), f)
 			fmt.Printf("     → Inspect %s for PermitRootLogin / PasswordAuthentication overrides\n", f)
 		}
@@ -168,7 +174,8 @@ func printSecurityDrift(diff *baseline.SecurityDiff, mode output.OutputMode) {
 
 	if len(diff.RemovedSSHFiles) > 0 {
 		fmt.Println("\nRemoved SSH config files (in baseline, now gone):")
-		for _, f := range diff.RemovedSSHFiles {
+		for _, raw := range diff.RemovedSSHFiles {
+			f := output.SanitizeControl(raw)
 			fmt.Printf("  %s  %s  (removed since baseline)\n", asciiOr(secLvlWarn, secIconWarn, mode), f)
 			fmt.Printf("     → Confirm the hardening from %s is still applied elsewhere\n", f)
 		}
@@ -176,14 +183,16 @@ func printSecurityDrift(diff *baseline.SecurityDiff, mode output.OutputMode) {
 
 	if len(diff.NewSudoEntries) > 0 {
 		fmt.Println("\nNew sudoers NOPASSWD entries:")
-		for _, s := range diff.NewSudoEntries {
+		for _, raw := range diff.NewSudoEntries {
+			s := output.SanitizeControl(raw)
 			fmt.Printf("  %s  %s\n", asciiOr(secLvlWarn, secIconWarn, mode), s) // codeql[go/clear-text-logging] -- intentional: dsd security prints audit findings to the terminal
 		}
 	}
 
 	if len(diff.NewCronEntries) > 0 {
 		fmt.Println("\nNew suspect cron entries:")
-		for _, s := range diff.NewCronEntries {
+		for _, raw := range diff.NewCronEntries {
+			s := output.SanitizeControl(raw)
 			fmt.Printf("  %s  %s\n", asciiOr(secLvlWarn, secIconWarn, mode), s)
 		}
 	}
@@ -317,7 +326,9 @@ func printListeningPortsSection(info *models.SecurityInfo, mode output.OutputMod
 		if name := wellKnownPort(p.Port); name != "" {
 			proc = name
 		}
-		fmt.Printf("  %s  %-6d %-5s %-20s%s\n", icon, p.Port, p.Protocol, proc, tag)
+		// p.Process comes from /proc/<pid>/comm, which is attacker-influenced —
+		// a process can name itself anything.
+		fmt.Printf("  %s  %-6d %-5s %-20s%s\n", icon, p.Port, p.Protocol, output.SanitizeControl(proc), tag)
 	}
 }
 
@@ -539,7 +550,7 @@ func printSELinuxSection(info *models.SecurityInfo, mode output.OutputMode) {
 				if proc == "" {
 					proc = "unknown process"
 				}
-				fmt.Printf("  %s   %s/%-5d %s — no SELinux port label\n", asciiOr(secLvlWarn, secIconWarn, mode), p.Protocol, p.Port, proc)
+				fmt.Printf("  %s   %s/%-5d %s — no SELinux port label\n", asciiOr(secLvlWarn, secIconWarn, mode), p.Protocol, p.Port, output.SanitizeControl(proc))
 				fmt.Printf("       → semanage port -a -t <service>_port_t -p %s %d\n", p.Protocol, p.Port)
 			}
 		}

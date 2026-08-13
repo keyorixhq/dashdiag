@@ -74,3 +74,55 @@ func TestStatusSymbol(t *testing.T) {
 		t.Errorf("statusSymbol(WEIRD) = %q, want WEIRD unchanged", got)
 	}
 }
+
+// TestStatusSymbol_StripsControlChars guards terminal escape injection: an
+// unrecognized status string (or --plain's verbatim pass-through) comes
+// straight from a remote host's dsd health --json body, which a compromised
+// or hostile fleet member fully controls.
+func TestStatusSymbol_StripsControlChars(t *testing.T) {
+	evil := "evil\x1b]0;pwned\x07"
+	for _, plain := range []bool{true, false} {
+		got := statusSymbol(evil, plain)
+		if strings.Contains(got, "\x1b") {
+			t.Errorf("statusSymbol(evil, plain=%v) still contains ESC byte: %q", plain, got)
+		}
+	}
+}
+
+// TestPrintCompare_StripsControlChars guards terminal escape injection: a
+// remote host's `dsd health --json` snapshot fully controls Hostname and
+// per-check Name/Status, and dsd compare is explicitly meant to be fed
+// snapshots from other (possibly hostile) hosts.
+func TestPrintCompare_StripsControlChars(t *testing.T) {
+	// Three hosts (not two) so printOutlierAnalysis's own Hostname print site
+	// also gets exercised — it needs >= 3 to fire.
+	snaps := []*compareSnapshot{
+		{
+			Hostname:  "evil\x1b]0;pwned\x07",
+			Timestamp: "2026-01-01T00:00:00Z",
+			Checks:    []compareCheck{{Name: "check\x1b[31mred\x1b[0m", Status: "OK"}},
+		},
+		{
+			Hostname:  "host2",
+			Timestamp: "2026-01-01T00:00:00Z",
+			Checks:    []compareCheck{{Name: "check\x1b[31mred\x1b[0m", Status: "WARN"}},
+		},
+		{
+			Hostname:  "host3",
+			Timestamp: "2026-01-01T00:00:00Z",
+			Checks:    []compareCheck{{Name: "check\x1b[31mred\x1b[0m", Status: "WARN"}},
+		},
+	}
+	out := captureStdout(t, func() {
+		printCompare(snaps, true, true)
+	})
+	if strings.Contains(out, "\x1b") {
+		t.Errorf("printCompare output still contains ESC byte:\n%s", out)
+	}
+	if !strings.Contains(out, "evil]0;pwned") || !strings.Contains(out, "check[31mred[0m") {
+		t.Errorf("printCompare output missing sanitized hostname/check name:\n%s", out)
+	}
+	if !strings.Contains(out, "Outlier") {
+		t.Fatalf("test setup bug: outlier line did not fire, got:\n%s", out)
+	}
+}

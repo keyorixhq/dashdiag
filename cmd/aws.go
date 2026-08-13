@@ -139,7 +139,7 @@ func printAWSReport(w io.Writer, info *models.AWSInfo, elapsed time.Duration, mo
 	sep := strings.Repeat("─", 60)
 	timing := fmt.Sprintf(" in %.1fs", elapsed.Seconds())
 
-	itype := info.InstanceType
+	itype := output.SanitizeControl(info.InstanceType)
 	if itype == "" {
 		itype = "instance"
 	}

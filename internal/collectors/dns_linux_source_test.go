@@ -158,6 +158,22 @@ func TestAnalyzeDNSQuality(t *testing.T) {
 	}
 }
 
+// TestAnalyzeDNSQuality_NdotsOverflowDoesNotWrapNegative guards against an
+// integer-overflow false negative. resolv.conf's ndots option is attacker-
+// influenced (DHCP-supplied, or a hostile K8s admission webhook/CNI writing
+// a pod's resolv.conf), so a pathologically long digit string must not wrap
+// Go's int around via naive n = n*10+digit accumulation. 19 nines exceeds
+// int64's range and — without a cap — wraps to exactly 0, which silently
+// defeats the "n > 3" check and hides a genuine high-ndots hazard.
+func TestAnalyzeDNSQuality_NdotsOverflowDoesNotWrapNegative(t *testing.T) {
+	t.Parallel()
+	info := &models.DNSResolverInfo{Options: []string{"ndots:9999999999999999999"}} // 19 nines
+	analyzeDNSQuality(info)
+	if info.NdotsHigh <= 3 {
+		t.Errorf("NdotsHigh = %d, want > 3 (a pathologically long ndots value must still be flagged, not overflow-wrap to a false negative)", info.NdotsHigh)
+	}
+}
+
 // TestDNSCollector_Collect_FullHappyPath drives Collect() end to end: a real
 // resolv.conf, a systemd-resolved manager, and a cached probe result — all
 // three pipeline stages (parse/detect/probe/analyze) wired together, without

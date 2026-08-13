@@ -305,6 +305,49 @@ func TestNfsCheckServer(t *testing.T) {
 		}
 	})
 
+	// TestNfsCheckServer/DSD_OFFLINE_skips_the_remote_dial is a regression
+	// guard for internal-collectors-23-05: nfsCheckServer used to
+	// unconditionally dial a non-loopback server (taken from /proc/mounts,
+	// not fully trusted — e.g. a container/namespace's mount table) on ports
+	// 111 and 2049, with no opt-out. recordingCacheSource (defined in
+	// network_quick_test.go, same package) proves the dial's Cached() key is
+	// never even requested, rather than just checking the (necessarily
+	// false-either-way, since no fixture is seeded) reachability result.
+	t.Run("DSD_OFFLINE skips the remote dial", func(t *testing.T) {
+		t.Setenv("DSD_OFFLINE", "1")
+		var calls []string
+		prev := SetSource(recordingCacheSource{Replay: source.NewReplay(source.NewBundle()), calls: &calls})
+		t.Cleanup(func() { SetSource(prev) })
+
+		m := &models.NFSMount{Server: "10.1.1.1"}
+		nfsCheckServer(m)
+		if !m.ServerCheckSkipped {
+			t.Error("expected ServerCheckSkipped=true under DSD_OFFLINE")
+		}
+		if m.ServerReachable || m.NFSPortOpen {
+			t.Errorf("expected no reachability claim under DSD_OFFLINE, got %+v", m)
+		}
+		for _, k := range calls {
+			if strings.HasPrefix(k, "dial/tcp/10.1.1.1:") {
+				t.Errorf("dial %q was attempted despite DSD_OFFLINE", k)
+			}
+		}
+	})
+
+	// Loopback must be unaffected by DSD_OFFLINE — it never leaves the
+	// machine, so there is nothing to gate.
+	t.Run("DSD_OFFLINE does not affect loopback", func(t *testing.T) {
+		t.Setenv("DSD_OFFLINE", "1")
+		withCombinedFixture(t, map[string][]byte{
+			"dial/tcp/127.0.0.1:2049": {'1'},
+		}, nil, nil)
+		m := &models.NFSMount{Server: "127.0.0.1"}
+		nfsCheckServer(m)
+		if !m.ServerReachable || m.ServerCheckSkipped {
+			t.Errorf("loopback should still be checked under DSD_OFFLINE, got %+v", m)
+		}
+	})
+
 	t.Run("unreachable server", func(t *testing.T) {
 		withCombinedFixture(t, map[string][]byte{
 			"dial/tcp/10.9.9.9:111":  {'0'},
