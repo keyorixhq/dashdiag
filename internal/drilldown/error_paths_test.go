@@ -4,6 +4,7 @@ import (
 	"context"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strconv"
 	"testing"
 	"time"
@@ -25,6 +26,58 @@ func TestDispatchLive_PanicRecoversToNil(t *testing.T) {
 	got := dispatchLive(context.Background(), ins, nil)
 	if got != nil {
 		t.Errorf("expected dispatchLive to recover a panic and return nil, got %+v", got)
+	}
+}
+
+// TestDispatchLive_RealErrorSetsNote is the regression test for the false-OK
+// fix: when a per-check drill-down function returns (nil, realErr) — a
+// genuine failure, not "nothing more to show" — dispatchLive must not
+// silently discard err and return a bare nil (which dispatch()'s caller
+// treats identically to a clean drill-down with nothing to add). It must set
+// a Details.Note disclosing the failure. Drives the same nonexistent-mount
+// failure TestLargestDirs_ReadDirError proves returns (nil, error) directly,
+// but through the dispatchLive switch (the "Disk" case) that used to discard
+// it via `_ = err`.
+func TestDispatchLive_RealErrorSetsNote(t *testing.T) {
+	t.Parallel()
+	nonexistent := filepath.Join(t.TempDir(), "no-such-mount-point")
+	ins := models.Insight{
+		Level:   "WARN",
+		Check:   "Disk",
+		Message: "disk usage at 95% on " + nonexistent + " (/dev/sda1)",
+	}
+	got := dispatchLive(context.Background(), ins, nil)
+	if got == nil {
+		t.Fatal("expected dispatchLive to return a non-nil Details disclosing the failure, got nil")
+	}
+	if got.Note == "" {
+		t.Error("expected Details.Note to disclose the drill-down failure, got empty Note")
+	}
+}
+
+// TestDispatchLive_ClockBothToolsFailSetsNote is internal-drilldown-02-03's
+// regression test: when neither chronyc nor timedatectl is available,
+// clockTrackingLinux now returns a real error (see clock_test.go) instead of
+// the old nil,nil — this proves it flows through dispatchLive's "Clock" case
+// into the same Note-disclosure path TestDispatchLive_RealErrorSetsNote
+// covers for "Disk". ClockTracking's GOOS switch routes to clockTrackingMac
+// (a different, always-succeeds implementation) on Darwin, so this only
+// exercises the fix on Linux, where dsd actually ships it.
+func TestDispatchLive_ClockBothToolsFailSetsNote(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("clockTrackingLinux only runs on Linux — ClockTracking routes to clockTrackingMac on Darwin")
+	}
+	swapRunCmd(t, func(context.Context, string, ...string) (string, error) {
+		return "", errNotFound
+	})
+
+	ins := models.Insight{Level: "WARN", Check: "Clock", Message: "clock offset 500ms"}
+	got := dispatchLive(context.Background(), ins, nil)
+	if got == nil {
+		t.Fatal("expected dispatchLive to return a non-nil Details disclosing the failure, got nil")
+	}
+	if got.Note == "" {
+		t.Error("expected Details.Note to disclose the drill-down failure, got empty Note")
 	}
 }
 

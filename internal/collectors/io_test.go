@@ -1,10 +1,86 @@
 package collectors
 
 import (
+	"context"
 	"os"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
+
+// TestIOCollector_CollectDarwin_IostatFails is the regression test for the
+// false-OK fix: an iostat exec failure must return a real error (which the
+// runner turns into an explicit "check could not run" INFO), not an empty
+// *models.IOInfo{}, nil that reads identically to "no disk activity".
+func TestIOCollector_CollectDarwin_IostatFails(t *testing.T) {
+	prev := SetSource(source.NewReplay(source.NewBundle())) // no PutCmd seeded → command errors as not-recorded
+	t.Cleanup(func() { SetSource(prev) })
+
+	c := &IOCollector{}
+	info, err := c.collectDarwin(context.Background())
+	if err == nil {
+		t.Error("collectDarwin() error = nil, want a real error when iostat fails")
+	}
+	if info != nil {
+		t.Errorf("collectDarwin() info = %+v, want nil on error", info)
+	}
+}
+
+// TestIOCollector_CollectDarwin_EmptyOutput covers the sibling failure mode:
+// iostat exits 0 but produces no output.
+func TestIOCollector_CollectDarwin_EmptyOutput(t *testing.T) {
+	b := source.NewBundle()
+	b.PutCmd("iostat", []string{"-d", "-c", "2", "-w", "1"}, "", 0)
+	prev := SetSource(source.NewReplay(b))
+	t.Cleanup(func() { SetSource(prev) })
+
+	c := &IOCollector{}
+	info, err := c.collectDarwin(context.Background())
+	if err == nil {
+		t.Error("collectDarwin() error = nil, want a real error on empty iostat output")
+	}
+	if info != nil {
+		t.Errorf("collectDarwin() info = %+v, want nil on error", info)
+	}
+}
+
+// TestIOCollector_CollectDarwin_TooFewLines covers the malformed-output
+// failure mode: iostat produces fewer than the 4 expected lines.
+func TestIOCollector_CollectDarwin_TooFewLines(t *testing.T) {
+	b := source.NewBundle()
+	b.PutCmd("iostat", []string{"-d", "-c", "2", "-w", "1"}, "disk0\nKB/t tps MB/s\n", 0)
+	prev := SetSource(source.NewReplay(b))
+	t.Cleanup(func() { SetSource(prev) })
+
+	c := &IOCollector{}
+	info, err := c.collectDarwin(context.Background())
+	if err == nil {
+		t.Error("collectDarwin() error = nil, want a real error on truncated iostat output")
+	}
+	if info != nil {
+		t.Errorf("collectDarwin() info = %+v, want nil on error", info)
+	}
+}
+
+// TestIOCollector_CollectDarwin_Success is the control: valid iostat output
+// must parse without error.
+func TestIOCollector_CollectDarwin_Success(t *testing.T) {
+	b := source.NewBundle()
+	b.PutCmd("iostat", []string{"-d", "-c", "2", "-w", "1"},
+		"          disk0\n    KB/t tps  MB/s\n   20.0  5  0.10\n   30.0 10  0.30\n", 0)
+	prev := SetSource(source.NewReplay(b))
+	t.Cleanup(func() { SetSource(prev) })
+
+	c := &IOCollector{}
+	info, err := c.collectDarwin(context.Background())
+	if err != nil {
+		t.Fatalf("collectDarwin() unexpected error: %v", err)
+	}
+	if len(info.Devices) != 1 || info.Devices[0].Name != "disk0" {
+		t.Errorf("info.Devices = %+v, want one disk0 entry", info.Devices)
+	}
+}
 
 func TestParseDiskstats(t *testing.T) {
 	t.Parallel()

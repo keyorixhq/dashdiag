@@ -270,18 +270,56 @@ func TestCollectDiskIO_ScanTooLong(t *testing.T) {
 	}
 }
 
-// TestCollectDiskIO_NoDiskstatsFile guards the "openFile fails entirely"
-// branch on both samples — must degrade to zero-value entries per drive, not
-// panic or return a shorter slice.
+// TestCollectDiskIO_NoDiskstatsFile is the regression test for the
+// measurement-honesty-03 false-OK fix: when openFile fails entirely on
+// EITHER sample, collectDiskIO must return nil (no entries at all) rather
+// than a fabricated zero-value entry per drive — the old behavior claimed a
+// real 1-second sample was taken (cmd/disk.go's printDiskIO prints "read:
+// 0.0 MB/s write: 0.0 MB/s" under "I/O rates (1s sample)") when the
+// underlying read never succeeded even once. A genuinely idle drive with a
+// REAL zero delta is covered by TestCollectDiskIO above, which does open
+// /proc/diskstats successfully.
 func TestCollectDiskIO_NoDiskstatsFile(t *testing.T) {
 	withFixtureSource(t, func(_ *source.Bundle) {}) // /proc/diskstats never seeded
 	drives := []models.PhysicalDrive{{Name: "sda"}}
 	stats := collectDiskIO(drives)
-	if len(stats) != 1 {
-		t.Fatalf("expected 1 entry, got %d: %+v", len(stats), stats)
+	if stats != nil {
+		t.Errorf("expected nil stats when /proc/diskstats is unreadable on both samples, got %+v", stats)
 	}
-	if stats[0].ReadMBs != 0 || stats[0].WriteMBs != 0 {
-		t.Errorf("expected zero-value stat when /proc/diskstats is unreadable, got %+v", stats[0])
+}
+
+// flakyDiskstatsSource lets the first ReadFile("/proc/diskstats") call
+// succeed and the second fail, simulating /proc/diskstats disappearing (or a
+// transient read error) between collectDiskIO's two samples.
+type flakyDiskstatsSource struct {
+	source.Source
+	calls int
+}
+
+func (f *flakyDiskstatsSource) ReadFile(path string) ([]byte, error) {
+	if path != "/proc/diskstats" {
+		return nil, errors.New("unexpected path in test fake: " + path)
+	}
+	f.calls++
+	if f.calls == 1 {
+		return []byte("   8       0 sda 100 5 20000 10 200 20 40000 30 0 40 60\n"), nil
+	}
+	return nil, errors.New("simulated transient read failure on the second sample")
+}
+
+// TestCollectDiskIO_SecondSampleFails covers the partial-failure case: the
+// FIRST /proc/diskstats read succeeds but the SECOND fails. A one-sided read
+// still can't produce a real delta — must return nil, matching the
+// both-fail case, not a fabricated entry computed against a b-sample that
+// was never actually taken.
+func TestCollectDiskIO_SecondSampleFails(t *testing.T) {
+	prev := SetSource(&flakyDiskstatsSource{Source: source.NewReplay(source.NewBundle())})
+	defer SetSource(prev)
+
+	drives := []models.PhysicalDrive{{Name: "sda"}}
+	stats := collectDiskIO(drives)
+	if stats != nil {
+		t.Errorf("expected nil stats when the second sample fails, got %+v", stats)
 	}
 }
 

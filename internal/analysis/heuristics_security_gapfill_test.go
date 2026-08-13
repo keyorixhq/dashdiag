@@ -188,6 +188,11 @@ func TestCheckSUSESecurityHardening_SUSEConnectExpiryBoundaries(t *testing.T) {
 		{"expiring soon", 7, "CRIT", "expires in 7 day(s)"},
 		{"expiring at boundary", 14, "CRIT", "expires in 14 day(s)"},
 		{"not expiring soon", 30, "", ""},
+		// Regression: -1 is the collector's "unknown" sentinel (registered,
+		// expiry unreadable) — must disclose an INFO, not silently fall
+		// through to the same "" as a confirmed->30-days-left host. Mirrors
+		// checkSUSESubscription's identical guard over the same raw signal.
+		{"expiry unknown (-1 sentinel)", -1, "INFO", "could not be determined"},
 	}
 	for _, tt := range tests {
 		tt := tt

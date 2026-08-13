@@ -48,6 +48,25 @@ func (c *MySQLCollector) Collect(ctx context.Context) (interface{}, error) {
 		return &models.MySQLInfo{Detected: false}, nil
 	}
 	info := &models.MySQLInfo{Detected: true, SocketPath: sock, Accepting: true}
+
+	// Verify the socket is actually owned by root or the mysql/mariadb service
+	// account before running a client against it — a predictable path (one
+	// candidate is /tmp/mysql.sock) can be pre-created by an unprivileged local
+	// attacker, whose impostor listener could feed collectMySQLMetrics
+	// fabricated output. See socketpeer_linux.go for why SO_PEERCRED (kernel-
+	// verified, unspoofable by the peer) is the sound check here.
+	trusted, verified := socketPeerTrusted(sock, "mysql")
+	info.PeerVerified = verified
+	info.PeerTrusted = trusted
+	if !verified {
+		info.StatusReason = "socket peer identity could not be verified — skipping metrics rather than trusting an unverified listener"
+		return info, nil
+	}
+	if !trusted {
+		info.StatusReason = "socket present but not owned by root or the mysql service account — refusing to query a possible impostor listener"
+		return info, nil
+	}
+
 	collectMySQLMetrics(ctx, sock, info)
 	return info, nil
 }

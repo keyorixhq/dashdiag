@@ -55,6 +55,7 @@ var guardedUnverifiedSignals = map[string]string{
 	"SecurityInfo.FirewallUnreadable":           "collectors/firewall_barename_linux_test.go (nft unreadable → INFO)",
 	"SecurityInfo.FirewallConfigOnlyUnverified": "collectors/security_linux_firewall_test.go TestDetectNFTables_ConfigFileFallback + cmd/security_report_test.go (FIXED: nft absent + on-disk config now discloses unverified instead of a false FirewallActive=true)",
 	"SecurityInfo.AuditRulesUnreadable":         "cis/rules_test.go TestEvaluate_AuditUnreadableNotFailed (4.1.1 non-root → Skipped, not Fail) + collectors/medium_low_linux_test.go TestAuditRulesFromOutput",
+	"SecurityInfo.AppArmorDenialsUnreadable":    "analysis/heuristics_security_full_test.go TestCheckAppArmorDenials_Unreadable + cmd/security_selinux_apparmor_test.go TestPrintAppArmorSectionUnreadable (a genuine journalctl scan failure, distinct from its own exit-1 zero-matches convention, → INFO/❓, never the same green 'No denials' a genuinely-audited-clean host gets)",
 	"AuditInfo.AuditLogSizeUnreadable":          "analysis/heuristics_round6_test.go TestCheckAuditd (non-root → INFO, not a silent 0-size OK)",
 	"AuditInfo.RulesUnreadable":                 "analysis/heuristics_security.go checkAuditd (FIXED: auditctl -l failure now emits an explicit INFO instead of a silent rules_loaded=0)",
 	"AuditInfo.EventsUnreadable":                "analysis/heuristics_security.go checkAuditd (FIXED: ausearch failure now emits an explicit INFO instead of a silent events_last_1h=0)",
@@ -70,7 +71,9 @@ var guardedUnverifiedSignals = map[string]string{
 	"LVMInfo.PVReadFailed":              "analysis/san_unverified_test.go",
 	"LVMInfo.RaidReadFailed":            "analysis/heuristics_round7_test.go",
 	"InfiniBandInfo.ReadFailed":         "analysis/heuristics_round5_test.go TestCheckInfiniBand_ReadFailedNotSilentlyAbsent (/sys/class/infiniband unreadable → INFO, not folded into the same silence as no IB hardware)",
+	"NVMeInfo.DrivesListUnreadable":     "analysis/checks_never_silent_test.go (checkNVMe row) + heuristics_gapfill12_test.go TestCheckNVMe_DrivesListUnreadable (macOS diskutil list failure → INFO, not folded into the same silence as no drives)",
 	"RAIDInfo.ReadFailed":               "analysis/heuristics_storage_raid_readfailed_test.go TestCheckRAID_ReadFailedNotSilentlyAbsent (/proc/mdstat unreadable → INFO, not folded into the same silence as no RAID configured)",
+	"HBAPort.CountersUnreadable":        "analysis/heuristics_round4_test.go TestCheckHBA (unreadable link/sync/signal counters → INFO, not folded into the same silence as a genuinely quiet fabric)",
 	"LVMInfo.PresenceReadFailed":        "analysis/san_unverified_test.go TestLVMPresenceCheckFailedNotSilentlyAbsent + cmd/disk_report_test.go TestPrintDiskLVM + cmd/disk_issues_test.go TestDiskHasUnverifiedReads",
 	"DRBDInfo.Unverified":               "analysis/san_unverified_test.go (DRBD 9 non-root → INFO 'needs root', not silent omission)",
 	"ISCSIInfo.NeedsRoot":               "analysis/san_unverified_test.go (active sessions unreadable non-root → INFO, not silent)",
@@ -98,6 +101,8 @@ var guardedUnverifiedSignals = map[string]string{
 	"ServiceResult.Reachable":           "service-collector heuristic (DEGRADED when unreachable; analysis/heuristics_round9_test.go)",
 	"VaultInfo.Reachable":               "analysis/heuristics_vault.go checkVault (!Reachable → WARN, never silent OK)",
 	"IPMIInfo.NeedsRoot":                "analysis/heuristics_round9_test.go (non-root BMC read → INFO 're-run as root', not a WARN) + collectors/ipmi_linux_test.go",
+	"MySQLInfo.PeerVerified":            "collectors/socketpeer_linux_test.go + collectors/mysql_linux_test.go (SO_PEERCRED unverified/untrusted → metrics skipped with StatusReason, never a silent OK against an impostor listener)",
+	"PostgresInfo.PeerVerified":         "collectors/socketpeer_linux_test.go + collectors/postgres_linux_test.go (SO_PEERCRED unverified/untrusted → metrics skipped with StatusReason, never a silent OK against an impostor listener)",
 
 	// RHEL/Oracle maintenance — heuristic folds the unmeasured state to INFO, never OK.
 	"ServiceRestartInfo.NeedsRoot":    "analysis/heuristics_maintenance_test.go (non-root partial /proc scan → INFO 'partial', not a clean OK)",
@@ -171,6 +176,8 @@ var guardedUnverifiedSignals = map[string]string{
 	"K8sOSLayer.FirewalldChecked":     "analysis/heuristics_virt.go checkK8sNodeDaemons (gated, no verdict when firewalld.service isn't active — not privilege-related)",
 	"K8sOSLayer.FlannelCNIUnreadable": "analysis/k8s_oslayer_unverified_test.go (FIXED 2026-07-08: /etc/cni/net.d 0700 on a real pve01 host silently read FlannelInUse=false under non-root; now disclosed)",
 	"K8sOSLayer.OSLayerNeedsRoot":     "analysis/k8s_oslayer_unverified_test.go (blanket INFO, mirrors SecurityInfo.NeedsRoot)",
+	"K8sOSLayer.CertChecked":          "analysis/k8s_oslayer_unverified_test.go TestCertDirUnreadableIsInfo (companion of CertDirUnreadable; both false = neither candidate dir applies to this distro, correctly silent)",
+	"K8sOSLayer.CertDirUnreadable":    "analysis/k8s_oslayer_unverified_test.go TestCertDirUnreadableIsInfo (FIXED: an existing-but-unreadable cert dir, e.g. 0700 k3s server/tls under non-root, now emits an explicit INFO instead of silently reading like 'not applicable')",
 
 	// Cloud metadata "*Checked" — audited 2026-07-08. All are IMDS/metadata-server
 	// probes or local config-file reads, none require root; Checked=false is a
@@ -212,6 +219,7 @@ var guardedUnverifiedSignals = map[string]string{
 	"VMwareInfo.SCSIDisksChecked":           "analysis/heuristics (gated; no sd* disks on an NVMe-only guest is normal)",
 	"SteamOSRemotePlay.ARPChecked":          "internal only (json:\"-\", not part of the --json contract); analysis gates on it before firing the isolation-suspected insight",
 	"SessionsInfo.Checked":                  "analysis/heuristics_system.go checkSessions (FIXED: `w` unavailable now emits an explicit INFO, not a silent skip indistinguishable from 'nobody logged in')",
+	"LaunchdInfo.Checked":                   "analysis/checks_never_silent_test.go (checkLaunchd row) + heuristics_round6_test.go TestCheckLaunchd_NotChecked (FIXED: launchctl list failure now emits an explicit INFO, not a silent 'checked, zero failures')",
 
 	// "*Measured" — cgroup read-success flags. Host /proc-derived values can't be
 	// validly scored against a container's cgroup limit when the cgroup side

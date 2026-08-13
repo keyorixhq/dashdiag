@@ -85,6 +85,17 @@ func ParseRHELOVAL(ovalPath string) (map[string]RHELCVERecord, error) {
 	if err := xml.NewDecoder(boundDecompressed(r)).Decode(&defs); err != nil {
 		return nil, fmt.Errorf("parsing OVAL XML: %w", err)
 	}
+	// A real RHEL/Rocky/AlmaLinux/CentOS/Fedora OVAL feed always contains
+	// definitions. Zero means the download was truncated, a CDN/object-storage
+	// error body was served instead of the real feed, or the input isn't OVAL
+	// at all — fail loudly rather than let the scan silently come back "no
+	// vulnerable packages found". Mirrors loadOVAL's guard for the SUSE path
+	// (oval.go) and parseUbuntuOVALVersionAware's for the Debian/Ubuntu path
+	// (oval_debian.go) — both already had it; this RHEL-family path has its own
+	// independent decode step (does not call loadOVAL) and was missed.
+	if len(defs.Definitions) == 0 {
+		return nil, fmt.Errorf("OVAL file %s parsed 0 definitions — truncated, corrupt, or not an OVAL feed", ovalPath)
+	}
 
 	result := make(map[string]RHELCVERecord, len(defs.Definitions)/4)
 

@@ -137,6 +137,26 @@ func TestPrintAppArmorSectionBareDenials(t *testing.T) {
 	}
 }
 
+// TestPrintAppArmorSectionUnreadable is the regression test for the
+// false-OK fix (internal-models-03-01/11-05): when the journalctl scan
+// itself failed, printAppArmorSection must NOT print the same green "No
+// denials in the last 24h" line a genuinely clean, actually-audited host
+// gets (TestPrintAppArmorSectionAbsent's sibling "clean" case) — see
+// falseok_signal_registry_test.go's SecurityInfo.AppArmorDenialsUnreadable
+// entry.
+func TestPrintAppArmorSectionUnreadable(t *testing.T) {
+	info := &models.SecurityInfo{
+		AppArmorMode: "enforce", AppArmorProfiles: 5, AppArmorDenialsUnreadable: true,
+	}
+	out := captureStdout(t, func() { printAppArmorSection(info, output.ModePlain) })
+	if strings.Contains(out, "No denials in the last 24h") {
+		t.Errorf("an unreadable denial log must not print the same green line a genuinely clean host gets, got:\n%s", out)
+	}
+	if !strings.Contains(out, "could not be read") {
+		t.Errorf("expected the output to disclose the unreadable denial log, got:\n%s", out)
+	}
+}
+
 func TestPrintAppArmorSectionAbsent(t *testing.T) {
 	for _, mode := range []string{"", "disabled", "unknown"} {
 		info := &models.SecurityInfo{AppArmorMode: mode}

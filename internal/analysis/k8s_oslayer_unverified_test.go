@@ -56,3 +56,25 @@ func TestFlannelCNIUnreadableIsInfo(t *testing.T) {
 		t.Errorf("readable CNI config dir must not emit the INFO, got %+v", got)
 	}
 }
+
+// TestCertDirUnreadableIsInfo is the regression test for the false-OK fix:
+// checkCertExpiry's candidate cert directories (kubeadm PKI, k3s tls) exist
+// but couldn't be listed — commonly 0700 root-owned under a non-root deep
+// run — must not read the same as "neither candidate applies to this
+// distro", which also leaves CertExpiredNames/CertExpirySoon at their zero
+// value and was previously indistinguishable.
+func TestCertDirUnreadableIsInfo(t *testing.T) {
+	got := CheckK8sOSLayer(models.K8sOSLayer{CertChecked: false, CertDirUnreadable: true})
+	if !hasInsightMsg(got, "INFO", "certificate expiry could not be verified") {
+		t.Errorf("unreadable cert dir must INFO, got %+v", got)
+	}
+	// The legitimate "neither cert dir applies to this distro" case: both
+	// false, must stay silent.
+	if got := CheckK8sOSLayer(models.K8sOSLayer{CertChecked: false, CertDirUnreadable: false}); hasInsightMsg(got, "INFO", "certificate expiry could not be verified") {
+		t.Errorf("neither candidate applying must not emit the INFO, got %+v", got)
+	}
+	// A successfully-checked dir with nothing expiring must stay silent too.
+	if got := CheckK8sOSLayer(models.K8sOSLayer{CertChecked: true}); hasInsightMsg(got, "INFO", "certificate expiry could not be verified") {
+		t.Errorf("a successfully-checked clean cert dir must not emit the INFO, got %+v", got)
+	}
+}

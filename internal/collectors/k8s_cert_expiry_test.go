@@ -70,6 +70,56 @@ func TestCheckCertExpiry(t *testing.T) {
 	if layer.CertExpirySoonDays < 4 || layer.CertExpirySoonDays > 5 {
 		t.Errorf("CertExpirySoonDays = %d, want ~5", layer.CertExpirySoonDays)
 	}
+	if !layer.CertChecked {
+		t.Error("CertChecked = false, want true — the directory was readable")
+	}
+	if layer.CertDirUnreadable {
+		t.Error("CertDirUnreadable = true, want false — the directory was readable")
+	}
+}
+
+// TestCheckCertExpiry_DirAbsent_NotUnreadable is the control for the false-OK
+// fix: a candidate directory that simply doesn't apply to this distro (e.g.
+// the k3s tls dir on a kubeadm node) must leave BOTH CertChecked and
+// CertDirUnreadable false — that's the legitimate "not applicable" case, not
+// a read failure.
+func TestCheckCertExpiry_DirAbsent_NotUnreadable(t *testing.T) {
+	layer := &models.K8sOSLayer{}
+	checkCertExpiry(filepath.Join(t.TempDir(), "does-not-exist"), layer)
+	if layer.CertChecked {
+		t.Error("CertChecked = true, want false — the directory doesn't exist")
+	}
+	if layer.CertDirUnreadable {
+		t.Error("CertDirUnreadable = true, want false — a missing directory is normal, not a read failure")
+	}
+}
+
+// TestCheckCertExpiry_DirUnreadable is the regression test for the false-OK
+// fix: a candidate cert directory that EXISTS but can't be listed (commonly
+// 0700 root-owned under a non-root deep run — exactly the k3s server/tls
+// case the OSLayerNeedsRoot doc comment calls out) must set CertDirUnreadable
+// so checkK8sOSLayerCoverageGaps discloses it, instead of silently reading
+// identically to "not applicable" (both leave CertExpiredNames/CertExpirySoon
+// at their zero value).
+func TestCheckCertExpiry_DirUnreadable(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("running as root — a 0000-mode directory is still readable by root, can't exercise this path")
+	}
+	dir := t.TempDir()
+	writeTestCert(t, dir, "healthy.crt", time.Now().Add(180*24*time.Hour))
+	if err := os.Chmod(dir, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0o755) }) // let t.TempDir() clean up
+
+	layer := &models.K8sOSLayer{}
+	checkCertExpiry(dir, layer)
+	if layer.CertChecked {
+		t.Error("CertChecked = true, want false — the directory could not be listed")
+	}
+	if !layer.CertDirUnreadable {
+		t.Error("CertDirUnreadable = false, want true — the directory exists but is unreadable")
+	}
 }
 
 // TestCheckCertExpiry_UnreadableOrGarbledSkipped guards the three early

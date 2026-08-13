@@ -13,6 +13,20 @@ type MySQLInfo struct {
 
 	Accepting bool `json:"accepting"` // socket reachable / server responding
 
+	// PeerVerified is true when the kernel-reported SO_PEERCRED identity of the
+	// socket's listener was obtained (never true under replay of a bundle
+	// captured before this check existed — a recording gap, not a claim the
+	// peer was checked and passed). PeerTrusted is meaningful only when
+	// PeerVerified is true: it reports whether that kernel-verified UID is
+	// root or the mysql/mariadb service account. A predictable socket path
+	// (some hosts list /tmp/mysql.sock) can be pre-created by an unprivileged
+	// local attacker; without this check the collector would run the mysql
+	// client against — and could be fed fabricated metrics by — an impostor
+	// listener. When PeerVerified && !PeerTrusted, metric collection is
+	// skipped entirely rather than trusting the connection.
+	PeerVerified bool `json:"peer_verified"`
+	PeerTrusted  bool `json:"peer_trusted"`
+
 	MetricsRead      bool `json:"metrics_read"`
 	MaxConnections   int  `json:"max_connections,omitempty"`
 	ThreadsConnected int  `json:"threads_connected,omitempty"`

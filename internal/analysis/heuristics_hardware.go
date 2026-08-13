@@ -21,6 +21,12 @@ const (
 
 func checkBattery(b models.BatteryInfo) []models.Insight {
 	if !b.Present {
+		if b.StatusReason != "" {
+			// A genuine read/parse failure, not "desktop or no battery" — those
+			// leave StatusReason empty. Disclose instead of silently reading as
+			// "no battery issues" on a MacBook that always has a battery.
+			return []models.Insight{unverifiedInsight("INFO", hwCatBattery, b.StatusReason, nil)}
+		}
 		return nil // desktop or no battery
 	}
 	var out []models.Insight

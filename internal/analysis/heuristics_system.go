@@ -1220,6 +1220,12 @@ func checkPressure(p models.PressureInfo) []models.Insight {
 }
 
 func checkHugePages(h models.HugePagesInfo) []models.Insight {
+	if h.StatusReason != "" {
+		// /proc/meminfo could not be read — distinct from a genuinely healthy
+		// host with huge pages simply not configured, which also leaves
+		// Configured==0 and THPEnabled==false.
+		return []models.Insight{unverifiedInsight("INFO", "HugePages", h.StatusReason, nil)}
+	}
 	if h.Configured == 0 && !h.THPEnabled {
 		return nil // not configured, not relevant
 	}
@@ -1271,6 +1277,11 @@ func checkHugePages(h models.HugePagesInfo) []models.Insight {
 }
 
 func checkLaunchd(l models.LaunchdInfo) []models.Insight {
+	if !l.Checked {
+		return []models.Insight{unverifiedInsight("INFO", "Launchd",
+			"launchd service check skipped — `launchctl list` failed, so service health could not be checked",
+			[]string{"to inspect: launchctl list"})}
+	}
 	if len(l.Failed) == 0 {
 		return nil
 	}

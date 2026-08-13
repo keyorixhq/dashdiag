@@ -80,7 +80,8 @@ func TestPostgresCollector_Collect_NotDetected(t *testing.T) {
 func TestPostgresCollector_Collect_FullHappyPath(t *testing.T) {
 	const row = "16.3|100|5|0|f|-1|t"
 	withCombinedFixture(t, map[string][]byte{
-		"dial/unix//var/run/postgresql/.s.PGSQL.5432": {'1'},
+		"dial/unix//var/run/postgresql/.s.PGSQL.5432":      {'1'},
+		"socketpeercred//var/run/postgresql/.s.PGSQL.5432": []byte(`{"uid":0,"present":true}`),
 	}, nil, func(b *source.Bundle) {
 		b.PutCmd("pg_isready", []string{"-h", "/var/run/postgresql", "-q"}, "", 0)
 		b.PutCmd("psql", postgresMetricsArgs("/var/run/postgresql"), row, 0)
@@ -124,7 +125,8 @@ func TestPostgresCollector_Collect_FullHappyPath(t *testing.T) {
 // see the fix in postgres_linux.go.
 func TestPostgresCollector_Collect_NotAcceptingWithReason(t *testing.T) {
 	withCombinedFixture(t, map[string][]byte{
-		"dial/unix//run/postgresql/.s.PGSQL.5432": {'1'},
+		"dial/unix//run/postgresql/.s.PGSQL.5432":      {'1'},
+		"socketpeercred//run/postgresql/.s.PGSQL.5432": []byte(`{"uid":0,"present":true}`),
 	}, nil, func(b *source.Bundle) {
 		b.PutCmdNotFound("pg_isready", []string{"-h", "/run/postgresql", "-q"})
 		b.PutCmd("pg_isready", []string{"-h", "/run/postgresql"}, "/run/postgresql:5432 - rejecting connections\n", 2)
@@ -169,7 +171,8 @@ func TestPostgresCollector_Collect_NotAcceptingWithReason(t *testing.T) {
 // fabricate a reason.
 func TestPostgresCollector_Collect_NotAcceptingNoReasonAvailable(t *testing.T) {
 	withCombinedFixture(t, map[string][]byte{
-		"dial/unix//tmp/.s.PGSQL.5432": {'1'},
+		"dial/unix//tmp/.s.PGSQL.5432":      {'1'},
+		"socketpeercred//tmp/.s.PGSQL.5432": []byte(`{"uid":0,"present":true}`),
 	}, nil, func(b *source.Bundle) {
 		b.PutCmd("pg_isready", []string{"-h", "/tmp", "-q"}, "", 2)
 		b.PutCmd("pg_isready", []string{"-h", "/tmp"}, "", 2)
@@ -188,6 +191,79 @@ func TestPostgresCollector_Collect_NotAcceptingNoReasonAvailable(t *testing.T) {
 	}
 	if info.AcceptReason != "" {
 		t.Errorf("AcceptReason = %q, want empty when neither pg_isready run produced text", info.AcceptReason)
+	}
+}
+
+// TestPostgresCollector_Collect_UntrustedPeer_SkipsEverything is the
+// regression test for the socket-trust fix: a listener on the socket path
+// whose kernel-verified SO_PEERCRED UID is neither root nor the postgres
+// service account must NOT be queried at all (not even the unauthenticated
+// pg_isready liveness probe). Before the fix, ANY listener accepting the dial
+// was treated as the real server — the socket-dir candidate list includes
+// /tmp, so an unprivileged local attacker who pre-created
+// /tmp/.s.PGSQL.5432 could feed collectPostgresMetrics fabricated output.
+func TestPostgresCollector_Collect_UntrustedPeer_SkipsEverything(t *testing.T) {
+	withCombinedFixture(t, map[string][]byte{
+		"dial/unix//tmp/.s.PGSQL.5432":      {'1'},
+		"socketpeercred//tmp/.s.PGSQL.5432": []byte(`{"uid":1000,"present":true}`),
+		"userlookup/postgres":               []byte("26"), // distinct from the attacker's uid 1000
+	}, nil, func(b *source.Bundle) {
+		// Seeded to SUCCEED so a failure to gate (not a query error) is what
+		// would make this test pass wrongly if the trust check were broken.
+		b.PutCmd("pg_isready", []string{"-h", "/tmp", "-q"}, "", 0)
+	})
+
+	c := NewPostgresCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.PostgresInfo)
+	if !info.PeerVerified {
+		t.Error("PeerVerified = false, want true — the SO_PEERCRED probe itself succeeded")
+	}
+	if info.PeerTrusted {
+		t.Error("PeerTrusted = true, want false — peer uid 1000 is neither root nor the postgres account")
+	}
+	if info.Accepting {
+		t.Error("Accepting = true, want false — pg_isready must never run against an untrusted listener")
+	}
+	if info.MetricsRead {
+		t.Error("MetricsRead = true, want false — must never query an unverified/untrusted listener")
+	}
+	if info.StatusReason == "" {
+		t.Error("expected a StatusReason disclosing the untrusted peer")
+	}
+}
+
+// TestPostgresCollector_Collect_UnverifiedPeer_SkipsEverything covers a
+// recording gap / probe failure — PeerVerified must be false and everything
+// must still be skipped (not silently treated as trusted).
+func TestPostgresCollector_Collect_UnverifiedPeer_SkipsEverything(t *testing.T) {
+	withCombinedFixture(t, map[string][]byte{
+		"dial/unix//tmp/.s.PGSQL.5432": {'1'},
+		// No "socketpeercred/" entry at all — simulates a recording gap.
+	}, nil, func(b *source.Bundle) {
+		b.PutCmd("pg_isready", []string{"-h", "/tmp", "-q"}, "", 0)
+	})
+
+	c := NewPostgresCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.PostgresInfo)
+	if info.PeerVerified {
+		t.Error("PeerVerified = true, want false — no recorded probe result")
+	}
+	if info.Accepting {
+		t.Error("Accepting = true, want false when peer identity couldn't be verified")
+	}
+	if info.MetricsRead {
+		t.Error("MetricsRead = true, want false when peer identity couldn't be verified")
+	}
+	if info.StatusReason == "" {
+		t.Error("expected a StatusReason disclosing the unverified peer")
 	}
 }
 

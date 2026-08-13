@@ -584,6 +584,15 @@ func checkAppArmorDenials(sec models.SecurityInfo) []models.Insight {
 	var out []models.Insight
 
 	switch {
+	case sec.AppArmorDenialsUnreadable:
+		// The journalctl scan itself failed (permission denied, journald
+		// absent) — distinct from journalctl's own "exit 1, zero matches"
+		// convention, which is the routine clean case and leaves this false.
+		// Without this branch, both silently read as "0 denials".
+		out = append(out, unverifiedInsight("INFO", secCatHardening,
+			"AppArmor denial log could not be read — denials in the last 24h were NOT audited",
+			[]string{secAuditRunAsRoot},
+		))
 	case len(sec.AppArmorGroups) > 0:
 		hints := []string{
 			"to inspect: aa-logprof",
@@ -710,6 +719,18 @@ func checkSUSESecurityHardening(sec models.SecurityInfo) []models.Insight {
 	// SUSEConnect subscription expiry
 	if sec.SUSEConnectRegistered {
 		switch {
+		case sec.SUSEConnectExpiresDays < 0:
+			// -1 is the collector's explicit "unknown" sentinel (registered, but
+			// the expiry date could not be read/parsed) — mirrors the identical
+			// checkSUSESubscription guard (heuristics_firmware.go) over the same
+			// underlying value copied into SecurityInfo.SUSEConnectExpiresDays
+			// (suseconnect_collector.go). Without this case here, this SEPARATE
+			// function silently omitted the disclosure even though the sibling
+			// heuristic reading the same raw signal already carries it.
+			out = append(out, unverifiedInsight("INFO", secCatHardening,
+				"SUSE subscription is registered but its expiry date could not be determined",
+				[]string{"to inspect: SUSEConnect --status", "to inspect: SUSEConnect --status-text"},
+			))
 		case sec.SUSEConnectExpiresDays == 0:
 			out = append(out, insight("CRIT", secCatHardening,
 				"SUSEConnect subscription EXPIRED — security patches no longer available",

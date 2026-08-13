@@ -46,6 +46,38 @@ var neverSilentChecks = []neverSilentCheck{
 		wantSubstr: "could not be read",
 	},
 	{
+		name:    "checkAppArmorDenials: journalctl scan itself failed",
+		checkFn: "checkAppArmorDenials",
+		run: func() []models.Insight {
+			return checkAppArmorDenials(models.SecurityInfo{AppArmorDenialsUnreadable: true})
+		},
+		wantSubstr: "could not be read",
+	},
+	{
+		name:    "checkPackageDBHealth: DB/lock probe itself failed to run",
+		checkFn: "checkPackageDBHealth",
+		run: func() []models.Insight {
+			return checkPackageDBHealth(models.PackagesInfo{PackageManager: "apt", DBHealthChecked: false})
+		},
+		wantSubstr: "could not be checked",
+	},
+	{
+		name:    "checkLaunchd: launchctl list failed",
+		checkFn: "checkLaunchd",
+		run: func() []models.Insight {
+			return checkLaunchd(models.LaunchdInfo{})
+		},
+		wantSubstr: "could not be checked",
+	},
+	{
+		name:    "checkNVMe: drive enumeration failed (macOS diskutil list)",
+		checkFn: "checkNVMe",
+		run: func() []models.Insight {
+			return checkNVMe(models.NVMeInfo{DrivesListUnreadable: true})
+		},
+		wantSubstr: "could not enumerate drives",
+	},
+	{
 		name:    "checkOCI: on OCI but every sub-check unreachable",
 		checkFn: "checkOCI",
 		run: func() []models.Insight {

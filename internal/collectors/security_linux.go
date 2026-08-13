@@ -817,7 +817,9 @@ func parseSELinuxExtras(ctx context.Context, info *models.SecurityInfo) {
 
 	// AppArmor denial grouping (Debian/Ubuntu/SUSE)
 	if info.AppArmorMode != "" && info.AppArmorMode != "disabled" {
-		info.AppArmorGroups = collectAppArmorDenials(ctx)
+		var readable bool
+		info.AppArmorGroups, readable = collectAppArmorDenials(ctx)
+		info.AppArmorDenialsUnreadable = !readable
 		info.AppArmorDenials = 0
 		for _, g := range info.AppArmorGroups {
 			info.AppArmorDenials += g.Count
@@ -1204,13 +1206,24 @@ func collectRelevantBooleans(ctx context.Context, groups []models.SELinuxAVCGrou
 }
 
 // collectAppArmorDenials parses journalctl for AppArmor DENIED entries in last 24h.
-func collectAppArmorDenials(ctx context.Context) []models.AppArmorDenial {
+// collectAppArmorDenials returns the grouped AppArmor denials from the last
+// 24h and whether the scan itself was readable. journalctl's own "exit 1,
+// zero matches" convention for -g/--grep (see journalclGrepNoMatch's sibling
+// use in postboot_linux.go, internal-collectors-26-01) is the routine,
+// genuinely clean case — readable stays true. A different failure (spawn
+// error, permission denied, an unexpected exit code) means the scan itself
+// couldn't run; readable is false so the caller can disclose it instead of
+// silently reading identically to "checked, zero denials".
+func collectAppArmorDenials(ctx context.Context) (denials []models.AppArmorDenial, readable bool) {
 	jCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	out, err := runCmd(jCtx, "journalctl", "-t", "kernel", "-g", `apparmor="DENIED"`,
 		svcNoPager, "--since", "24 hours ago", "-o", "short")
-	if err != nil || strings.TrimSpace(out) == "" {
-		return nil
+	if err != nil {
+		return nil, journalctlGrepNoMatch(err)
+	}
+	if strings.TrimSpace(out) == "" {
+		return nil, true
 	}
 
 	type key struct{ profile, op, path string }
@@ -1254,7 +1267,7 @@ func collectAppArmorDenials(ctx context.Context) []models.AppArmorDenial {
 		}
 		return groups[i].Operation < groups[j].Operation
 	})
-	return groups
+	return groups, true
 }
 
 // extractAAField extracts a quoted or unquoted value for key= from an AppArmor log line.

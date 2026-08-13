@@ -180,7 +180,17 @@ func dispatchLive(ctx context.Context, ins models.Insight, results []runner.Resu
 	case "Hardening":
 		d = hardeningFromResults(results, ins.Message)
 	}
-	_ = err
+	// A drill-down that returned a real error (not just "nothing more to
+	// show") must not silently render identically to a clean/empty result —
+	// dispatch() treats a nil *Details as "no details" either way, which
+	// previously discarded err entirely via `_ = err`. Several per-check
+	// functions already distinguish these cases themselves (e.g.
+	// PoliciesNotEnforcing, TopProcessesByIO set a Details.Note on a partial
+	// read instead of returning an error) — this only fires when a function
+	// returned nil AND a real error, which those don't.
+	if d == nil && err != nil {
+		d = &models.Details{Note: fmt.Sprintf("drill-down failed: %v", err)}
+	}
 	return d
 }
 

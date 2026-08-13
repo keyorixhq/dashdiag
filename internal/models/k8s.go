@@ -134,4 +134,12 @@ type K8sOSLayer struct {
 	CertExpirySoon     bool     `json:"cert_expiry_soon"`      // true when a cert expires within 30d — companion flag so 0 days (within 24h) isn't read as the zero-value "none"
 	CertExpirySoonDays int      `json:"cert_expiry_soon_days"` // days to soonest expiry when CertExpirySoon; 0 = within 24h. Meaningless unless CertExpirySoon
 	CertExpiredNames   []string `json:"cert_expired_names,omitempty"`
+	// CertChecked is true when at least one candidate cert directory
+	// (/etc/kubernetes/pki, the k3s tls dir) was actually listable. False
+	// combined with CertDirUnreadable means a real cert dir exists but
+	// couldn't be read (commonly 0700 root-owned under a non-root deep run) —
+	// distinct from neither candidate applying to this distro, which leaves
+	// both false and is correctly silent.
+	CertChecked       bool `json:"cert_checked,omitempty"`
+	CertDirUnreadable bool `json:"cert_dir_unreadable,omitempty"`
 }

@@ -2,6 +2,7 @@ package drilldown
 
 import (
 	"context"
+	"errors"
 	"os"
 	"runtime"
 	"strings"
@@ -23,7 +24,13 @@ func clockTrackingLinux(ctx context.Context) (*models.Details, error) {
 		// Try timedatectl as fallback
 		out, err = runCmd(ctx, "timedatectl", "show")
 		if err != nil {
-			return nil, nil
+			// Unlike systemd.go's "no journald on this host" nil,nil (a genuine
+			// not-applicable case), a Clock WARN/CRIT fired because SOMETHING
+			// looked wrong with time sync — both probes failing here is a real
+			// gap in the supporting detail, not "nothing more to show". Return
+			// an error so dispatchLive's Note-disclosure path picks it up
+			// instead of silently rendering the insight with no detail at all.
+			return nil, errors.New("could not read chronyc/timedatectl — is a time-sync daemon installed?")
 		}
 		return parseTimedatectl(out), nil
 	}

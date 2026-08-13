@@ -100,6 +100,14 @@ type SecurityInfo struct {
 	AppArmorComplain int              `json:"apparmor_complain,omitempty"` // profiles in complain mode (-1 = unreadable)
 	AppArmorDenials  int              `json:"apparmor_denials,omitempty"`  // denials in last hour
 	AppArmorGroups   []AppArmorDenial `json:"apparmor_groups,omitempty"`   // grouped AppArmor denials
+	// AppArmorDenialsUnreadable is true when the journalctl scan for AppArmor
+	// denials itself failed (permission denied, journald absent, a journalctl
+	// build without --grep support) — distinct from journalctl's own "exit 1,
+	// zero matches" convention for --grep, which is the routine, genuinely
+	// clean case. Without this, both collapsed to the same empty
+	// AppArmorGroups/AppArmorDenials==0, and `dsd security` printed a
+	// definitive "No denials in the last 24h" over unmeasured state.
+	AppArmorDenialsUnreadable bool `json:"apparmor_denials_unreadable,omitempty"`
 
 	// SELinux
 	SELinuxDenials     int               `json:"se_linux_denials"` // denials in last hour

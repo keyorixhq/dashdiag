@@ -3,6 +3,7 @@ package collectors
 import (
 	"bufio"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -175,9 +176,18 @@ func (c *IOCollector) collectDarwin(ctx context.Context) (*models.IOInfo, error)
 	// iostat -d -c 2 -w 1: two samples, 1-second interval, disk-only.
 	// First row = since-boot average (skip). Second row = last-second rate.
 	// Format: KB/t  tps  MB/s  (per device, space-separated)
+	// A total iostat failure must not read the same as "genuinely no disk
+	// activity" — the sibling Linux path (collectLinux above) already returns
+	// a real error on its equivalent parse failures, which the runner turns
+	// into an explicit "check could not run" INFO instead of silently
+	// producing zero insights. Match that here instead of swallowing the
+	// failure into an empty *models.IOInfo{}, nil.
 	out, err := runCmd(ctx, "iostat", "-d", "-c", "2", "-w", "1")
-	if err != nil || out == "" {
-		return &models.IOInfo{}, nil
+	if err != nil {
+		return nil, fmt.Errorf("running iostat: %w", err)
+	}
+	if out == "" {
+		return nil, errors.New("iostat returned no output")
 	}
 
 	lines := strings.Split(strings.TrimSpace(out), "\n")
@@ -186,7 +196,7 @@ func (c *IOCollector) collectDarwin(ctx context.Context) (*models.IOInfo, error)
 	// lines[2] = first sample (since boot)
 	// lines[3] = second sample (last second) ← we want this
 	if len(lines) < 4 {
-		return &models.IOInfo{}, nil
+		return nil, fmt.Errorf("iostat output too short (%d line(s), want at least 4): %q", len(lines), out)
 	}
 
 	// Parse device names from header line

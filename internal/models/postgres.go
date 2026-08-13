@@ -15,6 +15,20 @@ type PostgresInfo struct {
 	Accepting    bool   `json:"accepting"`
 	AcceptReason string `json:"accept_reason,omitempty"` // pg_isready text when not accepting
 
+	// PeerVerified is true when the kernel-reported SO_PEERCRED identity of the
+	// socket's listener was obtained (never true under replay of a bundle
+	// captured before this check existed — a recording gap, not a claim the
+	// peer was checked and passed). PeerTrusted is meaningful only when
+	// PeerVerified is true: it reports whether that kernel-verified UID is
+	// root or the postgres service account. The socket directory list
+	// includes /tmp, which an unprivileged local attacker can pre-create a
+	// same-named socket in; without this check the collector would run psql
+	// against — and could be fed fabricated metrics by — an impostor
+	// listener. When PeerVerified && !PeerTrusted, metric collection is
+	// skipped entirely rather than trusting the connection.
+	PeerVerified bool `json:"peer_verified"`
+	PeerTrusted  bool `json:"peer_trusted"`
+
 	// Metrics — filled only when a local query succeeds.
 	MetricsRead    bool    `json:"metrics_read"`
 	MaxConnections int     `json:"max_connections,omitempty"`

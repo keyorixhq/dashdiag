@@ -29,6 +29,9 @@ func collectDrivesDarwinText(ctx context.Context) (*models.NVMeInfo, error) {
 	// diskutil list shows all disks; filter for physical internal disks
 	out, err := runCmd(ctx, "diskutil", "list")
 	if err != nil || out == "" {
+		// A total enumeration failure must not read the same as "genuinely no
+		// drives" — checkNVMe would otherwise emit zero insights either way.
+		info.DrivesListUnreadable = true
 		return info, nil
 	}
 

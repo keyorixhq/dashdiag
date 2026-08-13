@@ -39,6 +39,25 @@ func DetectCloudEnvironment() CloudEnvironment {
 }
 
 func detectCloudEnvironmentFromPaths(dmiDir, hypervisorUUID, blockDir, imdsURL string) CloudEnvironment {
+	// Distinguish "no DMI concept on this platform" (the directory genuinely
+	// doesn't exist — common on non-x86 arches or a container without
+	// /sys/class/dmi mounted, and the case every vendor check below is
+	// designed to fall through on) from "the directory exists but couldn't be
+	// LISTED" (a permission error — unusual, e.g. a hardened container or a
+	// restricted /sys view). The latter means every readFileTrimmed call
+	// below reads as "" not because the host genuinely has none of these
+	// vendor markers, but because the probe itself failed — that must not
+	// silently resolve to the confident EnvBareMetal fallback at the end of
+	// this function, which selects the STRICTEST IO-latency thresholds
+	// (1ms/5ms warn/crit) of any branch in DefaultThresholds. Uses ReadDir,
+	// not Stat: Stat only needs execute permission on the PARENT to look up
+	// the directory entry and succeeds even on a mode-0000 target, but
+	// ReadDir needs read+execute on the directory itself — the same
+	// permission every readFileTrimmed call below actually depends on.
+	if _, err := os.ReadDir(dmiDir); err != nil && !os.IsNotExist(err) {
+		return EnvUnknown
+	}
+
 	// Read all useful DMI fields — sys_vendor and board_vendor are often
 	// more reliable than product_name on cloud VMs.
 	productName := readFileTrimmed(filepath.Join(dmiDir, "product_name"))

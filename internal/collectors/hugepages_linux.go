@@ -23,7 +23,11 @@ func (c *HugePagesCollector) Timeout() time.Duration { return 2 * time.Second }
 func (c *HugePagesCollector) Collect(_ context.Context) (interface{}, error) {
 	data, err := readFile("/proc/meminfo")
 	if err != nil {
-		return &models.HugePagesInfo{Available: true}, nil
+		// A read failure must not be indistinguishable from "genuinely no huge
+		// pages configured" (Configured==0, THPEnabled==false is also what a
+		// successful read of an unconfigured host produces) — and Available:true
+		// here was actively backwards, asserting availability off a failed read.
+		return &models.HugePagesInfo{StatusReason: "/proc/meminfo unreadable — huge pages status not verified"}, nil
 	}
 	info := parseHugePagesMeminfo(string(data))
 	info.Available = true

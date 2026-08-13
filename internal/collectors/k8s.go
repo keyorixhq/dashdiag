@@ -5,7 +5,9 @@ import (
 	"crypto/x509"
 	"encoding/json"
 	"encoding/pem"
+	"errors"
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -774,7 +776,27 @@ func collectK8sOSLayer(ctx context.Context, bin, distribution string) *models.K8
 }
 
 // checkCertExpiry scans a directory for expiring certificates.
+//
+// glob() (filepath.Glob under Live) silently swallows a ReadDir permission
+// error and returns (nil, nil) — the same result a directory that simply
+// doesn't apply to this distro produces (e.g. /var/lib/rancher/k3s/server/tls
+// on a kubeadm node). Without checking readability separately, a genuinely
+// 0700-root-owned cert dir under a non-root deep run (documented as common in
+// OSLayerNeedsRoot's own doc comment) silently reads as "no certs here,
+// nothing to report" instead of "could not verify". readDirNames (os.ReadDir
+// under Live) DOES propagate a permission error distinctly from ErrNotExist,
+// so use it first to classify the three real outcomes: doesn't apply to this
+// distro (ErrNotExist — stay silent), exists but unreadable (disclose), or
+// readable (proceed to the real glob-based cert scan as before).
 func checkCertExpiry(dir string, layer *models.K8sOSLayer) {
+	if _, direrr := readDirNames(dir); direrr != nil {
+		if !errors.Is(direrr, fs.ErrNotExist) {
+			layer.CertDirUnreadable = true
+		}
+		return
+	}
+	layer.CertChecked = true
+
 	certs, _ := glob(filepath.Join(dir, "*.crt"))
 	now := NowViaSource() // capture-time under replay/certify, so cert-expiry verdicts stay hermetic
 	for _, certPath := range certs {

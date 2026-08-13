@@ -192,6 +192,14 @@ func TestCheckHBA(t *testing.T) {
 	assertLevel(t, checkHBA(models.HBAInfo{Ports: []models.HBAPort{{Name: "host0", PortState: "Online", LinkFailures: 11}}}), "WARN")
 	assertLevel(t, checkHBA(models.HBAInfo{Ports: []models.HBAPort{{Name: "host0", PortState: "Online", LossOfSync: 150}}}), "WARN")
 	assertLevel(t, checkHBA(models.HBAInfo{Ports: []models.HBAPort{{Name: "host0", PortState: ""}}}), "WARN") // unreadable state must not read healthy
+	// Regression: error counters that failed to read (sysfs unreadable) must not
+	// read as "checked, zero link failures" — a genuinely quiet fabric with real
+	// zero counts (CountersUnreadable=false) stays silent, below.
+	unread := checkHBA(models.HBAInfo{Ports: []models.HBAPort{{Name: "host0", PortState: "Online", CountersUnreadable: true}}})
+	if !hasInsightMsg(unread, "INFO", "could not be read") {
+		t.Errorf("unreadable HBA counters must produce an INFO disclosure, got %+v", unread)
+	}
+	assertLevel(t, checkHBA(models.HBAInfo{Ports: []models.HBAPort{{Name: "host0", PortState: "Online", CountersUnreadable: false}}}), "")
 }
 
 func TestCheckAuth(t *testing.T) {
@@ -286,6 +294,7 @@ func TestCheckBattery(t *testing.T) {
 		want string
 	}{
 		{"no battery is silent", models.BatteryInfo{Present: false}, ""},
+		{"ioreg failure is INFO, not silent", models.BatteryInfo{Present: false, StatusReason: "battery status unreadable — ioreg failed to run"}, "INFO"},
 		{"healthy charged is clean", models.BatteryInfo{Present: true, HealthPct: 90, Status: "Full"}, ""},
 		{"worn battery is CRIT", models.BatteryInfo{Present: true, HealthPct: 50}, "CRIT"},
 		{"degraded battery is WARN", models.BatteryInfo{Present: true, HealthPct: 70}, "WARN"},
