@@ -3,6 +3,7 @@
 package collectors
 
 import (
+	"context"
 	"os"
 	"strconv"
 	"strings"
@@ -22,6 +23,16 @@ const fsBusyUsedPctGate = 80.0
 // filesystem, so a mount with hundreds of openers doesn't blow up the scan
 // cost (proc/fd fallback) or the output.
 const fsBusyMaxProcs = 50
+
+// fsBusyMaxScans caps how many at-risk filesystems get a full busy-process
+// scan in one collectBusyFilesystems pass. needsBusyCheck flags ANY read-only
+// mount regardless of usage, and the no-fuser fallback (procFDBusyProcesses)
+// costs a full /proc/*/fd sweep per flagged mount — an unprivileged user able
+// to create many read-only bind/FUSE mounts could otherwise multiply that
+// full-system sweep once per mount, unboundedly inflating a single `dsd
+// health` run. Once the budget is spent, remaining at-risk mounts are left
+// unscanned (BusyProcesses nil) rather than triggering another sweep.
+const fsBusyMaxScans = 8
 
 // fsBusyInherentlyReadOnly mirrors analysis.IsInherentlyReadOnlyFS: image
 // filesystems that are always full and always read-only by design never need
@@ -46,15 +57,22 @@ func needsBusyCheck(fs models.FilesystemInfo) bool {
 // collectBusyFilesystems populates BusyProcesses/BusyCheckNeedsRoot in place
 // for every at-risk filesystem. Cheap no-op for healthy mounts — needsBusyCheck
 // gates before any fuser/proc scan runs (Spec 4 addendum, §4-add).
-func collectBusyFilesystems(filesystems []models.FilesystemInfo) {
+func collectBusyFilesystems(ctx context.Context, filesystems []models.FilesystemInfo) {
 	nonRoot := os.Geteuid() != 0
+	scans := 0
 	for i := range filesystems {
 		fs := &filesystems[i]
 		if !needsBusyCheck(*fs) {
 			continue
 		}
-		fs.BusyProcesses = collectBusyProcesses(fs.Mount)
+		if scans >= fsBusyMaxScans {
+			// Scan budget exhausted (see fsBusyMaxScans) — leave this mount
+			// unscanned rather than running another full /proc sweep.
+			continue
+		}
+		fs.BusyProcesses = collectBusyProcesses(ctx, fs.Mount)
 		fs.BusyCheckNeedsRoot = nonRoot
+		scans++
 	}
 }
 
@@ -62,9 +80,9 @@ func collectBusyFilesystems(filesystems []models.FilesystemInfo) {
 // Prefers `fuser -m`; falls back to a /proc/*/fd scan (same technique dsd
 // proc uses for open-file detection) when fuser is not installed — e.g.
 // busybox systems and minimal containers, where psmisc is typically absent.
-func collectBusyProcesses(mountpoint string) []models.FSBusyProcess {
+func collectBusyProcesses(ctx context.Context, mountpoint string) []models.FSBusyProcess {
 	if _, err := lookPath("fuser"); err == nil {
-		return fuserBusyProcesses(mountpoint)
+		return fuserBusyProcesses(ctx, mountpoint)
 	}
 	return procFDBusyProcesses(mountpoint)
 }
@@ -78,11 +96,11 @@ func collectBusyProcesses(mountpoint string) []models.FSBusyProcess {
 // stdout (bare PID token, mid-line) and stderr (everything else) — two
 // separately-buffered streams that can't be reassembled in the right order,
 // so neither mode's annotations are trustworthy input.
-func fuserBusyProcesses(mountpoint string) []models.FSBusyProcess {
+func fuserBusyProcesses(ctx context.Context, mountpoint string) []models.FSBusyProcess {
 	// fuser exits non-zero when it finds nothing to report; stdout is still the
 	// authoritative answer either way (mirrors the smartctl exit-code handling in
 	// collectSMART — parse output, don't gate on exit status).
-	out, _ := runCmdTimeout(3*time.Second, "fuser", "-m", mountpoint)
+	out, _ := runCmdTimeout(ctx, 3*time.Second, "fuser", "-m", mountpoint)
 	prefix := strings.TrimSuffix(mountpoint, "/") + "/"
 	pids := parseFuserPIDs(out)
 	procs := make([]models.FSBusyProcess, 0, len(pids))

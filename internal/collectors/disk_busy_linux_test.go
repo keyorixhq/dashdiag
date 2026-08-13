@@ -3,6 +3,7 @@
 package collectors
 
 import (
+	"context"
 	"reflect"
 	"strconv"
 	"testing"
@@ -267,7 +268,7 @@ func TestCollectBusyProcesses(t *testing.T) {
 				b.PutFile("/proc/738518/status", []byte("Uid:\t1000\t1000\t1000\t1000\n"))
 				b.PutFile("/etc/passwd", []byte("appuser:x:1000:1000::/home/appuser:/bin/bash\n"))
 			})
-		procs := collectBusyProcesses("/mnt/busytest")
+		procs := collectBusyProcesses(context.Background(), "/mnt/busytest")
 		if len(procs) != 1 || procs[0].PID != 738518 {
 			t.Fatalf("procs = %+v, want 1 entry for PID 738518", procs)
 		}
@@ -285,7 +286,7 @@ func TestCollectBusyProcesses(t *testing.T) {
 				b.PutFile("/proc/200/fdinfo/3", []byte("pos:\t0\nflags:\t0100001\nmnt_id:\t25\n"))
 				b.PutFile("/proc/200/comm", []byte("writer\n"))
 			})
-		procs := collectBusyProcesses("/mnt/data")
+		procs := collectBusyProcesses(context.Background(), "/mnt/data")
 		if len(procs) != 1 || procs[0].PID != 200 || !procs[0].Write {
 			t.Fatalf("procs = %+v, want 1 write-open entry for PID 200", procs)
 		}
@@ -306,7 +307,7 @@ func TestFuserBusyProcesses(t *testing.T) {
 			// (unrecorded) so fdMatchesMount degrades to write=false — fine, this
 			// test only checks the cap.
 		})
-		procs := fuserBusyProcesses("/mnt/many")
+		procs := fuserBusyProcesses(context.Background(), "/mnt/many")
 		if len(procs) != fsBusyMaxProcs {
 			t.Errorf("len(procs) = %d, want capped at %d", len(procs), fsBusyMaxProcs)
 		}
@@ -316,7 +317,7 @@ func TestFuserBusyProcesses(t *testing.T) {
 		withFixtureSource(t, func(b *source.Bundle) {
 			b.PutCmd("fuser", []string{"-m", "/mnt/idle"}, "", 1)
 		})
-		procs := fuserBusyProcesses("/mnt/idle")
+		procs := fuserBusyProcesses(context.Background(), "/mnt/idle")
 		if len(procs) != 0 {
 			t.Errorf("expected no processes for empty fuser output, got %+v", procs)
 		}
@@ -388,7 +389,7 @@ func TestCollectBusyFilesystems(t *testing.T) {
 	t.Run("skips filesystems that do not need a busy check", func(t *testing.T) {
 		withFixtureSource(t, func(_ *source.Bundle) {})
 		fsList := []models.FilesystemInfo{{Mount: "/", FSType: "ext4", UsedPct: 10}}
-		collectBusyFilesystems(fsList)
+		collectBusyFilesystems(context.Background(), fsList)
 		if len(fsList[0].BusyProcesses) != 0 {
 			t.Errorf("expected no busy-process scan for a healthy filesystem, got %+v", fsList[0])
 		}
@@ -404,7 +405,7 @@ func TestCollectBusyFilesystems(t *testing.T) {
 				b.PutFile("/proc/50/comm", []byte("hog\n"))
 			})
 		fsList := []models.FilesystemInfo{{Mount: "/data", FSType: "ext4", UsedPct: 95}}
-		collectBusyFilesystems(fsList)
+		collectBusyFilesystems(context.Background(), fsList)
 		if len(fsList[0].BusyProcesses) != 1 || fsList[0].BusyProcesses[0].PID != 50 {
 			t.Errorf("expected 1 busy process (PID 50) on the near-full filesystem, got %+v", fsList[0])
 		}
@@ -413,9 +414,50 @@ func TestCollectBusyFilesystems(t *testing.T) {
 	t.Run("inherently read-only image fs is skipped even at 100%", func(t *testing.T) {
 		withFixtureSource(t, func(_ *source.Bundle) {})
 		fsList := []models.FilesystemInfo{{Mount: "/rofs", FSType: "squashfs", UsedPct: 100, ReadOnly: true}}
-		collectBusyFilesystems(fsList)
+		collectBusyFilesystems(context.Background(), fsList)
 		if len(fsList[0].BusyProcesses) != 0 {
 			t.Errorf("expected no scan for an inherently read-only image fs, got %+v", fsList[0])
 		}
 	})
+}
+
+// countingLookupSource wraps a Replay and counts "lookpath/fuser" lookups —
+// collectBusyProcesses always looks up fuser first (found or not), so the
+// count of lookups is exactly the count of busy-process scans actually
+// attempted, regardless of whether the test process itself runs as root
+// (which would otherwise make BusyCheckNeedsRoot indistinguishable between a
+// scanned and an unscanned entry).
+type countingLookupSource struct {
+	*source.Replay
+	fuserLookups int
+}
+
+func (c *countingLookupSource) Cached(key string, produce func() ([]byte, error)) ([]byte, error) {
+	if key == "lookpath/fuser" {
+		c.fuserLookups++
+	}
+	return c.Replay.Cached(key, produce)
+}
+
+// TestCollectBusyFilesystems_CapsNumberOfScans guards internal-collectors-08-05:
+// needsBusyCheck flags ANY read-only mount regardless of usage, and with no
+// cap, an attacker able to create many read-only mounts (bind/FUSE) could
+// force one full /proc sweep per mount. More at-risk filesystems than
+// fsBusyMaxScans must still only trigger fsBusyMaxScans actual scans.
+func TestCollectBusyFilesystems_CapsNumberOfScans(t *testing.T) {
+	b := source.NewBundle()
+	fake := &countingLookupSource{Replay: source.NewReplay(b)}
+	prev := SetSource(fake)
+	t.Cleanup(func() { SetSource(prev) })
+
+	n := fsBusyMaxScans + 5
+	fsList := make([]models.FilesystemInfo, n)
+	for i := range fsList {
+		fsList[i] = models.FilesystemInfo{Mount: "/mnt/ro" + strconv.Itoa(i), FSType: "ext4", ReadOnly: true}
+	}
+	collectBusyFilesystems(context.Background(), fsList)
+	if fake.fuserLookups != fsBusyMaxScans {
+		t.Errorf("fuser lookups (scan attempts) = %d, want exactly the scan budget %d out of %d at-risk filesystems",
+			fake.fuserLookups, fsBusyMaxScans, n)
+	}
 }

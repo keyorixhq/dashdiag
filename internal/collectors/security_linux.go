@@ -923,8 +923,8 @@ func selinuxDeepDiagnosisGate(info *models.SecurityInfo) bool {
 // port type — a proactive check that catches a labeling gap before SELinux
 // ever logs a denial for it (the service just hasn't (re)bound under
 // enforcement since the gap appeared).
-func parseSELinuxUnlabeledPorts(_ context.Context, listening []models.PortEntry) []models.SELinuxUnlabeledPort {
-	out, err := runCmdTimeout(5*time.Second, "semanage", secTypePort, "-l")
+func parseSELinuxUnlabeledPorts(ctx context.Context, listening []models.PortEntry) []models.SELinuxUnlabeledPort {
+	out, err := runCmdTimeout(ctx, 5*time.Second, "semanage", secTypePort, "-l")
 	if err != nil {
 		return nil // semanage unavailable (not installed / no policy-utils) — unknown, not "unlabeled"
 	}
@@ -1022,8 +1022,8 @@ func parseSELinuxContextIssues(ctx context.Context, groups []models.SELinuxAVCGr
 
 	var out []models.SELinuxContextIssue
 	for _, path := range paths {
-		expected := matchpathconContext(path)
-		actual := lsZContext(path)
+		expected := matchpathconContext(ctx, path)
+		actual := lsZContext(ctx, path)
 		if expected == "" || actual == "" || expected == actual {
 			continue
 		}
@@ -1059,8 +1059,8 @@ func uniqueAVCPaths(groups []models.SELinuxAVCGroup) []string {
 
 // matchpathconContext returns the policy-default context for path via
 // `matchpathcon -n` (the -n flag prints only the context, no path prefix).
-func matchpathconContext(path string) string {
-	out, err := runCmdTimeout(3*time.Second, "matchpathcon", "-n", path)
+func matchpathconContext(ctx context.Context, path string) string {
+	out, err := runCmdTimeout(ctx, 3*time.Second, "matchpathcon", "-n", path)
 	if err != nil {
 		return ""
 	}
@@ -1069,8 +1069,8 @@ func matchpathconContext(path string) string {
 
 // lsZContext returns the actual context of path via `ls -dZ` (the -d flag
 // stops it from listing a directory's contents instead of the path itself).
-func lsZContext(path string) string {
-	out, err := runCmdTimeout(3*time.Second, "ls", "-dZ", path)
+func lsZContext(ctx context.Context, path string) string {
+	out, err := runCmdTimeout(ctx, 3*time.Second, "ls", "-dZ", path)
 	if err != nil {
 		return ""
 	}
@@ -1091,11 +1091,10 @@ type fcontextRule struct {
 // only — policy defaults are what matchpathcon already reports) and returns
 // the parsed path-pattern → context rules.
 func collectSemanageFcontextRules(ctx context.Context) []fcontextRule {
-	out, err := runCmdTimeout(5*time.Second, "semanage", "fcontext", "-C", "-l")
+	out, err := runCmdTimeout(ctx, 5*time.Second, "semanage", "fcontext", "-C", "-l")
 	if err != nil {
 		return nil
 	}
-	_ = ctx
 	return parseFcontextRules(out)
 }
 
@@ -1152,7 +1151,7 @@ func selinuxContextType(context string) string {
 // collectRelevantBooleans runs getsebool -a and filters to booleans related to
 // the denied scontexts that are currently OFF.
 func collectRelevantBooleans(ctx context.Context, groups []models.SELinuxAVCGroup) []models.SELinuxBoolean {
-	out, err := runCmdTimeout(5*time.Second, "getsebool", "-a")
+	out, err := runCmdTimeout(ctx, 5*time.Second, "getsebool", "-a")
 	if err != nil {
 		return nil
 	}

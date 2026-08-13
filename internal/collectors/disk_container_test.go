@@ -3,6 +3,7 @@
 package collectors
 
 import (
+	"context"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -17,7 +18,7 @@ func TestDiskSMARTSuppressedInContainer(t *testing.T) {
 	c := &DiskCollector{ContainerCtx: platform.ContainerContext{InContainer: true}}
 
 	var result models.DiskInfo
-	c.collectLinuxExtras(&result)
+	c.collectLinuxExtras(context.Background(), &result)
 
 	for _, d := range result.Drives {
 		if d.SMART != nil {
