@@ -350,6 +350,14 @@ func (c *SteamOSCollector) collectNetwork(_ context.Context, info *models.SteamO
 	// Wi-Fi backend/SSID/quality is owned by dsd net (collectSteamOSWifi) — the
 	// single authoritative home. Here we only check the atomic-update server,
 	// which is SteamOS-specific and distinct from net's download-CDN DNS check.
+	//
+	// This is a real outbound dial to an external host (steamdeck-atomupd.
+	// steamos.cloud), not a local read — skip it under DSD_OFFLINE.
+	// UpdateServerKnown stays false, which the heuristic already treats as
+	// "the reachability test never ran" (never a false WARN/OK).
+	if os.Getenv("DSD_OFFLINE") != "" {
+		return
+	}
 	info.UpdateServerKnown = true
 	// Cached so the live dial replays from the bundle.
 	var up steamProbeResult

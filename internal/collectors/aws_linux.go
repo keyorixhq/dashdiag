@@ -470,7 +470,7 @@ func subSat(a, b uint64) uint64 {
 
 // awsInstanceType returns the instance type from IMDS ("" on any error).
 func awsInstanceType(ctx context.Context) string {
-	client := &http.Client{Timeout: 2 * time.Second}
+	client := newIMDSHTTPClient(2 * time.Second)
 	token, err := awsIMDSToken(ctx, client)
 	if err != nil {
 		return ""
@@ -492,7 +492,7 @@ func awsIMDSv1Open(ctx context.Context) (checked, open bool) {
 // elevated interruption risk for this spot instance; 404 = none). checked is false
 // on any IMDS error so a missed probe never reads as "no recommendation".
 func awsRebalance(ctx context.Context) (checked, recommended bool) {
-	client := &http.Client{Timeout: 2 * time.Second}
+	client := newIMDSHTTPClient(2 * time.Second)
 	token, err := awsIMDSToken(ctx, client)
 	if err != nil {
 		return false, false

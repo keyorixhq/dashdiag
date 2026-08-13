@@ -31,6 +31,32 @@ func TestRenderDetailsTable(t *testing.T) {
 	}
 }
 
+// TestRenderDetailsTable_StripsControlChars guards terminal escape injection
+// on table cells — Details rows are largely sourced from journalctl/proc
+// output, which is attacker-influenced and must not carry raw control
+// bytes (ESC starts ANSI/OSC escape sequences) to the terminal. It must
+// also not mutate the underlying model, since --json/--yaml output reuses
+// the same Details struct and needs the raw values.
+func TestRenderDetailsTable_StripsControlChars(t *testing.T) {
+	r := NewRenderer(output.ModeHuman)
+	evilPID := "123\x1b]0;pwned\x07"
+	d := &models.Details{
+		Title:   "Zombies",
+		Columns: []string{"PID", "Parent"},
+		Rows:    [][]string{{evilPID, "cron"}},
+	}
+	out := captureStdout(t, func() { r.renderDetails(d) })
+	if strings.Contains(out, "\x1b") {
+		t.Errorf("renderDetails table output still contains ESC byte: %q", out)
+	}
+	if !strings.Contains(out, "123]0;pwned") {
+		t.Errorf("renderDetails table output missing sanitized cell text: %q", out)
+	}
+	if d.Rows[0][0] != evilPID {
+		t.Errorf("renderDetails must not mutate the underlying model: Rows[0][0] = %q, want unchanged %q", d.Rows[0][0], evilPID)
+	}
+}
+
 // TestRenderDetailsLogTail covers the log_tail Type branch: each line of the
 // KV["log_tail"] value is printed as its own indented line.
 func TestRenderDetailsLogTail(t *testing.T) {
@@ -42,6 +68,23 @@ func TestRenderDetailsLogTail(t *testing.T) {
 	out := captureStdout(t, func() { r.renderDetails(d) })
 	if !strings.Contains(out, "line one") || !strings.Contains(out, "line two") {
 		t.Errorf("log_tail details missing expected lines:\n%s", out)
+	}
+}
+
+// TestRenderDetailsLogTail_StripsControlChars guards terminal escape
+// injection on log_tail content — sourced directly from journalctl output.
+func TestRenderDetailsLogTail_StripsControlChars(t *testing.T) {
+	r := NewRenderer(output.ModeHuman)
+	d := &models.Details{
+		Type: "log_tail",
+		KV:   map[string]string{"log_tail": "line one\x1b]0;pwned\x07\nline two"},
+	}
+	out := captureStdout(t, func() { r.renderDetails(d) })
+	if strings.Contains(out, "\x1b") {
+		t.Errorf("renderDetails log_tail output still contains ESC byte: %q", out)
+	}
+	if !strings.Contains(out, "line one]0;pwned") {
+		t.Errorf("renderDetails log_tail output missing sanitized line: %q", out)
 	}
 }
 

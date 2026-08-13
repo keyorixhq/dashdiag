@@ -361,6 +361,28 @@ func TestDirectBundleSeeding(t *testing.T) {
 	}
 }
 
+// TestGlobKeyNormalization guards path-safety-04: putFile/putDir/putStat/etc.
+// all key their map with cleanPath(path) so record and replay agree on the
+// key even when one side writes "./foo/*" and the other queries "foo/*".
+// putGlob/getGlob were the one accessor pair that skipped this normalization,
+// so a pattern recorded with a "./" prefix silently failed to match on
+// replay — a capture/replay fidelity bug, not a path escape (Glob patterns
+// are always hardcoded literals in collectors, never attacker input).
+func TestGlobKeyNormalization(t *testing.T) {
+	t.Parallel()
+	b := NewBundle()
+	// Recorded with a "./" prefix Clean would strip.
+	b.PutGlob("./sys/class/*/power", []string{"sys/class/x/power"})
+
+	rp := NewReplay(b)
+	// Queried without the prefix — must still match after cleanPath normalizes
+	// both sides the same way as every sibling accessor (putFile/getFile etc).
+	got, err := rp.Glob("sys/class/*/power")
+	if err != nil || len(got) != 1 {
+		t.Fatalf("Glob(%q) = %v, %v; want the entry recorded under \"./sys/class/*/power\" (cleanPath must normalize both keys the same way)", "sys/class/*/power", got, err)
+	}
+}
+
 func TestPutCmdAndPutCmdNotFound(t *testing.T) {
 	b := NewBundle()
 	b.PutCmd("btrfs", []string{"filesystem", "show"}, "Label: none  uuid: abc-123\n", 0)

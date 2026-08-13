@@ -34,6 +34,20 @@ const (
 	dockerNetNetavark         = "netavark"
 )
 
+// shortID truncates a container ID (or on-disk container-directory name) to the
+// 12-character prefix Docker conventionally displays. The daemon/API response and
+// filesystem directory names are attacker-influenced (a malicious or compromised
+// daemon, or a crafted /var/lib/docker/containers entry) so the input length is
+// never assumed — a naive id[:12] slice panics and crashes the whole process when
+// the string is shorter than 12 bytes.
+func shortID(id string) string {
+	const shortLen = 12
+	if len(id) <= shortLen {
+		return id
+	}
+	return id[:shortLen]
+}
+
 // DockerCollector reads container health from the Docker or Podman socket.
 // Uses direct Unix socket HTTP — no Docker SDK dependency.
 type DockerCollector struct {
@@ -283,7 +297,7 @@ func collectContainers(ctx context.Context, client *http.Client, info *models.Do
 		}
 
 		// Fetch detailed inspect — one API call for all security + health data
-		det := containerDetail(ctx, client, c.ID[:12])
+		det := containerDetail(ctx, client, shortID(c.ID))
 		if det.health == "unhealthy" {
 			info.UnhealthyCount++
 			info.Unhealthy = append(info.Unhealthy, name)
@@ -308,7 +322,7 @@ func collectContainers(ctx context.Context, client *http.Client, info *models.Do
 		}
 
 		ci := models.ContainerInfo{
-			ID:                  c.ID[:12],
+			ID:                  shortID(c.ID),
 			Name:                name,
 			Image:               c.Image,
 			State:               state,
@@ -699,9 +713,9 @@ func collectContainerLogSizes(info *models.DockerInfo) []models.DockerContainerL
 		if err != nil {
 			continue
 		}
-		name := idToName[e.Name()[:12]]
+		name := idToName[shortID(e.Name())]
 		if name == "" {
-			name = e.Name()[:12]
+			name = shortID(e.Name())
 		}
 		logs = append(logs, models.DockerContainerLogFile{
 			Name:   name,

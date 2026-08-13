@@ -11,8 +11,11 @@ package collectors
 import (
 	"context"
 	"crypto/tls"
+	"fmt"
 	"io"
+	"net"
 	"net/http"
+	"net/url"
 	"time"
 )
 
@@ -46,14 +49,25 @@ func httpGetCached(ctx context.Context, url string) ([]byte, int, error) {
 	return r.Body, r.Code, nil
 }
 
-func httpGetLive(ctx context.Context, url string) ([]byte, int, error) {
+func httpGetLive(ctx context.Context, rawURL string) ([]byte, int, error) {
+	// InsecureSkipVerify below is only safe for a loopback target — enforce
+	// that precondition here rather than trusting every caller to only ever
+	// pass a hardcoded 127.0.0.1 URL. httpGetLive is a shared helper (routed
+	// through by vault_linux.go, elasticsearch_linux.go, prometheus_linux.go);
+	// if a future caller built its URL from a configurable address (e.g. an
+	// env/config value), this stops it from silently disabling certificate
+	// validation against a non-local, potentially attacker-controlled host.
+	if err := requireLoopbackURL(rawURL); err != nil {
+		return nil, 0, err
+	}
+
 	client := &http.Client{
 		Timeout: 3 * time.Second,
 		Transport: &http.Transport{
-			TLSClientConfig: &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12}, //nolint:gosec // local health probe, not a trust decision
+			TLSClientConfig: &tls.Config{InsecureSkipVerify: true, MinVersion: tls.VersionTLS12}, //nolint:gosec // enforced-loopback health probe (see requireLoopbackURL), not a trust decision
 		},
 	}
-	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, rawURL, nil)
 	if err != nil {
 		return nil, 0, err
 	}
@@ -64,4 +78,21 @@ func httpGetLive(ctx context.Context, url string) ([]byte, int, error) {
 	defer resp.Body.Close() //nolint:errcheck
 	body, _ := io.ReadAll(io.LimitReader(resp.Body, 1<<20))
 	return body, resp.StatusCode, nil
+}
+
+// requireLoopbackURL reports an error unless rawURL's host is a loopback IP
+// literal. Checked by IP rather than hostname (e.g. "localhost") so a
+// DNS-rebinding attacker cannot make a hostname that merely resolves to
+// loopback at check time satisfy this and then serve a different address.
+func requireLoopbackURL(rawURL string) error {
+	u, err := url.Parse(rawURL)
+	if err != nil {
+		return fmt.Errorf("parsing probe URL: %w", err)
+	}
+	host := u.Hostname()
+	ip := net.ParseIP(host)
+	if ip == nil || !ip.IsLoopback() {
+		return fmt.Errorf("refusing to probe non-loopback host %q with certificate verification disabled", host)
+	}
+	return nil
 }

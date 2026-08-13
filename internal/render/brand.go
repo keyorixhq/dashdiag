@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"html"
 	"html/template"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -61,6 +62,9 @@ func logoDataURI(logo string) (template.URL, error) {
 		return "", fmt.Errorf("http:// logo URLs are not supported; use https:// or a local file path")
 	}
 	if strings.HasPrefix(logo, "https://") {
+		if !isSafeAttrURI(logo) {
+			return "", fmt.Errorf("logo URL contains characters unsafe for an HTML attribute")
+		}
 		if len(logo) > maxLogoBytes {
 			return "", fmt.Errorf("logo URL exceeds %d bytes", maxLogoBytes)
 		}
@@ -71,6 +75,9 @@ func logoDataURI(logo string) (template.URL, error) {
 	if strings.HasPrefix(logo, "data:") {
 		if !strings.HasPrefix(logo, "data:image/") {
 			return "", fmt.Errorf("data: logo URI must use an image/* MIME type")
+		}
+		if !isSafeAttrURI(logo) {
+			return "", fmt.Errorf("logo data: URI contains characters unsafe for an HTML attribute")
 		}
 		// Unlike the file-path branch below, a data: URI is embedded verbatim with
 		// no read to size-check first — apply the same maxLogoBytes cap here so a
@@ -100,6 +107,20 @@ func logoDataURI(logo string) (template.URL, error) {
 		return "", fmt.Errorf("logo file %q is empty or exceeds %d bytes", logo, maxLogoBytes)
 	}
 	return template.URL(fmt.Sprintf("data:%s;base64,%s", mime, base64.StdEncoding.EncodeToString(data))), nil //nolint:gosec // self-generated data URI
+}
+
+// isSafeAttrURI reports whether s is safe to embed verbatim into an HTML
+// src="..." attribute. logoDataURI returns https:// and data: logo URIs as
+// template.URL, which html/template treats as pre-vetted and emits WITHOUT
+// any escaping (per html/template's docs: "included verbatim in the template
+// output") — so an operator-supplied (or automation-fed) URL/URI containing
+// a quote, angle bracket, or backtick could break out of the attribute and
+// inject arbitrary HTML/JS into the report. A well-formed https:// URL or
+// base64 data: URI never legitimately needs any of these characters.
+func isSafeAttrURI(s string) bool {
+	return !strings.ContainsAny(s, "\"'<>`") && !strings.ContainsFunc(s, func(r rune) bool {
+		return r < 0x20 || r == 0x7f
+	})
 }
 
 func logoMIME(path string) string {
@@ -136,7 +157,19 @@ func brandBarHTML() string {
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "dsd: logo rejected: %v\n", err)
 		} else if uri != "" {
-			fmt.Fprintf(&sb, `<img class="brand-logo" src="%s" alt="%s">`, uri, html.EscapeString(b.Company))
+			// referrerpolicy strips the report's origin from the request an
+			// https:// logo triggers; loading="lazy" avoids fetching it purely
+			// because a report renderer scrolled past it. Neither stops the load
+			// itself — that's inherent to an operator choosing a remote logo URL
+			// over an embedded file/data: URI — so an https logo also gets a
+			// visible disclosure (below) telling whoever opens the report that
+			// doing so contacts a third-party host, which a self-contained
+			// file/data: logo never does.
+			fmt.Fprintf(&sb, `<img class="brand-logo" src="%s" alt="%s" referrerpolicy="no-referrer" loading="lazy">`,
+				uri, html.EscapeString(b.Company))
+			if note := externalLogoDisclosure(b.Logo); note != "" {
+				sb.WriteString(note)
+			}
 		}
 	}
 	if b.Company != "" {
@@ -144,4 +177,26 @@ func brandBarHTML() string {
 	}
 	sb.WriteString("</div>\n")
 	return sb.String()
+}
+
+// externalLogoDisclosure returns a small visible notice when logo is an
+// https:// URL rather than a self-contained file/data: URI, so a report
+// recipient can see — without inspecting the HTML source — that opening the
+// report causes their browser to load an image from a third-party host
+// (rawLogoHost, revealing the recipient's IP/user-agent/open-time to
+// whoever controls that host). Returns "" for file/data: logos, which never
+// make an outbound request when the report is opened.
+func externalLogoDisclosure(logo string) string {
+	logo = strings.TrimSpace(logo)
+	if !strings.HasPrefix(logo, "https://") {
+		return ""
+	}
+	host := logo
+	if u, err := url.Parse(logo); err == nil && u.Host != "" {
+		host = u.Host
+	}
+	return fmt.Sprintf(
+		`<small class="brand-logo-disclosure" title="Opening this report loads an image from %s.">`+
+			`&#9432; logo loaded from %s</small>`,
+		html.EscapeString(host), html.EscapeString(host))
 }
