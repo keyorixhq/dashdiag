@@ -137,6 +137,24 @@ func TestPrintGuestBlock_CritIcon(t *testing.T) {
 	}
 }
 
+// TestPrintGuestBlock_StripsControlChars guards terminal escape injection:
+// printGuestBlock renders Insight.Message/Hints for every cloud/guest command
+// (aws, azure, gcp, oci, vmware, kvm-guest, guest) — none of that text is
+// trustworthy (device names, remote metadata, log-derived strings).
+func TestPrintGuestBlock_StripsControlChars(t *testing.T) {
+	var buf bytes.Buffer
+	printGuestBlock(&buf, "Test block", []models.Insight{
+		{Level: "WARN", Message: "evil\x1b]0;pwned\x07", Hints: []string{"hint\x1b[31mred\x1b[0m"}},
+	}, output.ModePlain)
+	out := buf.String()
+	if strings.Contains(out, "\x1b") {
+		t.Errorf("printGuestBlock output still contains ESC byte:\n%s", out)
+	}
+	if !strings.Contains(out, "evil]0;pwned") || !strings.Contains(out, "hint[31mred[0m") {
+		t.Errorf("printGuestBlock output missing sanitized message/hint:\n%s", out)
+	}
+}
+
 func TestPrintVMwareReport_Healthy(t *testing.T) {
 	// A clean paravirtual guest: vmxnet3 NIC, tools running, no limits/pressure.
 	clean := &models.VMwareInfo{

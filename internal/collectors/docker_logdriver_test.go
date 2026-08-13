@@ -208,6 +208,28 @@ func TestCollectContainerLogSizes_SkipsNonDirEntries(t *testing.T) {
 	}
 }
 
+// TestCollectContainerLogSizes_ShortDirName guards against a panic when a
+// directory under /var/lib/docker/containers is shorter than the 12-char ID
+// prefix dsd displays. Directory names here come straight off the
+// filesystem — a stray/crafted entry (or an attacker with write access to
+// the containers dir) fully controls the name, so a naive name[:12] slice
+// is a crash-the-whole-process bug on any entry under 12 bytes.
+func TestCollectContainerLogSizes_ShortDirName(t *testing.T) {
+	const shortID = "ab"
+	b := source.NewBundle()
+	b.PutDir("/var/lib/docker/containers", []string{shortID})
+	b.PutDir("/var/lib/docker/containers/"+shortID, []string{shortID + "-json.log"})
+	b.PutStat("/var/lib/docker/containers/"+shortID+"/"+shortID+"-json.log",
+		source.FileMeta{Size: 1024 * 1024})
+	defer SetSource(SetSource(source.NewReplay(b)))
+
+	info := &models.DockerInfo{}
+	logs := collectContainerLogSizes(info) // must not panic
+	if len(logs) != 1 || logs[0].Name != shortID {
+		t.Errorf("logs = %+v, want name=%q (short ID passed through unchanged)", logs, shortID)
+	}
+}
+
 // TestCollectContainerLogSizes_MissingLogFile covers the statFile error
 // branch: a container directory whose -json.log file doesn't exist (log
 // rotated away, or the driver isn't json-file) must be silently skipped

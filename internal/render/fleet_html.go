@@ -90,7 +90,7 @@ func GenerateFleetHTMLReport(report FleetReport) (string, error) {
 	ts := time.Now().Format("20060102-150405")
 	filename := fmt.Sprintf("dsd-fleet-report-%s.html", ts)
 	path := filepath.Join(".", filename)
-	if err := os.WriteFile(path, []byte(html), 0o644); err != nil { //nolint:gosec // report file, world-readable intentional
+	if err := writeReportFileNoFollow(path, []byte(html), 0o644); err != nil {
 		return "", fmt.Errorf("writing fleet report: %w", err)
 	}
 	return path, nil

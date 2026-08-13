@@ -1036,8 +1036,13 @@ func printTopProcsWithCgroup(results []runner.Result, _ output.OutputMode) {
 			if scope == "" {
 				scope = "unknown"
 			}
+			// PID name and cgroup scope both come from /proc, which is
+			// attacker-influenced (a process can name itself anything) — strip
+			// control bytes before they reach the terminal.
+			name := output.SanitizeControl(truncateStr(p.Name, 20))
+			scope = output.SanitizeControl(scope)
 			fmt.Printf("  %-6d  %4.1f%%  %-20s  %s\n",
-				p.PID, p.MemPct, truncateStr(p.Name, 20), scope)
+				p.PID, p.MemPct, name, scope)
 		}
 		return
 	}
@@ -1061,8 +1066,10 @@ func printTopCPUProcsWithCgroup(results []runner.Result, _ output.OutputMode) {
 			if scope == "" {
 				scope = "unknown"
 			}
+			name := output.SanitizeControl(truncateStr(p.Name, 20))
+			scope = output.SanitizeControl(scope)
 			fmt.Printf("  %-6d  %5.1f%%  %-20s  %s\n",
-				p.PID, p.CPUPct, truncateStr(p.Name, 20), scope)
+				p.PID, p.CPUPct, name, scope)
 		}
 		return
 	}

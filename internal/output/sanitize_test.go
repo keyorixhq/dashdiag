@@ -18,7 +18,7 @@ func TestSanitizeControl(t *testing.T) {
 		{"strips carriage return (overwrite-line trick)", "real line\rFAKE OK\r", "real lineFAKE OK"},
 		{"strips backspace", "abc\x08\x08\x08XYZ", "abcXYZ"},
 		{"strips NUL", "trunc\x00ated", "truncated"},
-		{"strips C1 control (NEL, U+0085)", "beforeafter", "beforeafter"},
+		{"strips C1 control (NEL, U+0085)", "before\u0085after", "beforeafter"},
 		{"tab and newline are also control runes and get stripped", "a\tb\nc", "abc"},
 	}
 	for _, tt := range tests {

@@ -33,6 +33,45 @@ func TestIsFirstRun_StateFileExists(t *testing.T) {
 	}
 }
 
+// TestIsFirstRun_NoHomeDir guards internal-init-01-02: when os.UserHomeDir()
+// errors (HOME unset), IsFirstRun previously discarded the error and
+// silently fell through to the relative path "./.dsd/state.json", making the
+// result depend on whatever CWD dsd happens to run from. It must instead
+// fail closed (false), never claim "first run" off of untrusted CWD state.
+func TestIsFirstRun_NoHomeDir(t *testing.T) {
+	t.Setenv("HOME", "")
+	if IsFirstRun() {
+		t.Error("IsFirstRun() = true, want false when $HOME cannot be resolved (fail closed)")
+	}
+}
+
+// TestWriteProfileConfig_RefusesDanglingSymlink guards internal-init-01-01: a
+// Stat-then-WriteFile TOCTOU. os.Stat on a dangling symlink reports "not
+// exist", so the old code proceeded to os.WriteFile, which follows the
+// symlink and creates its target. An unprivileged user who can plant a
+// dangling symlink at ~/.dsd.yaml (e.g. HOME preserved across sudo) could
+// redirect the wizard's write to an arbitrary path. writeProfileConfig must
+// refuse to write through any pre-existing entry at the path — file or
+// symlink — using O_EXCL instead.
+func TestWriteProfileConfig_RefusesDanglingSymlink(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	target := filepath.Join(t.TempDir(), "victim.yaml") // dangling: never created
+	link := filepath.Join(home, ".dsd.yaml")
+	if err := os.Symlink(target, link); err != nil {
+		t.Fatal(err)
+	}
+
+	writeProfileConfig("web")
+
+	if _, err := os.Stat(target); err == nil {
+		t.Error("writeProfileConfig wrote through the dangling symlink; target was created")
+	} else if !os.IsNotExist(err) {
+		t.Fatalf("Stat(target): %v", err)
+	}
+}
+
 func TestWriteProfileConfig_CreatesFile(t *testing.T) {
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
