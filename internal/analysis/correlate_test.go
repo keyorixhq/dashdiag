@@ -583,6 +583,36 @@ func TestDockerOOMCascadeFiresFallbackNoTimestamps(t *testing.T) {
 	}
 }
 
+// TestDockerOOMCascadeActionOmitsShellMetachars is a regression test for the
+// shell-metacharacter-injection class: the Docker/Podman actor name comes
+// from `docker events` Actor attributes with no validation in this file, and
+// ruleDockerOOMCascade used to splice it unescaped into a copy-pasteable
+// "docker inspect <actor> && docker logs ... <actor>" Action string.
+func TestDockerOOMCascadeActionOmitsShellMetachars(t *testing.T) {
+	now := time.Now()
+	payload := "evil`whoami`"
+	oom := makeOOM(2, models.OOMEvent{
+		Process:   "nginx",
+		Timestamp: now.Add(-1 * time.Minute),
+	})
+	docker := makeDocker(1, models.DockerEvent{
+		Action:   "oom",
+		Actor:    payload,
+		TimeUnix: now.Unix(),
+	})
+
+	corrs := CorrelateDeep(nil, oom, docker, nil, nil, nil, nil)
+	for _, c := range corrs {
+		if c.Name == "Container OOM Cascade" {
+			if strings.Contains(c.Action, "whoami") {
+				t.Errorf("Action must not embed the raw shell-metacharacter actor verbatim (copy-paste RCE risk): %q", c.Action)
+			}
+			return
+		}
+	}
+	t.Fatal("expected Container OOM Cascade to fire")
+}
+
 func TestDockerOOMCascadeDoesNotFireOutsideWindow(t *testing.T) {
 	now := time.Now()
 	oom := makeOOM(1, models.OOMEvent{
@@ -876,6 +906,28 @@ func TestServiceMemoryLeakFires(t *testing.T) {
 	}
 	if !strings.Contains(c.Summary, "2 times") {
 		t.Errorf("summary should state kill count, got: %q", c.Summary)
+	}
+}
+
+// TestServiceMemoryLeakActionOmitsShellMetachars is a regression test for the
+// shell-metacharacter-injection class (distinct from the ANSI/control-escape
+// class PR #991 fixed): the OOM-killed process's kernel comm name is
+// attacker-settable via prctl(PR_SET_NAME) and is not restricted to a safe
+// charset, yet ruleServiceMemoryLeak used to splice it unescaped into a
+// copy-pasteable Action string. A malicious comm containing shell
+// metacharacters must never appear verbatim in Action.
+func TestServiceMemoryLeakActionOmitsShellMetachars(t *testing.T) {
+	payload := "a;touch /x" // legal kernel comm value — prctl(PR_SET_NAME) has no charset restriction
+	oom := makeOOM(3,
+		models.OOMEvent{Process: payload},
+		models.OOMEvent{Process: payload},
+	)
+	c, ok := ruleServiceMemoryLeak(oom)
+	if !ok {
+		t.Fatal("expected rule to fire when same process killed 2+ times")
+	}
+	if strings.Contains(c.Action, "touch /x") {
+		t.Errorf("Action must not embed the raw shell-metacharacter payload verbatim (copy-paste RCE risk): %q", c.Action)
 	}
 }
 

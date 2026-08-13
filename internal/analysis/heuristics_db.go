@@ -30,10 +30,16 @@ func checkPostgres(pg models.PostgresInfo) []models.Insight {
 		if reason == "" {
 			reason = "not accepting connections"
 		}
+		// pg.SocketDir is spliced unescaped into a copy-pasteable "to inspect:"
+		// hint below; validate before use (see looksLikeSafeToken).
+		socketDir := pg.SocketDir
+		if !looksLikeSafeToken(socketDir) {
+			socketDir = "<socket-dir>"
+		}
 		return []models.Insight{insight("CRIT", dbCatPostgres,
 			fmt.Sprintf("PostgreSQL is up but not accepting connections — %s", reason),
 			[]string{
-				"to inspect: pg_isready -h " + pg.SocketDir,
+				"to inspect: pg_isready -h " + socketDir,
 				"to inspect: tail -n 50 the server log (often /var/log/postgresql/*.log)",
 				"note: common causes — recovery in progress, max_connections reached, or a full data disk",
 			},
@@ -120,12 +126,18 @@ func checkMySQL(my models.MySQLInfo) []models.Insight {
 	if name == "" {
 		name = dbCatMySQL
 	}
+	// my.SocketPath is spliced unescaped into copy-pasteable "to inspect:"
+	// mysqladmin hints below; validate once and reuse (see looksLikeSafeToken).
+	socketPath := my.SocketPath
+	if !looksLikeSafeToken(socketPath) {
+		socketPath = "<socket-path>"
+	}
 	if !my.MetricsRead {
 		return []models.Insight{unverifiedInsight("INFO", dbCatMySQL,
 			fmt.Sprintf("%s is reachable; connection/replication metrics were not read", name),
 			[]string{
 				"note: run dsd as root (root@localhost socket auth) for connection-saturation and replica-lag checks",
-				"to inspect: mysqladmin --socket=" + my.SocketPath + " status",
+				"to inspect: mysqladmin --socket=" + socketPath + " status",
 			},
 		)}
 	}
@@ -158,7 +170,7 @@ func checkMySQL(my models.MySQLInfo) []models.Insight {
 		// run. Surface that rather than let an unread dimension pass as clean.
 		out = append(out, unverifiedInsight("INFO", dbCatMySQL,
 			fmt.Sprintf("%s metrics were read, but the connection counters were not — connection-saturation was not assessed", name),
-			[]string{"to inspect: mysqladmin --socket=" + my.SocketPath + " status"}))
+			[]string{"to inspect: mysqladmin --socket=" + socketPath + " status"}))
 	}
 
 	// Replication stopped — the worst replica state. Seconds_Behind_Master reads
@@ -194,12 +206,19 @@ func checkRedis(r models.RedisInfo) []models.Insight {
 	if !r.Detected {
 		return nil
 	}
+	// r.Addr is spliced unescaped into copy-pasteable "to inspect:" redis-cli
+	// hints throughout this function; validate once and reuse (see
+	// looksLikeSafeToken).
+	addr := r.Addr
+	if !looksLikeSafeToken(addr) {
+		addr = "<redis-addr>"
+	}
 	if !r.MetricsRead {
 		return []models.Insight{unverifiedInsight("INFO", dbCatRedis,
 			"Redis is reachable (answered PING); memory/replication metrics were not read",
 			[]string{
 				"note: install redis-cli (or pass auth) for memory-pressure and replica checks",
-				dbInspectRedisPrefix + r.Addr + " INFO",
+				dbInspectRedisPrefix + addr + " INFO",
 			},
 		)}
 	}
@@ -215,17 +234,17 @@ func checkRedis(r models.RedisInfo) []models.Insight {
 			out = append(out, insight("CRIT", dbCatRedis,
 				fmt.Sprintf("memory at %.0f%% of maxmemory with noeviction policy — writes will be rejected (OOM)", ratio*100),
 				[]string{
-					dbInspectRedisPrefix + r.Addr + " INFO memory",
+					dbInspectRedisPrefix + addr + " INFO memory",
 					"to fix: raise maxmemory, set an eviction policy, or shed keys",
 				}))
 		case ratio >= 0.95:
 			out = append(out, insight("WARN", dbCatRedis,
 				fmt.Sprintf("memory at %.0f%% of maxmemory — actively evicting keys (%s)", ratio*100, r.MaxMemoryPolicy),
-				[]string{dbInspectRedisPrefix + r.Addr + " INFO stats | grep evicted_keys"}))
+				[]string{dbInspectRedisPrefix + addr + " INFO stats | grep evicted_keys"}))
 		case ratio >= 0.85:
 			out = append(out, insight("WARN", dbCatRedis,
 				fmt.Sprintf("memory at %.0f%% of maxmemory — approaching the limit", ratio*100),
-				[]string{dbInspectRedisPrefix + r.Addr + " INFO memory"}))
+				[]string{dbInspectRedisPrefix + addr + " INFO memory"}))
 		}
 	}
 
@@ -234,14 +253,14 @@ func checkRedis(r models.RedisInfo) []models.Insight {
 		out = append(out, insight("WARN", dbCatRedis,
 			fmt.Sprintf("clients at %d/%d — approaching maxclients (new connections will be refused at the limit)",
 				r.ConnectedClients, r.MaxClients),
-			[]string{dbInspectRedisPrefix + r.Addr + " INFO clients"}))
+			[]string{dbInspectRedisPrefix + addr + " INFO clients"}))
 	} else if !r.MaxClientsRead {
 		// maxclients comes from a separate CONFIG GET that can fail after INFO
 		// succeeded; without it the saturation check above can't run. Don't let an
 		// unread limit pass as clean.
 		out = append(out, unverifiedInsight("INFO", dbCatRedis,
 			"Redis metrics were read, but maxclients could not be — client-saturation was not assessed",
-			[]string{dbInspectRedisPrefix + r.Addr + " CONFIG GET maxclients"}))
+			[]string{dbInspectRedisPrefix + addr + " CONFIG GET maxclients"}))
 	}
 
 	// A replica that lost its link is serving stale data.
@@ -249,7 +268,7 @@ func checkRedis(r models.RedisInfo) []models.Insight {
 		out = append(out, insight("CRIT", dbCatRedis,
 			"replica is disconnected from its master — it is serving stale data and not receiving updates",
 			[]string{
-				dbInspectRedisPrefix + r.Addr + " INFO replication",
+				dbInspectRedisPrefix + addr + " INFO replication",
 				"note: check the master, network, and replica auth (masterauth)",
 			}))
 	}
@@ -259,7 +278,7 @@ func checkRedis(r models.RedisInfo) []models.Insight {
 		out = append(out, insight("WARN", dbCatRedis,
 			"last RDB background save failed — recent writes are not being persisted to disk",
 			[]string{
-				dbInspectRedisPrefix + r.Addr + " INFO persistence",
+				dbInspectRedisPrefix + addr + " INFO persistence",
 				"note: common causes — no disk space, or the data dir is not writable",
 			}))
 	}
@@ -273,10 +292,17 @@ func checkMemcached(m models.MemcachedInfo) []models.Insight {
 	if !m.Detected {
 		return nil
 	}
+	// m.Addr is spliced unescaped into copy-pasteable "to inspect:" hints
+	// throughout this function; validate once and reuse (see
+	// looksLikeSafeToken).
+	addr := m.Addr
+	if !looksLikeSafeToken(addr) {
+		addr = "<memcached-addr>"
+	}
 	if !m.MetricsRead {
 		return []models.Insight{unverifiedInsight("INFO", "Memcached",
 			"memcached is reachable; its stats could not be read",
-			[]string{dbInspectMemcachedPfx + m.Addr},
+			[]string{dbInspectMemcachedPfx + addr},
 		)}
 	}
 
@@ -290,7 +316,7 @@ func checkMemcached(m models.MemcachedInfo) []models.Insight {
 		out = append(out, insight("WARN", "Memcached",
 			"actively evicting keys — the working set exceeds the cache (memory pressure)",
 			[]string{
-				dbInspectMemcachedPfx + m.Addr + "  (watch evictions climb)",
+				dbInspectMemcachedPfx + addr + "  (watch evictions climb)",
 				"to fix: raise -m (max memory) or reduce what's cached",
 			}))
 	}
@@ -300,14 +326,14 @@ func checkMemcached(m models.MemcachedInfo) []models.Insight {
 		out = append(out, insight("WARN", "Memcached",
 			fmt.Sprintf("connections at %d/%d — approaching maxconns (new connections refused at the limit)",
 				m.CurrConnections, m.MaxConnections),
-			[]string{dbInspectMemcachedPfx + m.Addr + "  (curr_connections)", "to fix: raise -c (max connections)"}))
+			[]string{dbInspectMemcachedPfx + addr + "  (curr_connections)", "to fix: raise -c (max connections)"}))
 	} else if !m.MaxConnsRead {
 		// stats were read but neither plain stats nor `stats settings` exposed a
 		// maxconns value — the connection-saturation check above couldn't run. Say
 		// so honestly rather than passing clean (mirrors checkRedis / checkMySQL).
 		out = append(out, insight("INFO", "Memcached",
 			"Memcached metrics were read, but max_connections could not be — connection-saturation was not assessed",
-			[]string{"to inspect: echo stats settings | nc " + m.Addr + "  (look for maxconns)"}))
+			[]string{"to inspect: echo stats settings | nc " + addr + "  (look for maxconns)"}))
 	}
 
 	return out

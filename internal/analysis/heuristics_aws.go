@@ -60,13 +60,20 @@ var enaAllowances = []enaAllowance{
 func awsENAInsights(a models.AWSInfo) []models.Insight {
 	var out []models.Insight
 	for _, e := range a.ENA {
+		// e.Iface is spliced unescaped into a copy-pasteable "to inspect:"
+		// ethtool hint below; validate once per interface rather than at each
+		// allowance (see looksLikeSafeToken).
+		ifaceHint := "to inspect: ethtool -S " + e.Iface + " | grep allowance_exceeded"
+		if !looksLikeSafeToken(e.Iface) {
+			ifaceHint = "to inspect: check the ENA interface stats manually — interface name contains unexpected characters"
+		}
 		for _, al := range enaAllowances {
 			total := e.Total[al.key]
 			var active uint64
 			if e.Active != nil {
 				active = e.Active[al.key]
 			}
-			hints := []string{al.hint, "to inspect: ethtool -S " + e.Iface + " | grep allowance_exceeded"}
+			hints := []string{al.hint, ifaceHint}
 			switch {
 			case active > 0:
 				out = append(out, insight("WARN", "AWS",
@@ -121,7 +128,12 @@ func awsEBSInsights(a models.AWSInfo) []models.Insight {
 // rising during the sample window (throttled right now), INFO when it is only a
 // historical total, nothing when zero.
 func ebsThrottleInsight(dev, label, hint string, active, total uint64) []models.Insight {
+	// dev is spliced unescaped into a copy-pasteable "to inspect:" nvme hint;
+	// validate before building the command (see looksLikeSafeToken).
 	inspect := fmt.Sprintf("to inspect: sudo nvme get-log /dev/%s --log-id=0xd0 --log-len=4096 --raw-binary", dev)
+	if !looksLikeSafeToken(dev) {
+		inspect = "to inspect: check the EBS NVMe log page manually — device name contains unexpected characters"
+	}
 	switch {
 	case active > 0:
 		return []models.Insight{insight("WARN", "AWS",
