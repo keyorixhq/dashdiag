@@ -130,20 +130,27 @@ func safeBundlePath(raw string) (string, error) {
 // a meaningful throughput concern for a diagnostic tool.
 var mcpPipelineMu sync.Mutex
 
+// runHealthOnceFn is runHealthOnce by default. It's a package-level seam so
+// tests can substitute a stub that captures the ctx it receives, to verify
+// that toolHealth/toolCapture forward the caller's real request-scoped
+// context instead of silently substituting context.Background() (which would
+// make the JSON-RPC caller's own cancellation/timeout unable to bound the
+// underlying collector run).
+var runHealthOnceFn = runHealthOnce
+
 // toolHealth runs the full health pipeline and returns the JSON verdict.
 // Equivalent to `dsd health --json [--deep] [--cve]`.
-func toolHealth(_ context.Context, _ *mcp.CallToolRequest, in mcpHealthInput) (
+func toolHealth(ctx context.Context, _ *mcp.CallToolRequest, in mcpHealthInput) (
 	*mcp.CallToolResult, any, error,
 ) {
 	mcpPipelineMu.Lock()
 	defer mcpPipelineMu.Unlock()
 
-	ctx := context.Background()
 	ctrCtx := collectors.ContainerContextViaSource()
 	cloudEnv := collectors.CloudEnvironmentViaSource()
 	profile := collectors.ProfileViaSource()
 
-	results, insights, _, _ := runHealthOnce(ctx, ctrCtx, cloudEnv, profile,
+	results, insights, _, _ := runHealthOnceFn(ctx, ctrCtx, cloudEnv, profile,
 		output.ModePlain, healthRunOpts{IncludeDeep: in.Deep, IncludeCVE: in.CVE, Terse: !in.Deep}, nil)
 
 	data, err := render.RenderJSON(results, insights)
@@ -157,7 +164,7 @@ func toolHealth(_ context.Context, _ *mcp.CallToolRequest, in mcpHealthInput) (
 
 // toolCapture records a raw bundle, writing it to in.OutPath.
 // Equivalent to `dsd capture --raw [--sanitize] [--identifiers] --out <path>`.
-func toolCapture(_ context.Context, _ *mcp.CallToolRequest, in mcpCaptureInput) (
+func toolCapture(ctx context.Context, _ *mcp.CallToolRequest, in mcpCaptureInput) (
 	*mcp.CallToolResult, mcpCaptureOutput, error,
 ) {
 	mcpPipelineMu.Lock()
@@ -171,7 +178,6 @@ func toolCapture(_ context.Context, _ *mcp.CallToolRequest, in mcpCaptureInput) 
 		in.Sanitize = true
 	}
 
-	ctx := context.Background()
 	ctrCtx := platform.DetectContainerContext()
 	cloudEnv := platform.DetectCloudEnvironment()
 	profile := platform.Detect()
@@ -181,7 +187,7 @@ func toolCapture(_ context.Context, _ *mcp.CallToolRequest, in mcpCaptureInput) 
 	defer collectors.SetSource(prev)
 
 	gpu := detectGPUPresence()
-	results, insights, _, _ := runHealthOnce(ctx, ctrCtx, cloudEnv, profile,
+	results, insights, _, _ := runHealthOnceFn(ctx, ctrCtx, cloudEnv, profile,
 		output.ModePlain, healthRunOpts{Terse: true, IncludeGPU: gpu}, nil)
 
 	b := rec.Bundle()
