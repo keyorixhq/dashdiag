@@ -1,10 +1,12 @@
 package source
 
 import (
+	"encoding/json"
 	"fmt"
 	"hash/fnv"
 	"net"
 	"regexp"
+	"strings"
 )
 
 // Sanitization is BEST-EFFORT redaction of common credential patterns from a raw
@@ -37,8 +39,12 @@ var secretRules = []secretRule{
 	// has no leading \b anchor.
 	{regexp.MustCompile(`(?i)((?:pass(?:word|wd)?|secret|token|api[_-]?key|access[_-]?key|auth_?token|credentials?)[A-Za-z0-9_-]*\s*[=:]\s*)("[^"]*"|'[^']*'|\S+)`),
 		"${1}" + redactedMark},
-	// AWS access key IDs.
-	{regexp.MustCompile(`\bAKIA[0-9A-Z]{16}\b`), "[REDACTED-AWS-KEY]"},
+	// AWS access key IDs. AKIA = long-lived IAM user key; ASIA = temporary/STS
+	// credentials (AssumeRole, EC2 instance profiles, EKS IRSA, Lambda execution
+	// roles — the AWS-recommended, now-dominant shape); ABIA/ACCA are rarer
+	// service/context-specific bearer forms. All four share the same 16
+	// trailing alnum chars.
+	{regexp.MustCompile(`\b(?:AKIA|ASIA|ABIA|ACCA)[0-9A-Z]{16}\b`), "[REDACTED-AWS-KEY]"},
 	// HTTP bearer tokens.
 	{regexp.MustCompile(`(?i)\bbearer\s+[A-Za-z0-9._\-]+`), "Bearer " + redactedMark},
 	// /etc/shadow password hashes: "user:$6$salt$hash:..." → redact the hash field.
@@ -69,6 +75,44 @@ var sensitiveCacheKeys = []string{
 func isSensitiveCacheKey(path string) bool {
 	for _, k := range sensitiveCacheKeys {
 		if path == cacheKey(k) {
+			return true
+		}
+	}
+	return false
+}
+
+// envCacheKeyPrefix is the Cached() key prefix collectors/fsaccess.go's
+// getenv() uses: Cached("env/"+name, ...).
+const envCacheKeyPrefix = "env/"
+
+// sensitiveEnvNamePatterns are case-insensitive substrings matched against an
+// env var NAME (not its value) cached via getenv()'s "env/<NAME>" key. Mirrors
+// internal/collectors/docker.go's detectPlaintextSecrets pattern list (kept as
+// an independent copy here, not imported — collectors already depends on
+// source, so the reverse import would cycle).
+var sensitiveEnvNamePatterns = []string{
+	"PASSWORD", "PASSWD", "SECRET", "TOKEN", "APIKEY", "API_KEY",
+	"PRIVATE_KEY", "SIGNING_KEY", "ENCRYPTION_KEY", "CREDENTIALS",
+	"ACCESS_KEY", "AUTH_TOKEN",
+}
+
+// isSensitiveEnvCacheKey reports whether path is the bundle file path a
+// Cached("env/"+name, ...) call maps to for a name that looks like a
+// credential. getenv() caches the bare env value with no "name=value" label
+// for the generic secretRules regex to key on, so any future collector that
+// reads a genuinely sensitive env var (a cloud credential used as a
+// provider-detection signal, say) needs to be force-redacted by NAME the same
+// way sensitiveCacheKeys handles known live-credential keys — not just the
+// one hardcoded "imds-aws-token" entry.
+func isSensitiveEnvCacheKey(path string) bool {
+	prefixed := cacheKey(envCacheKeyPrefix)
+	name, ok := strings.CutPrefix(path, prefixed)
+	if !ok {
+		return false
+	}
+	name = strings.ToUpper(name)
+	for _, pat := range sensitiveEnvNamePatterns {
+		if strings.Contains(name, pat) {
 			return true
 		}
 	}
@@ -113,8 +157,9 @@ type SanitizeOptions struct {
 }
 
 // Sanitize redacts secrets (always) and, if opts.Identifiers, identifiers from
-// every recorded file blob and command output in the bundle, in place.
-// Best-effort (see the package note).
+// every recorded file blob, command output, symlink target, directory listing,
+// glob match, and recorded error string in the bundle, in place. Best-effort
+// (see the package note).
 func (b *Bundle) Sanitize(opts SanitizeOptions) SanitizeReport {
 	b.mu.Lock()
 	defer b.mu.Unlock()
@@ -128,26 +173,97 @@ func (b *Bundle) Sanitize(opts SanitizeOptions) SanitizeReport {
 		}
 		return out, n
 	}
+	// redactStr is the string-in/string-out convenience form of redact, for the
+	// many recorded fields (errText, symlink targets, dir/glob entries) that are
+	// plain strings rather than []byte blobs.
+	redactStr := func(s string) (string, int) {
+		if s == "" {
+			return s, 0
+		}
+		red, n := redact([]byte(s))
+		if n == 0 {
+			return s, 0
+		}
+		return string(red), n
+	}
+	// redactSlice runs redactStr over every element of a []string (a dirs.json /
+	// globs.json entry list), returning a fresh slice only when something changed
+	// so untouched entries never get needlessly reallocated.
+	redactSlice := func(items []string) ([]string, int) {
+		var total int
+		var out []string
+		for i, s := range items {
+			red, n := redactStr(s)
+			if n == 0 {
+				continue
+			}
+			if out == nil {
+				out = append([]string(nil), items...)
+			}
+			out[i] = red
+			total += n
+		}
+		if out == nil {
+			return items, 0
+		}
+		return out, total
+	}
 
 	var rep SanitizeReport
+	b.sanitizeFiles(redact, redactStr, &rep)
+	b.sanitizeCmds(redact, redactStr, &rep)
+	b.sanitizeLinks(redactStr, &rep)
+	b.sanitizeStatErrs(redactStr, &rep)
+	b.sanitizeDirsGlobs(redactSlice, &rep)
+
+	// The host's own hostname also lives in the manifest metadata.
+	if opts.Identifiers && host != "" && host != "host" {
+		b.Manifest.Host = hostPlaceholder
+	}
+	return rep
+}
+
+// sanitizeFiles rewrites every recorded file blob and its error text in
+// place, force-redacting known live-credential and sensitive-env cache keys
+// by path (they carry no lexical marker for the generic content patterns).
+func (b *Bundle) sanitizeFiles(redact func([]byte) ([]byte, int), redactStr func(string) (string, int), rep *SanitizeReport) {
 	for path, fr := range b.files {
-		if len(fr.data) == 0 {
-			continue
+		var n int
+		if len(fr.data) > 0 {
+			if isSensitiveCacheKey(path) || isSensitiveEnvCacheKey(path) {
+				fr.data = []byte(redactedMark)
+				n++
+			} else if red, k := redact(fr.data); k > 0 {
+				fr.data = red
+				n += k
+			}
 		}
-		if isSensitiveCacheKey(path) {
-			fr.data = []byte(redactedMark)
-			b.files[path] = fr
-			rep.FilesRedacted++
-			rep.TotalRedactions++
-			continue
+		if red, k := redactStr(fr.errText); k > 0 {
+			fr.errText = red
+			n += k
 		}
-		if red, n := redact(fr.data); n > 0 {
-			fr.data = red
+		if n > 0 {
 			b.files[path] = fr
 			rep.FilesRedacted++
 			rep.TotalRedactions += n
 		}
 	}
+}
+
+// sanitizeCmds rewrites every recorded command's stdout/stderr, error text,
+// and argv in place. persist.go's Save() writes argv verbatim into
+// commands/index.json as cmdIndexEntry.Argv, so a secret passed as a CLI
+// argument (e.g. a diagnostic tool invoked with a token flag) must be
+// redacted the same way stdout/stderr already are. Argv lives in the map
+// KEY (see cmdKey), so a redacted argv means a new key — rebuild the map
+// rather than mutate mid-range. Argv redaction is secrets-only (not
+// identifiers): the command index is also a replay LOOKUP key (getCmd
+// matches on the live argv), and the identifiers-in-argv tradeoff
+// (probe-target IPs surviving as lookup keys) is already a documented,
+// accepted caveat — this only closes the secrets gap, which was
+// undocumented and unmitigated.
+func (b *Bundle) sanitizeCmds(redact func([]byte) ([]byte, int), redactStr func(string) (string, int), rep *SanitizeReport) {
+	newCmds := make(map[string]cmdRec, len(b.cmds))
 	for key, cr := range b.cmds {
 		var n int
 		if red, k := redact(cr.res.Stdout); k > 0 {
@@ -158,17 +274,74 @@ func (b *Bundle) Sanitize(opts SanitizeOptions) SanitizeReport {
 			cr.res.Stderr = red
 			n += k
 		}
+		if red, k := redactStr(cr.errText); k > 0 {
+			cr.errText = red
+			n += k
+		}
+		newKey, argN := redactCmdArgvKey(key)
+		n += argN
 		if n > 0 {
-			b.cmds[key] = cr
 			rep.CommandsRedacted++
 			rep.TotalRedactions += n
 		}
+		newCmds[newKey] = cr
 	}
-	// The host's own hostname also lives in the manifest metadata.
-	if opts.Identifiers && host != "" && host != "host" {
-		b.Manifest.Host = hostPlaceholder
+	b.cmds = newCmds
+}
+
+// sanitizeLinks rewrites every recorded symlink target and error text in place.
+func (b *Bundle) sanitizeLinks(redactStr func(string) (string, int), rep *SanitizeReport) {
+	for path, rec := range b.links {
+		var n int
+		if red, k := redactStr(rec.target); k > 0 {
+			rec.target = red
+			n += k
+		}
+		if red, k := redactStr(rec.errText); k > 0 {
+			rec.errText = red
+			n += k
+		}
+		if n > 0 {
+			b.links[path] = rec
+			rep.TotalRedactions += n
+		}
 	}
-	return rep
+}
+
+// sanitizeStatErrs rewrites the recorded error text on every stat/statfs
+// entry — the only field on either that can carry a leaked secret (e.g. a
+// path containing a token, echoed back in an ENOENT error string).
+func (b *Bundle) sanitizeStatErrs(redactStr func(string) (string, int), rep *SanitizeReport) {
+	for path, rec := range b.stats {
+		if red, n := redactStr(rec.errText); n > 0 {
+			rec.errText = red
+			b.stats[path] = rec
+			rep.TotalRedactions += n
+		}
+	}
+	for path, rec := range b.statfss {
+		if red, n := redactStr(rec.errText); n > 0 {
+			rec.errText = red
+			b.statfss[path] = rec
+			rep.TotalRedactions += n
+		}
+	}
+}
+
+// sanitizeDirsGlobs rewrites every directory-listing and glob-match entry.
+func (b *Bundle) sanitizeDirsGlobs(redactSlice func([]string) ([]string, int), rep *SanitizeReport) {
+	for pattern, entries := range b.dirs {
+		if red, n := redactSlice(entries); n > 0 {
+			b.dirs[pattern] = red
+			rep.TotalRedactions += n
+		}
+	}
+	for pattern, entries := range b.globs {
+		if red, n := redactSlice(entries); n > 0 {
+			b.globs[pattern] = red
+			rep.TotalRedactions += n
+		}
+	}
 }
 
 const hostPlaceholder = "[HOST]"
@@ -209,7 +382,10 @@ func redactIdentifiers(data []byte, hostname string) ([]byte, int) {
 		return []byte(idPlaceholder("IP", string(m)))
 	})
 	if hostname != "" && hostname != "host" && len(hostname) >= 2 {
-		hostRe := regexp.MustCompile(`\b` + regexp.QuoteMeta(hostname) + `\b`)
+		// (?i): a captured log line can render the hostname in a different case
+		// than os.Hostname() returned (e.g. an upcased syslog HOSTNAME field) —
+		// that occurrence must still be recognized under --identifiers.
+		hostRe := regexp.MustCompile(`(?i)\b` + regexp.QuoteMeta(hostname) + `\b`)
 		if matches := hostRe.FindAll(out, -1); len(matches) > 0 {
 			n += len(matches)
 			out = hostRe.ReplaceAll(out, []byte(hostPlaceholder))
@@ -223,4 +399,84 @@ func redactIdentifiers(data []byte, hostname string) ([]byte, int) {
 func isRedactableIP(s string) bool {
 	ip := net.ParseIP(s)
 	return ip != nil && !ip.IsLoopback() && !ip.IsUnspecified()
+}
+
+// redactCmdArgvKey runs redactSecrets over each argv element of a b.cmds map
+// key (built by cmdKey — name+args joined on NUL) and returns the key rebuilt
+// from the redacted elements plus the total redaction count. Each element is
+// redacted independently (matching persist.go's Save(), which persists argv
+// as a []string, not a joined command line), so a single-element form like
+// "--token=abc123" is caught by the same label-aware rule stdout/stderr use,
+// while a secret split across two adjacent elements ("-p", "hunter2") is not —
+// a known best-effort limit, same class as the rest of this package.
+func redactCmdArgvKey(key string) (string, int) {
+	parts := splitKey(key)
+	total := 0
+	changed := false
+	for i, p := range parts {
+		red, n := redactSecrets([]byte(p))
+		if n == 0 {
+			continue
+		}
+		parts[i] = string(red)
+		total += n
+		changed = true
+	}
+	if !changed {
+		return key, 0
+	}
+	return cmdKey(parts[0], parts[1:]), total
+}
+
+// RedactJSONSecrets applies the same always-on secret redaction Bundle.Sanitize
+// gives capture-bundle content to an arbitrary JSON document, by decoding it,
+// rewriting every string leaf through redactSecrets, and re-marshalling.
+//
+// Rewriting is done on the DECODED value, never on the raw serialized bytes:
+// running the byte-level secretRules patterns directly against
+// already-serialized JSON is unsafe, because a match (e.g. the generic
+// key=value rule's greedy \S+ value group) can swallow adjacent JSON syntax —
+// a closing quote, comma, or brace — when there is no whitespace between JSON
+// tokens (the normal case for compact/minified output), corrupting the
+// document. Decoding first means only string VALUES are ever substituted, so
+// the result is always valid JSON.
+//
+// Used by `dsd mcp`'s dsd_health/dsd_replay tools: their checks[].raw field is
+// documented out-of-contract and may carry a collector's verbatim raw data, so
+// it gets the same "secrets always redacted" treatment a capture bundle
+// already gets before crossing an MCP boundary that commonly forwards straight
+// into a cloud LLM's context. Returns data unchanged (with a non-nil error) if
+// it isn't valid JSON.
+func RedactJSONSecrets(data []byte) ([]byte, error) {
+	var v any
+	if err := json.Unmarshal(data, &v); err != nil {
+		return data, fmt.Errorf("source: redacting JSON: %w", err)
+	}
+	out, err := json.Marshal(redactJSONValue(v))
+	if err != nil {
+		return data, fmt.Errorf("source: re-marshalling redacted JSON: %w", err)
+	}
+	return out, nil
+}
+
+// redactJSONValue recursively rewrites every string leaf of a decoded JSON
+// value (as produced by json.Unmarshal into `any`) through redactSecrets.
+func redactJSONValue(v any) any {
+	switch t := v.(type) {
+	case string:
+		red, _ := redactSecrets([]byte(t))
+		return string(red)
+	case map[string]any:
+		for k, val := range t {
+			t[k] = redactJSONValue(val)
+		}
+		return t
+	case []any:
+		for i, val := range t {
+			t[i] = redactJSONValue(val)
+		}
+		return t
+	default:
+		return v
+	}
 }
