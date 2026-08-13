@@ -197,6 +197,23 @@ func TestPrintMongoState(t *testing.T) {
 	}
 }
 
+// TestPrintMongoState_SanitizesVersion guards Finding:
+// internal-collectors-21-01. m.Version comes straight from the mongo
+// shell's db.version() result on the attacker-reachable service at
+// 127.0.0.1:27017 — no privilege is required to bind that port before the
+// real mongod starts.
+func TestPrintMongoState_SanitizesVersion(t *testing.T) {
+	out := captureStdout(t, func() {
+		printMongoState(&models.MongoDBInfo{Detected: true, MetricsRead: true, Version: "\x1b]0;pwned\x07 6.0"}, output.ModePlain)
+	})
+	if strings.ContainsRune(out, 0x1b) || strings.ContainsRune(out, 0x07) {
+		t.Errorf("MongoDB version output contains a raw control byte, got:\n%q", out)
+	}
+	if !strings.Contains(out, "6.0") {
+		t.Errorf("printable text around the escape sequence must survive sanitization, got:\n%q", out)
+	}
+}
+
 // TestPrintDBDispatch exercises the type-switch dispatcher itself (each
 // printXState function already has direct coverage above).
 func TestPrintDBDispatch(t *testing.T) {
