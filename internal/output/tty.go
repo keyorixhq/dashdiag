@@ -31,6 +31,13 @@ func DetectMode(plain, report bool, outputFmt string) OutputMode {
 	}
 }
 
+// StatusIcon enforces its own allowlist of known status tokens — every
+// current caller happens to pre-map an Insight.Level to one of these before
+// calling in, but that invariant lives entirely outside this function. Rather
+// than echo an arbitrary/unrecognized status string verbatim (a defense-in-
+// depth gap: a future caller sourcing status from a capture/config file
+// without pre-validating it could otherwise inject terminal escape sequences
+// via the default branch), fall back to a fixed "UNKNOWN" token.
 func StatusIcon(status string, mode OutputMode) string {
 	switch mode {
 	case ModePlain, ModeJSON, ModeYAML:
@@ -46,7 +53,7 @@ func StatusIcon(status string, mode OutputMode) string {
 		case "pending":
 			return "PENDING"
 		default:
-			return status
+			return "UNKNOWN"
 		}
 	case ModeReport:
 		switch status {
@@ -61,7 +68,7 @@ func StatusIcon(status string, mode OutputMode) string {
 		case "pending":
 			return "⏳ PENDING"
 		default:
-			return status
+			return "❓ UNKNOWN"
 		}
 	default: // ModeHuman
 		switch status {
@@ -76,7 +83,7 @@ func StatusIcon(status string, mode OutputMode) string {
 		case "pending":
 			return "⏳"
 		default:
-			return status
+			return "❓"
 		}
 	}
 }

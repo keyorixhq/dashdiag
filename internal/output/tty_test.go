@@ -2,6 +2,7 @@ package output
 
 import (
 	"os"
+	"strings"
 	"testing"
 )
 
@@ -103,11 +104,37 @@ func TestStatusIcon(t *testing.T) {
 	}
 }
 
+// TestStatusIconUnknown guards Finding internal-output-01-02: StatusIcon must
+// NOT echo an unrecognized status string verbatim (that would be a defense-
+// in-depth gap if a future caller ever sourced status from unvalidated
+// external data — a capture/config file, say — without pre-allowlisting it
+// the way every current caller does). Every mode's default branch must
+// return a fixed, safe token instead of the raw input.
 func TestStatusIconUnknown(t *testing.T) {
+	want := map[OutputMode]string{
+		ModeHuman:  "❓",
+		ModePlain:  "UNKNOWN",
+		ModeReport: "❓ UNKNOWN",
+		ModeJSON:   "UNKNOWN",
+		ModeYAML:   "UNKNOWN",
+	}
 	for _, mode := range []OutputMode{ModeHuman, ModePlain, ModeReport, ModeJSON, ModeYAML} {
 		got := StatusIcon("unknown", mode)
-		if got != "unknown" {
-			t.Errorf("StatusIcon(\"unknown\", %v) = %q, want %q", mode, got, "unknown")
+		if got != want[mode] {
+			t.Errorf("StatusIcon(\"unknown\", %v) = %q, want %q", mode, got, want[mode])
+		}
+	}
+}
+
+// TestStatusIconAttackerInfluencedStringNotEchoed pins the actual security
+// property: a status string carrying a raw control/ANSI-escape byte must
+// never reach the caller unmodified via the default branch, in any mode.
+func TestStatusIconAttackerInfluencedStringNotEchoed(t *testing.T) {
+	evil := "evil\x1b[2Jname"
+	for _, mode := range []OutputMode{ModeHuman, ModePlain, ModeReport, ModeJSON, ModeYAML} {
+		got := StatusIcon(evil, mode)
+		if got == evil || strings.ContainsRune(got, 0x1b) {
+			t.Errorf("StatusIcon(%q, %v) = %q, attacker-controlled string was echoed", evil, mode, got)
 		}
 	}
 }
