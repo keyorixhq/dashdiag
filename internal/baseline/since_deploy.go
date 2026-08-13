@@ -156,7 +156,7 @@ func parseBootTime(r io.Reader) (time.Time, bool) {
 
 func FindBaselineBeforeTime(t time.Time, hostname string) (*Snapshot, error) {
 	dir := baselineDir()
-	entries, err := filepath.Glob(filepath.Join(dir, hostname+"-2*.json"))
+	entries, err := filepath.Glob(filepath.Join(dir, SafeHostname(hostname)+"-2*.json"))
 	if err != nil || len(entries) == 0 {
 		return nil, fmt.Errorf("no baselines found for %s", hostname)
 	}

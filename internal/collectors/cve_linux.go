@@ -1103,7 +1103,12 @@ func checkCVEPacman(ctx context.Context, cveID string) *models.CVEResult {
 		return result
 	}
 
-	out, err := runCmd(ctx, cmdArchAudit, "--format", "%n %c %s")
+	// runCmdOutput, not runCmd: arch-audit exits non-zero when it reports
+	// affected/upgradable packages — exactly the case this check needs to read
+	// from stdout. runCmd would discard that on the non-zero exit, so a
+	// genuinely-vulnerable system read as CVEUnknown instead of CVEVulnerable
+	// (same exit-code-carries-findings reason checkCVEZypper uses runCmdOutput).
+	out, err := runCmdOutput(ctx, cmdArchAudit, "--format", "%n %c %s")
 	if err != nil && len(out) == 0 {
 		result.Status = models.CVEUnknown
 		result.StatusReason = "arch-audit failed: " + err.Error()
@@ -1161,7 +1166,9 @@ func scanAllPacman(ctx context.Context) *models.CVEAllResult {
 	}
 
 	// arch-audit default output: "pkgname is affected by CVE-XXXX [Severity]: description"
-	out, err := runCmd(ctx, cmdArchAudit, "-u")
+	// runCmdOutput, not runCmd — see checkCVEPacman above: arch-audit exits
+	// non-zero exactly when it has findings to report.
+	out, err := runCmdOutput(ctx, cmdArchAudit, "-u")
 	if err != nil && len(out) == 0 {
 		result.StatusReason = "arch-audit failed: " + err.Error()
 		result.ScanFailed = true

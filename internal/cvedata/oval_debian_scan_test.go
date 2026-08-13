@@ -87,16 +87,33 @@ func TestScanUbuntuOVALPackages_ParseError(t *testing.T) {
 	}
 }
 
-// TestQueryInstalledDPKG_NotAvailable exercises the "dpkg-query failed"
-// error branch by emptying PATH so exec.CommandContext can't resolve the
-// binary — mirrors the rpmUnavailable pattern used for the RHEL/SUSE
-// scanners, and the PATH-shadowing pattern from
-// internal/collectors/fsaccess_test.go.
+// withResolveDpkgQuery swaps resolveDpkgQuery for the duration of the test,
+// restoring the original on cleanup. Since internal-cvedata-01-05,
+// QueryInstalledDPKG resolves "dpkg-query" via source.ResolveTrustedTool
+// (trusted system dirs, never $PATH), so a fake binary on a PATH-shadowed
+// directory no longer reaches exec — tests that need QueryInstalledDPKG to
+// see a specific (possibly nonexistent) binary path go through this seam
+// instead.
+//
+// Callers MUST NOT also call t.Parallel(): mutates a package-level var.
+func withResolveDpkgQuery(t *testing.T, fn func(string) string) {
+	t.Helper()
+	orig := resolveDpkgQuery
+	resolveDpkgQuery = fn
+	t.Cleanup(func() { resolveDpkgQuery = orig })
+}
+
+// TestQueryInstalledDPKG_NotAvailable exercises the "dpkg-query failed" error
+// branch via a resolveDpkgQuery override pointing at a path that doesn't
+// exist — mirrors the rpmUnavailable pattern used for the RHEL/SUSE
+// scanners.
 func TestQueryInstalledDPKG_NotAvailable(t *testing.T) {
-	// Not t.Parallel(): t.Setenv is incompatible with parallel subtests.
-	t.Setenv("PATH", "")
+	// Not t.Parallel(): withResolveDpkgQuery mutates a package-level var.
+	withResolveDpkgQuery(t, func(string) string {
+		return filepath.Join(t.TempDir(), "no-such-dpkg-query")
+	})
 	if _, err := QueryInstalledDPKG(context.Background()); err == nil {
-		t.Error("expected error when dpkg-query is not on PATH")
+		t.Error("expected error when dpkg-query cannot be resolved")
 	}
 }
 
@@ -104,8 +121,10 @@ func TestQueryInstalledDPKG_NotAvailable(t *testing.T) {
 // failure from QueryInstalledDPKG propagates out of the higher-level scan
 // (the OVAL parse itself succeeds first).
 func TestScanUbuntuOVALPackages_QueryInstalledDPKGFails(t *testing.T) {
-	// Not t.Parallel(): t.Setenv is incompatible with parallel subtests.
-	t.Setenv("PATH", "")
+	// Not t.Parallel(): withResolveDpkgQuery mutates a package-level var.
+	withResolveDpkgQuery(t, func(string) string {
+		return filepath.Join(t.TempDir(), "no-such-dpkg-query")
+	})
 	path := writeFixture(t, "ubuntu-nodpkg.xml", sniffableUbuntuOVAL)
 	if _, err := ScanUbuntuOVALPackages(context.Background(), path); err == nil {
 		t.Error("expected error when dpkg-query is unavailable to query installed packages")
@@ -114,13 +133,14 @@ func TestScanUbuntuOVALPackages_QueryInstalledDPKGFails(t *testing.T) {
 
 // TestQueryInstalledDPKG_SkipsEmptyPackageName exercises the
 // "len(fields) < 1 || fields[0] == \"\" { continue }" guard
-// (oval_debian.go:185-186) via a fake dpkg-query on PATH: a blank line
+// (oval_debian.go:185-186) via a fake dpkg-query pointed to directly through
+// resolveDpkgQuery (not PATH — see internal-cvedata-01-05): a blank line
 // between two real entries (QueryInstalledDPKG only strings.TrimSpace's the
 // whole blob, so an interior blank line survives the split) yields a single
 // empty field, which must be dropped rather than producing a package with an
 // empty name.
 func TestQueryInstalledDPKG_SkipsEmptyPackageName(t *testing.T) {
-	// Not t.Parallel(): t.Setenv is incompatible with parallel subtests.
+	// Not t.Parallel(): withResolveDpkgQuery mutates a package-level var.
 	dir := t.TempDir()
 	path := filepath.Join(dir, "dpkg-query")
 	script := "#!/bin/sh\n" +
@@ -130,13 +150,46 @@ func TestQueryInstalledDPKG_SkipsEmptyPackageName(t *testing.T) {
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 		t.Fatalf("writing fake dpkg-query: %v", err)
 	}
-	t.Setenv("PATH", dir)
+	withResolveDpkgQuery(t, func(string) string { return path })
 	pkgs, err := QueryInstalledDPKG(context.Background())
 	if err != nil {
 		t.Fatalf("QueryInstalledDPKG: %v", err)
 	}
 	if len(pkgs) != 2 || pkgs[0].Name != "bash" || pkgs[1].Name != "coreutils" {
 		t.Fatalf("pkgs = %+v, want exactly [bash, coreutils] — the interior blank line must be skipped", pkgs)
+	}
+}
+
+// TestQueryInstalledDPKG_IgnoresPATHHijack is the regression guard for
+// internal-cvedata-01-05: with the production resolveDpkgQuery
+// (source.ResolveTrustedTool) in effect, a malicious "dpkg-query" placed in a
+// directory that is the ONLY entry on $PATH must never run — the real
+// /usr/bin/dpkg-query (present in this container per
+// TestQueryInstalledDPKG_RealSystem's own comment) must win regardless of
+// $PATH, since ResolveTrustedTool searches fixed trusted directories, not the
+// inherited environment.
+func TestQueryInstalledDPKG_IgnoresPATHHijack(t *testing.T) {
+	// Not t.Parallel(): t.Setenv is incompatible with parallel subtests.
+	if _, err := exec.LookPath("dpkg-query"); err != nil {
+		t.Skip("dpkg-query not available on this host")
+	}
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "pwned")
+	fake := filepath.Join(dir, "dpkg-query")
+	// /bin/sh and /usr/bin/touch by absolute path: PATH below is restricted to
+	// `dir` only, so this script can't rely on PATH resolving its own commands.
+	script := "#!/bin/sh\n/usr/bin/touch " + marker + "\necho 'evil\t1.0'\n"
+	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+		t.Fatalf("writing fake dpkg-query: %v", err)
+	}
+	// Only the malicious directory on PATH — no real dpkg-query reachable via
+	// $PATH search, isolating what production resolveDpkgQuery actually does.
+	t.Setenv("PATH", dir)
+
+	_, _ = QueryInstalledDPKG(context.Background()) // return value isn't the point — the marker file is
+
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("QueryInstalledDPKG ran a dpkg-query resolved via $PATH — production resolveDpkgQuery must ignore $PATH")
 	}
 }
 

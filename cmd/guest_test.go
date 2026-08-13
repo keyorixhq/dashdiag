@@ -4,8 +4,10 @@ import (
 	"bytes"
 	"context"
 	"os"
+	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/analysis"
 	"github.com/keyorixhq/dashdiag/internal/collectors"
@@ -349,6 +351,66 @@ func TestWriteGuestReportHTML_CritEscalatesLevel(t *testing.T) {
 	}
 	if !strings.Contains(out, "disk failing") {
 		t.Errorf("the CRIT finding message should be rendered, got:\n%s", out)
+	}
+}
+
+// TestGuestReportFilename_SanitizesTraversal guards cmd-05-03: the kernel
+// hostname is not always operator-chosen (rogue DHCP option 12, VM/container
+// image metadata, cloud-init user-data) and flowed unsanitized into
+// writeGuestReportHTML's output filename. A hostname containing '/' turns a
+// same-directory file write into an operator-relative path write.
+func TestGuestReportFilename_SanitizesTraversal(t *testing.T) {
+	t.Parallel()
+	now := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	got := guestReportFilename("../../etc/evil", now)
+	if strings.ContainsAny(got, "/\\") {
+		t.Errorf("guestReportFilename(%q) = %q, want no path separators in the result", "../../etc/evil", got)
+	}
+	if strings.HasPrefix(got, "..") {
+		t.Errorf("guestReportFilename(%q) = %q, want no leading traversal", "../../etc/evil", got)
+	}
+}
+
+// TestWriteGuestReportHTML_RefusesSymlink guards the O_NOFOLLOW half of
+// cmd-05-03: os.WriteFile follows an existing symlink at its target path
+// (O_CREATE|O_TRUNC, no O_EXCL). writeGuestReportHTML must refuse to write
+// through a pre-planted symlink instead of silently clobbering its target.
+func TestWriteGuestReportHTML_RefusesSymlink(t *testing.T) {
+	dir := t.TempDir()
+	t.Chdir(dir)
+
+	victim := filepath.Join(t.TempDir(), "victim.html")
+	if err := os.WriteFile(victim, []byte("original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	hostname, _ := os.Hostname()
+	if hostname == "" {
+		hostname = "guest"
+	}
+	now := time.Now()
+	link := guestReportFilename(hostname, now)
+	if err := os.Symlink(victim, link); err != nil {
+		t.Fatal(err)
+	}
+
+	view := guestView{
+		identity:   "test guest",
+		insights:   nil,
+		hostSide:   func(string) bool { return false },
+		recognized: func(string) bool { return false },
+		guestTitle: "Guest", hostTitle: "Host", healthyMsg: "healthy",
+	}
+	if _, err := writeGuestReportHTML(view); err == nil {
+		t.Fatal("expected writeGuestReportHTML to refuse writing through the symlink")
+	}
+
+	data, err := os.ReadFile(victim) //nolint:gosec // test-controlled path
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "original" {
+		t.Errorf("victim file was overwritten: %q", data)
 	}
 }
 

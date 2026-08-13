@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+	"syscall"
 )
 
 const maxLineSizeBytes = 1 << 20 // 1 MiB
@@ -25,24 +26,43 @@ type JSONLStore struct {
 // Open opens (creating if necessary) the JSONL store at path. The directory is
 // created with 0750 permissions if it does not exist.
 func Open(path string) (*JSONLStore, error) {
+	if path == "" {
+		return nil, fmt.Errorf("store: cannot determine store path ($HOME unresolved)")
+	}
 	if err := os.MkdirAll(filepath.Dir(path), 0o750); err != nil {
 		return nil, fmt.Errorf("store: creating dir: %w", err)
 	}
-	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0o600) //nolint:gosec // user-controlled path, not attacker-controlled
+	// O_NOFOLLOW: refuse to append through a pre-existing symlink at path
+	// rather than following it — same hazard cmd/root.go's createOutFile
+	// guards for --out. Relevant when StorePath() falls back to a
+	// CWD-relative-turned-absolute location a co-located user could plant a
+	// symlink into before dsd runs.
+	f, err := os.OpenFile(path, os.O_CREATE|os.O_WRONLY|os.O_APPEND|syscall.O_NOFOLLOW, 0o600) //nolint:gosec // path comes from StorePath(), not user input
+	if errors.Is(err, syscall.ELOOP) {
+		return nil, fmt.Errorf("store: refusing to open a symlink at %s", path)
+	}
 	if err != nil {
 		return nil, fmt.Errorf("store: opening %s: %w", path, err)
 	}
 	return &JSONLStore{f: f}, nil
 }
 
-// StorePath returns the canonical JSONL store path for the current user.
+// StorePath returns the canonical JSONL store path for the current user, or
+// "" if it can't be determined ($HOME unset for a non-root process — a
+// stripped cron/systemd/CI/container environment). "" is a deliberate
+// sentinel Open() checks for and refuses, never a relative fallback: a
+// relative "./.dsd/store.jsonl" would resolve against whatever — possibly
+// attacker-writable — CWD dsd happens to run from.
 // Root writes to /var/lib/dashdiag/ to avoid filling home dirs on servers;
 // non-root writes to ~/.dsd/.
 func StorePath() string {
 	if os.Getuid() == 0 {
 		return "/var/lib/dashdiag/store.jsonl"
 	}
-	home, _ := os.UserHomeDir()
+	home, err := os.UserHomeDir()
+	if err != nil {
+		return ""
+	}
 	return filepath.Join(home, ".dsd", "store.jsonl")
 }
 
@@ -75,6 +95,9 @@ func (s *JSONLStore) History(_ context.Context, hostname string, n int) ([]Entry
 // write handle — safe for concurrent callers and for read-only contexts (e.g.
 // dsd history). Pass n<=0 to return all matching entries.
 func ReadAll(path, hostname string, n int) ([]Entry, error) {
+	if path == "" {
+		return nil, nil // StorePath() couldn't be determined — treat as "no store yet"
+	}
 	f, err := os.Open(path) //nolint:gosec // path comes from StorePath(), not user input
 	if err != nil {
 		if os.IsNotExist(err) {

@@ -890,6 +890,25 @@ func TestCheckCVEPacman_NotAffected(t *testing.T) {
 	}
 }
 
+// TestCheckCVEPacman_VulnerableNonZeroExit is the regression guard for
+// subprocess-wrappers-01: arch-audit exits non-zero exactly when it has
+// findings to report, and runCmd (the pre-fix helper) discards stdout on any
+// non-zero exit — so a genuinely-vulnerable host would read as CVEUnknown
+// instead of CVEVulnerable.
+func TestCheckCVEPacman_VulnerableNonZeroExit(t *testing.T) {
+	withLookPathFixture(t, map[string]bool{"arch-audit": true}, func(b *source.Bundle) {
+		b.PutCmd("arch-audit", []string{"--format", "%n %c %s"},
+			"openssl CVE-2024-1234 Critical\n", 1)
+	})
+	res := checkCVEPacman(context.Background(), "CVE-2024-1234")
+	if res.Status != models.CVEVulnerable {
+		t.Fatalf("expected CVEVulnerable despite the non-zero exit, got %v (%s)", res.Status, res.StatusReason)
+	}
+	if len(res.AffectedPackages) != 1 || res.AffectedPackages[0].Name != "openssl" {
+		t.Errorf("AffectedPackages = %+v, want [openssl]", res.AffectedPackages)
+	}
+}
+
 func TestScanAllPacman_NotInstalled(t *testing.T) {
 	withLookPathFixture(t, map[string]bool{}, func(b *source.Bundle) {})
 	res := scanAllPacman(context.Background())
@@ -963,6 +982,23 @@ func TestScanAllPacman_ImportantAndLowSeverity(t *testing.T) {
 	}
 	if len(res.Low) != 1 || res.Low[0].ID != "vim" {
 		t.Errorf("Low = %+v, want [vim]", res.Low)
+	}
+}
+
+// TestScanAllPacman_VulnerableNonZeroExit is the scanAllPacman sibling of
+// TestCheckCVEPacman_VulnerableNonZeroExit (subprocess-wrappers-01): `arch-audit
+// -u` also exits non-zero when it reports upgradable/vulnerable packages.
+func TestScanAllPacman_VulnerableNonZeroExit(t *testing.T) {
+	withLookPathFixture(t, map[string]bool{"arch-audit": true}, func(b *source.Bundle) {
+		b.PutCmd("arch-audit", []string{"-u"},
+			"openssl is affected by CVE-2024-1111 [Critical]: remote code execution\n", 1)
+	})
+	res := scanAllPacman(context.Background())
+	if res.ScanFailed {
+		t.Fatalf("expected a successful scan despite the non-zero exit, got ScanFailed (%s)", res.StatusReason)
+	}
+	if res.Total != 1 || len(res.Critical) != 1 || res.Critical[0].ID != "openssl" {
+		t.Errorf("res = %+v, want 1 Critical advisory for openssl", res)
 	}
 }
 

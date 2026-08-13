@@ -9,6 +9,8 @@ import (
 	"strings"
 
 	"github.com/spf13/cobra"
+
+	"github.com/keyorixhq/dashdiag/internal/output"
 )
 
 // compareSnapshot is the minimal subset of dsd health --json we need.
@@ -163,7 +165,7 @@ func printCompare(snaps []*compareSnapshot, plain, showAll bool) {
 		if len(ts) > 19 {
 			ts = ts[:19]
 		}
-		fmt.Printf("  [%d] %s  (%s)\n", i+1, s.Hostname, ts)
+		fmt.Printf("  [%d] %s  (%s)\n", i+1, output.SanitizeControl(s.Hostname), output.SanitizeControl(ts))
 	}
 	fmt.Println()
 
@@ -201,7 +203,7 @@ func printCompare(snaps []*compareSnapshot, plain, showAll bool) {
 	// Print matrix
 	fmt.Printf("%-20s", "CHECK")
 	for i, s := range snaps {
-		label := s.Hostname
+		label := output.SanitizeControl(s.Hostname)
 		if len(label) > 12 {
 			label = label[:12]
 		}
@@ -218,7 +220,7 @@ func printCompare(snaps []*compareSnapshot, plain, showAll bool) {
 		if r.differs {
 			marker = "← "
 		}
-		fmt.Printf("%s%-18s", marker, r.name)
+		fmt.Printf("%s%-18s", marker, output.SanitizeControl(r.name))
 		for _, s := range r.statuses {
 			styled := statusSymbol(s, plain)
 			fmt.Printf("  %-12s", styled)
@@ -284,7 +286,7 @@ func statusesDiffer(statuses []string) bool {
 
 func statusSymbol(status string, plain bool) string {
 	if plain {
-		return status
+		return output.SanitizeControl(status)
 	}
 	switch status {
 	case "OK":
@@ -296,7 +298,7 @@ func statusSymbol(status string, plain bool) string {
 	case "INFO":
 		return "ℹ️  INFO"
 	default:
-		return status
+		return output.SanitizeControl(status)
 	}
 }
 
@@ -334,6 +336,6 @@ func printOutlierAnalysis(snaps []*compareSnapshot, matrix map[string][]string, 
 
 	if outlierIdx >= 0 && maxScore > 0 {
 		fmt.Printf("\n⚠️   Outlier: [%d] %s differs on %d check(s)\n",
-			outlierIdx+1, snaps[outlierIdx].Hostname, maxScore)
+			outlierIdx+1, output.SanitizeControl(snaps[outlierIdx].Hostname), maxScore)
 	}
 }
