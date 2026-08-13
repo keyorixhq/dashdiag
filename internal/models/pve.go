@@ -147,4 +147,11 @@ type PVEInfo struct {
 	TasksVerified    bool `json:"tasks_verified"`
 	BackupVerified   bool `json:"backup_verified"`
 	HAVerified       bool `json:"ha_verified"`
+	// GuestsVerified/BridgesVerified: internal-models-11-02/11-03. Guests and
+	// Bridges have no verified flag either, and Guests in particular feeds the
+	// backup-audit CRIT (BackupStatuses is built per-guest) — an enumeration
+	// failure here silently drops guests from that audit exactly like an
+	// unverified storage/task/HA query silently drops those.
+	GuestsVerified  bool `json:"guests_verified"`
+	BridgesVerified bool `json:"bridges_verified"`
 }

@@ -46,6 +46,26 @@ func TestServicesCollector_Collect_NoServicesConfigured(t *testing.T) {
 	}
 }
 
+// TestServicesCollector_Collect_MalformedConfigDisclosed guards
+// internal-config-01-01: a ~/.dsd.yaml that exists but fails to parse must
+// not read identically to "no custom services configured" — Collect must
+// return the config error so it surfaces as a disclosed INFO, rather than a
+// silent OK/no-results that masks whatever services the user believed they'd
+// configured.
+func TestServicesCollector_Collect_MalformedConfigDisclosed(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfgPath := filepath.Join(home, ".dsd.yaml")
+	if err := os.WriteFile(cfgPath, []byte("services: [not: valid: yaml: {{\n"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	c := NewServicesCollector()
+	_, err := c.Collect(context.Background())
+	if err == nil {
+		t.Fatal("expected Collect() to return an error for a malformed ~/.dsd.yaml")
+	}
+}
+
 // TestServicesCollector_Collect_WithServices exercises the full pipeline: a
 // configured service is checked via checkService/cachedJSON, replaying a
 // pre-seeded WARN result so the aggregate ServicesInfo.Status becomes WARN.

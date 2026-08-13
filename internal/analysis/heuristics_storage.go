@@ -1020,6 +1020,11 @@ func checkDRBDResource(res models.DRBDResource) []models.Insight { //nolint:funl
 // A degraded array has lost redundancy — one more drive failure means data loss.
 func checkRAID(r models.RAIDInfo) []models.Insight {
 	var out []models.Insight
+	if r.ReadFailed {
+		out = append(out, unverifiedInsight("INFO", "RAID",
+			"RAID array state could not be verified — /proc/mdstat could not be read",
+			[]string{"to inspect: cat /proc/mdstat"}))
+	}
 	for _, arr := range r.Arrays {
 		switch arr.State {
 		case "degraded":

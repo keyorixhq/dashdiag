@@ -22,11 +22,25 @@ func TestCheckSUSESubscription(t *testing.T) {
 		{"expiring soon is CRIT", models.SUSEConnectInfo{Registered: true, ExpiresDays: 10}, "CRIT"},
 		{"expiring within 30d is WARN", models.SUSEConnectInfo{Registered: true, ExpiresDays: 20}, "WARN"},
 		{"healthy is clean", models.SUSEConnectInfo{Registered: true, ExpiresDays: 60}, ""},
+		{"unparseable expiry (-1 sentinel) is INFO, not clean", models.SUSEConnectInfo{Registered: true, ExpiresDays: -1}, "INFO"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assertLevel(t, checkSUSESubscription(tt.s), tt.want)
 		})
+	}
+}
+
+// TestCheckSUSESubscription_UnparseableExpiryNotSilentlyClean guards
+// internal-analysis-04-03: a registered host whose expiry date could not be
+// determined (ExpiresDays == -1, the collector's explicit "unknown" sentinel)
+// must not read identically to a confirmed->30-days-remaining OK — both used
+// to fall through the same switch default.
+func TestCheckSUSESubscription_UnparseableExpiryNotSilentlyClean(t *testing.T) {
+	t.Parallel()
+	insights := checkSUSESubscription(models.SUSEConnectInfo{Registered: true, ExpiresDays: -1})
+	if len(insights) != 1 || !insights[0].Unverified {
+		t.Fatalf("expected a single Unverified INFO insight, got %+v", insights)
 	}
 }
 

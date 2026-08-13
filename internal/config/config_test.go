@@ -197,8 +197,9 @@ services:
 // a field's shape doesn't coerce into the target Go struct (a mapping where a
 // float64 scalar is expected), so mapstructure decoding fails. This is
 // distinct from TestLoad_InvalidYAML, which is malformed YAML syntax that
-// fails earlier at ReadInConfig — that path returns defaults with no error,
-// never reaching Unmarshal at all.
+// fails earlier, at ReadInConfig, never reaching Unmarshal at all — both
+// paths now return a non-nil error (internal-config-01-01), just from a
+// different stage of parsing.
 func TestLoad_UnmarshalTypeMismatch(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
@@ -221,19 +222,43 @@ thresholds:
 	}
 }
 
+// TestLoad_InvalidYAML guards internal-config-01-01: a config file that
+// EXISTS but fails to parse must return a non-nil error (surfaced by the
+// caller, e.g. ServicesCollector, as a disclosed INFO) rather than silently
+// falling back to defaults with a nil error — indistinguishable from the
+// user never having written a config file at all. Defaults are still
+// returned alongside the error so a caller that only needs to keep running
+// can do so.
 func TestLoad_InvalidYAML(t *testing.T) {
 	dir := t.TempDir()
 	cfgFile := filepath.Join(dir, "bad.yaml")
 	_ = os.WriteFile(cfgFile, []byte("thresholds: [not: valid: yaml: {{\n"), 0644)
 
-	// Load should not panic — it may return error or fall back to defaults
+	cfg, err := Load(cfgFile)
+	if err == nil {
+		t.Fatal("expected a non-nil error for a config file that exists but fails to parse")
+	}
+	// Defaults must still be usable even though the error is non-nil.
+	if cfg == nil || cfg.Thresholds.DiskWarnPct <= 0 {
+		t.Error("expected valid default threshold values alongside the error")
+	}
+}
+
+// TestLoad_MissingExplicitFile_NoError guards the OTHER half of
+// internal-config-01-01: an explicitly-named config file that simply doesn't
+// exist is the documented "no config" case and must stay silent (defaults,
+// nil error) — only a file that exists but can't be read/parsed should
+// surface an error.
+func TestLoad_MissingExplicitFile_NoError(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	cfgFile := filepath.Join(dir, "does-not-exist.yaml")
+
 	cfg, err := Load(cfgFile)
 	if err != nil {
-		// error is acceptable
-		return
+		t.Fatalf("Load with a missing (never-created) config file should not error, got: %v", err)
 	}
-	// if no error, must have valid threshold values
-	if cfg.Thresholds.DiskWarnPct <= 0 {
-		t.Error("expected positive DiskWarnPct even on parse error")
+	if cfg.Thresholds.DiskWarnPct != 80.0 {
+		t.Errorf("expected default DiskWarnPct=80, got %v", cfg.Thresholds.DiskWarnPct)
 	}
 }

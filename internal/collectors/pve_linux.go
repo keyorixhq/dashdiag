@@ -86,7 +86,7 @@ func (c *PVECollector) Collect(ctx context.Context) (interface{}, error) {
 	info.Storages, info.StoragesVerified = collectPVEStorages(ctx)
 
 	// VMs and LXC containers (collected before backups so the audit can map per-VM)
-	info.Guests, info.RunningCount, info.StoppedCount, info.PausedCount = collectPVEGuests(ctx)
+	info.Guests, info.RunningCount, info.StoppedCount, info.PausedCount, info.GuestsVerified = collectPVEGuests(ctx)
 
 	// Backup tasks — global age + per-VM audit
 	info.RecentBackups, info.BackupAgeDays, info.BackupStatuses, info.BackupVerified = collectPVEBackups(ctx, info.Guests)
@@ -100,7 +100,7 @@ func (c *PVECollector) Collect(ctx context.Context) (interface{}, error) {
 	info.TaskErrors, info.TasksVerified = collectPVETaskErrors(ctx)
 
 	// Network bridges
-	info.Bridges = collectPVEBridges(ctx)
+	info.Bridges, info.BridgesVerified = collectPVEBridges(ctx)
 
 	return info, nil
 }
@@ -573,8 +573,13 @@ func collectPVEBackupAgeFromLogs() int {
 	return int(time.Since(newest).Hours() / 24)
 }
 
-// collectPVEGuests fetches VMs (qemu) and LXC containers from pvesh.
-func collectPVEGuests(ctx context.Context) (guests []models.PVEGuest, running, stopped, paused int) {
+// collectPVEGuests fetches VMs (qemu) and LXC containers from pvesh. verified
+// is false if EITHER sub-query failed (bad exit or unparseable JSON) —
+// internal-models-11-02: without this, a total pvesh-for-guests failure
+// silently returns an empty guests slice, indistinguishable from a genuinely
+// guest-less node, and the backup audit built from this list (BackupStatuses)
+// then has nothing to CRIT on even though it was never actually checked.
+func collectPVEGuests(ctx context.Context) (guests []models.PVEGuest, running, stopped, paused int, verified bool) {
 	type guestRaw struct {
 		VMID     int     `json:"vmid"`
 		Name     string  `json:"name"`
@@ -584,13 +589,16 @@ func collectPVEGuests(ctx context.Context) (guests []models.PVEGuest, running, s
 		MaxMem   float64 `json:"maxmem"`   // bytes
 		Template int     `json:"template"` // 1 = template
 	}
+	verified = true
 	for _, gtype := range []string{pveGuestQEMU, pveGuestLXC} {
 		out, err := runCmd(ctx, pveCmdPvesh, pveCmdGet, "/nodes/localhost/"+gtype, pveFlagOutFmt, pveFmtJSON)
 		if err != nil {
+			verified = false
 			continue
 		}
 		var raw []guestRaw
 		if err := json.Unmarshal([]byte(out), &raw); err != nil {
+			verified = false
 			continue
 		}
 		for _, r := range raw {
@@ -715,10 +723,16 @@ func collectPVETaskErrors(ctx context.Context) (errsOut []models.PVETaskError, v
 
 // collectPVEBridges reads the node network config and returns one entry per
 // bridge interface, with active/uplink/STP state for misconfiguration checks.
-func collectPVEBridges(ctx context.Context) []models.PVEBridge {
+// verified is false on a query/parse failure — internal-models-11-03: every
+// real PVE node has at least one bridge (vmbr0), so an empty result here was
+// previously indistinguishable from a failed query, and `dsd pve`'s
+// printPVEBridges silently prints nothing either way (skipping a genuinely
+// DOWN bridge's CRIT along with it, if the query happened to fail right when
+// the bridge itself was down).
+func collectPVEBridges(ctx context.Context) (bridges []models.PVEBridge, verified bool) {
 	out, err := runCmd(ctx, pveCmdPvesh, pveCmdGet, "/nodes/localhost/network", pveFlagOutFmt, pveFmtJSON)
 	if err != nil {
-		return nil
+		return nil, false
 	}
 	var items []struct {
 		Iface       string `json:"iface"`
@@ -727,9 +741,8 @@ func collectPVEBridges(ctx context.Context) []models.PVEBridge {
 		BridgePorts string `json:"bridge_ports"`
 	}
 	if err := json.Unmarshal([]byte(out), &items); err != nil {
-		return nil
+		return nil, false
 	}
-	var bridges []models.PVEBridge
 	for _, item := range items {
 		if item.Type != "bridge" {
 			continue
@@ -743,7 +756,7 @@ func collectPVEBridges(ctx context.Context) []models.PVEBridge {
 			STPEnabled: bridgeSTPEnabled(item.Iface),
 		})
 	}
-	return bridges
+	return bridges, true
 }
 
 // bridgeSTPEnabled reads /sys/class/net/<bridge>/bridge/stp_state (1=on, 0=off).

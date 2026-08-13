@@ -69,6 +69,36 @@ func TestRAIDCollector_Collect_NoMdstat(t *testing.T) {
 	}
 }
 
+// TestRAIDCollector_Collect_ReadFailed guards internal-models-11-01: a
+// non-ENOENT failure reading /proc/mdstat (permission denied, hardened LSM
+// policy) must set RAIDInfo.ReadFailed rather than silently returning the
+// same empty RAIDInfo{} a genuinely RAID-less host gets. Goes through the
+// source fixture seam (fakePermDeniedSource, shared with
+// kernel_security_test.go) so it is deterministic even when the test process
+// itself is root.
+func TestRAIDCollector_Collect_ReadFailed(t *testing.T) {
+	path := "/proc/mdstat"
+	b := source.NewBundle()
+	prev := SetSource(fakePermDeniedSource{
+		Replay:     source.NewReplay(b),
+		deniedPath: path,
+	})
+	t.Cleanup(func() { SetSource(prev) })
+
+	c := NewRAIDCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.RAIDInfo)
+	if !info.ReadFailed {
+		t.Errorf("ReadFailed = false, want true on a permission-denied /proc/mdstat read")
+	}
+	if len(info.Arrays) != 0 {
+		t.Errorf("Arrays = %+v, want none", info.Arrays)
+	}
+}
+
 // TestRAIDCollector_Collect_HealthyArray exercises the full read-through-
 // openFile path with a real mdstat body.
 func TestRAIDCollector_Collect_HealthyArray(t *testing.T) {
