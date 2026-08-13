@@ -107,7 +107,7 @@ func (c *MemoryCollector) Collect(ctx context.Context) (any, error) {
 	// ECC memory errors — cheap sysfs read; zero on VMs/consumer HW and non-Linux.
 	// Surfaced here so a failing DIMM is caught by routine `dsd health` rather than
 	// only by the heavier `dsd hardware`.
-	info.EDACAvailable, info.CorrectedErrors, info.UncorrectedErrors = readEDACCounts()
+	info.EDACAvailable, info.CorrectedErrors, info.UncorrectedErrors, info.EDACCountersUnreadable = readEDACCounts()
 
 	// Memory hot-plug onlining — catches hot-added RAM the guest never onlined
 	// (and so isn't using). Cheap sysfs read; zero on non-hotplug kernels / non-Linux.

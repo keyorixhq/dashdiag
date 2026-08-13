@@ -6,6 +6,13 @@ type FDProcessInfo struct {
 	OpenFDs   int     `json:"open_fds"`
 	SoftLimit int     `json:"soft_limit"`
 	UsedPct   float64 `json:"used_pct"`
+	// SoftLimitUnlimited is true when RLIMIT_NOFILE's soft limit is "unlimited"
+	// (SoftLimit carries the math.MaxInt32 sentinel). UsedPct against an
+	// unlimited limit is always ~0% regardless of OpenFDs, so a process is
+	// flagged hot here on an absolute OpenFDs threshold instead — otherwise a
+	// leaking process with an unlimited rlimit could never appear in the
+	// hot-process list no matter how many descriptors it held.
+	SoftLimitUnlimited bool `json:"soft_limit_unlimited,omitempty"`
 }
 
 type FDInfo struct {

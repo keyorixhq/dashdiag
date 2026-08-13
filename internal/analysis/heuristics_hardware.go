@@ -505,7 +505,15 @@ func checkHardware(h models.HardwareInfo) []models.Insight { //nolint:cyclop,fun
 
 	// ── EDAC memory ───────────────────────────────────────────────────────────
 	if h.Memory.EDACAvailable {
+		// Never suppress a genuine CRIT/WARN from whatever counters WERE read
+		// successfully — a real detected error on one controller must still
+		// surface even if another controller's read failed.
 		out = append(out, eccInsights(h.Memory.CorrectedErrors, h.Memory.UncorrectedErrors, hwCatHardware)...)
+		if h.Memory.EDACCountersUnreadable {
+			out = append(out, unverifiedInsight("INFO", hwCatHardware,
+				"ECC error counters could not be fully read — the corrected/uncorrected counts above may be incomplete",
+				[]string{"to inspect: edac-util -s 4"}))
+		}
 	}
 
 	return out

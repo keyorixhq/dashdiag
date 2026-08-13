@@ -67,7 +67,14 @@ type SecurityInfo struct {
 	// CAP_NET_ADMIN). The state is unknown, so the renderer reports "not verified"
 	// rather than "none detected", which would falsely imply no firewall exists.
 	FirewallUnreadable bool `json:"firewall_unreadable,omitempty"`
-	SSHAllowed         bool `json:"ssh_allowed"` // SSH reachable through firewall
+	// FirewallConfigOnlyUnverified is true when the nft binary itself is absent
+	// (so its live ruleset could never be checked) but an on-disk nftables config
+	// file (/etc/nftables.conf or /etc/nftables.d/*.nft) was found. File presence
+	// does not prove a ruleset is loaded — a stale config left behind after a
+	// failed package removal, or an unbaked container image layer, must not read
+	// as an active firewall.
+	FirewallConfigOnlyUnverified bool `json:"firewall_config_only_unverified,omitempty"`
+	SSHAllowed                   bool `json:"ssh_allowed"` // SSH reachable through firewall
 
 	// Privilege escalation
 	SudoNopasswd          []string `json:"sudo_nopasswd,omitempty"`           // users/groups with NOPASSWD
