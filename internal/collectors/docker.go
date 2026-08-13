@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net"
 	"net/http"
 	"os"
@@ -91,7 +92,7 @@ func (c *DockerCollector) Collect(ctx context.Context) (any, error) {
 		// normal idle state, NOT a fault — so a host with nothing usable (incl. idle
 		// Podman) leaves StatusReason empty and reads as a benign "no runtime detected"
 		// rather than a false "installed but not running" WARN.
-		if dockerInstalled() {
+		if dockerInstalled(ctx) {
 			info.StatusReason = "Docker installed but daemon not running"
 			if c.isRHEL10Plus() {
 				info.StatusReason = "Docker installed but daemon not running — on RHEL/Rocky 10+ add '{\"iptables\": false}' to /etc/docker/daemon.json (iptables-legacy removed in RHEL 10)"
@@ -229,6 +230,13 @@ func apiGet(ctx context.Context, client *http.Client, path string) ([]byte, erro
 	})
 }
 
+// dockerAPIMaxBodyBytes caps a single Docker/Podman API response. Real
+// responses (container/image/volume lists, even on a large host) stay well
+// under this; a malicious or misbehaving daemon on the other end of the
+// socket (or a pathological number of containers/labels) must not be able to
+// make dsd buffer an unbounded amount of memory reading it.
+const dockerAPIMaxBodyBytes = 32 << 20 // 32MiB
+
 // apiGetLive performs the live Docker/Podman API GET over the unix socket.
 func apiGetLive(ctx context.Context, client *http.Client, path string) ([]byte, error) {
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
@@ -241,16 +249,12 @@ func apiGetLive(ctx context.Context, client *http.Client, path string) ([]byte, 
 		return nil, err
 	}
 	defer resp.Body.Close() //nolint:errcheck
-	var buf []byte
-	b := make([]byte, 4096)
-	for {
-		n, err := resp.Body.Read(b)
-		if n > 0 {
-			buf = append(buf, b[:n]...)
-		}
-		if err != nil {
-			break
-		}
+	buf, err := io.ReadAll(io.LimitReader(resp.Body, dockerAPIMaxBodyBytes+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(buf) > dockerAPIMaxBodyBytes {
+		return nil, fmt.Errorf("docker/podman API response for %s exceeds %d bytes", path, dockerAPIMaxBodyBytes)
 	}
 	return buf, nil
 }
@@ -900,8 +904,8 @@ func collectVolumes(ctx context.Context, client *http.Client, info *models.Docke
 }
 
 // dockerInstalled returns true if the docker binary is present on PATH.
-func dockerInstalled() bool {
-	_, err := runCmd(context.Background(), cmdDocker, "--version")
+func dockerInstalled(ctx context.Context) bool {
+	_, err := runCmd(ctx, cmdDocker, "--version")
 	return err == nil
 }
 

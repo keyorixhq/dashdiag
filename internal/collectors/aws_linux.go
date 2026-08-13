@@ -99,7 +99,7 @@ func (c *AWSCollector) Collect(ctx context.Context) (interface{}, error) {
 	info.SSMInstalled, info.SSMRunning = ssmState(ctx)
 
 	// --- full-coverage tail (recognition/context) ---
-	info.NitroEnclavesPresent, info.NitroEnclavesAllocatorRuns = nitroEnclaveState()
+	info.NitroEnclavesPresent, info.NitroEnclavesAllocatorRuns = nitroEnclaveState(ctx)
 	info.ENAExpressChecked, info.ENAExpressActive = enaExpressState(ctx)
 
 	return info, nil
@@ -111,12 +111,12 @@ func (c *AWSCollector) Collect(ctx context.Context) (interface{}, error) {
 // /dev/nitro_enclaves exists only when the instance was launched with enclave options
 // and the nitro_enclaves driver is loaded; the allocator service reserves the enclave's
 // CPUs and memory. Informational — surfaces an isolated-compute facility, never a fault.
-func nitroEnclaveState() (present, allocatorRunning bool) {
+func nitroEnclaveState(ctx context.Context) (present, allocatorRunning bool) {
 	if !fileExists("/dev/nitro_enclaves") {
 		return false, false
 	}
 	present = true
-	if out, err := runCmd(context.Background(), "systemctl", "is-active", "nitro-enclaves-allocator"); err == nil &&
+	if out, err := runCmd(ctx, "systemctl", "is-active", "nitro-enclaves-allocator"); err == nil &&
 		strings.TrimSpace(out) == "active" {
 		allocatorRunning = true
 	}

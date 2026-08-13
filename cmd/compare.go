@@ -122,10 +122,17 @@ func loadCompareSnapshots(args []string) ([]*compareSnapshot, error) {
 	return snapshots, nil
 }
 
+// maxCompareStreamBytes caps how much a single compare input stream (stdin or
+// a file argument, potentially several newline-delimited snapshots from a
+// remote/untrusted source) will read into memory. Generous enough for a large
+// multi-host stream while still refusing to buffer an unbounded amount of
+// memory for a corrupted or maliciously large input.
+const maxCompareStreamBytes = 128 * 1024 * 1024 // 128MiB
+
 // readCompareStream reads one or more newline-delimited JSON objects from r.
 // Supports both single JSON objects and concatenated/streamed JSON.
 func readCompareStream(r io.Reader) ([]*compareSnapshot, error) {
-	data, err := io.ReadAll(r)
+	data, err := readCapped(r, maxCompareStreamBytes)
 	if err != nil {
 		return nil, err
 	}

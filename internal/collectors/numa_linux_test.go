@@ -94,6 +94,22 @@ func TestParseCPUList_RangeAndSingleton(t *testing.T) {
 	}
 }
 
+// TestParseCPUList_RejectsImplausibleRange covers internal-collectors-24-03:
+// a cpulist source that isn't genuine kernel output (a crafted replay bundle,
+// an attacker-influenceable /sys tree) could claim a range like
+// "0-999999999999" — real hardware never has anywhere near that many logical
+// CPUs, and expanding it would try to allocate/loop that many int entries.
+// The malformed range must be skipped, not expanded, and a well-formed
+// sibling entry in the same list must still parse.
+func TestParseCPUList_RejectsImplausibleRange(t *testing.T) {
+	t.Parallel()
+	got := parseCPUList("0-999999999999,42")
+	want := []int{42}
+	if len(got) != len(want) || got[0] != want[0] {
+		t.Errorf("parseCPUList(huge range + valid singleton) = %v, want %v (huge range skipped, singleton kept)", got, want)
+	}
+}
+
 // TestParseNUMANode_FromFixture guards the per-node meminfo+cpulist parse:
 // MemTotal/MemFree in kB converted to GB, and cpulist expanded.
 func TestParseNUMANode_FromFixture(t *testing.T) {

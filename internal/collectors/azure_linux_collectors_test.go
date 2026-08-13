@@ -164,7 +164,7 @@ func TestWaagentState_InstalledAndRunning(t *testing.T) {
 	withAzureFixture(t, map[string][]byte{"lookpath/waagent": []byte("/usr/sbin/waagent")}, func(b *source.Bundle) {
 		b.PutCmd("systemctl", []string{"is-active", "walinuxagent"}, "active\n", 0)
 	})
-	installed, running := waagentState()
+	installed, running := waagentState(context.Background())
 	if !installed || !running {
 		t.Errorf("waagentState() = (%v,%v), want (true,true)", installed, running)
 	}
@@ -177,7 +177,7 @@ func TestWaagentState_InstalledFileFallbackNotRunning(t *testing.T) {
 		b.PutCmd("systemctl", []string{"is-active", "walinuxagent"}, "inactive\n", 3)
 		b.PutCmd("systemctl", []string{"is-active", "waagent"}, "inactive\n", 3)
 	})
-	installed, running := waagentState()
+	installed, running := waagentState(context.Background())
 	if !installed || running {
 		t.Errorf("waagentState() = (%v,%v), want (true,false)", installed, running)
 	}
@@ -185,9 +185,31 @@ func TestWaagentState_InstalledFileFallbackNotRunning(t *testing.T) {
 
 func TestWaagentState_NotInstalled(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {})
-	installed, running := waagentState()
+	installed, running := waagentState(context.Background())
 	if installed || running {
 		t.Errorf("waagentState() = (%v,%v), want (false,false)", installed, running)
+	}
+}
+
+// TestWaagentStatePropagatesContext covers internal-collectors-02-04:
+// waagentState must run its systemctl checks through the caller's ctx, not a
+// detached context.Background() — otherwise a hung systemctl call outlives
+// both the AzureCollector's Timeout() and the runner's overall deadline.
+func TestWaagentStatePropagatesContext(t *testing.T) {
+	spy := &ctxSpyExecSource{
+		stdout:        "active\n",
+		statOverrides: map[string]bool{"/usr/sbin/waagent": true},
+	}
+	prev := SetSource(spy)
+	defer SetSource(prev)
+
+	waagentState(withCtxMarker(context.Background()))
+
+	if spy.gotCtx == nil {
+		t.Fatal("waagentState never called Run — test setup problem")
+	}
+	if !markedCtx(spy.gotCtx) {
+		t.Error("waagentState did not propagate the caller's context — it used a detached context.Background() instead, decoupling the subprocess from the collector's Timeout()")
 	}
 }
 

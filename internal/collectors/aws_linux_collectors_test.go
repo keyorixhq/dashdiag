@@ -69,7 +69,7 @@ func TestNitroEnclaveState_PresentAndRunning(t *testing.T) {
 		b.PutStat("/dev/nitro_enclaves", source.FileMeta{})
 		b.PutCmd("systemctl", []string{"is-active", "nitro-enclaves-allocator"}, "active\n", 0)
 	})
-	present, running := nitroEnclaveState()
+	present, running := nitroEnclaveState(context.Background())
 	if !present || !running {
 		t.Errorf("present=%v running=%v, want true/true", present, running)
 	}
@@ -77,9 +77,31 @@ func TestNitroEnclaveState_PresentAndRunning(t *testing.T) {
 
 func TestNitroEnclaveState_Absent(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {})
-	present, running := nitroEnclaveState()
+	present, running := nitroEnclaveState(context.Background())
 	if present || running {
 		t.Errorf("present=%v running=%v, want false/false", present, running)
+	}
+}
+
+// TestNitroEnclaveStatePropagatesContext covers internal-collectors-02-03:
+// nitroEnclaveState must run its systemctl check through the caller's ctx, not
+// a detached context.Background() — otherwise a hung systemctl call outlives
+// both the AWSCollector's 5s Timeout() and the runner's overall deadline.
+func TestNitroEnclaveStatePropagatesContext(t *testing.T) {
+	spy := &ctxSpyExecSource{
+		stdout:        "active\n",
+		statOverrides: map[string]bool{"/dev/nitro_enclaves": true},
+	}
+	prev := SetSource(spy)
+	defer SetSource(prev)
+
+	nitroEnclaveState(withCtxMarker(context.Background()))
+
+	if spy.gotCtx == nil {
+		t.Fatal("nitroEnclaveState never called Run — test setup problem")
+	}
+	if !markedCtx(spy.gotCtx) {
+		t.Error("nitroEnclaveState did not propagate the caller's context — it used a detached context.Background() instead, decoupling the subprocess from the collector's Timeout()")
 	}
 }
 

@@ -67,7 +67,7 @@ func (c *AzureCollector) Collect(ctx context.Context) (interface{}, error) {
 	info.StorvscLoaded = kernelModulePresent(mods, "hv_storvsc")
 	info.VMBusLoaded = kernelModulePresent(mods, "hv_vmbus")
 
-	info.WAAgentInstalled, info.WAAgentRunning = waagentState()
+	info.WAAgentInstalled, info.WAAgentRunning = waagentState(ctx)
 	info.TimeSyncChecked, info.UsesHyperVPTP = azureTimeSyncConfigured()
 
 	info.DynamicMemory, info.DynMemMaxMB = dynamicMemoryState(kernelModulePresent(mods, "hv_balloon"), azureDmesg(ctx))
@@ -362,7 +362,7 @@ func nicOperstateUp(netDir, iface string) bool {
 // cloud-init only). The agent runs as a python process, so service state is checked
 // via systemctl (walinuxagent on Debian/Ubuntu, waagent on RHEL/SUSE) rather than by
 // process name.
-func waagentState() (installed, running bool) {
+func waagentState(ctx context.Context) (installed, running bool) {
 	if _, err := lookPath("waagent"); err == nil {
 		installed = true
 	}
@@ -376,7 +376,7 @@ func waagentState() (installed, running bool) {
 		return false, false
 	}
 	for _, unit := range []string{"walinuxagent", "waagent"} {
-		if out, err := runCmd(context.Background(), "systemctl", "is-active", unit); err == nil &&
+		if out, err := runCmd(ctx, "systemctl", "is-active", unit); err == nil &&
 			strings.TrimSpace(out) == "active" {
 			return true, true
 		}

@@ -462,6 +462,25 @@ func TestLiveRunWithInjectedExec(t *testing.T) {
 	}
 }
 
+// TestDefaultExecCapsOutput covers read-bounding-02 / internal-source-01-04:
+// defaultExec is the exec fallback Live.Run uses when no collector-injected
+// Exec is set (used directly by this package's own tests, and defensively by
+// any future caller of a bare source.Live{}). A subprocess that emits far
+// more output than any real diagnostic tool would must not make dsd buffer
+// unbounded memory just by writing to its own stdout.
+func TestDefaultExecCapsOutput(t *testing.T) {
+	t.Parallel()
+	const wantCap = 64 * 1024 * 1024 // must match MaxCapturedOutput
+	live := Live{}
+	res, err := live.Run(context.Background(), "/bin/sh", "-c", "dd if=/dev/zero bs=1M count=100 2>/dev/null")
+	if err != nil {
+		t.Fatalf("Run: %v", err)
+	}
+	if len(res.Stdout) > wantCap {
+		t.Errorf("stdout not capped: got %d bytes, want <= %d", len(res.Stdout), wantCap)
+	}
+}
+
 // TestRecorderGlobReadDir verifies Recorder tees Glob/ReadDir results into the
 // bundle so a subsequent Replay can serve them without touching the live FS.
 func TestRecorderGlobReadDir(t *testing.T) {

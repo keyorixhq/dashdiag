@@ -3,7 +3,6 @@ package cmd
 import (
 	"encoding/json"
 	"fmt"
-	"io"
 	"os"
 
 	"github.com/spf13/cobra"
@@ -39,16 +38,23 @@ text between the BEGIN/END markers is used.`,
 	RunE: runDecode,
 }
 
+// maxRawBlobBytes caps how much raw (pre-decode) text `dsd decode` will read
+// from a file or stdin. The blob is a base64+gzip-encoded `dsd health --json`
+// report — at most a few MB even wrapped in generous chat/email quoting — so
+// a file or piped stream far larger than that is not a legitimate blob and
+// must not be read fully into memory just to find out.
+const maxRawBlobBytes = 32 * 1024 * 1024 // 32MiB
+
 func runDecode(cmd *cobra.Command, args []string) error {
 	var raw []byte
 	var err error
 	if len(args) == 1 && args[0] != "-" {
-		raw, err = os.ReadFile(args[0])
+		raw, err = readCappedFile(args[0], maxRawBlobBytes)
 		if err != nil {
 			return fmt.Errorf("decode: %w", err)
 		}
 	} else {
-		raw, err = io.ReadAll(os.Stdin)
+		raw, err = readCapped(os.Stdin, maxRawBlobBytes)
 		if err != nil {
 			return fmt.Errorf("decode: reading stdin: %w", err)
 		}
