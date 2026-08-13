@@ -210,6 +210,17 @@ func checkSUSESubscription(s models.SUSEConnectInfo) []models.Insight {
 		)}
 	}
 	switch {
+	case s.ExpiresDays < 0:
+		// internal-analysis-04-03: -1 is the collector's explicit "unknown"
+		// sentinel (registered, but the expiry date could not be read/parsed
+		// from SUSEConnect --status). The switch below only recognizes ==0
+		// and the two positive ranges, so -1 fell through to the default
+		// "current — no insight needed" case — reporting a registered-but-
+		// unverified host identically to one confirmed to have >30 days left.
+		return []models.Insight{unverifiedInsight("INFO", fwCatSubscription,
+			"SUSE subscription is registered but its expiry date could not be determined",
+			[]string{"to inspect: SUSEConnect --status", "to inspect: SUSEConnect --status-text"},
+		)}
 	case s.ExpiresDays == 0:
 		return []models.Insight{insight("CRIT", fwCatSubscription,
 			"SUSE subscription EXPIRED — security patches unavailable",

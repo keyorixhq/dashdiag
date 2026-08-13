@@ -21,7 +21,15 @@ func (c *ServicesCollector) Name() string           { return "Services" }
 func (c *ServicesCollector) Timeout() time.Duration { return 10 * time.Second }
 
 func (c *ServicesCollector) Collect(ctx context.Context) (any, error) {
-	cfg, _ := config.Load("")
+	cfg, err := config.Load("")
+	if err != nil {
+		// internal-config-01-01: config.Load falls back to defaults (an empty
+		// Services list) on a malformed/unreadable ~/.dsd.yaml, which reads
+		// identically to a host with no custom services configured at all —
+		// propagate the error so it surfaces as a disclosed INFO instead of
+		// a silent "nothing to monitor".
+		return &models.ServicesInfo{Status: "OK"}, fmt.Errorf("loading dsd config: %w", err)
+	}
 	if cfg == nil || len(cfg.Services) == 0 {
 		return &models.ServicesInfo{Status: "OK"}, nil
 	}

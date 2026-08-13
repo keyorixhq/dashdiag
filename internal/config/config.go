@@ -1,9 +1,11 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
+	"syscall"
 
 	"github.com/spf13/viper"
 )
@@ -78,13 +80,53 @@ var defaults = Config{
 	},
 }
 
+// geteuid and fileOwner are seams so tests can exercise the root and
+// non-root ownership-check branches below deterministically, regardless of
+// the uid the test binary actually runs under (same seam pattern used by
+// internal/collectors' geteuid — see collector.go).
+var geteuid = os.Geteuid
+
+// fileOwner reports the resolved owner uid of path. Returns ok=false when the
+// file doesn't exist or ownership can't be determined on this platform.
+var fileOwner = defaultFileOwner
+
+func defaultFileOwner(path string) (uid int, ok bool) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return 0, false
+	}
+	st, statOK := fi.Sys().(*syscall.Stat_t)
+	if !statOK {
+		return 0, false
+	}
+	return int(st.Uid), true
+}
+
 func Load(cfgFile string) (*Config, error) {
 	v := viper.New()
+	implicitPath := cfgFile == ""
 	if cfgFile != "" {
 		v.SetConfigFile(cfgFile)
 	} else {
 		home, _ := os.UserHomeDir()
-		v.SetConfigFile(filepath.Join(home, ".dsd.yaml"))
+		cfgFile = filepath.Join(home, ".dsd.yaml")
+		v.SetConfigFile(cfgFile)
+	}
+
+	// A root process must not silently trust an auto-discovered $HOME config it
+	// never explicitly asked for (no --config flag) when that file is owned by
+	// someone other than root. `sudo -E dsd`, `su -m`, or a stale service/cron
+	// $HOME can preserve an unprivileged user's $HOME into a privileged dsd
+	// process, and cfg.Services drives real outbound TCP/HTTP dials from
+	// internal/collectors/services.go — an attacker who controls that file
+	// would otherwise steer a privileged process's network connections. An
+	// explicit --config path is a deliberate operator choice and is trusted as
+	// before; only the implicit $HOME lookup is gated.
+	if implicitPath && geteuid() == 0 {
+		if uid, ok := fileOwner(cfgFile); ok && uid != 0 {
+			cfg := defaults
+			return &cfg, nil
+		}
 	}
 
 	v.SetDefault("thresholds.disk_warn_pct", defaults.Thresholds.DiskWarnPct)
@@ -106,8 +148,22 @@ func Load(cfgFile string) (*Config, error) {
 	v.SetDefault("logs.since_minutes", defaults.Logs.SinceMinutes)
 
 	if err := v.ReadInConfig(); err != nil {
+		var notFound viper.ConfigFileNotFoundError
+		if errors.As(err, &notFound) || os.IsNotExist(err) {
+			// No config file at all — the documented default UX. Silent.
+			cfg := defaults
+			return &cfg, nil
+		}
+		// internal-config-01-01: a config file that EXISTS but couldn't be
+		// read (bad permissions) or parsed (malformed YAML) was previously
+		// masked identically to "no config file" — defaults with a nil
+		// error — silently discarding whatever custom thresholds/services
+		// the user believed were active. Still fall back to defaults so
+		// callers keep working (dsd must never fail a health run over a
+		// config typo), but return the error too so the caller can disclose
+		// it instead of a false "using your config" read.
 		cfg := defaults
-		return &cfg, nil
+		return &cfg, fmt.Errorf("reading config %s: %w", v.ConfigFileUsed(), err)
 	}
 	var cfg Config
 	if err := v.Unmarshal(&cfg); err != nil {

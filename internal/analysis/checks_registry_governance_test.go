@@ -293,7 +293,9 @@ var checkExemptions = map[string]string{
 	"checkPVE": "The dispatcher gates on IsPVE/NeedsRoot/APIReachable before delegating to any sub-check; " +
 		"APIReachable and NeedsRoot are both disclosed with their own WARN/INFO before any sub-check runs.",
 	"checkPVEBackups": "BackupVerified is explicitly disclosed via INFO (\"backup health NOT verified\") " +
-		"when the vzdump query failed and no on-disk fallback found anything.",
+		"when the vzdump query failed and no on-disk fallback found anything; GuestsVerified is " +
+		"explicitly disclosed via INFO (\"guest enumeration failed\") since BackupStatuses is built " +
+		"per-guest and would otherwise read as a clean audit when guest enumeration itself failed.",
 	"checkPVECluster": "HAVerified is explicitly disclosed via INFO when the HA endpoint answered but was " +
 		"unparseable (only reached past the HAFencingOK CRIT, a genuinely different fault).",
 	"checkPVEStorage": "StoragesVerified is explicitly disclosed via INFO before iterating storages.",

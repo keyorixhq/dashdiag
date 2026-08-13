@@ -15,4 +15,12 @@ type RAIDDevice struct {
 // RAIDInfo holds all mdadm RAID array status from /proc/mdstat.
 type RAIDInfo struct {
 	Arrays []RAIDDevice `json:"arrays,omitempty"`
+	// ReadFailed is true when /proc/mdstat exists but could not be read (a
+	// non-ENOENT error — permission, hardened LSM policy, procfs oddities).
+	// /proc/mdstat is a kernel-provided virtual file present on effectively
+	// every Linux host regardless of whether mdadm arrays are configured, so
+	// a genuine open failure here is NOT the same as "no RAID configured" —
+	// without this flag, both collapse to an empty Arrays slice and read as
+	// an identical clean "no RAID" result.
+	ReadFailed bool `json:"read_failed,omitempty"`
 }

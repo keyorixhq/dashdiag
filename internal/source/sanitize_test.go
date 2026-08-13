@@ -1,6 +1,9 @@
 package source
 
 import (
+	"encoding/json"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -266,6 +269,248 @@ func TestBundleSanitizeIdentifiersHostGuard(t *testing.T) {
 		if b.Manifest.Host != host {
 			t.Errorf("Manifest.Host changed from %q to %q, want unchanged", host, b.Manifest.Host)
 		}
+	}
+}
+
+// TestRedactSecretsASIAPrefix guards sanitize-bundle-02: the AWS access-key-ID
+// rule originally only matched the AKIA (long-lived IAM user key) prefix, so a
+// temporary/STS access key ID (ASIA — the AWS-recommended, now-dominant shape
+// from AssumeRole/EC2 instance profiles/EKS IRSA/Lambda) shipped in the clear.
+// Deliberately BARE (no "key_id=" label): a labeled occurrence is already
+// caught by the generic key=value rule regardless of prefix, so this isolates
+// the AKIA-only bare-prefix gap specifically (e.g. an access key ID appearing
+// unlabeled in a docker inspect Env array entry, a URL query param, or a JSON
+// blob with a non-obvious field name).
+func TestRedactSecretsASIAPrefix(t *testing.T) {
+	t.Parallel()
+	in := "container env dump: ASIAQWERTY1234ABCDEF end" // 20 chars: ASIA + 16 alnum
+	out, n := redactSecrets([]byte(in))
+	got := string(out)
+	if n == 0 {
+		t.Fatalf("expected ≥1 redaction, got 0: %q", got)
+	}
+	if strings.Contains(got, "ASIAQWERTY1234ABCDEF") {
+		t.Errorf("bare ASIA-prefixed temporary AWS access key survived redaction: %q", got)
+	}
+	if !strings.Contains(got, "end") {
+		t.Errorf("unrelated trailing content dropped: %q", got)
+	}
+}
+
+// TestRedactIdentifiersCaseInsensitiveHostname guards redaction-primitives-06:
+// hostRe had no (?i) flag, so a differently-cased rendering of the hostname
+// (e.g. an upcased syslog HOSTNAME field) survived --identifiers untouched.
+func TestRedactIdentifiersCaseInsensitiveHostname(t *testing.T) {
+	t.Parallel()
+	in := "syslog: HOSTNAME=WEB01 reboot detected"
+	out, n := redactIdentifiers([]byte(in), "web01")
+	got := string(out)
+	if n == 0 {
+		t.Fatalf("expected ≥1 redaction, got 0: %q", got)
+	}
+	if strings.Contains(got, "WEB01") {
+		t.Errorf("differently-cased hostname survived redaction: %q", got)
+	}
+	if !strings.Contains(got, hostPlaceholder) {
+		t.Errorf("expected hostname placeholder, got: %q", got)
+	}
+}
+
+// TestBundleSanitizeSensitiveEnvCacheKey guards redaction-primitives-07:
+// getenv()'s Cached("env/"+name, ...) blob has no "name=value" label for the
+// generic secretRules to key on (it caches the bare value), and only the one
+// hardcoded "imds-aws-token" cache key was ever force-redacted by key. A
+// future collector reading a genuinely sensitive env var (e.g. as a
+// cloud-provider detection signal) needs the same treatment for ANY
+// credential-shaped env var name, not just that one entry.
+func TestBundleSanitizeSensitiveEnvCacheKey(t *testing.T) {
+	t.Parallel()
+	b := NewBundle()
+	envPath := cacheKey("env/AWS_SECRET_ACCESS_KEY")
+	b.PutFile(envPath, []byte("wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"))
+	b.PutFile("/proc/cpuinfo", []byte("model name: Xeon")) // untouched control
+
+	rep := b.Sanitize(SanitizeOptions{})
+	if rep.FilesRedacted != 1 || rep.TotalRedactions != 1 {
+		t.Fatalf("report = %+v, want files=1 total=1", rep)
+	}
+	fr, ok := b.getFile(envPath)
+	if !ok {
+		t.Fatal("cached env file should still exist after sanitize")
+	}
+	if strings.Contains(string(fr.data), "wJalrXUtnFEMI") {
+		t.Errorf("secret env value survived sanitize: %q", fr.data)
+	}
+	if fr2, _ := b.getFile("/proc/cpuinfo"); string(fr2.data) != "model name: Xeon" {
+		t.Errorf("unrelated file should be untouched, got %q", fr2.data)
+	}
+}
+
+// TestBundleSanitizeCmdArgvSecret guards redaction-primitives-02: Sanitize
+// never touched a command's own argv, only its stdout/stderr — persist.go's
+// Save() writes argv verbatim into commands/index.json, so a credential
+// passed as a CLI argument (a diagnostic tool invoked with a token flag)
+// shipped unredacted in an otherwise "sanitized" bundle.
+func TestBundleSanitizeCmdArgvSecret(t *testing.T) {
+	t.Parallel()
+	b := NewBundle()
+	b.putCmd("probe-tool", []string{"--token=abc123secretvalue", "--verbose"},
+		Result{Stdout: []byte("200 OK")}, nil)
+
+	rep := b.Sanitize(SanitizeOptions{})
+	if rep.CommandsRedacted != 1 || rep.TotalRedactions != 1 {
+		t.Fatalf("report = %+v, want cmds=1 total=1", rep)
+	}
+
+	// The secret must be gone from whatever key now backs this command AND must
+	// not be reachable via the original (unredacted) argv lookup.
+	if _, ok := b.getCmd("probe-tool", []string{"--token=abc123secretvalue", "--verbose"}); ok {
+		t.Fatal("command should no longer be reachable by its original, unredacted argv")
+	}
+	found := false
+	for key := range b.cmds {
+		if strings.Contains(key, "abc123secretvalue") {
+			t.Errorf("secret argv value survived in bundle key: %q", key)
+		}
+		if strings.Contains(key, "probe-tool") {
+			found = true
+			if !strings.Contains(key, "--verbose") {
+				t.Errorf("non-secret argv element dropped from key: %q", key)
+			}
+		}
+	}
+	if !found {
+		t.Fatal("expected the probe-tool command to still be present under a redacted key")
+	}
+}
+
+// TestSaveCmdArgvSecretRedacted is the persisted-index-level regression for
+// redaction-primitives-02: after Sanitize(), the on-disk
+// commands/index.json (what an operator actually hands to a vendor) must not
+// contain the raw secret in its argv field.
+func TestSaveCmdArgvSecretRedacted(t *testing.T) {
+	t.Parallel()
+	b := NewBundle()
+	b.putCmd("probe-tool", []string{"--token=abc123secretvalue"}, Result{Stdout: []byte("ok")}, nil)
+	b.Sanitize(SanitizeOptions{})
+
+	dir := t.TempDir()
+	if err := b.Save(dir); err != nil {
+		t.Fatalf("Save: %v", err)
+	}
+	raw, err := os.ReadFile(filepath.Join(dir, "commands", "index.json"))
+	if err != nil {
+		t.Fatalf("reading commands/index.json: %v", err)
+	}
+	if strings.Contains(string(raw), "abc123secretvalue") {
+		t.Errorf("secret argv value persisted to commands/index.json: %s", raw)
+	}
+	if !strings.Contains(string(raw), "probe-tool") {
+		t.Errorf("command name should still be present: %s", raw)
+	}
+}
+
+// TestBundleSanitizeErrTextSecret guards redaction-primitives-03 /
+// sanitize-bundle-04: Sanitize only ever iterated b.files' data and b.cmds'
+// stdout/stderr — a file read's recorded error TEXT (fileRec.errText,
+// persisted as fileIndexEntry.Err) was never passed through redactSecrets at
+// all, even when the OS error text happened to embed sensitive content (a
+// path with a credential in it, or a wrapped lower-level error carrying one).
+func TestBundleSanitizeErrTextSecret(t *testing.T) {
+	t.Parallel()
+	b := NewBundle()
+	b.files["/etc/secret.d/creds"] = fileRec{
+		errText: "open /etc/secret.d/creds: dial failed: password=hunter2secret",
+	}
+	rep := b.Sanitize(SanitizeOptions{})
+	if rep.FilesRedacted != 1 || rep.TotalRedactions != 1 {
+		t.Fatalf("report = %+v, want files=1 total=1", rep)
+	}
+	fr, _ := b.getFile("/etc/secret.d/creds")
+	if strings.Contains(fr.errText, "hunter2secret") {
+		t.Errorf("secret survived in file errText: %q", fr.errText)
+	}
+	if !strings.Contains(fr.errText, "dial failed") {
+		t.Errorf("non-secret error context dropped: %q", fr.errText)
+	}
+}
+
+// TestBundleSanitizeLinkTarget guards the links.json half of
+// redaction-primitives-03 / sanitize-bundle-04: a symlink target is recorded
+// verbatim from the live filesystem and was never passed through Sanitize.
+func TestBundleSanitizeLinkTarget(t *testing.T) {
+	t.Parallel()
+	b := NewBundle()
+	b.putLink("/etc/app/current-config", "/mnt/secrets/token=abc123secretvalue/config", nil)
+
+	rep := b.Sanitize(SanitizeOptions{})
+	if rep.TotalRedactions == 0 {
+		t.Fatalf("report = %+v, want ≥1 redaction", rep)
+	}
+	rec, _ := b.getLink("/etc/app/current-config")
+	if strings.Contains(rec.target, "abc123secretvalue") {
+		t.Errorf("secret survived in symlink target: %q", rec.target)
+	}
+}
+
+// TestBundleSanitizeDirEntrySecret guards the dirs.json half of
+// redaction-primitives-03 / sanitize-bundle-04: directory listing entries
+// were never passed through Sanitize at all.
+func TestBundleSanitizeDirEntrySecret(t *testing.T) {
+	t.Parallel()
+	b := NewBundle()
+	b.putDir("/mnt/secrets", []string{"readme.txt", "token=abc123secretvalue.txt"})
+
+	rep := b.Sanitize(SanitizeOptions{})
+	if rep.TotalRedactions == 0 {
+		t.Fatalf("report = %+v, want ≥1 redaction", rep)
+	}
+	entries, _ := b.getDir("/mnt/secrets")
+	for _, e := range entries {
+		if strings.Contains(e, "abc123secretvalue") {
+			t.Errorf("secret survived in dir listing entry: %q", e)
+		}
+	}
+	found := false
+	for _, e := range entries {
+		if e == "readme.txt" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("non-secret dir entry dropped, got: %v", entries)
+	}
+}
+
+// TestRedactJSONSecrets guards sanitize-bundle-01: `dsd mcp`'s dsd_health /
+// dsd_replay tools returned checks[].raw verbatim over MCP with no redaction
+// path at all. Exercises the JSON-safe leaf-walking approach on COMPACT
+// (no-whitespace) JSON, the shape where a naive byte-level regex pass against
+// already-serialized JSON would corrupt structure.
+func TestRedactJSONSecrets(t *testing.T) {
+	t.Parallel()
+	in := `{"checks":[{"name":"env","raw":{"line":"token=abc123secretvalue","port":8080}}],"status":"OK"}`
+	out, err := RedactJSONSecrets([]byte(in))
+	if err != nil {
+		t.Fatalf("RedactJSONSecrets: %v", err)
+	}
+	if strings.Contains(string(out), "abc123secretvalue") {
+		t.Errorf("secret survived RedactJSONSecrets: %s", out)
+	}
+	var v map[string]any
+	if err := json.Unmarshal(out, &v); err != nil {
+		t.Fatalf("RedactJSONSecrets produced invalid JSON: %v\noutput: %s", err, out)
+	}
+	if v["status"] != "OK" {
+		t.Errorf("non-secret field corrupted: %+v", v)
+	}
+	checks, _ := v["checks"].([]any)
+	if len(checks) != 1 {
+		t.Fatalf("expected 1 check to survive, got: %+v", v)
+	}
+	raw, _ := checks[0].(map[string]any)["raw"].(map[string]any)
+	if raw["port"] != float64(8080) {
+		t.Errorf("non-secret nested field corrupted: %+v", raw)
 	}
 }
 
