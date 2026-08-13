@@ -31,7 +31,7 @@ func (c *TLSCollector) Collect(ctx context.Context) (any, error) {
 			return info, nil
 		default:
 		}
-		certs, uncheckable := scanCertPath(path, now)
+		certs, uncheckable := scanCertPath(ctx, path, now)
 		info.Certs = append(info.Certs, certs...)
 		info.Uncheckable = append(info.Uncheckable, uncheckable...)
 	}
@@ -72,13 +72,24 @@ func tlsCertPaths() []string {
 	}
 }
 
+// maxCertDirDepth caps how deep walkCertDir will recurse. probeIsDir (behind
+// readDirEntries) follows symlinks, and TLSCollector.Collect only checks
+// ctx.Done() between top-level tlsCertPaths() entries — once walkCertDir is
+// entered for one root, nothing previously bounded the recursion itself. Some
+// scan roots (e.g. /etc/nginx/ssl, /etc/haproxy) may be writable by a non-root
+// service account rather than root, so a local attacker who already controls
+// that account could otherwise create a symlink cycle (or a very deep tree)
+// and drive unbounded recursion / stack growth. 20 is generously deep for any
+// legitimate cert directory layout.
+const maxCertDirDepth = 20
+
 // scanCertPath walks path and parses any PEM certificate files, returning both
 // the parsed certs and any files that could NOT be read/parsed (so an unreadable
 // or garbled cert never silently disappears into a clean "0 expired" verdict).
-func scanCertPath(root string, now time.Time) ([]models.CertInfo, []models.TLSUncheckable) {
+func scanCertPath(ctx context.Context, root string, now time.Time) ([]models.CertInfo, []models.TLSUncheckable) {
 	var results []models.CertInfo
 	var uncheckable []models.TLSUncheckable
-	walkCertDir(root, now, &results, &uncheckable)
+	walkCertDir(ctx, root, 0, now, &results, &uncheckable)
 	return results, uncheckable
 }
 
@@ -86,15 +97,28 @@ func scanCertPath(root string, now time.Time) ([]models.CertInfo, []models.TLSUn
 // active source (readDirEntries), not raw filepath.WalkDir — which reads the
 // live filesystem directly and so, under `dsd replay`, would walk the
 // REPLAYING machine's cert directories instead of the captured bundle's.
-func walkCertDir(dir string, now time.Time, results *[]models.CertInfo, uncheckable *[]models.TLSUncheckable) {
+// depth is capped at maxCertDirDepth (symlink-cycle / adversarial-tree
+// defense) and ctx is checked on every call and every entry, so a large or
+// cyclic tree can be interrupted mid-walk by the collector's own Timeout()
+// instead of running to completion (or a stack overflow) regardless of it.
+func walkCertDir(ctx context.Context, dir string, depth int, now time.Time, results *[]models.CertInfo, uncheckable *[]models.TLSUncheckable) {
+	if depth > maxCertDirDepth {
+		return
+	}
+	if ctx.Err() != nil {
+		return
+	}
 	entries, err := readDirEntries(dir)
 	if err != nil {
 		return
 	}
 	for _, e := range entries {
+		if ctx.Err() != nil {
+			return
+		}
 		path := filepath.Join(dir, e.Name())
 		if e.IsDir() {
-			walkCertDir(path, now, results, uncheckable)
+			walkCertDir(ctx, path, depth+1, now, results, uncheckable)
 			continue
 		}
 		// Only scan .pem, .crt, .cer files — skip .key, .csr, .conf

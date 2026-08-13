@@ -1,9 +1,12 @@
 package collectors
 
 import (
+	"context"
 	"encoding/pem"
 	"runtime"
 	"slices"
+	"strconv"
+	"strings"
 	"testing"
 	"time"
 )
@@ -109,12 +112,93 @@ func TestScanCertPath_RecursesAndFilters(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	certs, unc := scanCertPath(root, now)
+	certs, unc := scanCertPath(context.Background(), root, now)
 	if len(unc) != 0 {
 		t.Fatalf("expected no uncheckable files, got %v", unc)
 	}
 	if len(certs) != 2 {
 		t.Fatalf("expected 2 certs (root + nested), got %d", len(certs))
+	}
+}
+
+// TestWalkCertDir_DepthCapped guards internal-collectors-33-03: walkCertDir
+// previously had no maximum recursion depth, so a symlink cycle or a very
+// deep tree under any scanned root (some, like /etc/nginx/ssl, may be
+// writable by a non-root service account) could recurse unboundedly. A
+// directory chain deeper than maxCertDirDepth must stop descending — a cert
+// placed within the cap is found, one placed beyond it is not.
+func TestWalkCertDir_DepthCapped(t *testing.T) {
+	now := time.Now()
+	pemBytes := makeTestCertPEM(t, now.Add(-24*time.Hour), now.Add(100*24*time.Hour))
+
+	root := t.TempDir()
+	dir := root
+	var shallowDir, deepDir string
+	for i := 0; i < maxCertDirDepth+10; i++ {
+		dir = dir + "/d" + strconv.Itoa(i)
+		if err := osMkdirAll(dir); err != nil {
+			t.Fatal(err)
+		}
+		if i == 2 {
+			shallowDir = dir // well within the cap
+		}
+		if i == maxCertDirDepth+5 {
+			deepDir = dir // well beyond the cap
+		}
+	}
+	if err := osWriteFileBytes(shallowDir+"/shallow.crt", pemBytes); err != nil {
+		t.Fatal(err)
+	}
+	if err := osWriteFileBytes(deepDir+"/deep.crt", pemBytes); err != nil {
+		t.Fatal(err)
+	}
+
+	certs, _ := scanCertPath(context.Background(), root, now)
+	var foundShallow, foundDeep bool
+	for _, c := range certs {
+		if strings.Contains(c.Path, "shallow.crt") {
+			foundShallow = true
+		}
+		if strings.Contains(c.Path, "deep.crt") {
+			foundDeep = true
+		}
+	}
+	if !foundShallow {
+		t.Error("expected the cert well within maxCertDirDepth to be found")
+	}
+	if foundDeep {
+		t.Error("expected the cert beyond maxCertDirDepth to be UNREACHED (depth cap must stop recursion)")
+	}
+}
+
+// TestScanCertPath_ContextCancelledStopsWalk guards the ctx-cancellation half
+// of internal-collectors-33-03: TLSCollector.Collect only checked ctx.Done()
+// between top-level tlsCertPaths() entries, not inside the recursive walk
+// itself — once walkCertDir was entered for one root, a large tree ran to
+// completion regardless of the collector's own Timeout(). With an ALREADY-
+// cancelled context, scanCertPath must return promptly without walking the
+// tree.
+func TestScanCertPath_ContextCancelledStopsWalk(t *testing.T) {
+	now := time.Now()
+	pemBytes := makeTestCertPEM(t, now.Add(-24*time.Hour), now.Add(100*24*time.Hour))
+
+	root := t.TempDir()
+	for i := 0; i < 50; i++ {
+		sub := root + "/d" + strconv.Itoa(i)
+		if err := osMkdirAll(sub); err != nil {
+			t.Fatal(err)
+		}
+		if err := osWriteFileBytes(sub+"/leaf.crt", pemBytes); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // already cancelled before the walk starts
+
+	certs, unc := scanCertPath(ctx, root, now)
+	if len(certs) != 0 || len(unc) != 0 {
+		t.Errorf("expected zero results with an already-cancelled context, got %d certs, %d uncheckable", len(certs), len(unc))
 	}
 }
 
