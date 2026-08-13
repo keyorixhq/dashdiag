@@ -2,7 +2,9 @@ package platform
 
 import (
 	"os"
+	"strings"
 	"sync"
+	"unicode"
 )
 
 // Identity override for `dsd replay`. The replaying machine's hostname/OS leak
@@ -19,12 +21,37 @@ var (
 	goosOverride       string
 )
 
+// stripControl removes control characters (including ESC, which starts
+// ANSI/OSC/DCS terminal escape sequences) from s, leaving printable text
+// unchanged. platform/ may only depend on stdlib (see CLAUDE.md's layered-
+// import contract), so this duplicates the small amount of logic in
+// internal/output.SanitizeControl rather than importing it.
+func stripControl(s string) string {
+	if !strings.ContainsFunc(s, unicode.IsControl) {
+		return s
+	}
+	return strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return -1
+		}
+		return r
+	}, s)
+}
+
 // SetReplayPlatform pins the captured host's distro ID, init system, and GOOS so the
 // fix-hint adaptation on `dsd replay` reflects the CAPTURED host (the package manager
 // in "to fix: <pm> install", the init system, the OS family for ss/systemctl), not the
 // box doing the replay. Empty strings leave a field reading live (older bundles that
 // predate these manifest fields). Returns a restore func; callers should defer it.
+//
+// distroID/initSystem/goos come from a capture bundle manifest — untrusted
+// input per the product's own threat model — with no length limit or
+// character allowlist upstream, so control/ANSI-escape bytes are stripped
+// here before they can reach a rendered report header.
 func SetReplayPlatform(distroID, initSystem, goos string) (restore func()) {
+	distroID = stripControl(distroID)
+	initSystem = stripControl(initSystem)
+	goos = stripControl(goos)
 	idMu.Lock()
 	prevD, prevI, prevG := distroIDOverride, initSystemOverride, goosOverride
 	distroIDOverride, initSystemOverride, goosOverride = distroID, initSystem, goos
@@ -44,7 +71,14 @@ func ReplayGOOS() string       { idMu.RLock(); defer idMu.RUnlock(); return goos
 
 // SetIdentity overrides Hostname() and OSPrettyName(). Empty strings leave that
 // field reading live. Returns a restore func; callers should `defer` it.
+//
+// host/osName come from a capture bundle manifest — untrusted input per the
+// product's own threat model — with no length limit or character allowlist
+// upstream, so control/ANSI-escape bytes are stripped here before they can
+// reach a rendered report header (e.g. "host · OS").
 func SetIdentity(host, osName string) (restore func()) {
+	host = stripControl(host)
+	osName = stripControl(osName)
 	idMu.Lock()
 	prevHost, prevOS := hostOverride, osOverride
 	hostOverride, osOverride = host, osName
