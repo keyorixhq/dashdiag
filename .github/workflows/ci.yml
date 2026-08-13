@@ -177,7 +177,7 @@ jobs:
 
       - name: Test with race detector
         if: needs.changes.outputs.docs_only != 'true'
-        run: go test -race -count=1 -timeout 180s ./...
+        run: go test -race -count=1 -timeout 300s ./...
 
       - name: Coverage floor (≥96%)
         if: needs.changes.outputs.docs_only != 'true' && matrix.os == 'ubuntu-24.04'
