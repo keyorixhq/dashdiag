@@ -710,6 +710,18 @@ func checkSUSESecurityHardening(sec models.SecurityInfo) []models.Insight {
 	// SUSEConnect subscription expiry
 	if sec.SUSEConnectRegistered {
 		switch {
+		case sec.SUSEConnectExpiresDays < 0:
+			// -1 is the collector's explicit "unknown" sentinel (registered, but
+			// the expiry date could not be read/parsed) — mirrors the identical
+			// checkSUSESubscription guard (heuristics_firmware.go) over the same
+			// underlying value copied into SecurityInfo.SUSEConnectExpiresDays
+			// (suseconnect_collector.go). Without this case here, this SEPARATE
+			// function silently omitted the disclosure even though the sibling
+			// heuristic reading the same raw signal already carries it.
+			out = append(out, unverifiedInsight("INFO", secCatHardening,
+				"SUSE subscription is registered but its expiry date could not be determined",
+				[]string{"to inspect: SUSEConnect --status", "to inspect: SUSEConnect --status-text"},
+			))
 		case sec.SUSEConnectExpiresDays == 0:
 			out = append(out, insight("CRIT", secCatHardening,
 				"SUSEConnect subscription EXPIRED — security patches no longer available",
