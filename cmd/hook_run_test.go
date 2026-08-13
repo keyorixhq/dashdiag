@@ -341,6 +341,41 @@ func TestInstallGitHubActionsMkdirError(t *testing.T) {
 	}
 }
 
+// TestGitHubWorkflow_InstallStepIsHardened is the regression test for
+// cmd-08-06: the generated workflow's install step used to be
+// `curl -sSL https://dashdiag.sh/install.sh | bash` — no -f (a 404/error page
+// would still pipe straight into the shell), no --proto/--proto-redir
+// restriction (a compromised redirect could downgrade the fetch to plain
+// HTTP), and a redirector short-link instead of the canonical
+// raw.githubusercontent.com source install.sh's own header comment documents.
+// This pins the hardened invocation so a future edit can't silently regress it.
+func TestGitHubWorkflow_InstallStepIsHardened(t *testing.T) {
+	installLine := ""
+	for _, line := range strings.Split(githubWorkflow, "\n") {
+		if strings.Contains(line, "install.sh") {
+			installLine = line
+			break
+		}
+	}
+	if installLine == "" {
+		t.Fatal("githubWorkflow has no install.sh line")
+	}
+	for _, want := range []string{
+		"curl -fsSL",
+		"--proto '=https'",
+		"--proto-redir '=https'",
+		"https://raw.githubusercontent.com/keyorixhq/dashdiag/main/install.sh",
+		"| sh",
+	} {
+		if !strings.Contains(installLine, want) {
+			t.Errorf("githubWorkflow install step missing %q; got %q", want, installLine)
+		}
+	}
+	if strings.Contains(installLine, "| bash") {
+		t.Errorf("githubWorkflow install step should pipe to `sh` (install.sh's own shebang), not bash; got %q", installLine)
+	}
+}
+
 // TestInstallGitHookMkdirError exercises installGitHook's MkdirAll-error
 // branch: ".git" exists but is a plain file, so ".git/hooks" can't be created
 // under it, and os.Stat(".git") alone doesn't distinguish that from a real repo.

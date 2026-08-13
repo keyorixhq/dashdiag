@@ -87,6 +87,39 @@ func TestHttpGetLive_NonOKStatusStillReturnsBody(t *testing.T) {
 	}
 }
 
+// TestHttpGetLive_RefusesNonLoopbackHost guards the precondition
+// InsecureSkipVerify relies on: httpGetLive must never disable certificate
+// verification for a non-loopback host. All current callers (vault/
+// elasticsearch/prometheus collectors) hardcode 127.0.0.1, but httpGetLive
+// itself takes an arbitrary URL — a future caller building one from a
+// configurable address must not silently inherit InsecureSkipVerify for a
+// remote, potentially attacker-controlled host. The check must happen before
+// any network I/O, so a non-routable example.com URL is safe to use here.
+func TestHttpGetLive_RefusesNonLoopbackHost(t *testing.T) {
+	_, _, err := httpGetLive(context.Background(), "https://example.com/health")
+	if err == nil {
+		t.Fatal("expected an error for a non-loopback host, got nil")
+	}
+}
+
+// TestHttpGetLive_AllowsLoopbackHost is the positive counterpart: a genuine
+// loopback target must still work (this is what every real collector does).
+func TestHttpGetLive_AllowsLoopbackHost(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ok"))
+	}))
+	defer srv.Close()
+
+	body, code, err := httpGetLive(context.Background(), srv.URL)
+	if err != nil {
+		t.Fatalf("unexpected error for loopback host: %v", err)
+	}
+	if code != http.StatusOK || string(body) != "ok" {
+		t.Errorf("got body=%q code=%d, want ok/200", body, code)
+	}
+}
+
 // TestDialReachableRoutesThroughSource guards service-collector hermeticity: a
 // reachability gate must read the captured bundle on replay, not re-dial the
 // replaying machine. We record a reachable listener, close it (so a live dial
