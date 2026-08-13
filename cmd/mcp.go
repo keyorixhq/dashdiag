@@ -130,6 +130,15 @@ func safeBundlePath(raw string) (string, error) {
 // a meaningful throughput concern for a diagnostic tool.
 var mcpPipelineMu sync.Mutex
 
+// mcpToolTimeout bounds toolHealth/toolCapture's own context.Background()
+// (the MCP SDK's request context isn't threaded through — see both funcs'
+// discarded first parameter), matching the product's own <35s completion
+// promise plus headroom for toolCapture's tar/gzip write. Without this, a
+// single hung collector (a real network dial with no timeout of its own, a
+// filtered egress path in a sandboxed environment) had nothing bounding the
+// MCP call at all.
+const mcpToolTimeout = 40 * time.Second
+
 // toolHealth runs the full health pipeline and returns the JSON verdict.
 // Equivalent to `dsd health --json [--deep] [--cve]`.
 func toolHealth(_ context.Context, _ *mcp.CallToolRequest, in mcpHealthInput) (
@@ -138,7 +147,8 @@ func toolHealth(_ context.Context, _ *mcp.CallToolRequest, in mcpHealthInput) (
 	mcpPipelineMu.Lock()
 	defer mcpPipelineMu.Unlock()
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), mcpToolTimeout)
+	defer cancel()
 	ctrCtx := collectors.ContainerContextViaSource()
 	cloudEnv := collectors.CloudEnvironmentViaSource()
 	profile := collectors.ProfileViaSource()
@@ -190,7 +200,8 @@ func toolCapture(_ context.Context, _ *mcp.CallToolRequest, in mcpCaptureInput) 
 		in.Sanitize = true
 	}
 
-	ctx := context.Background()
+	ctx, cancel := context.WithTimeout(context.Background(), mcpToolTimeout)
+	defer cancel()
 	ctrCtx := platform.DetectContainerContext()
 	cloudEnv := platform.DetectCloudEnvironment()
 	profile := platform.Detect()
