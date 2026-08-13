@@ -166,7 +166,7 @@ func collectUbuntuPro(ctx context.Context, info *models.SUSEConnectInfo) *models
 	var status struct {
 		Attached bool `json:"attached"`
 	}
-	if jsonErr := json.Unmarshal([]byte(out), &status); jsonErr != nil {
+	if err = json.Unmarshal([]byte(out), &status); err != nil {
 		// `pro`'s JSON shape is not a stability-guaranteed contract. Don't
 		// guess from unparseable output — disclose it as unverified rather
 		// than defaulting to "detached", which would read as a confident
