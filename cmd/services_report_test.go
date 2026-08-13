@@ -106,6 +106,27 @@ func TestPrintSystemdHealthFailedUnitDetail(t *testing.T) {
 	}
 }
 
+// TestPrintSystemdHealthFailedUnit_StripsControlChars guards terminal escape
+// injection: LastLogLines is raw journalctl output for a failed unit —
+// whatever the failing process wrote to stderr/journal — and must not carry
+// raw control bytes into the terminal.
+func TestPrintSystemdHealthFailedUnit_StripsControlChars(t *testing.T) {
+	info := &models.ServicesDeepInfo{
+		FailedUnitsQueried: true,
+		FailedUnits: []models.SystemdUnit{
+			{Name: "nginx.service", SubState: "failed", LastLogLines: []string{"evil\x1b]0;pwned\x07"}},
+		},
+		JournalHealthy: true,
+	}
+	out := captureStdout(t, func() { printSystemdHealth(info, output.ModePlain) })
+	if strings.Contains(out, "\x1b") {
+		t.Errorf("printSystemdHealth output still contains ESC byte:\n%s", out)
+	}
+	if !strings.Contains(out, "evil]0;pwned") {
+		t.Errorf("printSystemdHealth output missing sanitized log line:\n%s", out)
+	}
+}
+
 // TestPrintSystemdHealthFailedUnitSkipsEmptyLogLines guards the empty-line
 // skip inside a failed unit's LastLogLines — a blank entry (e.g. a trailing
 // journalctl newline) must not render an empty "→ " line.

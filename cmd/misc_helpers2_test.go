@@ -108,6 +108,24 @@ func TestPrintTopProcsWithCgroup_SanitizesName(t *testing.T) {
 	}
 }
 
+// TestPrintTopProcsWithCgroup_StripsControlChars guards terminal escape
+// injection: process name and cgroup scope both come from /proc, which is
+// attacker-influenced (a process can name itself anything via prctl or
+// argv[0]), so raw control bytes must not reach the terminal.
+func TestPrintTopProcsWithCgroup_StripsControlChars(t *testing.T) {
+	out := captureStdout(t, func() {
+		printTopProcsWithCgroup([]runner.Result{{Data: &models.HealthDeepInfo{
+			TopProcs: []models.ProcessMemStat{{PID: 100, Name: "evil\x1b]0;pwned\x07", MemPct: 5.5, CgroupScope: "system:k3s.service"}},
+		}}}, output.ModePlain)
+	})
+	if strings.Contains(out, "\x1b") {
+		t.Errorf("printTopProcsWithCgroup output still contains ESC byte:\n%s", out)
+	}
+	if !strings.Contains(out, "evil]0;pwned") {
+		t.Errorf("printTopProcsWithCgroup output missing sanitized name:\n%s", out)
+	}
+}
+
 func TestPrintTopCPUProcsWithCgroup(t *testing.T) {
 	if out := captureStdout(t, func() {
 		printTopCPUProcsWithCgroup([]runner.Result{{Data: &models.HealthDeepInfo{}}}, output.ModePlain)
@@ -148,6 +166,22 @@ func TestPrintTopCPUProcsWithCgroup_SanitizesName(t *testing.T) {
 	}
 	if !strings.Contains(out, "evil") {
 		t.Errorf("printable text around the escape sequence must survive sanitization, got:\n%q", out)
+	}
+}
+
+// TestPrintTopCPUProcsWithCgroup_StripsControlChars mirrors
+// TestPrintTopProcsWithCgroup_StripsControlChars for the CPU variant.
+func TestPrintTopCPUProcsWithCgroup_StripsControlChars(t *testing.T) {
+	out := captureStdout(t, func() {
+		printTopCPUProcsWithCgroup([]runner.Result{{Data: &models.HealthDeepInfo{
+			TopCPUProcs: []models.ProcessCPUStat{{PID: 200, Name: "evil\x1b]0;pwned\x07", CPUPct: 88.5, CgroupScope: "system:stress.service"}},
+		}}}, output.ModePlain)
+	})
+	if strings.Contains(out, "\x1b") {
+		t.Errorf("printTopCPUProcsWithCgroup output still contains ESC byte:\n%s", out)
+	}
+	if !strings.Contains(out, "evil]0;pwned") {
+		t.Errorf("printTopCPUProcsWithCgroup output missing sanitized name:\n%s", out)
 	}
 }
 

@@ -1433,16 +1433,34 @@ func (r *Renderer) renderDetails(d *models.Details) {
 	const indent = "   "
 
 	if d.Title != "" {
-		fmt.Fprintf(os.Stdout, "%s%s\n", indent, StyleDim.Render(d.Title+":"))
+		fmt.Fprintf(os.Stdout, "%s%s\n", indent, StyleDim.Render(output.SanitizeControl(d.Title)+":"))
 	}
 
 	if len(d.Columns) > 0 && len(d.Rows) > 0 {
-		// Compute column widths
-		widths := make([]int, len(d.Columns))
+		// Sanitize into local copies — Details is largely sourced from
+		// journalctl/log_tail content and other subprocess/proc output, which is
+		// attacker-influenced and must not carry raw control bytes to the
+		// terminal. The underlying model (d) is left untouched so --json/--yaml
+		// output keeps the raw values.
+		columns := make([]string, len(d.Columns))
 		for i, col := range d.Columns {
+			columns[i] = output.SanitizeControl(col)
+		}
+		rows := make([][]string, len(d.Rows))
+		for i, row := range d.Rows {
+			sanRow := make([]string, len(row))
+			for j, cell := range row {
+				sanRow[j] = output.SanitizeControl(cell)
+			}
+			rows[i] = sanRow
+		}
+
+		// Compute column widths
+		widths := make([]int, len(columns))
+		for i, col := range columns {
 			widths[i] = len(col)
 		}
-		for _, row := range d.Rows {
+		for _, row := range rows {
 			for i, cell := range row {
 				if i < len(widths) && len(cell) > widths[i] {
 					widths[i] = len(cell)
@@ -1453,7 +1471,7 @@ func (r *Renderer) renderDetails(d *models.Details) {
 		// Header
 		var hdr strings.Builder
 		hdr.WriteString(indent)
-		for i, col := range d.Columns {
+		for i, col := range columns {
 			if i > 0 {
 				hdr.WriteString("  ")
 			}
@@ -1462,7 +1480,7 @@ func (r *Renderer) renderDetails(d *models.Details) {
 		fmt.Fprintln(os.Stdout, StyleDim.Render(hdr.String()))
 
 		// Rows
-		for _, row := range d.Rows {
+		for _, row := range rows {
 			var sb strings.Builder
 			sb.WriteString(indent)
 			for i, cell := range row {
@@ -1482,17 +1500,17 @@ func (r *Renderer) renderDetails(d *models.Details) {
 	if d.Type == "log_tail" {
 		if tail, ok := d.KV["log_tail"]; ok {
 			for line := range strings.SplitSeq(strings.TrimSpace(tail), "\n") {
-				fmt.Fprintf(os.Stdout, "%s%s\n", indent, StyleDim.Render(line))
+				fmt.Fprintf(os.Stdout, "%s%s\n", indent, StyleDim.Render(output.SanitizeControl(line)))
 			}
 		}
 	} else if len(d.KV) > 0 && len(d.Rows) == 0 {
 		for k, v := range d.KV {
-			fmt.Fprintf(os.Stdout, "%s%s: %s\n", indent, StyleDim.Render(k), v)
+			fmt.Fprintf(os.Stdout, "%s%s: %s\n", indent, StyleDim.Render(output.SanitizeControl(k)), output.SanitizeControl(v))
 		}
 	}
 
 	if d.Note != "" {
-		fmt.Fprintf(os.Stdout, "%s%s\n", indent, StyleDim.Render("note: "+d.Note))
+		fmt.Fprintf(os.Stdout, "%s%s\n", indent, StyleDim.Render("note: "+output.SanitizeControl(d.Note)))
 	}
 }
 
@@ -1544,22 +1562,23 @@ func (r *Renderer) PrintSummary(insights []models.Insight, elapsed time.Duration
 
 func (r *Renderer) printInsightGroup(ins []models.Insight) {
 	for _, i := range ins {
-		// Insight.Message and Hints routinely embed collector-sourced text
-		// that is not trustworthy (process/comm names, cron and journal log
-		// lines, subprocess output, sysfs labels — see the adversarial
-		// review's terminal-injection findings, e.g.
-		// internal-collectors-06-02, -08-01, -18-03, -21-02, -21-03, -25-04).
-		// Sanitize once here, the single choke point every insight passes
-		// through before reaching the terminal, rather than at each of the
-		// dozens of analysis call sites that build these strings.
+		// Check/Message/Hints routinely embed collector-sourced text that is
+		// not trustworthy (process/comm names, cron and journal log lines,
+		// subprocess output, sysfs labels, cert fields — see the adversarial
+		// review's terminal-injection findings, e.g. internal-collectors-06-02,
+		// -08-01, -18-03, -21-02, -21-03, -25-04). Sanitize once here, the
+		// single choke point every insight passes through before reaching
+		// the terminal, rather than at each of the dozens of analysis call
+		// sites that build these strings.
+		check := output.SanitizeControl(i.Check)
 		msg := output.SanitizeControl(i.Message)
 		hints := sanitizeHints(i.Hints)
 		if r.mode == output.ModeHuman {
 			icon := styleForStatus(i.Level).Render(output.StatusIcon(levelToStatusKey(i.Level), r.mode))
-			fmt.Fprintf(os.Stdout, "%s  %s: %s\n", icon, StyleBold.Render(i.Check), msg)
+			fmt.Fprintf(os.Stdout, "%s  %s: %s\n", icon, StyleBold.Render(check), msg)
 			r.printHints(hints)
 		} else {
-			fmt.Fprintf(os.Stdout, "%s: %s: %s\n", i.Level, i.Check, msg)
+			fmt.Fprintf(os.Stdout, "%s: %s: %s\n", i.Level, check, msg)
 			r.printHintsPlain(hints)
 		}
 	}
@@ -1593,7 +1612,11 @@ func (r *Renderer) printHints(hints []string) {
 	seen := make(map[string]int) // label → index in groups
 	var groups []group
 
-	for _, h := range hints {
+	for _, raw := range hints {
+		// Hints are largely dsd-authored templates, but some splice in
+		// attacker-influenced values (SUID paths, bootnames, comm names, ...) —
+		// sanitize before any prefix matching/printing.
+		h := output.SanitizeControl(raw)
 		label := ""
 		cmd := h
 		for _, prefix := range []string{"to inspect: ", "to fix: ", "to persist: ", "to inspect:", "to fix:", "to persist:"} {
@@ -1638,7 +1661,8 @@ func (r *Renderer) printHintsPlain(hints []string) {
 	seen := make(map[string]int)
 	var groups []group
 
-	for _, h := range hints {
+	for _, raw := range hints {
+		h := output.SanitizeControl(raw)
 		label := ""
 		cmd := h
 		for _, prefix := range []string{"to inspect: ", "to fix: ", "to persist: "} {
@@ -1716,16 +1740,21 @@ func (r *Renderer) PrintCorrelations(corrs []analysis.Correlation) {
 	}
 
 	for _, c := range corrs {
+		// Name/Summary/Action are analysis-constructed strings that can splice in
+		// attacker-influenced data (e.g. an OOM-killed process's comm name) — this
+		// is the terminal-print boundary, so sanitize here.
+		name := output.SanitizeControl(c.Name)
+		summary := output.SanitizeControl(c.Summary)
+		action := output.SanitizeControl(c.Action)
 		if r.mode == output.ModeHuman {
 			style := styleForStatus(c.Level)
 			icon := style.Render("▶")
-			name := StyleBold.Render(c.Name)
-			fmt.Fprintf(os.Stdout, "%s  %s\n", icon, name)
+			fmt.Fprintf(os.Stdout, "%s  %s\n", icon, StyleBold.Render(name))
 		} else {
-			fmt.Fprintf(os.Stdout, "%s: %s\n", c.Level, c.Name)
+			fmt.Fprintf(os.Stdout, "%s: %s\n", c.Level, name)
 		}
-		fmt.Fprintf(os.Stdout, "   %s\n", c.Summary)
-		fmt.Fprintf(os.Stdout, "   → %s\n", c.Action)
+		fmt.Fprintf(os.Stdout, "   %s\n", summary)
+		fmt.Fprintf(os.Stdout, "   → %s\n", action)
 	}
 }
 

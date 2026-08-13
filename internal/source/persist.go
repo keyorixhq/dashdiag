@@ -54,8 +54,15 @@ func (b *Bundle) Save(dir string) error {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
 
+	// 0o700/0o600: a capture bundle can carry sensitive host data (hostnames,
+	// IPs, disk serials, journald lines, and any secrets in captured
+	// files/commands — see cmd/capture_raw.go's own doc comment on this).
+	// Save() is exported and has no control over what directory a caller
+	// points it at, so it must not rely on the caller (today, only
+	// SaveTarball's private os.MkdirTemp dir) to keep it private — write
+	// restrictively here too, defense in depth.
 	for _, sub := range []string{"files/blobs", "commands/blobs"} {
-		if err := os.MkdirAll(filepath.Join(dir, sub), 0o755); err != nil {
+		if err := os.MkdirAll(filepath.Join(dir, sub), 0o700); err != nil {
 			return err
 		}
 	}
@@ -72,7 +79,7 @@ func (b *Bundle) Save(dir string) error {
 		if !rec.notExist && rec.errText == "" {
 			blob := fmt.Sprintf("files/blobs/%04d", n)
 			n++
-			if err := os.WriteFile(filepath.Join(dir, blob), rec.data, 0o644); err != nil {
+			if err := os.WriteFile(filepath.Join(dir, blob), rec.data, 0o600); err != nil {
 				return err
 			}
 			e.Blob = blob
@@ -104,13 +111,13 @@ func (b *Bundle) Save(dir string) error {
 		e := cmdIndexEntry{Argv: splitKey(key), Exit: rec.res.ExitCode, Absent: rec.absent, Err: rec.errText}
 		if len(rec.res.Stdout) > 0 {
 			e.StdoutBlob = fmt.Sprintf("commands/blobs/%04d.out", cn)
-			if err := os.WriteFile(filepath.Join(dir, e.StdoutBlob), rec.res.Stdout, 0o644); err != nil {
+			if err := os.WriteFile(filepath.Join(dir, e.StdoutBlob), rec.res.Stdout, 0o600); err != nil {
 				return err
 			}
 		}
 		if len(rec.res.Stderr) > 0 {
 			e.StderrBlob = fmt.Sprintf("commands/blobs/%04d.err", cn)
-			if err := os.WriteFile(filepath.Join(dir, e.StderrBlob), rec.res.Stderr, 0o644); err != nil {
+			if err := os.WriteFile(filepath.Join(dir, e.StderrBlob), rec.res.Stderr, 0o600); err != nil {
 				return err
 			}
 		}

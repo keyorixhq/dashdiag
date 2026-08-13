@@ -823,7 +823,9 @@ func printNFSReport(info *models.NFSInfo, mode output.OutputMode) {
 		}
 		fmt.Printf("  %s %-22s  %s:%s  %s\n",
 			icon, m.Mount, m.Server, m.Export, status)
-		if m.Stale {
+		if m.Stale && m.ServerCheckSkipped {
+			fmt.Printf("       %s server %s: not measured (DSD_OFFLINE set)\n", netIconWarn, m.Server)
+		} else if m.Stale {
 			srvIcon := iconFail
 			if m.ServerReachable {
 				srvIcon = iconOK

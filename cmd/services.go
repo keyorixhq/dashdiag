@@ -234,7 +234,11 @@ func printSystemdHealth(info *models.ServicesDeepInfo, mode output.OutputMode) {
 			if u.ExitCode != 0 {
 				exitStr = fmt.Sprintf(" (exit %d)", u.ExitCode)
 			}
-			fmt.Printf("     %-40s %s%s\n", u.Name, u.SubState, exitStr)
+			// Unit name/state are systemd-controlled, but LastLogLines is raw
+			// journalctl output for a FAILED unit — attacker-influenced (whatever
+			// the failing process wrote to stderr/journal) and must not carry raw
+			// control bytes to the terminal.
+			fmt.Printf("     %-40s %s%s\n", output.SanitizeControl(u.Name), output.SanitizeControl(u.SubState), exitStr)
 			for _, line := range u.LastLogLines {
 				if line == "" {
 					continue

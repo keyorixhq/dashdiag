@@ -214,6 +214,41 @@ func TestImdsGetLive_BodyReadFails(t *testing.T) {
 	}
 }
 
+// TestImdsGetLive_DoesNotFollowRedirect is a regression guard for
+// internal-collectors-02-02: the IMDS http.Client used to follow redirects
+// like any normal browser client (net/http's default is up to 10 hops). IMDS
+// endpoints never legitimately redirect, so a compromised or spoofed
+// responder on the link-local address could redirect the request — carrying
+// the IMDSv2 session token header — to an attacker-chosen host. The fix
+// (newIMDSHTTPClient) must refuse to follow the redirect: the attacker
+// target must never be dialed, and the 3xx response itself must be treated
+// as "not metadata" (matching the existing non-2xx fail-closed behaviour).
+func TestImdsGetLive_DoesNotFollowRedirect(t *testing.T) {
+	var attackerHit bool
+	attacker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attackerHit = true
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("attacker-controlled-body"))
+	}))
+	defer attacker.Close()
+
+	imds := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, attacker.URL, http.StatusFound)
+	}))
+	defer imds.Close()
+
+	got, err := imdsGetLive(context.Background(), imds.URL, nil)
+	if attackerHit {
+		t.Fatal("imdsGetLive followed the redirect and dialed the attacker-controlled host")
+	}
+	if err == nil {
+		t.Fatalf("expected an error for a redirect response, got body %q", got)
+	}
+	if got != "" {
+		t.Errorf("got = %q, want empty on a refused redirect", got)
+	}
+}
+
 // ── imdsGet (Cached wrapper — exercises the produce closure directly) ───────
 
 // TestImdsGet_LiveSuccess drives imdsGet's closure (imdsGetLive call, success

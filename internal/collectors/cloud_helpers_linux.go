@@ -49,7 +49,7 @@ func probeIMDSOpen(ctx context.Context, cacheKey, url string) (checked, open boo
 		if e != nil {
 			return nil, e
 		}
-		client := &http.Client{Timeout: 2 * time.Second}
+		client := newIMDSHTTPClient(2 * time.Second)
 		resp, e := client.Do(req)
 		if e != nil {
 			return nil, e
