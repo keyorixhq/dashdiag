@@ -25,14 +25,33 @@ func TopProcessesByIO(ctx context.Context, n int) (*models.Details, error) {
 			Note:  "Per-process I/O attribution not available on macOS without sudo + fs_usage.",
 		}, nil
 	}
-	return topProcessesByIOLinux(ctx, n)
+	d, err := topProcessesByIOLinux(ctx, n)
+	// name comes from procComm (already sanitized at its source), but wrap
+	// anyway for consistency with every other drill-down entry point.
+	return sanitizeDetails(d), err
 }
 
 type procIOSample struct {
 	pid        int
 	name       string
+	startTime  string // /proc/PID/stat field 22 — process-instance identity
 	readBytes  uint64
 	writeBytes uint64
+}
+
+// procStartTime reads /proc/PID/stat's starttime field (stat field 22), which
+// is fixed for the lifetime of a process instance. Returns ("", false) if it
+// can't be read/parsed (process exited, permission denied, etc).
+func procStartTime(procRoot string, pid int) (string, bool) {
+	data, err := os.ReadFile(filepath.Join(procRoot, fmt.Sprintf("%d", pid), "stat"))
+	if err != nil {
+		return "", false
+	}
+	_, rest, ok := parseProcStatComm(string(data))
+	if !ok || len(rest) < 20 {
+		return "", false
+	}
+	return rest[19], true
 }
 
 func readProcIO(procRoot string, pid int) (readBytes, writeBytes uint64, err error) {
@@ -74,8 +93,9 @@ func sampleAllProcIO(ctx context.Context, procRoot string) (map[int]procIOSample
 			return nil
 		}
 		name := procComm(procRoot, pid)
+		startTime, _ := procStartTime(procRoot, pid) // "" if unreadable — treated as a mismatch below
 		mu.Lock()
-		result[pid] = procIOSample{pid: pid, name: name, readBytes: r, writeBytes: w}
+		result[pid] = procIOSample{pid: pid, name: name, startTime: startTime, readBytes: r, writeBytes: w}
 		mu.Unlock()
 		return nil
 	})
@@ -107,6 +127,15 @@ func topProcessesByIOLinuxAt(ctx context.Context, n int, procRoot string) (*mode
 	for pid, p1 := range s1 {
 		p0, ok := s0[pid]
 		if !ok {
+			continue
+		}
+		// PIDs are recycled by the kernel; a PID that exited and was reused by
+		// an unrelated process between the two samples must not have its two
+		// halves stitched together. Require both samples to have a readable,
+		// matching starttime (stat field 22, fixed for a process instance's
+		// lifetime) — an empty/unreadable starttime on either side is treated
+		// as a mismatch (skip) rather than a false match.
+		if p0.startTime == "" || p1.startTime == "" || p0.startTime != p1.startTime {
 			continue
 		}
 		// Skip recycled PIDs — if either counter went backwards the PID was
