@@ -280,10 +280,11 @@ func collectHwmonThermals(info *models.HardwareInfo) {
 func collectEDAC(info *models.HardwareInfo) {
 	// Shared sysfs reader (also used by the fast health Memory collector) so the
 	// two EDAC paths can't drift apart.
-	avail, ce, ue := readEDACCounts()
+	avail, ce, ue, unreadable := readEDACCounts()
 	info.Memory.EDACAvailable = avail
 	info.Memory.CorrectedErrors += ce
 	info.Memory.UncorrectedErrors += ue
+	info.Memory.EDACCountersUnreadable = unreadable
 }
 
 // ── CPU ───────────────────────────────────────────────────────────────────────

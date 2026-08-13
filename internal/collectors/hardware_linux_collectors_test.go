@@ -414,6 +414,28 @@ func TestCollectEDAC_Absent(t *testing.T) {
 	}
 }
 
+// TestCollectEDAC_CounterReadFails is the regression guard for
+// internal-collectors-11-03: EDACCountersUnreadable must be wired through
+// collectEDAC, not just readEDACCountsFrom — a controller whose counter
+// can't be read must not present as "0 corrected / 0 uncorrected" with no
+// caveat.
+func TestCollectEDAC_CounterReadFails(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutDir("/sys/devices/system/edac/mc", []string{"mc0"})
+		b.PutStat("/sys/devices/system/edac/mc/mc0/ce_count", source.FileMeta{})
+		b.PutFile("/sys/devices/system/edac/mc/mc0/ce_count", []byte("garbled\n"))
+		b.PutFile("/sys/devices/system/edac/mc/mc0/ue_count", []byte("0\n"))
+	})
+	info := &models.HardwareInfo{}
+	collectEDAC(info)
+	if !info.Memory.EDACAvailable {
+		t.Error("EDACAvailable = false, want true — the controller was genuinely registered")
+	}
+	if !info.Memory.EDACCountersUnreadable {
+		t.Error("EDACCountersUnreadable = false, want true when ce_count fails to parse")
+	}
+}
+
 func TestCollectCPU_X86(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutFile("/proc/cpuinfo", []byte("processor\t: 0\nmodel name\t: Xeon Gold 6230\ncpu cores\t: 4\ncpu MHz\t: 2100.500\n"))
