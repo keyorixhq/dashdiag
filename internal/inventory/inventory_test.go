@@ -4,11 +4,13 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/platform"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 func TestBuild_FromHardwareInfo(t *testing.T) {
@@ -290,40 +292,92 @@ func TestCountDpkg_MissingFile(t *testing.T) {
 
 func TestCountRPM(t *testing.T) {
 	t.Parallel()
-	// No path injection is possible here (countRPM shells out to the rpm
-	// binary with no file API alternative, per the collector pattern). In
-	// the test sandbox the rpm binary is absent, so this deterministically
-	// exercises the CommandContext-error graceful-zero path.
+	// countRPM resolves "rpm" via source.ResolveTrustedTool (trusted system
+	// dirs, never $PATH — internal-inventory-01-03). In the test sandbox the
+	// rpm binary is absent from every trusted dir too, so this
+	// deterministically exercises the CommandContext-error graceful-zero
+	// path.
 	if got := countRPM(); got < 0 {
 		t.Errorf("countRPM() = %d, want >= 0", got)
 	}
 }
 
-// writeFakeRPMBin drops an executable shell script named "rpm" onto a temp
-// dir and points PATH at it exclusively, so countRPM's
-// exec.CommandContext(ctx, "rpm", "-qa") resolves to this fake instead of a
-// real rpm binary — same PATH-shadowing technique as
-// internal/cvedata/rpm_test.go's writeFakeRPM, applied here because this
-// sandbox has no real rpm to test the success path against.
+// TestResolveRPM_DefaultsToTrustedToolResolver is the regression guard for
+// internal-inventory-01-03. countRPM's actual PATH-independence can't be
+// observed behaviorally in this sandbox — there's no real rpm binary in any
+// trusted directory (/usr/bin, /bin, ...) to prove precedence over $PATH
+// against (planting one would need root and would pollute the host), so
+// TestCountRPM_ResolvesViaTrustedDirs below, which overrides resolveRPM
+// entirely, can't distinguish a trusted-dir resolver from a bare passthrough
+// either. This test instead asserts the WIRING directly: resolveRPM's
+// default must be source.ResolveTrustedTool itself, not an identity
+// passthrough — which is exactly what a revert of the fix would restore.
+func TestResolveRPM_DefaultsToTrustedToolResolver(t *testing.T) {
+	t.Parallel()
+	got := reflect.ValueOf(resolveRPM).Pointer()
+	want := reflect.ValueOf(source.ResolveTrustedTool).Pointer()
+	if got != want {
+		t.Error("resolveRPM's default must be source.ResolveTrustedTool, not an identity/bare-name passthrough")
+	}
+}
+
+// TestCountRPM_ResolvesViaTrustedDirs proves countRPM's call site actually
+// execs whatever resolveRPM returns (rather than, say, ignoring it and
+// falling back to a bare "rpm" some other way).
 //
-// Callers MUST NOT also call t.Parallel(): t.Setenv panics if the test (or
-// an ancestor) is running in parallel.
-func writeFakeRPMBin(t *testing.T, script string) {
+// Not t.Parallel(): mutates the package-level resolveRPM var.
+func TestCountRPM_ResolvesViaTrustedDirs(t *testing.T) {
+	dir := t.TempDir()
+	marker := filepath.Join(dir, "ran")
+	fake := filepath.Join(dir, "rpm")
+	script := "#!/bin/sh\ntouch " + marker + "\necho pkg-a\n"
+	if err := os.WriteFile(fake, []byte(script), 0o755); err != nil {
+		t.Fatalf("writing fake rpm: %v", err)
+	}
+
+	orig := resolveRPM
+	resolveRPM = func(string) string { return fake }
+	t.Cleanup(func() { resolveRPM = orig })
+
+	if got := countRPM(); got != 1 {
+		t.Errorf("countRPM() = %d, want 1", got)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Error("countRPM did not exec the binary resolveRPM returned")
+	}
+}
+
+// withFakeRPM writes an executable shell script named "rpm" and points the
+// package-level resolveRPM var directly at it — same seam as
+// withResolveDpkgQuery in internal/cvedata/oval_debian_scan_test.go.
+// PATH-shadowing alone is NOT enough here: after internal-inventory-01-03,
+// countRPM resolves "rpm" via source.ResolveTrustedTool, which searches fixed
+// system dirs (/usr/bin, /bin, ...) before ever consulting $PATH. On any
+// host/CI image that ships a real rpm binary in one of those dirs — true of
+// GitHub's ubuntu-22.04/24.04 runners — a PATH-only fake was silently bypassed
+// in favor of the real trusted binary, so the test ran against the box's
+// actual (rpm-less, since it's dpkg-based) package query instead of the fake
+// script, and failed. Overriding resolveRPM sidesteps trusted-dir resolution
+// entirely, matching TestCountRPM_ResolvesViaTrustedDirs above.
+//
+// Callers MUST NOT also call t.Parallel(): mutates the package-level resolveRPM var.
+func withFakeRPM(t *testing.T, script string) {
 	t.Helper()
 	dir := t.TempDir()
 	path := filepath.Join(dir, "rpm")
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 		t.Fatalf("writing fake rpm: %v", err)
 	}
-	t.Setenv("PATH", dir)
+	orig := resolveRPM
+	resolveRPM = func(string) string { return path }
+	t.Cleanup(func() { resolveRPM = orig })
 }
 
 // TestCountRPM_Success exercises the real "-qa" parse-and-count path
-// (inventory.go: trimmed != "" branch), which the sandbox's absent rpm
-// binary can never reach on its own — a fake rpm on PATH stands in.
+// (inventory.go: trimmed != "" branch) via a resolveRPM override.
 func TestCountRPM_Success(t *testing.T) {
-	// Not t.Parallel(): writeFakeRPMBin calls t.Setenv.
-	writeFakeRPMBin(t, "#!/bin/sh\necho pkg-a\necho pkg-b\necho pkg-c\n")
+	// Not t.Parallel(): withFakeRPM mutates the package-level resolveRPM var.
+	withFakeRPM(t, "#!/bin/sh\necho pkg-a\necho pkg-b\necho pkg-c\n")
 	if got := countRPM(); got != 3 {
 		t.Errorf("countRPM() = %d, want 3 (one per output line)", got)
 	}
@@ -334,8 +388,8 @@ func TestCountRPM_Success(t *testing.T) {
 // packages) — must report 0, not 1 (a naive newline-count would say 1 for a
 // single empty line).
 func TestCountRPM_EmptyOutput(t *testing.T) {
-	// Not t.Parallel(): writeFakeRPMBin calls t.Setenv.
-	writeFakeRPMBin(t, "#!/bin/sh\nexit 0\n")
+	// Not t.Parallel(): withFakeRPM mutates the package-level resolveRPM var.
+	withFakeRPM(t, "#!/bin/sh\nexit 0\n")
 	if got := countRPM(); got != 0 {
 		t.Errorf("countRPM() = %d, want 0 for empty rpm -qa output", got)
 	}
@@ -345,8 +399,8 @@ func TestCountRPM_EmptyOutput(t *testing.T) {
 // fake binary that resolves but exits non-zero — distinct from TestCountRPM
 // above, which only covers the "rpm not on PATH at all" case.
 func TestCountRPM_CommandFails(t *testing.T) {
-	// Not t.Parallel(): writeFakeRPMBin calls t.Setenv.
-	writeFakeRPMBin(t, "#!/bin/sh\nexit 1\n")
+	// Not t.Parallel(): withFakeRPM mutates the package-level resolveRPM var.
+	withFakeRPM(t, "#!/bin/sh\nexit 1\n")
 	if got := countRPM(); got != 0 {
 		t.Errorf("countRPM() = %d, want 0 when rpm exits non-zero", got)
 	}
