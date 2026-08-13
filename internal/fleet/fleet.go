@@ -23,6 +23,16 @@ type Options struct {
 	ConnectTimeout time.Duration // ssh ConnectTimeout
 	RunTimeout     time.Duration // per-host overall deadline
 	Concurrency    int           // max hosts in flight
+	// AcceptNewHostKeys opts in to `-o StrictHostKeyChecking=accept-new`
+	// (trust-on-first-use for hosts with no cached key, still reject on
+	// change). Default false: fleet does NOT override StrictHostKeyChecking
+	// at all, so ssh falls through to the user's own ~/.ssh/config (or its
+	// "ask" default, which — combined with the always-on BatchMode=yes —
+	// fails closed on an unknown host instead of prompting). Without this,
+	// a hardcoded accept-new took precedence over an operator's own stricter
+	// ssh_config policy for every run, silently downgrading it (ssh -o flags
+	// always win over ssh_config).
+	AcceptNewHostKeys bool
 }
 
 // Defaults fills unset fields with sane values.
@@ -281,19 +291,21 @@ func sshRun(ctx context.Context, opts Options, host, cmd string) ([]byte, error)
 }
 
 func scp(ctx context.Context, opts Options, localPath, host, remotePath string) error {
-	scpArgs := []string{"-q", "-o", "BatchMode=yes",
-		"-o", "ConnectTimeout=" + seconds(opts.ConnectTimeout),
-		"-o", "StrictHostKeyChecking=accept-new",
-		"--", localPath, host + ":" + remotePath}
+	scpArgs := append([]string{"-q"}, sshBaseArgs(opts)...)
+	scpArgs = append(scpArgs, "--", localPath, host+":"+remotePath)
 	return exec.CommandContext(ctx, "scp", scpArgs...).Run() // NOSONAR — hardcoded binary, PATH lookup is intentional
 }
 
 func sshBaseArgs(opts Options) []string {
-	return []string{
+	args := []string{
 		"-o", "BatchMode=yes",
 		"-o", "ConnectTimeout=" + seconds(opts.ConnectTimeout),
-		"-o", "StrictHostKeyChecking=accept-new",
 	}
+	if opts.AcceptNewHostKeys {
+		// Opt-in only — see the AcceptNewHostKeys doc comment on Options.
+		args = append(args, "-o", "StrictHostKeyChecking=accept-new")
+	}
+	return args
 }
 
 func seconds(d time.Duration) string {
