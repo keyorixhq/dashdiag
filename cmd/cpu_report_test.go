@@ -91,6 +91,25 @@ func TestPrintCPUReportThermalAndVerdict(t *testing.T) {
 	}
 }
 
+// TestPrintCPUReportThermal_SanitizesSensorLabel guards Finding:
+// internal-collectors-32-07. The per-sensor CoreTemps map key comes verbatim
+// from a temp*_label sysfs file, which this codebase's threat model treats
+// as untrusted /sys content. Requires >1 CoreTemps entry to reach the
+// per-sensor printing branch.
+func TestPrintCPUReportThermal_SanitizesSensorLabel(t *testing.T) {
+	out := captureStdout(t, func() {
+		printCPUReport(context.Background(), &models.CPUInfo{NumCPU: 4}, nil,
+			&models.ThermalInfo{Available: true, CPUTempC: 55,
+				CoreTemps: map[string]float64{"\x1b[2Jevil": 60, "core1": 50}}, nil, output.ModePlain, 0)
+	})
+	if strings.ContainsRune(out, 0x1b) {
+		t.Errorf("sensor label output contains a raw ESC byte, got:\n%q", out)
+	}
+	if !strings.Contains(out, "evil") {
+		t.Errorf("printable text around the escape sequence must survive sanitization, got:\n%q", out)
+	}
+}
+
 // TestRunCPU exercises runCPU's real (read-only) collector wiring in --plain
 // and --json mode. Same real-I/O precedent as this file's other tests
 // (drilldown.TopProcessesByCPU is a cheap real call the live command already
