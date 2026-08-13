@@ -10,6 +10,7 @@ import (
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/platform"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 func TestNewSwapCollectorIdentity(t *testing.T) {
@@ -26,6 +27,50 @@ func TestNewSwapCollectorIdentity(t *testing.T) {
 	}
 	if c.readers.vmstatOpen == nil {
 		t.Error("NewSwapCollector must wire vmstatOpen reader")
+	}
+}
+
+// TestDarwinMemPressureLevel_ReadFailureIsUnknownNotNormal is the regression
+// guard for internal-collectors-31-01: darwinMemPressureLevel used to return
+// 1 ("normal") when the sysctl call itself failed — spawn failure, permission
+// denied, or the very memory pressure being probed preventing fork/exec of
+// the subprocess — fabricating a healthy reading for a check that never ran.
+// It must return -1 ("unknown"), which checkSwap's `MemPressureLevel > 0`
+// gate already treats as unmeasured rather than scoring it as normal.
+func TestDarwinMemPressureLevel_ReadFailureIsUnknownNotNormal(t *testing.T) {
+	b := source.NewBundle()
+	prev := SetSource(source.NewReplay(b)) // sysctl deliberately not seeded -> ErrNotRecorded
+	t.Cleanup(func() { SetSource(prev) })
+
+	if got := darwinMemPressureLevel(context.Background()); got != -1 {
+		t.Errorf("darwinMemPressureLevel() on read failure = %d, want -1 (unknown)", got)
+	}
+}
+
+// TestDarwinMemPressureLevel_GarbledOutputIsUnknownNotNormal covers the
+// parse-failure branch: unparseable or out-of-range sysctl output must also
+// report -1, not silently fall back to a fabricated "normal".
+func TestDarwinMemPressureLevel_GarbledOutputIsUnknownNotNormal(t *testing.T) {
+	b := source.NewBundle()
+	b.PutCmd("sysctl", []string{"-n", "kern.memorystatus_vm_pressure_level"}, "not-a-number\n", 0)
+	prev := SetSource(source.NewReplay(b))
+	t.Cleanup(func() { SetSource(prev) })
+
+	if got := darwinMemPressureLevel(context.Background()); got != -1 {
+		t.Errorf("darwinMemPressureLevel() on garbled output = %d, want -1 (unknown)", got)
+	}
+}
+
+// TestDarwinMemPressureLevel_ValidReading guards the happy path: a real
+// pressure level reading passes through unchanged.
+func TestDarwinMemPressureLevel_ValidReading(t *testing.T) {
+	b := source.NewBundle()
+	b.PutCmd("sysctl", []string{"-n", "kern.memorystatus_vm_pressure_level"}, "2\n", 0)
+	prev := SetSource(source.NewReplay(b))
+	t.Cleanup(func() { SetSource(prev) })
+
+	if got := darwinMemPressureLevel(context.Background()); got != 2 {
+		t.Errorf("darwinMemPressureLevel() = %d, want 2", got)
 	}
 }
 

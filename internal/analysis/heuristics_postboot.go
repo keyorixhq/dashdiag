@@ -85,6 +85,26 @@ func postBootFindings(pb models.PostBootInfo) []models.Insight {
 			"the previous shutdown was unclean — no shutdown sequence was recorded, so the box stopped abruptly (power loss, hard reset, host eviction, or panic)",
 			[]string{"to inspect: journalctl --boot=-1 (look for the tail — a clean stop ends in 'Reached target Shutdown')"}))
 	}
+	// internal-collectors-26-01: journalctl --grep exits non-zero on zero matches
+	// too, so a genuine sub-call failure (ACL change mid-run, journal rotation, a
+	// journalctl build without PCRE2/--grep support) is otherwise indistinguishable
+	// from "checked, found nothing" — disclose it rather than silently reading
+	// "found, 0 OOM kills, no kernel panic" for a boot dsd never actually inspected.
+	// Journal-source only: the wtmp path never attempts these sub-checks at all
+	// (a structurally different "not applicable", already disclosed via
+	// postBootCleanLine's Source=="wtmp" branch below), not a failed sub-call.
+	if pb.Source == "persistent_journal" {
+		if !pb.OOMChecked {
+			out = append(out, unverifiedInsight("INFO", "PostBoot",
+				"prior-boot OOM-kill check could not be completed — the journalctl sub-call failed",
+				[]string{"to inspect: journalctl -k --boot=-1 --grep 'Out of memory'"}))
+		}
+		if !pb.PanicChecked {
+			out = append(out, unverifiedInsight("INFO", "PostBoot",
+				"prior-boot kernel-panic check could not be completed — the journalctl sub-call failed",
+				[]string{"to inspect: journalctl -k --boot=-1"}))
+		}
+	}
 	if len(out) == 0 {
 		out = append(out, insight("INFO", "PostBoot", postBootCleanLine(pb), nil))
 	}

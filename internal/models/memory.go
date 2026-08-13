@@ -19,6 +19,10 @@ type MemoryInfo struct {
 	EDACAvailable     bool  `json:"edac_available,omitempty"`
 	CorrectedErrors   int64 `json:"corrected_ecc_errors,omitempty"`
 	UncorrectedErrors int64 `json:"uncorrected_ecc_errors,omitempty"`
+	// EDACCountersUnreadable is true when EDACAvailable but at least one
+	// controller's ce_count/ue_count could not be read/parsed — Corrected/
+	// UncorrectedErrors are then an incomplete sum, not proof of zero errors.
+	EDACCountersUnreadable bool `json:"edac_counters_unreadable,omitempty"`
 
 	// Memory hot-plug onlining. A hypervisor that hot-adds RAM to a running guest
 	// (VMware hot-add, KVM virtio-mem, Hyper-V Dynamic Memory, cloud vertical

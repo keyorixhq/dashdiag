@@ -370,6 +370,14 @@ func printFirewallSection(info *models.SecurityInfo, mode output.OutputMode) {
 		fmt.Printf("\nFirewall: %s installed but no active rules — host is unprotected\n",
 			info.FirewallType)
 		fmt.Printf("  %s  no active firewall rules\n", asciiOr(secLvlWarn, iconWarnSp, mode))
+	} else if info.FirewallConfigOnlyUnverified {
+		// nft binary absent, only an on-disk config file was found — file
+		// presence never proves a ruleset is loaded, and running as root
+		// wouldn't help (the tool itself is missing), so this gets its own
+		// wording rather than reusing the FirewallUnreadable "run as root" hint.
+		fmt.Printf("\nFirewall: %s config file present but nft is not installed — ruleset state not verified\n",
+			info.FirewallType)
+		fmt.Printf("  %s  install nftables tooling to confirm\n", asciiOr(secLvlWarn, iconWarnSp, mode))
 	} else if info.FirewallUnreadable {
 		// Tooling installed but ruleset unreadable (non-root) — state unknown.
 		// Report "not verified", not "none detected" (which implies no firewall).

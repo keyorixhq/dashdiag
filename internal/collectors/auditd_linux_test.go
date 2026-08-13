@@ -70,6 +70,9 @@ func TestAuditCollector_Collect_RunningViaSystemctl(t *testing.T) {
 	if info.RulesLoaded != 2 {
 		t.Errorf("RulesLoaded = %d, want 2", info.RulesLoaded)
 	}
+	if info.RulesUnreadable {
+		t.Error("expected RulesUnreadable=false when auditctl -l succeeds")
+	}
 	if info.AuditLogSizeUnreadable {
 		t.Error("expected AuditLogSizeUnreadable=false when stat succeeds")
 	}
@@ -79,6 +82,9 @@ func TestAuditCollector_Collect_RunningViaSystemctl(t *testing.T) {
 	}
 	if info.EventsLast1h != 2 {
 		t.Errorf("EventsLast1h = %d, want 2", info.EventsLast1h)
+	}
+	if info.EventsUnreadable {
+		t.Error("expected EventsUnreadable=false when ausearch succeeds")
 	}
 }
 
@@ -110,11 +116,21 @@ func TestAuditCollector_Collect_RunningViaProcessFallback(t *testing.T) {
 	if info.RulesLoaded != 0 {
 		t.Errorf("RulesLoaded = %d, want 0 (auditctl -l failed)", info.RulesLoaded)
 	}
+	// internal-collectors-01-03: a failed auditctl -l/ausearch must set an
+	// explicit sentinel, not just leave the counts at zero — otherwise a
+	// non-root run against a host with real rules/events is indistinguishable
+	// from a genuinely unconfigured auditd.
+	if !info.RulesUnreadable {
+		t.Error("expected RulesUnreadable=true when auditctl -l fails")
+	}
 	if !info.AuditLogSizeUnreadable {
 		t.Error("expected AuditLogSizeUnreadable=true when the audit log can't be stat'd")
 	}
 	if info.EventsLast1h != 0 {
 		t.Errorf("EventsLast1h = %d, want 0 (ausearch failed)", info.EventsLast1h)
+	}
+	if !info.EventsUnreadable {
+		t.Error("expected EventsUnreadable=true when ausearch fails")
 	}
 }
 

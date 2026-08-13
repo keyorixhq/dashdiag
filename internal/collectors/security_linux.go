@@ -1570,10 +1570,16 @@ func detectNFTables(ctx context.Context, info *models.SecurityInfo) bool {
 		entries, _ = glob("/etc/nftables.d/*.nft")
 	}
 	if len(entries) > 0 {
-		info.FirewallActive = true
+		// internal-collectors-29-03: config-file PRESENCE does not prove a
+		// ruleset is actually loaded — the nft binary itself is absent here, so
+		// we can't even attempt to confirm it. This is exactly the false-OK the
+		// live-ruleset rewrite above exists to prevent for the tool-present
+		// case; the tool-absent fallback re-introduced it by claiming
+		// FirewallActive from file presence alone. Disclose unverified instead,
+		// and return false (not true) so the chain below still checks iptables
+		// — the real active backend might not be nftables at all.
+		info.FirewallConfigOnlyUnverified = true
 		info.FirewallType = secFwNFTables
-		info.SSHAllowed = true // conservative — config present but rules unread
-		return true
 	}
 	return false
 }
