@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"io"
 	"os"
+	"time"
 )
 
 // truncateStr truncates a string to at most n runes with an ellipsis. It slices
@@ -18,6 +19,18 @@ func truncateStr(s string, n int) string {
 		return s
 	}
 	return string(r[:n-1]) + "…"
+}
+
+// validateWatchInterval rejects a non-positive --watch-interval duration
+// before it reaches time.NewTicker, which panics on d <= 0. Cobra's
+// DurationVar accepts a "0s" or negative duration string without complaint,
+// so every --watch command must check this explicitly before starting its
+// ticker loop.
+func validateWatchInterval(d time.Duration) error {
+	if d <= 0 {
+		return fmt.Errorf("--watch-interval must be positive, got %s", d)
+	}
+	return nil
 }
 
 // readCapped reads r fully, refusing input past max bytes rather than

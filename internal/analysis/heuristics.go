@@ -1251,6 +1251,20 @@ func firstN(ss []string, n int) []string {
 	return ss[:n]
 }
 
+// truncateHint caps a single hint/message string at n runes, appending an
+// ellipsis when truncated. Several insight builders cap how many *items*
+// (error strings, unit names, ...) from an attacker-influenced source they
+// include, but not the length of any individual item — this bounds the other
+// dimension so one oversized item can't still inflate output size. Rune-based
+// so a multibyte character at the cut point is never split into invalid UTF-8.
+func truncateHint(s string, n int) string {
+	r := []rune(s)
+	if len(r) <= n {
+		return s
+	}
+	return string(r[:n]) + "…"
+}
+
 // ── SSH weak algorithm checks (Spec 13) ──────────────────────────────────────
 
 // ── cgroup v2 heuristics ─────────────────────────────────────────────────────

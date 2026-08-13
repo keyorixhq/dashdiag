@@ -151,6 +151,14 @@ func SaveBaseline(snap *Snapshot) error {
 	return os.Rename(tmp2Name, latest)
 }
 
+// maxBaselineFileBytes bounds how large a baseline JSON document LoadBaseline
+// will read, whether from stdin, an explicit path, or the process's own
+// -latest.json. A real snapshot (one run's worth of check results) is well
+// under a megabyte; this is generous headroom while still stopping an
+// oversized document (piped in, or referenced by path) from being read fully
+// into memory before json.Unmarshal ever runs.
+const maxBaselineFileBytes = 16 << 20 // 16 MiB
+
 func LoadBaseline(path string) (*Snapshot, error) {
 	var (
 		data []byte
@@ -158,7 +166,7 @@ func LoadBaseline(path string) (*Snapshot, error) {
 	)
 	switch path {
 	case "-":
-		data, err = io.ReadAll(os.Stdin)
+		data, err = readCappedReader(os.Stdin, maxBaselineFileBytes)
 	case "":
 		// The empty path means "the last completed run", used by `dsd health
 		// --diff` (which runs before the current run is saved). That is the
@@ -166,9 +174,9 @@ func LoadBaseline(path string) (*Snapshot, error) {
 		// start of run N, -latest holds run N-1 and -prev holds run N-2, so the
 		// diff compared against TWO runs ago and showed nothing on the 2nd run.
 		hostname, _ := os.Hostname()
-		data, err = os.ReadFile(latestPath(hostname))
+		data, err = readCappedFile(latestPath(hostname), maxBaselineFileBytes)
 	default:
-		data, err = os.ReadFile(filepath.Clean(path))
+		data, err = readCappedFile(filepath.Clean(path), maxBaselineFileBytes)
 	}
 	if err != nil {
 		return nil, fmt.Errorf("reading baseline: %w", err)
@@ -178,6 +186,33 @@ func LoadBaseline(path string) (*Snapshot, error) {
 		return nil, fmt.Errorf("parsing baseline: %w", err)
 	}
 	return &snap, nil
+}
+
+// readCappedFile reads path fully into memory, rejecting it up front via
+// Stat if it exceeds max — an oversized file is never read at all.
+func readCappedFile(path string, max int64) ([]byte, error) {
+	fi, err := os.Stat(path)
+	if err != nil {
+		return nil, err
+	}
+	if fi.Size() > max {
+		return nil, fmt.Errorf("file %q is %d bytes, exceeds %d byte limit", path, fi.Size(), max)
+	}
+	return os.ReadFile(path) // #nosec G304 -- caller-provided path, size-checked above
+}
+
+// readCappedReader reads at most max+1 bytes from r and errors if the stream
+// didn't end within that bound — used for stdin, which has no Stat-able size
+// up front the way a named file does.
+func readCappedReader(r io.Reader, max int64) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(r, max+1))
+	if err != nil {
+		return nil, err
+	}
+	if int64(len(data)) > max {
+		return nil, fmt.Errorf("input exceeds %d byte limit", max)
+	}
+	return data, nil
 }
 
 // statusRank orders insight levels so BuildSnapshot can keep the worst per check.

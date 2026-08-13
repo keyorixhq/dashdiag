@@ -17,7 +17,19 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/keyorixhq/dashdiag/internal/analysis"
+	"github.com/keyorixhq/dashdiag/internal/baseline"
+	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/output"
+	"github.com/keyorixhq/dashdiag/internal/platform"
+	"github.com/keyorixhq/dashdiag/internal/runner"
 )
+
+// ctxProbeKey is a distinctive, unexported context key used only by the
+// ForwardsCallerContext regression tests below, so a value stashed on the
+// caller's context can be told apart from anything else that might be on it.
+type ctxProbeKey struct{}
 
 // TestToolCaptureRequiresOutPath verifies that toolCapture returns an error
 // when out_path is empty rather than writing to an unpredictable location.
@@ -85,6 +97,71 @@ func TestRedactMCPJSON(t *testing.T) {
 	}
 	if !strings.Contains(string(out), `"status":"OK"`) {
 		t.Errorf("non-secret field corrupted: %s", out)
+	}
+}
+
+// TestToolHealth_ForwardsCallerContext is the regression test for
+// cmd-09-03: toolHealth used to discard its request-scoped ctx parameter and
+// build a fresh context.Background() instead, so a JSON-RPC caller that
+// cancelled or timed out the call could not bound the underlying health
+// pipeline. runHealthOnceFn is swapped for a stub that just records the ctx
+// it receives; a value stashed on the ctx passed into toolHealth must survive
+// into the stub, which only holds if toolHealth forwards the real ctx.
+func TestToolHealth_ForwardsCallerContext(t *testing.T) {
+	// No t.Parallel(): swaps the package-global runHealthOnceFn seam.
+	prev := runHealthOnceFn
+	t.Cleanup(func() { runHealthOnceFn = prev })
+
+	var gotCtx context.Context
+	runHealthOnceFn = func(ctx context.Context, _ platform.ContainerContext, _ platform.CloudEnvironment,
+		_ platform.Profile, _ output.OutputMode, _ healthRunOpts, _ *analysis.PolicyFile,
+	) ([]runner.Result, []models.Insight, *baseline.Snapshot, time.Duration) {
+		gotCtx = ctx
+		return nil, nil, nil, 0
+	}
+
+	callerCtx := context.WithValue(context.Background(), ctxProbeKey{}, "toolHealth-caller")
+	if _, _, err := toolHealth(callerCtx, &mcp.CallToolRequest{}, mcpHealthInput{}); err != nil {
+		t.Fatalf("toolHealth: %v", err)
+	}
+
+	if gotCtx == nil {
+		t.Fatal("runHealthOnceFn was never called")
+	}
+	if got := gotCtx.Value(ctxProbeKey{}); got != "toolHealth-caller" {
+		t.Errorf("runHealthOnce received a ctx that lost the caller's value (got %v) — "+
+			"toolHealth must forward the request ctx, not substitute context.Background()", got)
+	}
+}
+
+// TestToolCapture_ForwardsCallerContext is the same regression as
+// TestToolHealth_ForwardsCallerContext, for toolCapture's identical bug.
+func TestToolCapture_ForwardsCallerContext(t *testing.T) {
+	// No t.Parallel(): swaps the package-global runHealthOnceFn seam.
+	prev := runHealthOnceFn
+	t.Cleanup(func() { runHealthOnceFn = prev })
+
+	var gotCtx context.Context
+	runHealthOnceFn = func(ctx context.Context, _ platform.ContainerContext, _ platform.CloudEnvironment,
+		_ platform.Profile, _ output.OutputMode, _ healthRunOpts, _ *analysis.PolicyFile,
+	) ([]runner.Result, []models.Insight, *baseline.Snapshot, time.Duration) {
+		gotCtx = ctx
+		return nil, nil, nil, 0
+	}
+
+	dir := t.TempDir()
+	out := filepath.Join(dir, "out.tar.gz")
+	callerCtx := context.WithValue(context.Background(), ctxProbeKey{}, "toolCapture-caller")
+	if _, _, err := toolCapture(callerCtx, &mcp.CallToolRequest{}, mcpCaptureInput{OutPath: out}); err != nil {
+		t.Fatalf("toolCapture: %v", err)
+	}
+
+	if gotCtx == nil {
+		t.Fatal("runHealthOnceFn was never called")
+	}
+	if got := gotCtx.Value(ctxProbeKey{}); got != "toolCapture-caller" {
+		t.Errorf("runHealthOnce received a ctx that lost the caller's value (got %v) — "+
+			"toolCapture must forward the request ctx, not substitute context.Background()", got)
 	}
 }
 

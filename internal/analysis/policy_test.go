@@ -53,6 +53,64 @@ func TestLoadPolicy_InvalidYAML(t *testing.T) {
 	}
 }
 
+// TestLoadPolicy_OversizedFileRejected is the regression test for
+// internal-analysis-13-03: LoadPolicy read the entire policy file into
+// memory with os.ReadFile and handed it straight to yaml.Unmarshal with no
+// size limit. In the documented CI-gate usage, the policy file is
+// repo-tracked and can be modified by a PR author before `dsd health
+// --policy` runs against that same PR — an oversized file must be rejected
+// before it's read into memory, not parsed.
+func TestLoadPolicy_OversizedFileRejected(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "policy.yaml")
+	// Otherwise-valid YAML (a real key/value line plus a padded-out trailing
+	// comment) so this test fails for the right reason: without the size
+	// cap, yaml.Unmarshal would happily parse this and return no error at
+	// all — the oversized-ness itself must be what's rejected, not an
+	// incidental syntax error from naive junk padding.
+	prefix := []byte("ram_warn_pct: 70\n#")
+	oversized := make([]byte, maxPolicyFileBytes+1)
+	copy(oversized, prefix)
+	for i := len(prefix); i < len(oversized); i++ {
+		oversized[i] = 'x'
+	}
+	if err := os.WriteFile(path, oversized, 0644); err != nil {
+		t.Fatalf("failed to write test fixture: %v", err)
+	}
+
+	_, err := LoadPolicy(path)
+	if err == nil {
+		t.Fatal("expected an error for an oversized policy file, got nil")
+	}
+}
+
+// TestLoadPolicy_AtSizeLimitAccepted is the boundary companion to
+// TestLoadPolicy_OversizedFileRejected: a file exactly at the cap (not over
+// it) must still be read normally — the cap must not be off-by-one.
+func TestLoadPolicy_AtSizeLimitAccepted(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "policy.yaml")
+	// A real YAML key/value line, then padded out to exactly the cap with a
+	// trailing comment line so the whole file still parses.
+	prefix := []byte("ram_warn_pct: 70\n#")
+	padded := make([]byte, maxPolicyFileBytes)
+	copy(padded, prefix)
+	for i := len(prefix); i < len(padded); i++ {
+		padded[i] = 'x'
+	}
+	if err := os.WriteFile(path, padded, 0644); err != nil {
+		t.Fatalf("failed to write test fixture: %v", err)
+	}
+
+	p, err := LoadPolicy(path)
+	if err != nil {
+		t.Fatalf("file exactly at the size limit must still load: %v", err)
+	}
+	if p.RAMWarnPct != 70 {
+		t.Errorf("ram_warn_pct = %.0f, want 70", p.RAMWarnPct)
+	}
+}
+
 // ── ApplyPolicy ───────────────────────────────────────────────────────────────
 
 func TestApplyPolicy_NilNoChange(t *testing.T) {

@@ -352,6 +352,51 @@ func TestIsVMVirtType(t *testing.T) {
 	}
 }
 
+// TestCollect_KmsgParseDoesNotRaceWithLaterWrites is a regression test for the
+// abandoned-goroutine race that used to exist in Collect(): kmsg parsing ran in
+// a background goroutine that Collect only *waited* on for up to 600ms via
+// select+time.After, without ever joining it. If the parse didn't finish in
+// time, Collect proceeded anyway and kept writing the same *models.LogsInfo
+// (info.KernelPanics += countPstorePanics(), immediately after the kmsg step)
+// while the abandoned goroutine could still be writing to it — an
+// unsynchronized concurrent read/write on the same field, only reliably caught
+// under -race. kmsgParseFn is swapped for a stand-in that mimics parseKmsg's
+// signature but deliberately outlasts any reasonable timeout window, so the
+// hazard is exercised regardless of exactly how the call is wrapped.
+func TestCollect_KmsgParseDoesNotRaceWithLaterWrites(t *testing.T) {
+	// No t.Parallel(): swaps the package-global kmsgParseFn seam and source.
+	withFixtureSource(t, func(_ *source.Bundle) {})
+	prevFn := kmsgParseFn
+	t.Cleanup(func() { kmsgParseFn = prevFn })
+
+	started := make(chan struct{})
+	kmsgParseFn = func(_ context.Context, info *models.LogsInfo, _ time.Duration) {
+		close(started)
+		// Deliberately ignores ctx cancellation to model a slow real kmsg parse
+		// that outlives any select/timeout window wrapped around it, then
+		// mutates the same field Collect writes immediately after this call
+		// returns.
+		time.Sleep(700 * time.Millisecond)
+		info.KernelPanics++
+	}
+
+	c := NewLogsCollectorWithLookback(time.Hour)
+	_, err := c.Collect(context.Background())
+
+	// Whether or not Collect has already returned, the background parse must
+	// have at least begun (so the old abandoned-goroutine shape doesn't instead
+	// race on the kmsgParseFn seam itself) and had time to reach its own write
+	// before this test — and t.Cleanup's restoration of kmsgParseFn — proceeds,
+	// so the race detector actually observes both accesses to info.KernelPanics
+	// instead of the process moving on first.
+	<-started
+	time.Sleep(400 * time.Millisecond)
+
+	if err != nil {
+		t.Fatalf("Collect() error = %v", err)
+	}
+}
+
 // crashLoopRecent gates the crash-loop insight to genuinely recent failures, so a
 // unit given up on days ago (NRestarts is cumulative and never resets) stops being
 // reported as a live crash loop. Inputs are formatted with systemd's wall-clock
