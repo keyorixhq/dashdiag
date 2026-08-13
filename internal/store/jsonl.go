@@ -2,10 +2,12 @@ package store
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -107,24 +109,41 @@ func ReadAll(path, hostname string, n int) ([]Entry, error) {
 	}
 	defer f.Close() //nolint:errcheck
 
+	// internal-store-01-03: bufio.Scanner (the previous implementation here)
+	// treats a too-long line as a fatal, non-resumable error — once Scan()
+	// returns false there is no way to skip past the offending line and keep
+	// reading, so ANY oversized line silently discarded every entry AFTER it
+	// in the file too, not just the bad one. Since History() reads oldest-first
+	// and callers usually want the LAST n entries, that meant one corrupted
+	// early line silently erased all of dsd's more recent, more relevant
+	// history — while still returning (matches, nil), a clean success. Read
+	// with bufio.Reader.ReadBytes instead: it can resume after an oversized
+	// line, so only that one entry is skipped, not everything after it.
 	var matches []Entry
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 64*1024), maxLineSizeBytes)
-	for sc.Scan() {
-		var e Entry
-		if err := json.Unmarshal(sc.Bytes(), &e); err != nil {
-			continue // skip malformed lines rather than aborting
+	var oversized int
+	br := bufio.NewReaderSize(f, 64*1024)
+	for {
+		lineBytes, rerr := br.ReadBytes('\n')
+		line := bytes.TrimRight(lineBytes, "\n")
+		switch {
+		case len(line) > maxLineSizeBytes:
+			oversized++
+		case len(line) > 0:
+			var e Entry
+			// Malformed JSON is skipped rather than aborting, same as before.
+			if err := json.Unmarshal(line, &e); err == nil && (hostname == "" || e.Hostname == hostname) {
+				matches = append(matches, e)
+			}
 		}
-		if hostname == "" || e.Hostname == hostname {
-			matches = append(matches, e)
+		if rerr != nil {
+			if errors.Is(rerr, io.EOF) {
+				break
+			}
+			return nil, fmt.Errorf("store: reading %s: %w", path, rerr)
 		}
 	}
-	if err := sc.Err(); err != nil {
-		if errors.Is(err, bufio.ErrTooLong) {
-			fmt.Fprintf(os.Stderr, "dsd: store: oversized line in %s skipped (line > %d bytes)\n", path, maxLineSizeBytes)
-			return matches, nil // return what we have
-		}
-		return nil, fmt.Errorf("store: scanning %s: %w", path, err)
+	if oversized > 0 {
+		fmt.Fprintf(os.Stderr, "dsd: store: %d oversized line(s) in %s skipped (line > %d bytes) — later entries were still read\n", oversized, path, maxLineSizeBytes)
 	}
 
 	if n <= 0 || len(matches) <= n {

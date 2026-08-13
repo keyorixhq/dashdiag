@@ -1,6 +1,7 @@
 package config
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -147,8 +148,22 @@ func Load(cfgFile string) (*Config, error) {
 	v.SetDefault("logs.since_minutes", defaults.Logs.SinceMinutes)
 
 	if err := v.ReadInConfig(); err != nil {
+		var notFound viper.ConfigFileNotFoundError
+		if errors.As(err, &notFound) || os.IsNotExist(err) {
+			// No config file at all — the documented default UX. Silent.
+			cfg := defaults
+			return &cfg, nil
+		}
+		// internal-config-01-01: a config file that EXISTS but couldn't be
+		// read (bad permissions) or parsed (malformed YAML) was previously
+		// masked identically to "no config file" — defaults with a nil
+		// error — silently discarding whatever custom thresholds/services
+		// the user believed were active. Still fall back to defaults so
+		// callers keep working (dsd must never fail a health run over a
+		// config typo), but return the error too so the caller can disclose
+		// it instead of a false "using your config" read.
 		cfg := defaults
-		return &cfg, nil
+		return &cfg, fmt.Errorf("reading config %s: %w", v.ConfigFileUsed(), err)
 	}
 	var cfg Config
 	if err := v.Unmarshal(&cfg); err != nil {

@@ -254,6 +254,23 @@ func checkPVEBackups(p models.PVEInfo) []models.Insight {
 			},
 		)}
 	}
+	if !p.GuestsVerified {
+		// internal-models-11-02: BackupStatuses is built per-guest from
+		// p.Guests (collectPVEBackups(ctx, info.Guests)) — if guest
+		// enumeration itself failed, BackupStatuses is empty regardless of
+		// whether BackupVerified (the vzdump task query) succeeded, so the
+		// "no successful backup" CRIT below (gated on BackupStatuses>0) can
+		// never fire for a real host with VMs/CTs that simply couldn't be
+		// listed. Disclose it in addition to whatever the vzdump-task-based
+		// checks below still find — never a replacement for them.
+		out = append(out, unverifiedInsight("INFO", pveCatPVE,
+			"per-guest backup audit NOT verified — VM/LXC guest enumeration failed",
+			[]string{
+				"to inspect: pvesh get /nodes/localhost/qemu",
+				"to inspect: pvesh get /nodes/localhost/lxc",
+			},
+		))
+	}
 	switch {
 	case p.BackupAgeDays < 0 && len(p.BackupStatuses) > 0:
 		// No backup at all is CRIT, not WARN — VMs have no recovery point.
