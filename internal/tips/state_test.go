@@ -233,6 +233,42 @@ func TestLoadState_InvalidJSON(t *testing.T) {
 	}
 }
 
+// TestLoadState_OversizedFileRejected is the regression test for
+// internal-tips-01-03: LoadState read the entire state file into memory with
+// os.ReadFile and no upper bound on size before json.Unmarshal. A very large
+// (or symlinked) state.json must be rejected before being read fully into
+// memory, not just failed on some unrelated JSON error.
+func TestLoadState_OversizedFileRejected(t *testing.T) {
+	// No t.Parallel(): t.Setenv mutates the shared HOME env var.
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+
+	statePath := filepath.Join(dir, ".dsd", "state.json")
+	if err := os.MkdirAll(filepath.Dir(statePath), 0750); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+	// A valid, otherwise-parseable State JSON document (a real object with a
+	// huge string field) so this fails for the right reason — the
+	// oversized-ness itself gets rejected, not an incidental JSON syntax
+	// error a naive junk-padded fixture would produce instead.
+	prefix := []byte(`{"last_version":"`)
+	suffix := []byte(`"}`)
+	fill := maxStateFileBytes + 2 - int64(len(prefix)+len(suffix))
+	buf := make([]byte, 0, len(prefix)+int(fill)+len(suffix))
+	buf = append(buf, prefix...)
+	for i := int64(0); i < fill; i++ {
+		buf = append(buf, 'x')
+	}
+	buf = append(buf, suffix...)
+	if err := os.WriteFile(statePath, buf, 0644); err != nil {
+		t.Fatalf("setup: %v", err)
+	}
+
+	if _, err := LoadState(); err == nil {
+		t.Error("expected an error for an oversized state file, got nil")
+	}
+}
+
 // ── Milestone helpers ────────────────────────────────────────────────────────
 
 func TestHasShownMilestone(t *testing.T) {

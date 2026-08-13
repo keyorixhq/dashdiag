@@ -2,6 +2,7 @@ package tips
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"slices"
@@ -35,9 +36,29 @@ func stateFilePath() string {
 	return filepath.Join(home, ".dsd", "state.json")
 }
 
+// maxStateFileBytes bounds how large ~/.dsd/state.json may be before
+// LoadState reads it. The real file is a handful of counters and a short
+// tips-shown history — a few KiB at most; this is generous headroom while
+// stopping an oversized or symlinked file from being read fully into memory
+// before validation.
+const maxStateFileBytes = 4 << 20 // 4 MiB
+
 func LoadState() (*State, error) {
 	path := stateFilePath()
-	data, err := os.ReadFile(filepath.Clean(path))
+	fi, statErr := os.Stat(path)
+	if os.IsNotExist(statErr) {
+		return &State{
+			TipsEnabled:   true,
+			CommandCounts: make(map[string]int),
+		}, nil
+	}
+	if statErr != nil {
+		return nil, statErr
+	}
+	if fi.Size() > maxStateFileBytes {
+		return nil, fmt.Errorf("state file %q is %d bytes, exceeds %d byte limit", path, fi.Size(), maxStateFileBytes)
+	}
+	data, err := os.ReadFile(filepath.Clean(path)) // #nosec G304 -- fixed ~/.dsd/state.json path, size-checked above
 	if os.IsNotExist(err) {
 		return &State{
 			TipsEnabled:   true,
