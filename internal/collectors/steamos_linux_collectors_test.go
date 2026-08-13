@@ -305,6 +305,33 @@ func TestCollectNetwork(t *testing.T) {
 	}
 }
 
+// TestCollectNetwork_DSD_OFFLINE_SkipsDial is a regression guard for
+// egress-gate-04: collectNetwork used to unconditionally dial
+// steamdeck-atomupd.steamos.cloud:443 (an external internet host) on every
+// default `dsd health` run on a Steam Deck, with no opt-out. Under
+// DSD_OFFLINE, UpdateServerKnown must stay false rather than true+false — the
+// existing "reachability test never ran" sentinel checkSteamOSNetwork
+// already treats as silent (never a false WARN). The source here is fully
+// mocked either way, so this test cannot itself perform a live dial; it
+// verifies the collector never even reaches for the cached/live probe.
+func TestCollectNetwork_DSD_OFFLINE_SkipsDial(t *testing.T) {
+	t.Setenv("DSD_OFFLINE", "1")
+	prev := SetSource(&fakeCombinedSource{
+		Replay: source.NewReplay(source.NewBundle()),
+		cached: map[string][]byte{"steamos/update-server": []byte(`{"ok":true,"ms":42}`)},
+	})
+	t.Cleanup(func() { SetSource(prev) })
+
+	info := &models.SteamOSInfo{}
+	(&SteamOSCollector{}).collectNetwork(context.Background(), info)
+	if info.UpdateServerKnown {
+		t.Error("expected UpdateServerKnown=false under DSD_OFFLINE (the dial must be skipped, not attempted)")
+	}
+	if info.UpdateServerReachable || info.UpdateServerLatencyMs != 0 {
+		t.Errorf("expected zero-value reachability fields under DSD_OFFLINE, got %+v", info)
+	}
+}
+
 func TestCollectRemotePlay_Bound(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("ss", []string{"-tulpn"},

@@ -114,6 +114,21 @@ func TestPrintLogsOOMBranches(t *testing.T) {
 	}
 }
 
+// TestPrintLogsOOM_StripsControlChars guards terminal escape injection:
+// OOM process names come from the kernel log (dmesg), which is
+// attacker-influenced (a process can name itself anything).
+func TestPrintLogsOOM_StripsControlChars(t *testing.T) {
+	out := captureStdout(t, func() {
+		printLogsOOM(&models.LogsInfo{OOMKills: 1, OOMProcesses: []string{"evil\x1b]0;pwned\x07"}}, output.ModePlain)
+	})
+	if strings.Contains(out, "\x1b") {
+		t.Errorf("printLogsOOM output still contains ESC byte:\n%s", out)
+	}
+	if !strings.Contains(out, "evil]0;pwned") {
+		t.Errorf("printLogsOOM output missing sanitized process name:\n%s", out)
+	}
+}
+
 func TestPrintLogsSegfaultsBranches(t *testing.T) {
 	none := captureStdout(t, func() { printLogsSegfaults(&models.LogsInfo{}, output.ModePlain) })
 	if !strings.Contains(none, "none") {
@@ -127,6 +142,20 @@ func TestPrintLogsSegfaultsBranches(t *testing.T) {
 	}
 }
 
+// TestPrintLogsSegfaults_StripsControlChars mirrors the OOM case for segfault
+// process names.
+func TestPrintLogsSegfaults_StripsControlChars(t *testing.T) {
+	out := captureStdout(t, func() {
+		printLogsSegfaults(&models.LogsInfo{Segfaults: 1, SegfaultProcs: []string{"evil\x1b]0;pwned\x07"}}, output.ModePlain)
+	})
+	if strings.Contains(out, "\x1b") {
+		t.Errorf("printLogsSegfaults output still contains ESC byte:\n%s", out)
+	}
+	if !strings.Contains(out, "evil]0;pwned") {
+		t.Errorf("printLogsSegfaults output missing sanitized process name:\n%s", out)
+	}
+}
+
 func TestPrintLogsCrashLoopsBranches(t *testing.T) {
 	none := captureStdout(t, func() { printLogsCrashLoops(&models.LogsInfo{}, output.ModePlain) })
 	if !strings.Contains(none, "none") {
@@ -137,6 +166,20 @@ func TestPrintLogsCrashLoopsBranches(t *testing.T) {
 	})
 	if !strings.Contains(with, "myapp.service") || !strings.Contains(with, "journalctl -u myapp.service") {
 		t.Errorf("a crash loop should show the unit and a journalctl hint, got:\n%s", with)
+	}
+}
+
+// TestPrintLogsCrashLoops_StripsControlChars guards terminal escape
+// injection on the crash-loop unit line (sourced from systemd unit state).
+func TestPrintLogsCrashLoops_StripsControlChars(t *testing.T) {
+	out := captureStdout(t, func() {
+		printLogsCrashLoops(&models.LogsInfo{CrashLoops: []string{"evil.service\x1b]0;pwned\x07 (5 restarts)"}}, output.ModePlain)
+	})
+	if strings.Contains(out, "\x1b") {
+		t.Errorf("printLogsCrashLoops output still contains ESC byte:\n%s", out)
+	}
+	if !strings.Contains(out, "evil.service]0;pwned") {
+		t.Errorf("printLogsCrashLoops output missing sanitized unit text:\n%s", out)
 	}
 }
 
@@ -156,6 +199,24 @@ func TestPrintLogsCrashFilesBranches(t *testing.T) {
 	})
 	if !strings.Contains(with, "today") || !strings.Contains(with, "3d ago") {
 		t.Errorf("crash files should show 'today' for age 0 and 'Nd ago' otherwise, got:\n%s", with)
+	}
+}
+
+// TestPrintLogsCrashFiles_StripsControlChars guards terminal escape
+// injection on the crash-dump file path — a path under an attacker-writable
+// crash directory could carry control bytes.
+func TestPrintLogsCrashFiles_StripsControlChars(t *testing.T) {
+	out := captureStdout(t, func() {
+		printLogsCrashFiles(&models.LogsInfo{
+			CoreDumpCount: 1,
+			CrashFiles:    []models.CrashFile{{Path: "/var/crash/evil\x1b]0;pwned\x07", SizeMB: 1, AgeDays: 0}},
+		}, output.ModePlain)
+	})
+	if strings.Contains(out, "\x1b") {
+		t.Errorf("printLogsCrashFiles output still contains ESC byte:\n%s", out)
+	}
+	if !strings.Contains(out, "evil]0;pwned") {
+		t.Errorf("printLogsCrashFiles output missing sanitized path:\n%s", out)
 	}
 }
 

@@ -13,7 +13,12 @@ func LoadHistory(n int) ([]*Snapshot, error) {
 	hostname, _ := os.Hostname()
 	dir := baselineDir()
 
-	pattern := filepath.Join(dir, hostname+"-[0-9]*-[0-9]*.json")
+	// SafeHostname: same sanitizer latestPath/prevPath/goldenPath use. The
+	// kernel hostname normally requires privilege to change, but nothing
+	// downstream should assume that — a glob pattern built from an
+	// unsanitized hostname could match or (via '/') traverse outside
+	// baselineDir() if it ever did contain glob metacharacters or separators.
+	pattern := filepath.Join(dir, SafeHostname(hostname)+"-[0-9]*-[0-9]*.json")
 	matches, err := filepath.Glob(pattern)
 	if err != nil {
 		return nil, err

@@ -170,6 +170,66 @@ func TestDetectCloud_IMDS_Reachable(t *testing.T) {
 	}
 }
 
+// TestDetectCloud_DSD_OFFLINE_SkipsIMDSProbe is a regression guard for
+// cmd-04-04: DetectCloudEnvironment's IMDS fallback (checkIMDS) is the one
+// outbound network call cloud-environment detection makes, and it used to
+// fire unconditionally with no opt-out — reached from every standalone
+// subcommand's exit-code path (cmd/exitcode.go's recordResultSeverity), not
+// just `dsd health`. With DSD_OFFLINE set, a host whose DMI is silent about
+// being EC2 must fall through to EnvBareMetal WITHOUT ever dialing the IMDS
+// server — proven here the same way as the redirect regression test: the
+// server records whether it was hit at all.
+func TestDetectCloud_DSD_OFFLINE_SkipsIMDSProbe(t *testing.T) {
+	t.Setenv("DSD_OFFLINE", "1")
+	dir, dmiDir := makeDMIDir(t, "", "")
+	blockDir := filepath.Join(dir, "block")
+	_ = os.MkdirAll(blockDir, 0755)
+
+	var hit bool
+	ts := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		hit = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer ts.Close()
+
+	got := detectCloudEnvironmentFromPaths(dmiDir, filepath.Join(dir, "uuid"), blockDir, ts.URL)
+	if got != EnvBareMetal {
+		t.Errorf("expected EnvBareMetal under DSD_OFFLINE (IMDS probe must be skipped), got %v", got)
+	}
+	if hit {
+		t.Error("DSD_OFFLINE must prevent checkIMDS from ever contacting the metadata endpoint")
+	}
+}
+
+// TestDetectCloud_IMDS_DoesNotFollowRedirect mirrors the collectors-side
+// regression (internal-collectors-02-02): checkIMDS must not follow a
+// redirect off the metadata endpoint to an attacker-chosen host.
+func TestDetectCloud_IMDS_DoesNotFollowRedirect(t *testing.T) {
+	dir, dmiDir := makeDMIDir(t, "", "")
+	blockDir := filepath.Join(dir, "block")
+	_ = os.MkdirAll(blockDir, 0755)
+
+	var attackerHit bool
+	attacker := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attackerHit = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer attacker.Close()
+
+	imds := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		http.Redirect(w, r, attacker.URL, http.StatusFound)
+	}))
+	defer imds.Close()
+
+	got := detectCloudEnvironmentFromPaths(dmiDir, filepath.Join(dir, "uuid"), blockDir, imds.URL)
+	if attackerHit {
+		t.Fatal("checkIMDS followed the redirect and dialed the attacker-controlled host")
+	}
+	if got != EnvBareMetal {
+		t.Errorf("a refused redirect must not read as a reachable IMDS, got %v", got)
+	}
+}
+
 func TestDetectCloud_Hetzner(t *testing.T) {
 	dir, dmiDir := makeDMIFull(t, map[string]string{
 		"sys_vendor":   "Hetzner",

@@ -66,7 +66,17 @@ func (c *MemoryCollector) Collect(ctx context.Context) (any, error) {
 	// gopsutil below.
 	var m map[string]uint64
 	if f, err := openFile(c.meminfoPath); err == nil {
-		m, _ = parseMeminfo(f)
+		// A scan error means the read was truncated/partial — e.g. MemTotal
+		// parsed fine but later keys (MemAvailable, Buffers, Cached, ...) were
+		// cut off. Discarding that error would let the "case MemTotal > 0"
+		// branch below treat a partial read as complete, and the missing
+		// MemAvailable fallback (MemFree+Buffers+Cached+SReclaimable, all
+		// zero on a truncated read) would compute UsedPct as a false 100%
+		// instead of reporting unmeasured. Keep m nil on any parse error so
+		// it falls through to the MeminfoUnreadable sentinel below.
+		if parsed, perr := parseMeminfo(f); perr == nil {
+			m = parsed
+		}
 		_ = f.Close()
 	}
 
