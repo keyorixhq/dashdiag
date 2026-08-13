@@ -1188,6 +1188,15 @@ func CheckK8sOSLayer(l models.K8sOSLayer) []models.Insight {
 				"to fix (k3s): sudo systemctl restart k3s  (auto-renews certs)",
 			},
 		))
+	} else if !l.CertChecked && l.CertDirUnreadable {
+		// A real cert directory exists but couldn't be listed (commonly
+		// 0700 root-owned under a non-root deep run) — distinct from neither
+		// kubeadm's nor k3s's cert dir applying to this distro, which leaves
+		// both CertChecked and CertDirUnreadable false and stays silent below.
+		out = append(out, unverifiedInsight("INFO", virtCatK8s,
+			"k8s certificate expiry could not be verified — cert directory unreadable (commonly needs root)",
+			[]string{"to inspect: sudo ls -la /etc/kubernetes/pki /var/lib/rancher/k3s/server/tls 2>/dev/null"},
+		))
 	} else if l.CertExpirySoon {
 		// Flag-gated (not days>0): a cert expiring today is 0 days, which must still
 		// surface — the old days>0 test let it read as the zero-value OK (false-OK).

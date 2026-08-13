@@ -175,6 +175,8 @@ var guardedUnverifiedSignals = map[string]string{
 	"K8sOSLayer.FirewalldChecked":     "analysis/heuristics_virt.go checkK8sNodeDaemons (gated, no verdict when firewalld.service isn't active — not privilege-related)",
 	"K8sOSLayer.FlannelCNIUnreadable": "analysis/k8s_oslayer_unverified_test.go (FIXED 2026-07-08: /etc/cni/net.d 0700 on a real pve01 host silently read FlannelInUse=false under non-root; now disclosed)",
 	"K8sOSLayer.OSLayerNeedsRoot":     "analysis/k8s_oslayer_unverified_test.go (blanket INFO, mirrors SecurityInfo.NeedsRoot)",
+	"K8sOSLayer.CertChecked":          "analysis/k8s_oslayer_unverified_test.go TestCertDirUnreadableIsInfo (companion of CertDirUnreadable; both false = neither candidate dir applies to this distro, correctly silent)",
+	"K8sOSLayer.CertDirUnreadable":    "analysis/k8s_oslayer_unverified_test.go TestCertDirUnreadableIsInfo (FIXED: an existing-but-unreadable cert dir, e.g. 0700 k3s server/tls under non-root, now emits an explicit INFO instead of silently reading like 'not applicable')",
 
 	// Cloud metadata "*Checked" — audited 2026-07-08. All are IMDS/metadata-server
 	// probes or local config-file reads, none require root; Checked=false is a
