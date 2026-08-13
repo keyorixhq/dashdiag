@@ -28,6 +28,32 @@ func TestDispatchLive_PanicRecoversToNil(t *testing.T) {
 	}
 }
 
+// TestDispatchLive_RealErrorSetsNote is the regression test for the false-OK
+// fix: when a per-check drill-down function returns (nil, realErr) — a
+// genuine failure, not "nothing more to show" — dispatchLive must not
+// silently discard err and return a bare nil (which dispatch()'s caller
+// treats identically to a clean drill-down with nothing to add). It must set
+// a Details.Note disclosing the failure. Drives the same nonexistent-mount
+// failure TestLargestDirs_ReadDirError proves returns (nil, error) directly,
+// but through the dispatchLive switch (the "Disk" case) that used to discard
+// it via `_ = err`.
+func TestDispatchLive_RealErrorSetsNote(t *testing.T) {
+	t.Parallel()
+	nonexistent := filepath.Join(t.TempDir(), "no-such-mount-point")
+	ins := models.Insight{
+		Level:   "WARN",
+		Check:   "Disk",
+		Message: "disk usage at 95% on " + nonexistent + " (/dev/sda1)",
+	}
+	got := dispatchLive(context.Background(), ins, nil)
+	if got == nil {
+		t.Fatal("expected dispatchLive to return a non-nil Details disclosing the failure, got nil")
+	}
+	if got.Note == "" {
+		t.Error("expected Details.Note to disclose the drill-down failure, got empty Note")
+	}
+}
+
 // TestLargestDirs_ReadDirError covers disk.go:23-25 (the os.ReadDir error
 // branch that falls back to largestDirsFallback) by passing a nonexistent path.
 // largestDirsFallback also fails on the same nonexistent path, returning
