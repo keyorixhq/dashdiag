@@ -9,6 +9,8 @@ package cmd
 
 import (
 	"context"
+	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -44,15 +46,22 @@ func TestToolCaptureRequiresOutPath(t *testing.T) {
 
 // TestToolCaptureIdentifiersImpliesSanitize verifies that setting
 // Identifiers=true automatically enables Sanitize even when the caller omits
-// it — keeping the internal bundle consistent with the documented contract.
-// We exercise only the implication gate (the write itself will fail on a
-// nonexistent path, which is fine for this test).
+// it — keeping the internal bundle consistent with the documented contract —
+// and that toolCapture's own JSON response doesn't echo the real hostname
+// (redaction-primitives-05: the bundle FILE correctly showed the placeholder,
+// but a caller that logs/forwards the tool result, a common agent pattern,
+// got the real hostname anyway via the "host" response field). Both
+// assertions share a single toolCapture call (which runs the full live
+// health-collection pipeline) rather than two, since a second parallel call
+// serialized behind mcpPipelineMu pushed the cmd package's test suite over
+// its 180s CI budget.
 func TestToolCaptureIdentifiersImpliesSanitize(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	out := filepath.Join(dir, "out.tar.gz")
-	// We don't check the returned bundle — just that it doesn't error on a
-	// valid path (indicating Sanitize=true was set correctly from Identifiers).
+
+	realHost, hostErr := os.Hostname()
+
 	_, result, err := toolCapture(context.Background(), &mcp.CallToolRequest{},
 		mcpCaptureInput{OutPath: out, Identifiers: true, Sanitize: false})
 	if err != nil {
@@ -63,6 +72,31 @@ func TestToolCaptureIdentifiersImpliesSanitize(t *testing.T) {
 	}
 	if result.Bytes <= 0 {
 		t.Errorf("expected positive bundle size, got %d", result.Bytes)
+	}
+	if hostErr == nil && realHost != "" && result.Host == realHost {
+		t.Errorf("toolCapture response disclosed the real hostname %q despite Identifiers:true", realHost)
+	}
+}
+
+// TestRedactMCPJSON guards sanitize-bundle-01: toolHealth/toolReplay returned
+// their rendered JSON verbatim over MCP with no redaction path at all, even
+// though checks[].raw is documented out-of-contract and may carry a
+// collector's verbatim raw data. Exercises redactMCPJSON directly (the exact
+// helper toolHealth/toolReplay call) on compact JSON — the shape where a
+// naive byte-level regex pass against already-serialized JSON would corrupt
+// structure, which is why redaction happens on the decoded value instead.
+func TestRedactMCPJSON(t *testing.T) {
+	t.Parallel()
+	in := []byte(`{"checks":[{"name":"env","status":"OK","raw":{"line":"token=abc123secretvalue"}}]}`)
+	out := redactMCPJSON(in)
+	if strings.Contains(string(out), "abc123secretvalue") {
+		t.Errorf("secret survived redactMCPJSON: %s", out)
+	}
+	if !json.Valid(out) {
+		t.Fatalf("redactMCPJSON produced invalid JSON: %s", out)
+	}
+	if !strings.Contains(string(out), `"status":"OK"`) {
+		t.Errorf("non-secret field corrupted: %s", out)
 	}
 }
 

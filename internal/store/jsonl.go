@@ -2,10 +2,12 @@ package store
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"sync"
@@ -116,45 +118,61 @@ func ReadAll(path, hostname string, n int) ([]Entry, error) {
 	}
 	defer f.Close() //nolint:errcheck
 
+	// internal-store-01-03: bufio.Scanner (the previous implementation here)
+	// treats a too-long line as a fatal, non-resumable error — once Scan()
+	// returns false there is no way to skip past the offending line and keep
+	// reading, so ANY oversized line silently discarded every entry AFTER it
+	// in the file too, not just the bad one. Since History() reads oldest-first
+	// and callers usually want the LAST n entries, that meant one corrupted
+	// early line silently erased all of dsd's more recent, more relevant
+	// history — while still returning (matches, nil), a clean success. Read
+	// with bufio.Reader.ReadBytes instead: it can resume after an oversized
+	// line, so only that one entry is skipped, not everything after it.
 	var matches []Entry
-	sc := bufio.NewScanner(f)
-	sc.Buffer(make([]byte, 64*1024), maxLineSizeBytes)
-	for sc.Scan() {
-		var e Entry
-		if err := json.Unmarshal(sc.Bytes(), &e); err != nil {
-			continue // skip malformed lines rather than aborting
-		}
-		if hostname != "" && e.Hostname != hostname {
-			continue
-		}
+	var oversized int
+	br := bufio.NewReaderSize(f, 64*1024)
+	for {
+		lineBytes, rerr := br.ReadBytes('\n')
+		line := bytes.TrimRight(lineBytes, "\n")
 		switch {
-		case n > 0:
-			// A bounded tail request (the common case — dsd history/diff/health
-			// all ask for a small n) is kept as a fixed-size window as we scan,
-			// instead of accumulating every match in the whole file before
-			// truncating at the end. Slicing off the front on overflow keeps
-			// len(matches) <= n at all times; Go's append growth is driven by
-			// current len/cap, not lifetime append count, so the backing array
-			// stays O(n) regardless of how large the store file has grown.
-			matches = append(matches, e)
-			if len(matches) > n {
-				matches = matches[1:]
+		case len(line) > maxLineSizeBytes:
+			oversized++
+		case len(line) > 0:
+			var e Entry
+			// Malformed JSON is skipped rather than aborting, same as before.
+			if err := json.Unmarshal(line, &e); err == nil && (hostname == "" || e.Hostname == hostname) {
+				switch {
+				case n > 0:
+					// A bounded tail request (the common case — dsd history/diff/health
+					// all ask for a small n) is kept as a fixed-size window as we scan,
+					// instead of accumulating every match in the whole file before
+					// truncating at the end. Slicing off the front on overflow keeps
+					// len(matches) <= n at all times; Go's append growth is driven by
+					// current len/cap, not lifetime append count, so the backing array
+					// stays O(n) regardless of how large the store file has grown.
+					matches = append(matches, e)
+					if len(matches) > n {
+						matches = matches[1:]
+					}
+				case len(matches) >= maxReadAllEntries:
+					// n<=0 ("return everything", used by Prune): cap total entries
+					// accumulated so an unpruned or many-hostname store file can't
+					// grow memory use without bound. Keep scanning (not appending
+					// more) so a later oversized-line count is still reported below.
+				default:
+					matches = append(matches, e)
+				}
 			}
-		case len(matches) >= maxReadAllEntries:
-			// n<=0 ("return everything", used by Prune): cap total entries
-			// accumulated so an unpruned or many-hostname store file can't
-			// grow memory use without bound. Keep scanning (not breaking) so
-			// a later oversized-line error is still reported below.
-		default:
-			matches = append(matches, e)
+		}
+		if rerr != nil {
+			if errors.Is(rerr, io.EOF) {
+				break
+			}
+			return nil, fmt.Errorf("store: reading %s: %w", path, rerr)
 		}
 	}
-	if err := sc.Err(); err != nil {
-		if !errors.Is(err, bufio.ErrTooLong) {
-			return nil, fmt.Errorf("store: scanning %s: %w", path, err)
-		}
-		fmt.Fprintf(os.Stderr, "dsd: store: oversized line in %s skipped (line > %d bytes)\n", path, maxLineSizeBytes)
-		// fall through and return what we have, as before
+	if oversized > 0 {
+		fmt.Fprintf(os.Stderr, "dsd: store: %d oversized line(s) in %s skipped (line > %d bytes) — later entries were still read\n", oversized, path, maxLineSizeBytes)
 	}
 
 	return matches, nil

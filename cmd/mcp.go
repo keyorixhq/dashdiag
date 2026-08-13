@@ -169,9 +169,28 @@ func toolHealth(ctx context.Context, _ *mcp.CallToolRequest, in mcpHealthInput) 
 	if err != nil {
 		return nil, nil, fmt.Errorf("dsd_health: marshalling result: %w", err)
 	}
+	// checks[].raw is documented out-of-contract: nothing stops a collector's raw
+	// Data from carrying secret-shaped content (a config blob, command output, a
+	// credential). Unlike `dsd capture --raw`'s file-write path, this MCP
+	// response has no sanitize opt-in at all and commonly forwards straight into
+	// a cloud-hosted LLM's context — so give it the same "secrets always
+	// redacted" floor a capture bundle gets, best-effort.
+	data = redactMCPJSON(data)
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: string(data)}},
 	}, nil, nil
+}
+
+// redactMCPJSON applies source.RedactJSONSecrets to an MCP tool's outbound
+// JSON payload, falling back to the original bytes unchanged if the payload
+// somehow isn't valid JSON (render.RenderJSON output always is, in practice —
+// this is defense against a future caller misuse, not an expected path).
+func redactMCPJSON(data []byte) []byte {
+	red, err := source.RedactJSONSecrets(data)
+	if err != nil {
+		return data
+	}
+	return red
 }
 
 // toolCapture records a raw bundle, writing it to in.OutPath.
@@ -234,9 +253,17 @@ func toolCapture(ctx context.Context, _ *mcp.CallToolRequest, in mcpCaptureInput
 	if statErr == nil {
 		sz = fi.Size()
 	}
+	// Report the SANITIZED host (b.Manifest.Host, which Sanitize replaced with
+	// the placeholder) when identifiers redaction was requested — otherwise the
+	// tool's own JSON response discloses the real hostname on a channel
+	// Sanitize was never applied to, defeating the point of asking for it.
+	respHost := host
+	if in.Identifiers {
+		respHost = b.Manifest.Host
+	}
 	return nil, mcpCaptureOutput{
 		BundlePath: outPath,
-		Host:       host,
+		Host:       respHost,
 		CapturedAt: b.Manifest.Created,
 		Bytes:      sz,
 	}, nil
@@ -263,6 +290,10 @@ func toolReplay(_ context.Context, _ *mcp.CallToolRequest, in mcpReplayInput) (
 	if err != nil {
 		return nil, nil, fmt.Errorf("dsd_replay: marshalling result: %w", err)
 	}
+	// See toolHealth's redactMCPJSON call: checks[].raw can carry a collector's
+	// verbatim raw data (here, from the replayed bundle), and this response has
+	// no sanitize opt-in of its own.
+	data = redactMCPJSON(data)
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: string(data)}},
 	}, nil, nil

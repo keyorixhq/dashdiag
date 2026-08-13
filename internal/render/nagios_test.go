@@ -1,6 +1,7 @@
 package render
 
 import (
+	"errors"
 	"strings"
 	"testing"
 
@@ -73,6 +74,60 @@ func TestNagiosLine(t *testing.T) {
 		line, _ := NagiosLine(res, ins)
 		if !strings.Contains(line, "1 warning") {
 			t.Errorf("expected deduped count of 1: %q", line)
+		}
+	})
+
+	// internal-render-03-03: a collector error never becomes a CRIT/WARN
+	// insight — it only ever produces an INFO "check could not run" disclosure
+	// — so a run where every collector failed had zero CRIT/WARN insights and
+	// fell straight to the "DASHDIAG OK - all checks passed" default, exactly
+	// the false-OK a monitoring plugin line must never emit.
+	t.Run("a failed collector with no other findings is WARNING, not OK", func(t *testing.T) {
+		failedRes := []runner.Result{{Name: "Disk", Err: errors.New("boom")}, {Name: "CPU"}}
+		line, code := NagiosLine(failedRes, nil)
+		if code != 1 || !strings.HasPrefix(line, "DASHDIAG WARNING") {
+			t.Fatalf("got %q code=%d, want WARNING exit 1", line, code)
+		}
+		if !strings.Contains(line, "Disk") {
+			t.Errorf("failed check name not surfaced: %q", line)
+		}
+	})
+
+	t.Run("a failed collector alongside a real WARN is still WARNING, naming both", func(t *testing.T) {
+		failedRes := []runner.Result{{Name: "Disk", Err: errors.New("boom")}, {Name: "CPU"}}
+		ins := []models.Insight{{Level: "WARN", Check: "Swap"}}
+		line, code := NagiosLine(failedRes, ins)
+		if code != 1 || !strings.HasPrefix(line, "DASHDIAG WARNING") {
+			t.Fatalf("got %q code=%d", line, code)
+		}
+		if !strings.Contains(line, "Swap") || !strings.Contains(line, "Disk") {
+			t.Errorf("expected both the real WARN and the failed check named: %q", line)
+		}
+	})
+
+	t.Run("a failed collector alongside a CRIT stays CRITICAL, naming the failure too", func(t *testing.T) {
+		failedRes := []runner.Result{{Name: "Disk"}, {Name: "Network", Err: errors.New("timeout")}}
+		ins := []models.Insight{{Level: "CRIT", Check: "Disk"}}
+		line, code := NagiosLine(failedRes, ins)
+		if code != 2 || !strings.HasPrefix(line, "DASHDIAG CRITICAL") {
+			t.Fatalf("got %q code=%d", line, code)
+		}
+		if !strings.Contains(line, "Network") {
+			t.Errorf("failed check name not surfaced alongside CRIT: %q", line)
+		}
+	})
+
+	t.Run("a repeated collector failure is deduped by name", func(t *testing.T) {
+		failedRes := []runner.Result{
+			{Name: "Disk", Err: errors.New("boom")},
+			{Name: "Disk", Err: errors.New("boom again")},
+		}
+		line, code := NagiosLine(failedRes, nil)
+		if code != 1 {
+			t.Fatalf("code=%d, want 1", code)
+		}
+		if strings.Count(line, "Disk") != 1 {
+			t.Errorf("expected Disk named once, got: %q", line)
 		}
 	})
 }
