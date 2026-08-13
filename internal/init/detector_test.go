@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 	"runtime"
 	"testing"
+	"time"
 )
 
 func TestContainsAny(t *testing.T) {
@@ -96,6 +97,45 @@ func TestDarwinProcessNames_PsNotFound(t *testing.T) {
 
 	if names := darwinProcessNames(); names != nil {
 		t.Errorf("darwinProcessNames() = %v, want nil when `ps` is not on PATH", names)
+	}
+}
+
+// TestDarwinProcessNamesBoundsHungPs covers subprocess-wrappers-07: a bare
+// exec.Command("ps", "aux") has no deadline at all, so a wedged `ps` (a stuck
+// kernel table lock, a pathological process count) would hang
+// darwinProcessNames — and therefore `dsd init` — forever. Point PATH at a
+// fake "ps" that sleeps far longer than psTimeout and confirm the call
+// returns promptly instead of blocking for the sleep's full duration.
+func TestDarwinProcessNamesBoundsHungPs(t *testing.T) {
+	dir := t.TempDir()
+	fakePS := filepath.Join(dir, "ps")
+	// Use /bin/sleep by absolute path, not a bare "sleep" — the script inherits
+	// the test's PATH below (set to just dir), so a bare "sleep" would fail to
+	// resolve and the script would fall straight through to the echo, defeating
+	// the whole point of this fixture (it must actually block). `exec` replaces
+	// the shell with sleep in the same process rather than forking a child, so
+	// killing the "ps" process actually kills the sleep — a forked (non-exec'd)
+	// grandchild would keep the output pipe open after the shell itself dies,
+	// masking a working cancellation as a hang.
+	script := "#!/bin/sh\nexec /bin/sleep 5\n"
+	if err := os.WriteFile(fakePS, []byte(script), 0o755); err != nil { //nolint:gosec // test fixture, needs +x
+		t.Fatalf("writing fake ps: %v", err)
+	}
+
+	t.Setenv("PATH", dir)
+	oldTimeout := psTimeout
+	psTimeout = 300 * time.Millisecond
+	defer func() { psTimeout = oldTimeout }()
+
+	start := time.Now()
+	names := darwinProcessNames()
+	elapsed := time.Since(start)
+
+	if elapsed > 2*time.Second {
+		t.Errorf("darwinProcessNames() took %s — a hung `ps` was not bounded by psTimeout (blocked instead of being killed)", elapsed)
+	}
+	if names != nil {
+		t.Errorf("darwinProcessNames() = %v, want nil when ps is killed for exceeding its deadline", names)
 	}
 }
 

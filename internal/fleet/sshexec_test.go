@@ -60,6 +60,27 @@ exit 255
 	}
 }
 
+// TestSSHRun_CapsOversizedStdout covers read-bounding-04: sshRun must cap how
+// much remote stdout it buffers. A compromised or misbehaving remote host
+// (or a wildly misbehaving `dsd health --json` on the other end) printing far
+// more than any real report must not make the orchestrating `dsd fleet`
+// process buffer unbounded memory. The fake ssh uses /bin/dd by absolute path
+// (not a bare "dd") since PATH is pinned to just the fixture dir below.
+func TestSSHRun_CapsOversizedStdout(t *testing.T) {
+	dir := t.TempDir()
+	writeFakeBin(t, dir, "ssh", `/bin/dd if=/dev/zero bs=1M count=32 2>/dev/null
+`)
+	t.Setenv("PATH", dir)
+
+	out, err := sshRun(context.Background(), Options{ConnectTimeout: 5 * time.Second}, "h1", "dsd health --json")
+	if err != nil {
+		t.Fatalf("sshRun error = %v", err)
+	}
+	if len(out) > sshOutputMaxBytes {
+		t.Errorf("sshRun returned %d bytes, want <= %d (sshOutputMaxBytes)", len(out), sshOutputMaxBytes)
+	}
+}
+
 // TestSCP_Success exercises the real exec.CommandContext("scp", ...) path via
 // a fake scp script that just needs to exit 0.
 func TestSCP_Success(t *testing.T) {

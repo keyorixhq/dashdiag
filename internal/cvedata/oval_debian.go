@@ -252,7 +252,7 @@ func ParseUbuntuOVAL(ovalPath string) (map[string]RHELCVERecord, error) {
 	}
 
 	var defs ubuntuOVALDefs
-	if err := xml.NewDecoder(r).Decode(&defs); err != nil {
+	if err := xml.NewDecoder(boundDecompressed(r)).Decode(&defs); err != nil {
 		return nil, fmt.Errorf("parsing OVAL XML: %w", err)
 	}
 	if len(defs.Definitions) == 0 {
@@ -378,7 +378,7 @@ func ScanUbuntuOVALPackages(ctx context.Context, ovalPath string) ([]OVALCVSSRes
 		r = bzip2.NewReader(f)
 	}
 
-	entries, err := parseUbuntuOVALVersionAware(r)
+	entries, err := parseUbuntuOVALVersionAware(boundDecompressed(r))
 	if err != nil {
 		return nil, err
 	}

@@ -153,6 +153,23 @@ func TestReadCompareStream_ReaderErrorPropagates(t *testing.T) {
 	}
 }
 
+// TestReadCompareStream_RejectsOversizedInput covers cmd-02-03:
+// readCompareStream must not buffer an unbounded amount of memory reading a
+// remote/untrusted snapshot stream (stdin or a file argument). A stream far
+// larger than any real multi-host snapshot batch must be refused, not read
+// fully into memory first.
+func TestReadCompareStream_RejectsOversizedInput(t *testing.T) {
+	t.Parallel()
+	huge := strings.NewReader(strings.Repeat("a", maxCompareStreamBytes+(2<<20)))
+	_, err := readCompareStream(huge)
+	if err == nil {
+		t.Fatal("expected an error for input exceeding maxCompareStreamBytes, got nil")
+	}
+	if !strings.Contains(err.Error(), "exceeds maximum size") {
+		t.Errorf("expected a size-cap error, got: %v", err)
+	}
+}
+
 // TestReadCompareStream_EmptyInputErrors covers the len(out)==0 guard: when
 // input is not a valid JSON object AND the NDJSON decoder finds no tokens
 // (empty string), the function returns "no valid JSON snapshots found".

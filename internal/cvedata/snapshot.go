@@ -168,7 +168,7 @@ func LoadSnapshot(path string) (*Snapshot, error) {
 	}
 
 	var s Snapshot
-	if err := json.NewDecoder(r).Decode(&s); err != nil {
+	if err := json.NewDecoder(boundDecompressed(r)).Decode(&s); err != nil {
 		return nil, fmt.Errorf("parsing snapshot: %w", err)
 	}
 	if s.CVEs == nil {

@@ -65,6 +65,9 @@ func logoDataURI(logo string) (template.URL, error) {
 		if !isSafeAttrURI(logo) {
 			return "", fmt.Errorf("logo URL contains characters unsafe for an HTML attribute")
 		}
+		if len(logo) > maxLogoBytes {
+			return "", fmt.Errorf("logo URL exceeds %d bytes", maxLogoBytes)
+		}
 		return template.URL(logo), nil //nolint:gosec // operator-supplied HTTPS URI, self-contained report
 	}
 	// Validate data: URIs — only image/* MIME types are safe to embed.
@@ -75,6 +78,13 @@ func logoDataURI(logo string) (template.URL, error) {
 		}
 		if !isSafeAttrURI(logo) {
 			return "", fmt.Errorf("logo data: URI contains characters unsafe for an HTML attribute")
+		}
+		// Unlike the file-path branch below, a data: URI is embedded verbatim with
+		// no read to size-check first — apply the same maxLogoBytes cap here so a
+		// caller-supplied (env var / --logo) data: URI can't bloat every report by
+		// an arbitrary amount just because it skipped the file-read path.
+		if len(logo) > maxLogoBytes {
+			return "", fmt.Errorf("data: logo URI exceeds %d bytes", maxLogoBytes)
 		}
 		return template.URL(logo), nil //nolint:gosec // validated image/* data URI
 	}

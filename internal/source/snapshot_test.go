@@ -98,6 +98,56 @@ func TestFromSnapshotTruncatedEntry(t *testing.T) {
 	}
 }
 
+// TestFromSnapshotRejectsOversizedEntry covers internal-source-02-02:
+// FromSnapshot must reject a tar entry whose declared size exceeds
+// maxUntarFileSize rather than reading it fully into memory with an unbounded
+// io.ReadAll — the same cap untarGz already enforces in tarball.go. Writes a
+// real oversized (highly compressible, all-zero) entry so the tar stream is
+// well-formed; the point is that FromSnapshot must refuse to materialize it,
+// not that the bytes are hard to produce.
+func TestFromSnapshotRejectsOversizedEntry(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "huge.tar.gz")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	gz := gzip.NewWriter(f)
+	tw := tar.NewWriter(gz)
+
+	const oversize = maxUntarFileSize + 1024
+	if err := tw.WriteHeader(&tar.Header{
+		Name: "hwsnap-host-x/huge.txt", Typeflag: tar.TypeReg, Mode: 0o644, Size: oversize,
+	}); err != nil {
+		t.Fatalf("write header: %v", err)
+	}
+	buf := make([]byte, 1<<20) // 1MiB zero chunk, reused
+	for written := int64(0); written < oversize; {
+		n := int64(len(buf))
+		if remaining := oversize - written; remaining < n {
+			n = remaining
+		}
+		if _, err := tw.Write(buf[:n]); err != nil {
+			t.Fatalf("write body: %v", err)
+		}
+		written += n
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatalf("tar close: %v", err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatalf("gzip close: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("file close: %v", err)
+	}
+
+	if _, err := FromSnapshot(path); err == nil {
+		t.Fatal("FromSnapshot of an oversized tar entry should fail, not read it fully into memory")
+	}
+}
+
 // TestFromSnapshotSkipsNonRegularAndNonTxt verifies FromSnapshot skips
 // non-regular tar entries (e.g. directories) and non-.txt files (.err/.exit/
 // MANIFEST/command blobs), ingesting only the recognised .txt payloads.
