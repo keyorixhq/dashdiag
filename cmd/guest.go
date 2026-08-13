@@ -12,6 +12,7 @@ import (
 	"github.com/spf13/cobra"
 
 	"github.com/keyorixhq/dashdiag/internal/analysis"
+	"github.com/keyorixhq/dashdiag/internal/baseline"
 	"github.com/keyorixhq/dashdiag/internal/collectors"
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
@@ -128,11 +129,23 @@ func writeGuestReportHTML(view guestView) (string, error) {
 			{Title: view.guestTitle, Issues: guest},
 			{Title: view.hostTitle, Issues: host},
 		}, level, text)
-	filename := fmt.Sprintf("dsd-guest-report-%s-%s.html", hostname, now.Format("20060102-150405"))
-	if err := os.WriteFile(filename, []byte(htmlStr), 0o644); err != nil { //nolint:gosec // report file, world-readable intentional
+	filename := guestReportFilename(hostname, now)
+	if err := writeFileNoFollow(filename, []byte(htmlStr), 0o644); err != nil {
 		return "", err
 	}
 	return filename, nil
+}
+
+// guestReportFilename builds writeGuestReportHTML's output filename.
+// hostname can come from an untrusted source (a rogue DHCP option 12, a
+// VM/container image's hostname metadata, cloud-init user-data supplied by a
+// hosting provider) — sanitize before it reaches a filename, same as
+// baseline.SafeHostname's own doc comment names this threat. Split out of
+// writeGuestReportHTML (which also calls os.Hostname() directly) so this
+// path-safety property is unit-testable without depending on the real
+// kernel hostname.
+func guestReportFilename(hostname string, now time.Time) string {
+	return fmt.Sprintf("dsd-guest-report-%s-%s.html", baseline.SafeHostname(hostname), now.Format("20060102-150405"))
 }
 
 // detectGuestView resolves the INNERMOST isolation layer first — a container on a

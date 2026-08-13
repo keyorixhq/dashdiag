@@ -67,3 +67,41 @@ func TestFindBaselineBeforeTime(t *testing.T) {
 		t.Error("unknown host should error")
 	}
 }
+
+// TestFindBaselineBeforeTime_HostnameTraversal guards against a hostname
+// argument that contains path-traversal segments escaping baselineDir() via
+// the Glob pattern (internal-baseline-01-07). hostname flows into
+// FindBaselineBeforeTime unsanitized from cmd/ callers; without SafeHostname
+// applied to it, filepath.Glob(filepath.Join(dir, hostname+"-2*.json")) can
+// resolve to a path outside ~/.dsd/baselines/ and read an arbitrary
+// attacker-planted snapshot from a sibling directory.
+func TestFindBaselineBeforeTime_HostnameTraversal(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	dir := filepath.Join(home, ".dsd", "baselines")
+	if err := os.MkdirAll(dir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+
+	// A file OUTSIDE baselineDir(), in a sibling directory, that a traversal
+	// hostname could reach.
+	evilDir := filepath.Join(home, ".dsd", "evil")
+	if err := os.MkdirAll(evilDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	snap := Snapshot{Hostname: "evil", Version: "planted-outside-baselines", Timestamp: time.Now()}
+	data, err := json.MarshalIndent(&snap, "", "  ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	evilPath := filepath.Join(evilDir, "evilhost-20260101-000000.json")
+	if err := os.WriteFile(evilPath, data, 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	// hostname reaches into the sibling "evil" dir via "../evil/evilhost".
+	_, err = FindBaselineBeforeTime(time.Now(), "../evil/evilhost")
+	if err == nil {
+		t.Fatal("traversal hostname must not resolve to a file outside baselineDir(); FindBaselineBeforeTime should have errored with 'no baselines found'")
+	}
+}

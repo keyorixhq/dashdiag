@@ -175,6 +175,25 @@ func TestKVMReadLastLogError_FileMissing(t *testing.T) {
 	}
 }
 
+// TestKVMReadLastLogError_NameTraversalRejected guards internal-collectors-18-06:
+// vm.Name comes from `virsh list --all --name` output with no character-class
+// validation. Without a containment check, a domain named with "../" segments
+// (a name a user in the libvirt group, or a compromised management tool, could
+// define) would let filepath.Join resolve outside /var/log/libvirt/qemu/ and
+// read an arbitrary .log-suffixed file the dsd process can access — surfacing
+// its content (e.g. auth.log lines) as this VM's LastLogError.
+func TestKVMReadLastLogError_NameTraversalRejected(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		// A file OUTSIDE the libvirt qemu log dir that the traversal name reaches.
+		b.PutFile("/etc/secret.log", []byte("error: leaked secret line\n"))
+	})
+	vm := &models.KVMVM{Name: "../../../../etc/secret"}
+	kvmReadLastLogError(vm)
+	if vm.LastLogError != "" {
+		t.Errorf("LastLogError = %q, want empty — traversal name must not escape /var/log/libvirt/qemu/", vm.LastLogError)
+	}
+}
+
 func TestKVMCollectVMs_Happy(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("virsh", []string{"list", "--all", "--name"}, "vm1\nvm2\n", 0)

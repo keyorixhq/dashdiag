@@ -259,8 +259,17 @@ func kvmCheckDiskErrors(ctx context.Context, vm *models.KVMVM) {
 
 // kvmReadLastLogError reads the last error line from /var/log/libvirt/qemu/<name>.log.
 func kvmReadLastLogError(vm *models.KVMVM) {
-	logPath := filepath.Join("/var/log/libvirt/qemu", vm.Name+".log")
-	f, err := openFile(logPath) // #nosec G304
+	const logDir = "/var/log/libvirt/qemu"
+	logPath := filepath.Join(logDir, vm.Name+".log")
+	// vm.Name comes from `virsh list --all --name` with no character-class
+	// validation — a domain name containing "../" segments would otherwise
+	// let filepath.Join resolve outside logDir (e.g. to /var/log/auth.log),
+	// reading an arbitrary .log-suffixed file the dsd process can access and
+	// surfacing its content as this VM's LastLogError.
+	if logPath != logDir && !strings.HasPrefix(logPath, logDir+string(filepath.Separator)) {
+		return
+	}
+	f, err := openFile(logPath) // #nosec G304 -- logPath is confined to logDir by the HasPrefix check above
 	if err != nil {
 		return
 	}

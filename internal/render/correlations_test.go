@@ -56,6 +56,28 @@ func TestPrintCorrelationsHumanMode(t *testing.T) {
 	}
 }
 
+// TestPrintCorrelations_StripsControlChars guards terminal escape injection:
+// Name/Summary/Action are analysis-constructed strings that can splice in
+// attacker-influenced data (e.g. an OOM-killed process's comm name via
+// ruleRepeatedOOM in correlate.go), and must not carry raw control bytes to
+// the terminal.
+func TestPrintCorrelations_StripsControlChars(t *testing.T) {
+	corrs := []analysis.Correlation{{
+		Name:    "Repeated OOM Kill",
+		Level:   "WARN",
+		Summary: "evil\x1b]0;pwned\x07 was OOM-killed 5 times",
+		Action:  "check evil\x1b]0;pwned\x07 memory growth",
+	}}
+	r := NewRenderer(output.ModeHuman)
+	out := captureStdout(t, func() { r.PrintCorrelations(corrs) })
+	if strings.Contains(out, "\x1b") {
+		t.Errorf("PrintCorrelations output still contains ESC byte: %q", out)
+	}
+	if !strings.Contains(out, "evil]0;pwned was OOM-killed") {
+		t.Errorf("PrintCorrelations output missing sanitized summary: %q", out)
+	}
+}
+
 // TestPrintCorrelationsPlainMode covers the unstyled (non-human) text path:
 // "LEVEL: Name" header form instead of the styled icon+bold name.
 func TestPrintCorrelationsPlainMode(t *testing.T) {

@@ -115,7 +115,11 @@ func detectCloudEnvironmentFromPaths(dmiDir, hypervisorUUID, blockDir, imdsURL s
 		return detectAWSStorageTypeFromPaths(blockDir)
 	}
 
-	// IMDS last resort — only if nothing else matched
+	// IMDS last resort — only if nothing else matched, and only when outbound
+	// network calls are allowed (see checkIMDS). Every path above this point is
+	// a purely local file read, so a DSD_OFFLINE run still gets accurate
+	// on-prem/virtualized detection; it just can't distinguish a DMI-silent EC2
+	// instance from bare metal, and reports EnvBareMetal.
 	if imdsURL != "" && checkIMDS(imdsURL) {
 		return detectAWSStorageTypeFromPaths(blockDir)
 	}
@@ -123,19 +127,37 @@ func detectCloudEnvironmentFromPaths(dmiDir, hypervisorUUID, blockDir, imdsURL s
 	return EnvBareMetal
 }
 
+// checkIMDS probes the (link-local) instance metadata service. This is the
+// one outbound network call in cloud-environment detection, which every
+// standalone dsd subcommand runs (via recordResultSeverity, to pick the
+// right IO-latency thresholds for its exit code) as well as `dsd health` —
+// so, unlike a feature the operator explicitly invoked, it fires on
+// essentially every dsd command with no opt-out. Honor DSD_OFFLINE.
 func checkIMDS(url string) bool {
+	if os.Getenv("DSD_OFFLINE") != "" {
+		return false
+	}
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
 	defer cancel()
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 	if err != nil {
 		return false
 	}
-	resp, err := http.DefaultClient.Do(req)
+	// IMDS never legitimately redirects; refuse to follow one rather than
+	// letting a spoofed/compromised responder on the link-local address send
+	// this request elsewhere (see internal/collectors' newIMDSHTTPClient for
+	// the same hardening on the collectors-side IMDS clients).
+	client := &http.Client{
+		CheckRedirect: func(*http.Request, []*http.Request) error {
+			return http.ErrUseLastResponse
+		},
+	}
+	resp, err := client.Do(req)
 	if err != nil {
 		return false
 	}
 	_ = resp.Body.Close()
-	return true
+	return resp.StatusCode == http.StatusOK
 }
 
 func detectAWSStorageTypeFromPaths(blockDir string) CloudEnvironment {
