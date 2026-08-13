@@ -62,9 +62,15 @@ func readHBAPort(hostPath string) models.HBAPort {
 	// Error counters. The kernel SCSI FC transport class formats these ALWAYS as
 	// hex with a "0x" prefix (fc_host_statistic, "0x%llx\n") — NOT decimal, so
 	// readSysfsInt's plain Atoi would silently parse every one of these as 0.
-	port.LinkFailures = readSysfsHexInt(hostPath + "/statistics/link_failure_count")
-	port.LossOfSync = readSysfsHexInt(hostPath + "/statistics/loss_of_sync_count")
-	port.LossOfSignal = readSysfsHexInt(hostPath + "/statistics/loss_of_signal_count")
+	// A genuine read failure ALSO parses to 0 via readSysfsHexInt (empty string
+	// → ParseInt error → ignored, returns 0) — indistinguishable from a real
+	// zero count unless tracked separately, so use the ok-returning variant and
+	// flag CountersUnreadable when any of the three fails.
+	var lfOK, losOK, losigOK bool
+	port.LinkFailures, lfOK = readSysfsHexIntOK(hostPath + "/statistics/link_failure_count")
+	port.LossOfSync, losOK = readSysfsHexIntOK(hostPath + "/statistics/loss_of_sync_count")
+	port.LossOfSignal, losigOK = readSysfsHexIntOK(hostPath + "/statistics/loss_of_signal_count")
+	port.CountersUnreadable = !lfOK || !losOK || !losigOK
 
 	// Detect driver from symlink target (e.g. ../../devices/.../lpfc)
 	if target, err := readLink(hostPath); err == nil {
@@ -87,9 +93,24 @@ func readSysfsInt(path string) int {
 // (e.g. "0x2f\n") — a plain decimal Atoi rejects the "x" and silently returns 0
 // for every value, healthy or not.
 func readSysfsHexInt(path string) int {
+	n, _ := readSysfsHexIntOK(path)
+	return n
+}
+
+// readSysfsHexIntOK is readSysfsHexInt with an ok result: false when the
+// underlying read failed or the content didn't parse (empty string), true
+// when a real hex value — including a genuine 0x0 — was read. Needed
+// wherever the caller must distinguish "checked, zero" from "couldn't check".
+func readSysfsHexIntOK(path string) (int, bool) {
 	s := strings.TrimSpace(readSysfsStr(path))
+	if s == "" {
+		return 0, false
+	}
 	s = strings.TrimPrefix(s, "0x")
 	s = strings.TrimPrefix(s, "0X")
-	n, _ := strconv.ParseInt(s, 16, 64)
-	return int(n)
+	n, err := strconv.ParseInt(s, 16, 64)
+	if err != nil {
+		return 0, false
+	}
+	return int(n), true
 }

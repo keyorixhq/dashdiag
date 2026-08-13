@@ -72,6 +72,7 @@ var guardedUnverifiedSignals = map[string]string{
 	"InfiniBandInfo.ReadFailed":         "analysis/heuristics_round5_test.go TestCheckInfiniBand_ReadFailedNotSilentlyAbsent (/sys/class/infiniband unreadable → INFO, not folded into the same silence as no IB hardware)",
 	"NVMeInfo.DrivesListUnreadable":     "analysis/checks_never_silent_test.go (checkNVMe row) + heuristics_gapfill12_test.go TestCheckNVMe_DrivesListUnreadable (macOS diskutil list failure → INFO, not folded into the same silence as no drives)",
 	"RAIDInfo.ReadFailed":               "analysis/heuristics_storage_raid_readfailed_test.go TestCheckRAID_ReadFailedNotSilentlyAbsent (/proc/mdstat unreadable → INFO, not folded into the same silence as no RAID configured)",
+	"HBAPort.CountersUnreadable":        "analysis/heuristics_round4_test.go TestCheckHBA (unreadable link/sync/signal counters → INFO, not folded into the same silence as a genuinely quiet fabric)",
 	"LVMInfo.PresenceReadFailed":        "analysis/san_unverified_test.go TestLVMPresenceCheckFailedNotSilentlyAbsent + cmd/disk_report_test.go TestPrintDiskLVM + cmd/disk_issues_test.go TestDiskHasUnverifiedReads",
 	"DRBDInfo.Unverified":               "analysis/san_unverified_test.go (DRBD 9 non-root → INFO 'needs root', not silent omission)",
 	"ISCSIInfo.NeedsRoot":               "analysis/san_unverified_test.go (active sessions unreadable non-root → INFO, not silent)",

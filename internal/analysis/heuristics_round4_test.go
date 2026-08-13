@@ -192,6 +192,14 @@ func TestCheckHBA(t *testing.T) {
 	assertLevel(t, checkHBA(models.HBAInfo{Ports: []models.HBAPort{{Name: "host0", PortState: "Online", LinkFailures: 11}}}), "WARN")
 	assertLevel(t, checkHBA(models.HBAInfo{Ports: []models.HBAPort{{Name: "host0", PortState: "Online", LossOfSync: 150}}}), "WARN")
 	assertLevel(t, checkHBA(models.HBAInfo{Ports: []models.HBAPort{{Name: "host0", PortState: ""}}}), "WARN") // unreadable state must not read healthy
+	// Regression: error counters that failed to read (sysfs unreadable) must not
+	// read as "checked, zero link failures" — a genuinely quiet fabric with real
+	// zero counts (CountersUnreadable=false) stays silent, below.
+	unread := checkHBA(models.HBAInfo{Ports: []models.HBAPort{{Name: "host0", PortState: "Online", CountersUnreadable: true}}})
+	if !hasInsightMsg(unread, "INFO", "could not be read") {
+		t.Errorf("unreadable HBA counters must produce an INFO disclosure, got %+v", unread)
+	}
+	assertLevel(t, checkHBA(models.HBAInfo{Ports: []models.HBAPort{{Name: "host0", PortState: "Online", CountersUnreadable: false}}}), "")
 }
 
 func TestCheckAuth(t *testing.T) {

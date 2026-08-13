@@ -1413,6 +1413,16 @@ func checkHBA(hba models.HBAInfo) []models.Insight {
 					"to inspect: check SFP module and fibre cable",
 				},
 			))
+		} else if p.CountersUnreadable {
+			// One or more error counters failed to read — readSysfsHexInt's
+			// empty-string-on-failure path parses identically to a real zero, so
+			// without this the WARN check above silently passes over an
+			// unmeasured fabric instead of disclosing that the counters
+			// themselves couldn't be verified.
+			out = append(out, unverifiedInsight("INFO", "HBA",
+				fmt.Sprintf("FC port %s: link/sync/signal error counters could not be read — fabric error history unverified", p.Name),
+				[]string{inspectFCHostPrefix + p.Name + "/statistics/"},
+			))
 		}
 	}
 	return out

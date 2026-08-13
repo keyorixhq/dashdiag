@@ -216,4 +216,67 @@ func TestReadHBAPort_HexCounters(t *testing.T) {
 	if port.SpeedGbps != 16 {
 		t.Errorf("SpeedGbps = %d, want 16", port.SpeedGbps)
 	}
+	if port.CountersUnreadable {
+		t.Error("CountersUnreadable = true, want false — all three counters (including a genuine 0x0) were read")
+	}
+}
+
+// TestReadHBAPort_CountersUnreadable is the regression test for the false-OK
+// fix: when a statistics/*_count file is missing (sysfs read failure), the
+// old readSysfsHexInt path silently parsed it as 0 — identical to a real
+// zero count — with no way to tell "checked, clean" apart from "couldn't
+// check". CountersUnreadable must be set so checkHBA can disclose it.
+func TestReadHBAPort_CountersUnreadable(t *testing.T) {
+	hostDir := t.TempDir()
+	statsDir := filepath.Join(hostDir, "statistics")
+	if err := os.MkdirAll(statsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// port_state present; statistics/* files intentionally NOT written.
+	if err := os.WriteFile(filepath.Join(hostDir, "port_state"), []byte("Online\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	port := readHBAPort(hostDir)
+	if !port.CountersUnreadable {
+		t.Error("CountersUnreadable = false, want true when the statistics files are missing")
+	}
+	if port.LinkFailures != 0 || port.LossOfSync != 0 || port.LossOfSignal != 0 {
+		t.Errorf("counters = %d/%d/%d, want all 0 (the point: 0 is ambiguous, CountersUnreadable disambiguates)",
+			port.LinkFailures, port.LossOfSync, port.LossOfSignal)
+	}
+}
+
+// TestReadSysfsHexIntOK covers the ok-returning variant directly: a missing
+// or unparseable file must return ok=false, while a genuine 0x0 must return
+// ok=true — the two cannot be told apart from the int alone.
+func TestReadSysfsHexIntOK(t *testing.T) {
+	t.Run("genuine zero is ok", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "counter")
+		if err := os.WriteFile(path, []byte("0x0\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		n, ok := readSysfsHexIntOK(path)
+		if !ok || n != 0 {
+			t.Errorf("readSysfsHexIntOK() = %d, %v, want 0, true", n, ok)
+		}
+	})
+	t.Run("missing file is not ok", func(t *testing.T) {
+		n, ok := readSysfsHexIntOK(filepath.Join(t.TempDir(), "missing"))
+		if ok || n != 0 {
+			t.Errorf("readSysfsHexIntOK() = %d, %v, want 0, false", n, ok)
+		}
+	})
+	t.Run("unparseable content is not ok", func(t *testing.T) {
+		dir := t.TempDir()
+		path := filepath.Join(dir, "counter")
+		if err := os.WriteFile(path, []byte("not-hex\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		n, ok := readSysfsHexIntOK(path)
+		if ok || n != 0 {
+			t.Errorf("readSysfsHexIntOK() = %d, %v, want 0, false", n, ok)
+		}
+	})
 }
