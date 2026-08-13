@@ -730,6 +730,30 @@ func TestCheckNetworkGatewayStates(t *testing.T) {
 	}
 }
 
+// TestCheckNetwork_ConnectivityProbeDisabled is a regression guard for
+// egress-gate-02: when DSD_OFFLINE skips the ping/DNS probe, the collector
+// leaves GatewayPingMs/InternetPingMs/DNSResolvesMs at their zero values and
+// sets ConnectivityProbeDisabled instead. Without a dedicated branch, those
+// zero values fall straight into the "gateway and internet unreachable —
+// host appears offline" CRIT (GatewayPingMs < 0 is false for 0, but the
+// zero-value case was never a designed input before this field existed) —
+// exactly the false-alarm-from-an-unmeasured-check class this project
+// treats as a bug. checkNetwork must emit a single disclosure INFO instead
+// of any CRIT/WARN derived from the unset fields.
+func TestCheckNetwork_ConnectivityProbeDisabled(t *testing.T) {
+	net := models.NetworkInfo{ConnectivityProbeDisabled: true}
+	insights := checkNetwork(net)
+	if len(insights) != 1 {
+		t.Fatalf("expected exactly one insight, got %+v", insights)
+	}
+	if insights[0].Level != "INFO" {
+		t.Errorf("level: got %q, want INFO (never a false CRIT/WARN from unmeasured zero values)", insights[0].Level)
+	}
+	if !contains(insights[0].Message, "skipped") {
+		t.Errorf("expected a message disclosing the probe was skipped, got %q", insights[0].Message)
+	}
+}
+
 func contains(s, substr string) bool {
 	return len(s) >= len(substr) && (s == substr || len(substr) == 0 ||
 		(func() bool {

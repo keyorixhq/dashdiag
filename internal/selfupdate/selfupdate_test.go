@@ -5,6 +5,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"fmt"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -14,6 +15,20 @@ import (
 	"testing"
 	"time"
 )
+
+// TestMain widens validateAssetURL to accept the loopback, plain-http
+// addresses httptest.NewServer binds to, so the package's many existing
+// fixtures (which point Asset.URL at a local httptest server) keep
+// exercising the real download path through
+// httpGet/fetchBytes/downloadToTemp instead of every individual test needing
+// its own workaround. This does not weaken validateAssetURL's production
+// behaviour: both relaxations are test-binary-only (requireHTTPSAssetURL,
+// the 127.0.0.1 allowlist entry) and the shipped defaults never change.
+func TestMain(m *testing.M) {
+	assetURLAllowedHosts["127.0.0.1"] = true
+	requireHTTPSAssetURL = false
+	os.Exit(m.Run())
+}
 
 func TestCompareVersions(t *testing.T) {
 	cases := []struct {
@@ -165,6 +180,101 @@ func TestApply_ChecksumMismatch(t *testing.T) {
 	got, _ := os.ReadFile(target)
 	if string(got) != "old" {
 		t.Errorf("binary was replaced despite bad checksum: %q", got)
+	}
+}
+
+// TestValidateAssetURL_RejectsUntrustedHost is a regression guard for
+// internal-selfupdate-01-03: Asset.URL (browser_download_url) comes straight
+// from the GitHub API response with no host/scheme validation, so a
+// compromised release origin could point an asset at an arbitrary internal
+// or attacker-chosen endpoint and dsd would issue a blind outbound GET at it
+// during `dsd update`. validateAssetURL must reject anything that isn't an
+// https:// GitHub release host, independent of the test-binary relaxations
+// TestMain applies for httptest fixtures.
+func TestValidateAssetURL_RejectsUntrustedHost(t *testing.T) {
+	oldHTTPS, oldHosts := requireHTTPSAssetURL, assetURLAllowedHosts
+	requireHTTPSAssetURL = true
+	assetURLAllowedHosts = map[string]bool{
+		"github.com":                           true,
+		"objects.githubusercontent.com":        true,
+		"release-assets.githubusercontent.com": true,
+	}
+	t.Cleanup(func() {
+		requireHTTPSAssetURL = oldHTTPS
+		assetURLAllowedHosts = oldHosts
+	})
+
+	bad := []string{
+		"https://evil.example.com/dsd-linux-amd64", // untrusted host
+		"http://github.com/keyorixhq/dashdiag/x",   // right host, wrong scheme
+		"http://169.254.169.254/latest/meta-data/", // cloud metadata SSRF target
+		"https://github.com.evil.example.com/x",    // lookalike host
+		"not-a-url\x7f",                            // unparsable
+	}
+	for _, u := range bad {
+		if err := validateAssetURL(u); err == nil {
+			t.Errorf("validateAssetURL(%q) = nil, want an error", u)
+		}
+	}
+
+	good := []string{
+		"https://github.com/keyorixhq/dashdiag/releases/download/v1.0.0/dsd-linux-amd64",
+		"https://objects.githubusercontent.com/github-production-release-asset/x",
+	}
+	for _, u := range good {
+		if err := validateAssetURL(u); err != nil {
+			t.Errorf("validateAssetURL(%q) = %v, want nil", u, err)
+		}
+	}
+}
+
+// TestApply_RejectsAttackerControlledAssetURL is an end-to-end regression
+// guard for the same finding: even when checksums.txt is fetched fine from a
+// trusted-for-the-test host, Apply must refuse to dial an untrusted bin.URL
+// rather than silently attempting the request. The "attacker" server is a
+// real, local, listening HTTP server (so a hit is genuinely observable) bound
+// to 127.0.0.2 rather than 127.0.0.1 -- a different literal host string from
+// the one TestMain allowlists for ordinary fixtures, so the allowlist can
+// actually tell "trusted test server" and "attacker server" apart. Both
+// addresses are loopback-only; no real network egress is possible even if
+// the fix under test were absent.
+func TestApply_RejectsAttackerControlledAssetURL(t *testing.T) {
+	oldKey := signingPublicKey
+	signingPublicKey = ""
+	defer func() { signingPublicKey = oldKey }()
+
+	ln, err := net.Listen("tcp", "127.0.0.2:0")
+	if err != nil {
+		t.Skipf("127.0.0.2 unavailable in this sandbox: %v", err)
+	}
+	var attackerHit bool
+	attacker := httptest.NewUnstartedServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		attackerHit = true
+		w.WriteHeader(http.StatusOK)
+	}))
+	_ = attacker.Listener.Close()
+	attacker.Listener = ln
+	attacker.Start()
+	defer attacker.Close()
+
+	sumsAssetName := AssetName()
+	mux := http.NewServeMux()
+	mux.HandleFunc("/sums", func(w http.ResponseWriter, _ *http.Request) {
+		fmt.Fprintf(w, "aaaa  %s\n", sumsAssetName)
+	})
+	srv := httptest.NewServer(mux) // 127.0.0.1 — allowlisted by TestMain
+	defer srv.Close()
+
+	rel := &Release{TagName: "v1", Assets: []Asset{
+		{Name: sumsAssetName, URL: attacker.URL + "/bin"},
+		{Name: "checksums.txt", URL: srv.URL + "/sums"},
+	}}
+
+	if _, err := Apply(context.Background(), rel); err == nil {
+		t.Fatal("expected Apply to reject the attacker-controlled asset URL")
+	}
+	if attackerHit {
+		t.Error("Apply dialed the attacker-controlled asset URL instead of rejecting it upfront")
 	}
 }
 
