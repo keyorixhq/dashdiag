@@ -186,4 +186,19 @@ func TestLookupUserUID(t *testing.T) {
 			t.Error("ok = true, want false on a recording gap")
 		}
 	})
+
+	// Regression test for a CodeQL "incorrect integer conversion" finding
+	// (PR #995): a naive strconv.Atoi + uint32(n) cast would silently WRAP a
+	// value larger than math.MaxUint32 into a small/zero uint32 instead of
+	// erroring — e.g. a crafted/corrupt cached value or replay bundle entry.
+	// strconv.ParseUint(raw, 10, 32) rejects it outright.
+	t.Run("out-of-range value is rejected, not silently wrapped", func(t *testing.T) {
+		withCombinedFixture(t, map[string][]byte{
+			"userlookup/toolarge": []byte("4294967296"), // math.MaxUint32 + 1
+		}, nil, nil)
+		uid, ok := lookupUserUID("toolarge")
+		if ok {
+			t.Errorf("ok = true, want false for a value exceeding math.MaxUint32 (got uid=%d — a silent wrap would show up here)", uid)
+		}
+	})
 }
