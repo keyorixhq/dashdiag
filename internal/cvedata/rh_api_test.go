@@ -229,6 +229,66 @@ func TestEnrichFromRHAPI_NonRHFamilySkipsNetworkCall(t *testing.T) {
 	}
 }
 
+// TestCVEIDPattern is a direct table-driven boundary test of the strict CVE
+// ID shape guarding Finding internal-cvedata-02-02: EnrichFromRHAPI built its
+// outbound request URL with fmt.Sprintf(rhSecurityAPI, cveID) with no
+// validation of cveID within this file, relying entirely on the sole current
+// caller to have enforced a "CVE-" prefix — no defense-in-depth against a
+// value embedding '/', '..', or other path characters.
+func TestCVEIDPattern(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		id   string
+		want bool
+	}{
+		{"CVE-2024-0001", true},
+		{"CVE-2024-12345", true},
+		{"CVE-1999-9999", true},
+		{"", false},
+		{"cve-2024-0001", false},        // lowercase
+		{"CVE-2024-1", false},           // fewer than 4 digits in the sequence number
+		{"CVE-24-0001", false},          // fewer than 4 digits in the year
+		{"CVE-2024-0001/../etc", false}, // path traversal attempt
+		{"CVE-2024-0001&x=1", false},    // query-string injection attempt
+		{"not-a-cve", false},
+	}
+	for _, c := range cases {
+		t.Run(c.id, func(t *testing.T) {
+			t.Parallel()
+			if got := cveIDPattern.MatchString(c.id); got != c.want {
+				t.Errorf("cveIDPattern.MatchString(%q) = %v, want %v", c.id, got, c.want)
+			}
+		})
+	}
+}
+
+// TestEnrichFromRHAPI_InvalidCVEIDSkipsNetworkCall guards the defense-in-
+// depth check itself: a cveID that doesn't match the strict CVE- shape must
+// never reach the URL builder or make a network call, even on an otherwise
+// RH-family host.
+func TestEnrichFromRHAPI_InvalidCVEIDSkipsNetworkCall(t *testing.T) {
+	withOSRelease(t, "ID=rhel\nVERSION_ID=\"9.4\"\n")
+	called := false
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		called = true
+	}))
+	defer srv.Close()
+	prevAPI := rhSecurityAPI
+	rhSecurityAPI = srv.URL + "/%s.json"
+	t.Cleanup(func() { rhSecurityAPI = prevAPI })
+
+	for _, bad := range []string{"", "not-a-cve", "CVE-2024-0001/../etc/passwd", "CVE-2024-0001&x=1"} {
+		result := &models.CVEResult{}
+		EnrichFromRHAPI(context.Background(), bad, result)
+		if called {
+			t.Errorf("EnrichFromRHAPI(%q) must not call the network for an invalid CVE ID", bad)
+		}
+		if result.CVSS3Score != "" {
+			t.Errorf("EnrichFromRHAPI(%q): result should be untouched, got %+v", bad, result)
+		}
+	}
+}
+
 func TestEnrichFromRHAPI_PopulatesFromResponse(t *testing.T) {
 	withOSRelease(t, "ID=rhel\nVERSION_ID=\"9.4\"\n")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {

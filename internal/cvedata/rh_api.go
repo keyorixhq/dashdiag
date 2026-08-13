@@ -8,7 +8,9 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
+	"regexp"
 	"strings"
 	"time"
 
@@ -19,6 +21,13 @@ import (
 // Free, no authentication required, covers RHEL/Rocky/Fedora/CentOS.
 // Var (not const) so tests can redirect it at an httptest server.
 var rhSecurityAPI = "https://access.redhat.com/hydra/rest/securitydata/cve/%s.json"
+
+// cveIDPattern is the strict MITRE CVE ID shape. EnrichFromRHAPI's only
+// current caller (internal/collectors/cve_linux.go) already checks for a
+// "CVE-" prefix before calling in, but that invariant lives entirely outside
+// this file — this is the defense-in-depth check for any future/alternate
+// caller that skips it.
+var cveIDPattern = regexp.MustCompile(`^CVE-\d{4}-\d{4,}$`)
 
 // osReleasePath is the path readOSRelease reads. Var (not a literal) so tests
 // can redirect it at a fixture file instead of the real /etc/os-release.
@@ -45,6 +54,14 @@ type rhCVEResponse struct {
 // Only enriches when running on a RHEL-family distro (detected via /etc/os-release).
 // Fails silently — enrichment is best-effort and never blocks the primary result.
 func EnrichFromRHAPI(ctx context.Context, cveID string, result *models.CVEResult) {
+	// Validate the shape before it ever reaches the URL builder — the sole
+	// current caller upper-cases/trims and checks a "CVE-" prefix, but that
+	// check lives outside this file, so don't rely on it. An unvalidated
+	// value embedding '/', '..', or other path characters must not be
+	// spliced into the request path against the fixed access.redhat.com host.
+	if !cveIDPattern.MatchString(cveID) {
+		return
+	}
 	osRelease, err := readOSRelease()
 	if err != nil {
 		return
@@ -57,8 +74,12 @@ func EnrichFromRHAPI(ctx context.Context, cveID string, result *models.CVEResult
 	tCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	url := fmt.Sprintf(rhSecurityAPI, cveID)
-	req, err := http.NewRequestWithContext(tCtx, http.MethodGet, url, nil)
+	// Defense-in-depth beyond the regex above: even a value that already
+	// matches cveIDPattern (so this never actually alters []A-Z0-9- content
+	// today) is escaped before being spliced into the URL, so a future
+	// relaxation of the pattern can't silently reopen path manipulation.
+	reqURL := fmt.Sprintf(rhSecurityAPI, url.QueryEscape(cveID))
+	req, err := http.NewRequestWithContext(tCtx, http.MethodGet, reqURL, nil)
 	if err != nil {
 		return
 	}
