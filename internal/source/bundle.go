@@ -181,13 +181,13 @@ func (b *Bundle) PutCmdNotFound(name string, args []string) {
 
 func (b *Bundle) putGlob(pattern string, matches []string) {
 	b.mu.Lock()
-	b.globs[pattern] = append([]string(nil), matches...)
+	b.globs[cleanPath(pattern)] = append([]string(nil), matches...)
 	b.mu.Unlock()
 }
 
 func (b *Bundle) getGlob(pattern string) ([]string, bool) {
 	b.mu.RLock()
-	m, ok := b.globs[pattern]
+	m, ok := b.globs[cleanPath(pattern)]
 	b.mu.RUnlock()
 	return m, ok
 }
