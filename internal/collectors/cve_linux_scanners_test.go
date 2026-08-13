@@ -42,6 +42,44 @@ func TestCheckCVE_InvalidFormat(t *testing.T) {
 	}
 }
 
+// TestCheckCVE_PrefixOnlyValidationRejectsTrailingGarbage guards Finding:
+// internal-collectors-07-08. The format check used to be a bare
+// strings.HasPrefix(cveID, "CVE-"), so anything after the prefix — including
+// terminal control/escape bytes — passed straight through into
+// CVEResult.CVE (printed raw by `dsd cve`) and into fallback advisory URLs
+// built by string concatenation. A caller-supplied ID with a well-formed
+// prefix but garbage trailing content must now be rejected outright, and the
+// rejected input must NOT be echoed back into CVEResult.CVE.
+func TestCheckCVE_PrefixOnlyValidationRejectsTrailingGarbage(t *testing.T) {
+	res := CheckCVE(context.Background(), "CVE-2024-1234\x1b[31;1mFAKE\x1b[0m; rm -rf /")
+	if res.Status != models.CVEUnknown {
+		t.Fatalf("expected CVEUnknown for a CVE- prefixed ID with garbage trailing content, got %v", res.Status)
+	}
+	if !strings.Contains(res.StatusReason, "invalid CVE ID format") {
+		t.Errorf("expected format-error reason, got %q", res.StatusReason)
+	}
+	if res.CVE != "" {
+		t.Errorf("CVE field = %q, want empty — a rejected ID must not be echoed back", res.CVE)
+	}
+}
+
+// TestCheckCVE_WellFormedIDStillAccepted is the boundary counterpart: a
+// genuinely well-formed CVE ID (just CVE-YYYY-NNNN, nothing trailing) must
+// still pass the format gate and reach the package-manager dispatch, not be
+// collaterally rejected by the tightened validation.
+func TestCheckCVE_WellFormedIDStillAccepted(t *testing.T) {
+	isolateCVEHome(t)
+	withLookPathFixture(t, map[string]bool{}, func(b *source.Bundle) {})
+
+	res := CheckCVE(context.Background(), "cve-2024-1234")
+	if res.Status != models.CVEUnknown {
+		t.Fatalf("expected CVEUnknown (no package manager found), got %v", res.Status)
+	}
+	if strings.Contains(res.StatusReason, "invalid CVE ID format") {
+		t.Errorf("a well-formed CVE ID must not be rejected by the format gate, got reason %q", res.StatusReason)
+	}
+}
+
 func TestCheckCVE_NoPackageManager(t *testing.T) {
 	isolateCVEHome(t)
 	withLookPathFixture(t, map[string]bool{}, func(b *source.Bundle) {})
