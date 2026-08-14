@@ -1190,6 +1190,19 @@ func scanAllPacman(ctx context.Context) *models.CVEAllResult {
 		return result
 	}
 
+	// internal-collectors-07-01: the guard above only catches err+empty
+	// output — a non-zero exit with SOME non-empty, non-matching stdout (a
+	// repo/lock/permission warning arch-audit printed before failing) fell
+	// straight through to the "no vulnerable packages found" branch below,
+	// reporting a confident clean scan. Mirror the zypper hardening
+	// (internal-collectors-07-03): an error with no real arch-audit finding
+	// line at all is a genuine failure, never a silent "up to date".
+	if err != nil && !strings.Contains(out, "is affected by") {
+		result.StatusReason = "arch-audit failed: " + err.Error()
+		result.ScanFailed = true
+		return result
+	}
+
 	if strings.TrimSpace(out) == "" {
 		result.StatusReason = "no vulnerable packages found — system is up to date"
 		result.FixCommand = fixPacmanSyu
@@ -1337,6 +1350,13 @@ func scanAllTDNF(ctx context.Context) *models.CVEAllResult {
 		return result
 	}
 
+	// internal-collectors-07-02 was investigated and found not reachable:
+	// runCmd (used here, not runCmdOutput) unconditionally zeroes stdout
+	// whenever the command exits non-zero (see runCmd in collector.go), so
+	// parseTDNFUpdateInfoJSON can only return parsed=true (valid JSON) when
+	// err is nil — "valid-but-empty JSON from a failed run" cannot occur via
+	// this code path. The existing textErr+err fallback guard below already
+	// covers a genuine tdnf failure.
 	out, err := runCmd(ctx, "tdnf", "-j", cmdUpdateinfo, "list", flagSecurity)
 	entries, parsed := parseTDNFUpdateInfoJSON(out)
 	if !parsed {

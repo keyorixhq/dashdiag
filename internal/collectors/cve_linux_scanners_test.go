@@ -965,6 +965,23 @@ func TestScanAllPacman_QueryFails(t *testing.T) {
 	}
 }
 
+// TestScanAllPacman_NonZeroExitWithUnmatchedOutput is the regression test
+// for internal-collectors-07-01: a non-zero exit with SOME non-empty stdout
+// that isn't a real arch-audit finding line (a repo/lock/permission warning
+// arch-audit printed before failing) must not fall through to "no
+// vulnerable packages found" — only a real "is affected by" line in the
+// output can justify trusting a non-zero exit (mirrors the zypper fix,
+// internal-collectors-07-03).
+func TestScanAllPacman_NonZeroExitWithUnmatchedOutput(t *testing.T) {
+	withLookPathFixture(t, map[string]bool{"arch-audit": true}, func(b *source.Bundle) {
+		b.PutCmd("arch-audit", []string{"-u"}, "error: database lock file exists\n", 1)
+	})
+	res := scanAllPacman(context.Background())
+	if !res.ScanFailed {
+		t.Fatalf("expected ScanFailed for a non-zero exit with no real finding line, got %+v", res)
+	}
+}
+
 func TestScanAllPacman_UpToDate(t *testing.T) {
 	withLookPathFixture(t, map[string]bool{"arch-audit": true}, func(b *source.Bundle) {
 		b.PutCmd("arch-audit", []string{"-u"}, "", 0)
