@@ -193,19 +193,26 @@ func collectSteamOSWifi(ctx context.Context) *models.SteamOSWifi {
 	}
 
 	// Steam CDN DNS resolve time (slow DNS is the usual "slow downloads" cause).
-	// Cached so the live DNS lookup replays from the bundle.
-	var cdn steamProbeResult
-	_ = cachedJSON("steamos/cdn-dns", func() (any, error) {
-		dnsCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
-		defer cancel()
-		start := time.Now()
-		if _, err := net.DefaultResolver.LookupHost(dnsCtx, "steamdeck-images.steamos.cloud"); err == nil {
-			return steamProbeResult{OK: true, Ms: int(time.Since(start).Milliseconds())}, nil
-		}
-		return steamProbeResult{}, nil
-	}, &cdn)
-	w.CDNDNSKnown = cdn.OK
-	w.CDNDNSms = cdn.Ms
+	// Cached so the live DNS lookup replays from the bundle. This is a real
+	// outbound DNS query to an external host (steamdeck-images.steamos.cloud),
+	// not a local read — skip it under DSD_OFFLINE (internal-collectors egress
+	// gate, same rationale as collectNetwork's update-server check below).
+	// CDNDNSKnown stays false, which the heuristic already treats as "the
+	// probe never ran" (never a false WARN/OK).
+	if os.Getenv("DSD_OFFLINE") == "" {
+		var cdn steamProbeResult
+		_ = cachedJSON("steamos/cdn-dns", func() (any, error) {
+			dnsCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
+			defer cancel()
+			start := time.Now()
+			if _, err := net.DefaultResolver.LookupHost(dnsCtx, "steamdeck-images.steamos.cloud"); err == nil {
+				return steamProbeResult{OK: true, Ms: int(time.Since(start).Milliseconds())}, nil
+			}
+			return steamProbeResult{}, nil
+		}, &cdn)
+		w.CDNDNSKnown = cdn.OK
+		w.CDNDNSms = cdn.Ms
+	}
 	return w
 }
 
