@@ -54,8 +54,12 @@ func TestKafkaBootstrap(t *testing.T) {
 		withCombinedFixture(t, map[string][]byte{
 			"dial/tcp/127.0.0.1:9092": {'1'},
 		}, nil, nil)
-		if got := kafkaBootstrap(); got != "127.0.0.1:9092" {
-			t.Errorf("kafkaBootstrap() = %q, want 127.0.0.1:9092", got)
+		addr, reachable := kafkaBootstrap()
+		if addr != "127.0.0.1:9092" {
+			t.Errorf("kafkaBootstrap() addr = %q, want 127.0.0.1:9092", addr)
+		}
+		if !reachable {
+			t.Error("kafkaBootstrap() reachable = false, want true")
 		}
 	})
 
@@ -63,15 +67,27 @@ func TestKafkaBootstrap(t *testing.T) {
 		withCombinedFixture(t, map[string][]byte{
 			"dial/tcp/[::1]:9092": {'1'},
 		}, nil, nil)
-		if got := kafkaBootstrap(); got != "[::1]:9092" {
-			t.Errorf("kafkaBootstrap() = %q, want [::1]:9092", got)
+		addr, reachable := kafkaBootstrap()
+		if addr != "[::1]:9092" {
+			t.Errorf("kafkaBootstrap() addr = %q, want [::1]:9092", addr)
+		}
+		if !reachable {
+			t.Error("kafkaBootstrap() reachable = false, want true")
 		}
 	})
 
-	t.Run("neither reachable falls back to ipv4 default", func(t *testing.T) {
+	// TestKafkaBootstrap/neither_reachable is the regression test for
+	// internal-collectors-17-01: kafkaBootstrap() must report reachable=false
+	// (not just fall back to a default address) so Collect() can set
+	// Accepting accurately instead of hardcoding it true.
+	t.Run("neither reachable falls back to ipv4 default, reachable=false", func(t *testing.T) {
 		withCombinedFixture(t, nil, nil, nil)
-		if got := kafkaBootstrap(); got != "127.0.0.1:9092" {
-			t.Errorf("kafkaBootstrap() = %q, want 127.0.0.1:9092 default", got)
+		addr, reachable := kafkaBootstrap()
+		if addr != "127.0.0.1:9092" {
+			t.Errorf("kafkaBootstrap() addr = %q, want 127.0.0.1:9092 default", addr)
+		}
+		if reachable {
+			t.Error("kafkaBootstrap() reachable = true, want false when neither address dials")
 		}
 	})
 }

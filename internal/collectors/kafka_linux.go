@@ -24,15 +24,22 @@ func kafkaCLI() string {
 	return ""
 }
 
-// kafkaBootstrap returns the first reachable loopback broker address. Kafka often
-// binds the IPv6 wildcard, so try both families; default to the IPv4 form.
-func kafkaBootstrap() string {
-	for _, addr := range []string{kafkaBootstrapLocal, "[::1]:9092"} {
-		if dialReachable("tcp", addr, 300*time.Millisecond) {
-			return addr
+// kafkaBootstrap returns the first reachable loopback broker address (and
+// whether one was actually found reachable — internal-collectors-17-01: the
+// KafkaAvailable() dial at collector-registration time and this Collect()
+// call are separated by a real window in which concurrently-running
+// collectors execute, so a broker that died in between must not have its
+// prior liveness silently assumed here). Kafka often binds the IPv6
+// wildcard, so try both families; default to the IPv4 form when neither
+// answers, so callers still have a bootstrap address to pass to the CLI (the
+// CLI's own connection failure is what actually surfaces as a real error).
+func kafkaBootstrap() (addr string, reachable bool) {
+	for _, a := range []string{kafkaBootstrapLocal, "[::1]:9092"} {
+		if dialReachable("tcp", a, 300*time.Millisecond) {
+			return a, true
 		}
 	}
-	return kafkaBootstrapLocal
+	return kafkaBootstrapLocal, false
 }
 
 // KafkaAvailable reports whether a local Kafka broker is installed (a kafka CLI is
@@ -64,8 +71,8 @@ func (c *KafkaCollector) Collect(ctx context.Context) (interface{}, error) {
 	if cli == "" {
 		return &models.KafkaInfo{Detected: false}, nil
 	}
-	info := &models.KafkaInfo{Detected: true, Accepting: true}
-	server := kafkaBootstrap()
+	server, reachable := kafkaBootstrap()
+	info := &models.KafkaInfo{Detected: true, Accepting: reachable}
 
 	// Offline (unavailable) partitions — no leader, so the data is unavailable.
 	// A failure here means "couldn't look" (the CLI couldn't reach the broker, or
