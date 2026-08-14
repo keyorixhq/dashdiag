@@ -16,6 +16,11 @@ type VMwareInfo struct {
 	// awareness (IP reporting, vMotion quiescing).
 	ToolsInstalled bool `json:"tools_installed"`
 	ToolsRunning   bool `json:"tools_running"`
+	// ToolsRunningVerified is false when ToolsRunning came only from scanning
+	// /proc/*/comm for "vmtoolsd" (systemd gave no usable answer) — that
+	// signal is spoofable by any unprivileged local process renaming itself,
+	// unlike the authoritative `systemctl is-active` check.
+	ToolsRunningVerified bool `json:"tools_running_verified,omitempty"`
 
 	// Paravirtual driver usage. Emulated NICs (e1000/e1000e/vlance/pcnet) burn
 	// host CPU and cap throughput versus the paravirtual vmxnet3.

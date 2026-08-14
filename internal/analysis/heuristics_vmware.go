@@ -40,6 +40,14 @@ func checkVMware(v models.VMwareInfo) []models.Insight {
 		out = append(out, insight("WARN", catVMware,
 			"open-vm-tools installed but not running — quiesced snapshots/backups and graceful guest shutdown will fail",
 			[]string{"to fix: systemctl enable --now vmtoolsd   (some distros: open-vm-tools)"}))
+	case !v.ToolsRunningVerified:
+		// internal-collectors-34-03: ToolsRunning=true here came only from
+		// /proc/*/comm matching "vmtoolsd" (systemd gave no usable answer) —
+		// spoofable by any unprivileged local process, unlike the
+		// authoritative systemctl check used when it's available.
+		out = append(out, unverifiedInsight("INFO", catVMware,
+			"open-vm-tools appears to be running, but this could not be confirmed via systemd — the signal is based on a process name match only",
+			[]string{"to verify: systemctl status vmtoolsd"}))
 	}
 
 	if len(v.EmulatedNICs) > 0 {

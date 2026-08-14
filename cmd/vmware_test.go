@@ -176,7 +176,7 @@ func TestPrintVMwareReport_Healthy(t *testing.T) {
 	// A clean paravirtual guest: vmxnet3 NIC, tools running, no limits/pressure.
 	clean := &models.VMwareInfo{
 		IsGuest: true, ProductName: "VMware20,1",
-		ToolsInstalled: true, ToolsRunning: true, StatAvailable: true,
+		ToolsInstalled: true, ToolsRunning: true, ToolsRunningVerified: true, StatAvailable: true,
 		NICDrivers: map[string]string{"ens192": "vmxnet3"}, PVSCSILoaded: true, BalloonLoaded: true,
 	}
 	var buf bytes.Buffer

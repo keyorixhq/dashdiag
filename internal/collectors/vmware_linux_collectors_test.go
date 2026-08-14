@@ -308,24 +308,43 @@ func TestVmwareToolsInstalled_NotFound(t *testing.T) {
 	}
 }
 
-func TestVmwareToolsRunning_ProcCommFound(t *testing.T) {
+// TestVmwareToolsRunning_ProcCommFallback is the regression test for
+// internal-collectors-34-03: with systemd giving no usable answer for either
+// unit name, vmwareToolsRunning falls back to the spoofable /proc/*/comm
+// scan — and must report verified=false, since this signal (unlike
+// systemd's) can be forged by any unprivileged local process.
+func TestVmwareToolsRunning_ProcCommFallback(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutDir("/proc", []string{"55"})
 		b.PutDir("/proc/55", []string{"comm"})
 		b.PutFile("/proc/55/comm", []byte("vmtoolsd\n"))
+		// No systemctl fixture for either unit -> runCmdOutput errors with
+		// empty stdout for both -> falls through to the /proc scan.
 	})
-	if !vmwareToolsRunning(context.Background()) {
-		t.Error("vmwareToolsRunning() = false, want true")
+	running, verified := vmwareToolsRunning(context.Background())
+	if !running {
+		t.Error("running = false, want true")
+	}
+	if verified {
+		t.Error("verified = true, want false — this is the spoofable /proc/*/comm fallback")
 	}
 }
 
-func TestVmwareToolsRunning_SystemctlFallback(t *testing.T) {
+// TestVmwareToolsRunning_SystemdAuthoritative is the regression test for the
+// fix's priority flip: systemd is now tried FIRST and is authoritative
+// (verified=true) — /proc is not even consulted when systemd gives a usable
+// answer, so this must return true regardless of what (if anything) /proc
+// contains.
+func TestVmwareToolsRunning_SystemdAuthoritative(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
-		// /proc unreadable -> procCommRunning returns ok=false -> systemctl fallback.
 		b.PutCmd("systemctl", []string{"is-active", "vmtoolsd"}, "active\n", 0)
 	})
-	if !vmwareToolsRunning(context.Background()) {
-		t.Error("vmwareToolsRunning() = false, want true (systemctl fallback)")
+	running, verified := vmwareToolsRunning(context.Background())
+	if !running {
+		t.Error("running = false, want true")
+	}
+	if !verified {
+		t.Error("verified = false, want true — systemd's answer is authoritative")
 	}
 }
 
@@ -335,25 +354,30 @@ func TestVmwareToolsRunning_NotRunning(t *testing.T) {
 		b.PutCmd("systemctl", []string{"is-active", "vmtoolsd"}, "inactive\n", 3)
 		b.PutCmd("systemctl", []string{"is-active", "open-vm-tools"}, "inactive\n", 3)
 	})
-	if vmwareToolsRunning(context.Background()) {
-		t.Error("vmwareToolsRunning() = true, want false")
+	running, verified := vmwareToolsRunning(context.Background())
+	if running {
+		t.Error("running = true, want false")
+	}
+	if !verified {
+		t.Error("verified = false, want true — systemd's \"inactive\" answer is authoritative")
 	}
 }
 
-// TestVmwareToolsRunning_SystemctlFallbackExhausted guards the final "return
-// false" branch: /proc is genuinely unreadable (ok=false from procCommRunning,
-// forcing the systemd fallback loop to run), and BOTH candidate units report
-// inactive — the loop must exhaust without finding a match and fall through to
-// false, rather than the earlier (and different) all-proc-entries-checked
-// false path TestVmwareToolsRunning_NotRunning exercises.
-func TestVmwareToolsRunning_SystemctlFallbackExhausted(t *testing.T) {
+// TestVmwareToolsRunning_SystemctlAndProcBothExhausted guards the final
+// "return false, false" branch: systemd gives no usable answer for either
+// unit AND /proc is genuinely unreadable — must fall through to
+// false/unverified, not silently claim any answer at all.
+func TestVmwareToolsRunning_SystemctlAndProcBothExhausted(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
-		// /proc never seeded at all -> ReadDir errors -> procCommRunning ok=false.
-		b.PutCmd("systemctl", []string{"is-active", "vmtoolsd"}, "inactive\n", 3)
-		b.PutCmd("systemctl", []string{"is-active", "open-vm-tools"}, "inactive\n", 3)
+		// Neither systemctl unit fixture is seeded, and /proc is never seeded
+		// either -> both signals exhausted with nothing usable.
 	})
-	if vmwareToolsRunning(context.Background()) {
-		t.Error("vmwareToolsRunning() = true, want false (both fallback units inactive)")
+	running, verified := vmwareToolsRunning(context.Background())
+	if running {
+		t.Error("running = true, want false")
+	}
+	if verified {
+		t.Error("verified = true, want false — nothing was actually confirmed")
 	}
 }
 

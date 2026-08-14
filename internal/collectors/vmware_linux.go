@@ -59,7 +59,7 @@ func (c *VMwareCollector) Collect(ctx context.Context) (interface{}, error) {
 	}
 
 	info.ToolsInstalled = vmwareToolsInstalled()
-	info.ToolsRunning = vmwareToolsRunning(ctx)
+	info.ToolsRunning, info.ToolsRunningVerified = vmwareToolsRunning(ctx)
 
 	info.NICDrivers, info.EmulatedNICs = collectNICDrivers("/sys/class/net")
 
@@ -363,18 +363,26 @@ func vmwareToolsInstalled() bool {
 // vmwareToolsRunning is true when a vmtoolsd process is alive. Scans /proc/*/comm
 // directly — distro-agnostic (the systemd unit is "vmtoolsd" on some distros,
 // "open-vm-tools" on others) and needs no root.
-func vmwareToolsRunning(ctx context.Context) bool {
-	if running, ok := procCommRunning("vmtoolsd"); ok {
-		return running
-	}
-	// Fallback: ask systemd if /proc was unreadable for some reason.
+// vmwareToolsRunning reports whether open-vm-tools is running, and whether
+// that verdict came from an authoritative source. internal-collectors-34-03:
+// /proc/<pid>/comm is attacker-settable via prctl(PR_SET_NAME) — any
+// unprivileged local process can name itself "vmtoolsd" and spoof a running
+// verdict — so systemd is now tried FIRST (not spoofable the same way) and
+// the comm scan is only a fallback when systemd itself gives no usable
+// answer, with the result marked unverified in that case.
+func vmwareToolsRunning(ctx context.Context) (running, verified bool) {
 	for _, unit := range []string{"vmtoolsd", "open-vm-tools"} {
-		if out, err := runCmd(ctx, "systemctl", "is-active", unit); err == nil &&
-			strings.TrimSpace(out) == "active" {
-			return true
+		out, err := runCmdOutput(ctx, "systemctl", "is-active", unit)
+		state := strings.TrimSpace(out)
+		if state == "" && err != nil {
+			continue // this unit name didn't resolve — try the other, or fall through
 		}
+		return state == "active", true
 	}
-	return false
+	if r, ok := procCommRunning("vmtoolsd"); ok {
+		return r, false
+	}
+	return false, false
 }
 
 // procCommRunning scans /proc/<pid>/comm for an exact process name. The second
