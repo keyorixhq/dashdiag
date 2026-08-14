@@ -37,7 +37,7 @@ func detectElasticsearch(ctx context.Context) (info *models.ElasticsearchInfo) {
 		}
 		// 401 = ES with security on (auth required) — confirmed, no body identity.
 		if code == http.StatusUnauthorized {
-			return &models.ElasticsearchInfo{Detected: true, BaseURL: base, Distribution: "elasticsearch"}
+			return verifyESIdentity(ctx, &models.ElasticsearchInfo{Detected: true, BaseURL: base, Distribution: "elasticsearch"})
 		}
 		var root struct {
 			ClusterName string `json:"cluster_name"`
@@ -52,13 +52,32 @@ func detectElasticsearch(ctx context.Context) (info *models.ElasticsearchInfo) {
 			if dist == "" {
 				dist = "elasticsearch"
 			}
-			return &models.ElasticsearchInfo{
+			return verifyESIdentity(ctx, &models.ElasticsearchInfo{
 				Detected: true, BaseURL: base, ClusterName: root.ClusterName,
 				Version: root.Version.Number, Distribution: dist,
-			}
+			})
 		}
 	}
 	return nil
+}
+
+// verifyESIdentity checks whether the process listening on 127.0.0.1:9200 has
+// "elasticsearch" in its own /proc/<pid>/cmdline — kernel-populated argv, not
+// anything the network response can shape — and sets IdentityUnverified when
+// it can't confirm this (ss unavailable, the non-root socket-ownership blind
+// spot, or a genuine mismatch). Elasticsearch runs on the JVM, so the ss -p
+// process NAME alone (typically "java") isn't distinctive enough — unlike
+// bind_linux.go's isBindProcess, this checks cmdline content instead.
+//
+// internal-collectors-11-04: detectElasticsearch previously trusted any
+// process bound to :9200 that returned an ES-shaped HTTP response, letting
+// an unprivileged local process spoof a fake "healthy cluster" verdict.
+func verifyESIdentity(ctx context.Context, info *models.ElasticsearchInfo) *models.ElasticsearchInfo {
+	pid, checked := tcpListenerPID(ctx, "9200")
+	if !checked || pid == 0 || !pidCmdlineContains(pid, "elasticsearch") {
+		info.IdentityUnverified = true
+	}
+	return info
 }
 
 // ElasticsearchAvailable reports whether a local ES/OpenSearch node is answering.
