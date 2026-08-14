@@ -78,6 +78,30 @@ var neverSilentChecks = []neverSilentCheck{
 		wantSubstr: "could not enumerate drives",
 	},
 	{
+		name:    "checkDiskExtras: physical drive enumeration failed (macOS diskutil list)",
+		checkFn: "checkDiskExtras",
+		run: func() []models.Insight {
+			return checkDiskExtras(models.DiskInfo{DrivesListUnreadable: true})
+		},
+		wantSubstr: "could not enumerate physical drives",
+	},
+	{
+		name:    "checkNetwork: /proc/net/sockstat read failed",
+		checkFn: "checkNetwork",
+		run: func() []models.Insight {
+			return checkNetwork(models.NetworkInfo{SockstatUnreadable: true})
+		},
+		wantSubstr: "could not read /proc/net/sockstat",
+	},
+	{
+		name:    "checkNetwork: /proc/net/netstat read failed",
+		checkFn: "checkNetwork",
+		run: func() []models.Insight {
+			return checkNetwork(models.NetworkInfo{NetstatUnreadable: true})
+		},
+		wantSubstr: "could not read /proc/net/netstat",
+	},
+	{
 		name:    "checkOCI: on OCI but every sub-check unreachable",
 		checkFn: "checkOCI",
 		run: func() []models.Insight {

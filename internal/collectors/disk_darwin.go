@@ -34,19 +34,22 @@ func (c *DiskCollector) collectDarwin(ctx context.Context) (*models.DiskInfo, er
 		return result, err
 	}
 	// Physical drives + SMART via diskutil (no external tools needed)
-	result.Drives = collectDarwinDrives(ctx)
+	result.Drives, result.DrivesListUnreadable = collectDarwinDrives(ctx)
 	return result, nil
 }
 
 // collectDarwinDrives enumerates physical disks on macOS via diskutil list
 // and enriches each with SMART status from diskutil info.
 // No external tools required — diskutil ships with every macOS.
-func collectDarwinDrives(ctx context.Context) []models.PhysicalDrive {
+// The bool return is true when diskutil list itself failed or returned
+// nothing — see DiskInfo.DrivesListUnreadable — distinguishing that from a
+// genuine (impossible on real hardware) zero-drives result.
+func collectDarwinDrives(ctx context.Context) ([]models.PhysicalDrive, bool) {
 	// diskutil list -plist would be ideal but needs plist parsing.
 	// Plain text format is stable enough for our purposes.
 	out, err := runDarwinCmd(ctx, "diskutil", "list")
-	if err != nil {
-		return nil
+	if err != nil || out == "" {
+		return nil, true
 	}
 
 	var drives []models.PhysicalDrive
@@ -77,7 +80,7 @@ func collectDarwinDrives(ctx context.Context) []models.PhysicalDrive {
 			drives = append(drives, *d)
 		}
 	}
-	return drives
+	return drives, false
 }
 
 // collectDarwinDriveInfo runs diskutil info /dev/diskN and parses the result.

@@ -99,7 +99,13 @@ type FSBusyProcess struct {
 type DiskInfo struct {
 	Filesystems []FilesystemInfo `json:"filesystems"`
 	Drives      []PhysicalDrive  `json:"drives,omitempty"`
-	ZFSPools    []ZFSPool        `json:"zfs_pools,omitempty"` // from models/zfs.go
+	// DrivesListUnreadable is true (macOS only) when `diskutil list` itself
+	// failed or returned nothing — distinct from a genuine zero-physical-
+	// drives host, which cannot actually occur on real Mac hardware. Without
+	// this, an enumeration failure and "0 drives" produce the identical empty
+	// Drives slice and zero SMART insights either way.
+	DrivesListUnreadable bool      `json:"drives_list_unreadable,omitempty"`
+	ZFSPools             []ZFSPool `json:"zfs_pools,omitempty"` // from models/zfs.go
 	// ZFSListReadFailed is true when a live ZFS mount exists (zfsGate) but
 	// `zpool list` errored, so ZFSPools is empty for a reason other than "no pools".
 	ZFSListReadFailed bool          `json:"zfs_list_read_failed,omitempty"`
