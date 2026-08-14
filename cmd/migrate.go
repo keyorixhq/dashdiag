@@ -150,12 +150,12 @@ func runMigrateCertify(cmd *cobra.Command, args []string) error {
 	_, _, dstSnap := replayBundle(dst, deep, pkg, false, false)
 
 	diff := baseline.ComputeDiff(srcSnap, dstSnap)
-	verdict, regressions := certifyVerdict(diff)
+	verdict, regressions, unconfirmed := certifyVerdict(diff)
 
 	if jsonOut {
-		return emitCertifyJSON(src, dst, verdict, regressions)
+		return emitCertifyJSON(src, dst, verdict, regressions, unconfirmed)
 	}
-	printCertifyReport(src, dst, verdict, regressions, srcSnap, dstSnap)
+	printCertifyReport(src, dst, verdict, regressions, unconfirmed, srcSnap, dstSnap)
 	switch verdict {
 	case certFail:
 		recordExitCode(2)
@@ -228,12 +228,29 @@ func firstToken(s string) string {
 // same-host-over-time comparison, where a vanished check is always suspicious and
 // ComputeDiff's own bucketing (which this function otherwise leaves alone) treats
 // it as degraded for that reason.
-func certifyVerdict(diff []baseline.DiffEntry) (string, []baseline.DiffEntry) {
-	verdict := certPass
-	var regressions []baseline.DiffEntry
+// certifyVerdict compares a source/destination diff and returns the overall
+// verdict, confirmed regressions (checks that measurably got worse), and
+// unconfirmed absences.
+//
+// cmd-09-04: a check vanishing from the destination (afterToken=="absent")
+// is legitimate cross-platform/cross-config absence MOST of the time (e.g.
+// VMware tools gating off on a non-VMware destination) — but e.Unverified
+// means the destination collector itself couldn't confirm that, rather than
+// gating off cleanly. Treating those identically would let a migration where
+// a check simply failed to run pass silently as PASS. Unconfirmed absences
+// downgrade the verdict to at least WARN (never silently PASS) but never
+// override an already-worse verdict from a confirmed regression.
+func certifyVerdict(diff []baseline.DiffEntry) (verdict string, regressions, unconfirmed []baseline.DiffEntry) {
+	verdict = certPass
 	for _, e := range diff {
 		afterToken := firstToken(e.After)
 		if strings.EqualFold(afterToken, "absent") {
+			if e.Unverified {
+				unconfirmed = append(unconfirmed, e)
+				if verdict != certFail {
+					verdict = certWarn
+				}
+			}
 			continue
 		}
 		before := statusSeverity(firstToken(e.Before))
@@ -250,10 +267,10 @@ func certifyVerdict(diff []baseline.DiffEntry) (string, []baseline.DiffEntry) {
 			verdict = certWarn
 		}
 	}
-	return verdict, regressions
+	return verdict, regressions, unconfirmed
 }
 
-func printCertifyReport(src, dst *source.Bundle, verdict string, regressions []baseline.DiffEntry, srcSnap, dstSnap *baseline.Snapshot) {
+func printCertifyReport(src, dst *source.Bundle, verdict string, regressions, unconfirmed []baseline.DiffEntry, srcSnap, dstSnap *baseline.Snapshot) {
 	mark := map[string]string{certPass: "✅", certWarn: "⚠️", certFail: "❌"}[verdict]
 	fmt.Printf("%s  MIGRATION CERTIFICATION: %s\n", mark, verdict)
 	fmt.Println(strings.Repeat("─", 60))
@@ -280,6 +297,14 @@ func printCertifyReport(src, dst *source.Bundle, verdict string, regressions []b
 	fmt.Println("Note: source-only checks that gate off after the move (e.g. VMware guest")
 	fmt.Println("tools no longer relevant on the destination) are EXPECTED, not regressions.")
 	fmt.Println()
+	if len(unconfirmed) > 0 {
+		fmt.Printf("%d check(s) vanished on the destination but could NOT be confirmed as a\n", len(unconfirmed))
+		fmt.Println("legitimate absence (the destination collector may have failed to run):")
+		for _, u := range unconfirmed {
+			fmt.Printf("  • %-22s %s → absent (unverified)\n", u.Name, firstToken(u.Before))
+		}
+		fmt.Println()
+	}
 	fmt.Println("Full before/after detail:")
 	fmt.Println(strings.Repeat("─", 60))
 	_ = render.PrintDiff(os.Stdout, srcSnap, dstSnap, output.ModeHuman)
@@ -290,6 +315,12 @@ type certifyJSON struct {
 	Source      certifyEndpoint     `json:"source"`
 	Destination certifyEndpoint     `json:"destination"`
 	Regressions []certifyRegression `json:"regressions"`
+	// Unconfirmed lists checks that vanished on the destination
+	// (afterToken=="absent") but could not be confirmed as a legitimate
+	// absence — the destination collector itself failed rather than gating
+	// off cleanly (cmd-09-04). Omitted (empty) when every absence was
+	// either a confirmed regression already in Regressions or a clean gate-off.
+	Unconfirmed []certifyRegression `json:"unconfirmed_absences,omitempty"`
 }
 
 type certifyEndpoint struct {
@@ -304,7 +335,7 @@ type certifyRegression struct {
 	After  string `json:"after"`
 }
 
-func emitCertifyJSON(src, dst *source.Bundle, verdict string, regressions []baseline.DiffEntry) error {
+func emitCertifyJSON(src, dst *source.Bundle, verdict string, regressions, unconfirmed []baseline.DiffEntry) error {
 	out := certifyJSON{
 		Verdict:     verdict,
 		Source:      certifyEndpoint{Host: manifestHost(src), OS: manifestOS(src), Created: src.Manifest.Created},
@@ -312,6 +343,9 @@ func emitCertifyJSON(src, dst *source.Bundle, verdict string, regressions []base
 	}
 	for _, r := range regressions {
 		out.Regressions = append(out.Regressions, certifyRegression{Name: r.Name, Before: firstToken(r.Before), After: firstToken(r.After)})
+	}
+	for _, u := range unconfirmed {
+		out.Unconfirmed = append(out.Unconfirmed, certifyRegression{Name: u.Name, Before: firstToken(u.Before), After: "absent"})
 	}
 	data, err := json.MarshalIndent(out, "", "  ")
 	if err != nil {

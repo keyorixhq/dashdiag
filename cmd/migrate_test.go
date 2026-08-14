@@ -11,12 +11,20 @@ func de(name, before, after string) baseline.DiffEntry {
 	return baseline.DiffEntry{Name: name, Before: before, After: after}
 }
 
+// deUnverified builds a DiffEntry for a check that vanished on the
+// destination (After: "absent") but whose absence is Unverified — the
+// destination collector itself couldn't confirm a clean gate-off.
+func deUnverified(name, before string) baseline.DiffEntry {
+	return baseline.DiffEntry{Name: name, Before: before, After: "absent", Unverified: true}
+}
+
 func TestCertifyVerdict(t *testing.T) {
 	cases := []struct {
-		name    string
-		diff    []baseline.DiffEntry
-		want    string
-		wantReg int
+		name            string
+		diff            []baseline.DiffEntry
+		want            string
+		wantReg         int
+		wantUnconfirmed int
 	}{
 		{
 			name: "clean migration — no regressions",
@@ -108,15 +116,46 @@ func TestCertifyVerdict(t *testing.T) {
 			},
 			want: certWarn, wantReg: 1,
 		},
+		// cmd-09-04: a check vanishing on the destination is legitimate MOST of
+		// the time (VMware tools gating off, above) — but when the absence is
+		// Unverified (the destination collector itself failed to run rather
+		// than gating off cleanly), silently treating it the same as a clean
+		// gate-off would let a migration where a check simply broke pass as PASS.
+		{
+			name: "unverified absence must not silently PASS",
+			diff: []baseline.DiffEntry{
+				deUnverified("Docker", "OK 3 containers"),
+			},
+			want: certWarn, wantReg: 0, wantUnconfirmed: 1,
+		},
+		{
+			name: "unverified absence never overrides an already-worse CRIT verdict",
+			diff: []baseline.DiffEntry{
+				de("Disk", "OK 40%", "CRIT unresized"),
+				deUnverified("Docker", "OK 3 containers"),
+			},
+			want: certFail, wantReg: 1, wantUnconfirmed: 1,
+		},
+		{
+			name: "a legitimately-gated-off (verified) absence stays clean alongside an unverified one",
+			diff: []baseline.DiffEntry{
+				de("VMware", "OK tools running", "absent"),
+				deUnverified("Docker", "OK 3 containers"),
+			},
+			want: certWarn, wantReg: 0, wantUnconfirmed: 1,
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
-			got, reg := certifyVerdict(c.diff)
+			got, reg, unconfirmed := certifyVerdict(c.diff)
 			if got != c.want {
 				t.Errorf("verdict = %q, want %q", got, c.want)
 			}
 			if len(reg) != c.wantReg {
 				t.Errorf("regressions = %d, want %d", len(reg), c.wantReg)
+			}
+			if len(unconfirmed) != c.wantUnconfirmed {
+				t.Errorf("unconfirmed = %d, want %d", len(unconfirmed), c.wantUnconfirmed)
 			}
 		})
 	}
