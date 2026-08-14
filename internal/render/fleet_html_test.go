@@ -173,6 +173,32 @@ func TestBuildFleetHTML_YearZero(t *testing.T) {
 	}
 }
 
+// TestBuildFleetHTML_TruncatesOversizedFields is the regression test for
+// internal-render-01-05: FleetHostRow/FleetIssueRow string fields are
+// populated per remote fleet member with no length cap. A compromised or
+// misbehaving remote host self-reporting a huge hostname/issue string must
+// not bloat the rendered report unboundedly.
+func TestBuildFleetHTML_TruncatesOversizedFields(t *testing.T) {
+	t.Parallel()
+	huge := strings.Repeat("x", 5000)
+	report := FleetReport{
+		Date: "2026-07-16 12:00:00 UTC", Version: "v1.19.1",
+		Verdict: "CRIT", VerdictClass: "crit",
+		VerdictText: "1 host has critical issues.",
+		Total:       1, CountCrit: 1, Year: 2026,
+		Hosts:        []FleetHostRow{{Host: "db01", Hostname: huge, Status: "CRIT", StatusClass: "crit", TopIssue: huge}},
+		Issues:       []FleetIssueRow{{Scope: "outlier", ScopeClass: "outlier", Level: "CRIT", LevelClass: "crit", Check: huge, Where: "db01", Sample: huge}},
+		Consequences: []string{huge},
+	}
+	html, err := buildFleetHTML(report)
+	if err != nil {
+		t.Fatalf("buildFleetHTML error: %v", err)
+	}
+	if strings.Contains(html, huge) {
+		t.Error("buildFleetHTML did not truncate an oversized field")
+	}
+}
+
 // TestBuildFleetHTML_TemplateExecuteError covers the template.Execute error branch.
 // Not parallel — swaps the package-level fleetHTMLTmpl.
 func TestBuildFleetHTML_TemplateExecuteError(t *testing.T) {
