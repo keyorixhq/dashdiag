@@ -1,0 +1,65 @@
+name: Security Fix Regression Test
+
+on:
+  pull_request:
+    branches: [main]
+
+# Read-only: this job only inspects PR metadata and the diff already in the
+# PR, it never needs to write anything.
+permissions:
+  contents: read
+
+jobs:
+  check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          # A generous fixed depth, matching this repo's own PR sizes (NOT
+          # fetch-depth: 0, which fetches every other branch too, and NOT a
+          # computed depth -- GitHub Actions expressions don't support
+          # arithmetic, so a `${{ }}` depth expression silently fails to
+          # parse the whole workflow).
+          fetch-depth: 100
+
+      # Self-contained check (no third-party Action). Ported from Keyorix
+      # (sibling repo, same org), which titles every PR closing a real
+      # security bug `fix(security): ...` -- DashDiag's own history already
+      # follows the identical convention (11+ real fix(security) commits,
+      # e.g. 4e3fd34b, 3f968e92, eb5054f9) but had no CI gate enforcing it.
+      # A PR titled this way is expected to carry a regression test proving
+      # the bug is actually closed -- this makes that convention a gate
+      # instead of a reviewer's memory. DashDiag is a pure Go codebase (no
+      # JS/TS), so the pattern only needs to match _test.go files.
+      - name: Require a test file in fix(security) PRs
+        env:
+          PR_TITLE: ${{ github.event.pull_request.title }}
+        run: |
+          case "$PR_TITLE" in
+            'fix(security):'*) ;;
+            *)
+              echo "PR title doesn't match the fix(security): convention -- nothing to check."
+              exit 0
+              ;;
+          esac
+
+          base="${{ github.event.pull_request.base.sha }}"
+          head="${{ github.event.pull_request.head.sha }}"
+          changed="$(git diff --name-only "$base..$head")"
+
+          test_files="$(printf '%s\n' "$changed" | grep -E '_test\.go$' || true)"
+
+          if [ -z "$test_files" ]; then
+            echo "::error::This PR's title matches the fix(security): convention but touches no _test.go file."
+            echo ""
+            echo "Every fix(security) PR in this repo's history carries a regression test"
+            echo "proving the specific bug is closed -- a static rule alone (Semgrep/CodeQL)"
+            echo "only proves the PATTERN is gone, not that the runtime behavior is actually"
+            echo "fixed. Add one, or if this PR genuinely needs no new test (e.g. a pure"
+            echo "CI/tooling change mislabeled with this prefix), rename it to a different"
+            echo "type (ci:, chore:, ...)."
+            exit 1
+          fi
+
+          echo "Test file(s) touched:"
+          printf '%s\n' "$test_files"
