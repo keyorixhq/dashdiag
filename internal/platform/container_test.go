@@ -367,10 +367,15 @@ func TestDetectContainer_LXC_SystemdMarker(t *testing.T) {
 	}
 }
 
-// TestDetectContainer_LXC_SystemdMarker_OtherContent covers the branch where
-// /run/systemd/container exists but holds a non-"lxc" value (e.g. a systemd-nspawn
-// or other container backend) — must not be misclassified as LXC.
-func TestDetectContainer_LXC_SystemdMarker_OtherContent(t *testing.T) {
+// TestDetectContainer_SystemdMarker_OtherEngine is the regression test for
+// internal-platform-01-02: /run/systemd/container holds the ENGINE NAME
+// (lxc, systemd-nspawn, oci, rkt, pouch, proot, ...), not just "lxc" — the
+// file's mere non-empty presence is systemd's own authoritative "I detected
+// I'm in a container" signal. Previously only the literal value "lxc"
+// matched, so every other systemd-recognized engine (including
+// systemd-nspawn) was silently misclassified as a bare host, letting
+// cgroup-limit detection read the HOST's values instead of the container's.
+func TestDetectContainer_SystemdMarker_OtherEngine(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	systemdContainer := filepath.Join(dir, "systemd-container")
@@ -386,8 +391,11 @@ func TestDetectContainer_LXC_SystemdMarker_OtherContent(t *testing.T) {
 		systemdContainer,
 		noProc1Environ,
 	)
-	if cc.InContainer {
-		t.Error("expected InContainer=false for non-\"lxc\" systemd-container content")
+	if !cc.InContainer {
+		t.Error("expected InContainer=true for a non-\"lxc\" but non-empty systemd-container value (e.g. systemd-nspawn)")
+	}
+	if cc.IsDocker || cc.IsPodman {
+		t.Error("a generic systemd-container marker must not also flag Docker/Podman")
 	}
 }
 
@@ -413,6 +421,32 @@ func TestDetectContainer_LXC_ProcEnviron(t *testing.T) {
 	)
 	if !cc.InContainer {
 		t.Error("expected InContainer=true when /proc/1/environ contains container=lxc")
+	}
+}
+
+// TestDetectContainer_ProcEnviron_OtherEngine is the companion regression
+// test to TestDetectContainer_SystemdMarker_OtherEngine for the
+// /proc/1/environ fallback: container=<anything non-empty> is systemd's own
+// signal, not just container=lxc.
+func TestDetectContainer_ProcEnviron_OtherEngine(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	proc1Environ := filepath.Join(dir, "proc1-environ")
+	content := "PATH=/usr/bin\x00container=systemd-nspawn\x00HOME=/root\x00"
+	if err := os.WriteFile(proc1Environ, []byte(content), 0644); err != nil {
+		t.Fatalf("WriteFile: %v", err)
+	}
+
+	cc := detectContainerContextFromPaths(
+		filepath.Join(dir, "dockerenv"),
+		filepath.Join(dir, "containerenv"),
+		filepath.Join(dir, "cgroup", "cgroup.controllers"),
+		noSelfCgroup,
+		noSystemdContainer,
+		proc1Environ,
+	)
+	if !cc.InContainer {
+		t.Error("expected InContainer=true for a non-\"lxc\" but non-empty container= value")
 	}
 }
 

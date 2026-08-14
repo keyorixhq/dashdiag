@@ -60,20 +60,30 @@ func detectContainerContextFromPaths(dockerenv, containerenv, cgroupControllers,
 		cc.InContainer = true
 	}
 
-	// LXC container detection:
-	// /run/systemd/container contains "lxc" on systemd-based LXC containers.
-	// /proc/1/environ contains container=lxc on older LXC setups.
+	// Generic systemd container detection: /run/systemd/container is systemd's
+	// OWN authoritative "I detected I'm in a container" marker — it holds the
+	// engine name (lxc, lxc-libvirt, systemd-nspawn, docker, oci, rkt, pouch,
+	// proot, ...), not just "lxc". internal-platform-01-02: matching only the
+	// literal "lxc" value missed every other systemd-recognized engine —
+	// including systemd-nspawn and any containerd/runc/crun-launched container
+	// systemd itself already identified. Any non-empty value is authoritative.
 	if !cc.InContainer {
 		if b, err := os.ReadFile(filepath.Clean(systemdContainer)); err == nil {
-			if strings.TrimSpace(string(b)) == "lxc" {
+			if strings.TrimSpace(string(b)) != "" {
 				cc.InContainer = true
 			}
 		}
 	}
+	// Same broadening for the older /proc/1/environ container= fallback (used
+	// when the container's own PID 1 isn't systemd, so /run/systemd/container
+	// was never populated).
 	if !cc.InContainer {
 		if b, err := os.ReadFile(filepath.Clean(proc1Environ)); err == nil {
-			if strings.Contains(string(b), "container=lxc") {
-				cc.InContainer = true
+			for line := range strings.SplitSeq(string(b), "\x00") {
+				if val, ok := strings.CutPrefix(line, "container="); ok && val != "" {
+					cc.InContainer = true
+					break
+				}
 			}
 		}
 	}
