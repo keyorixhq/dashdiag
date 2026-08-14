@@ -23,6 +23,11 @@ type DNSResolverInfo struct {
 	InternalResolvesOK bool   `json:"internal_resolves_ok"` // can resolve hostname itself
 	ExternalLatencyMs  int    `json:"external_latency_ms"`
 	ResolvTestError    string `json:"resolve_test_error,omitempty"`
+	// ProbeSkipped is true when the live external/internal resolution probe
+	// was skipped (DSD_OFFLINE) — ExternalResolvesOK/InternalResolvesOK stay
+	// at their zero value in that case, which must not read as "resolution
+	// is failing".
+	ProbeSkipped bool `json:"probe_skipped,omitempty"`
 
 	// Quality flags
 	TooManyNameservers  bool     `json:"too_many_nameservers"` // >3 = libc silently drops extras

@@ -137,6 +137,15 @@ type dnsProbeResult struct {
 // replayed on a machine that resolves fine. A recording gap leaves the zero value
 // (ExternalResolvesOK=false), which the heuristic reports as unverified, not OK.
 func runDNSProbe(ctx context.Context, info *models.DNSResolverInfo) {
+	// internal-collectors-09-01: this is a real outbound DNS query
+	// (google.com, plus the host's own hostname) with no opt-out — every
+	// other live network probe elsewhere in the codebase honors DSD_OFFLINE.
+	// ProbeSkipped tells the heuristic this is unmeasured, never a false
+	// "resolution is failing".
+	if os.Getenv("DSD_OFFLINE") != "" {
+		info.ProbeSkipped = true
+		return
+	}
 	var pr dnsProbeResult
 	_ = cachedJSON("dns/resolve-probe", func() (any, error) {
 		return runDNSProbeLive(ctx), nil
