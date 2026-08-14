@@ -19,6 +19,13 @@ on:
 permissions:
   contents: read
 
+# Cancel superseded runs on the same ref (matches ci.yml's own convention):
+# a later push to main makes an in-flight run's result moot before it even
+# finishes.
+concurrency:
+  group: scorecard-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   analysis:
     name: Scorecard analysis

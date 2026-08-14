@@ -13,6 +13,15 @@ on:
 permissions:
   contents: read
 
+# Cancel superseded runs on the same ref: a later push/merge on the same
+# branch makes an in-flight run's result moot before it even finishes, and
+# this is by far the most expensive workflow in the repo (8-way-effective
+# test matrix, replay-hermeticity passes, Docker/QEMU smoke jobs) -- letting
+# a superseded run burn its full runtime is pure wasted Actions-minute spend.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 # Every setup-go step below uses `go-version: '1.26'` (floating minor), NOT
 # go-version-file: go.mod (exact patch). A go.mod-pinned patch silently goes
 # stale the moment Go ships a stdlib CVE fix in a newer patch — this bit us

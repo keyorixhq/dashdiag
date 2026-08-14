@@ -18,6 +18,13 @@ on:
 permissions:
   contents: read
 
+# Cancel superseded runs on the same ref (matches ci.yml's own convention):
+# a later push/merge on the same branch makes an in-flight run's result moot
+# before it even finishes.
+concurrency:
+  group: sonarcloud-${{ github.ref }}
+  cancel-in-progress: true
+
 jobs:
   # Diff-aware skip gate — same mechanism and allowlist as ci.yml's `changes`
   # job (keep the allowlist in sync there; not a required branch-protection
