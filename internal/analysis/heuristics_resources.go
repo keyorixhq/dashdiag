@@ -47,15 +47,32 @@ func checkCPU(cpu models.CPUInfo, thresh Thresholds, ctrCtx platform.ContainerCo
 	}
 	loadCorroborated := loadPct >= thresh.CPULoadWarnMultiplier*100
 
-	if l := levelPct(checkPct, thresh.CPULoadWarnMultiplier*100, thresh.CPULoadCritMultiplier*100); l != "" && (!usingInstantaneous || loadCorroborated) {
-		msg := fmt.Sprintf("%.0f%% CPU (user+sys)", cpu.UsagePct)
-		if cpu.LoadAvg1 > 0 {
-			msg += fmt.Sprintf(" — load avg %.2f across %d CPUs", cpu.LoadAvg1, cpu.NumCPU)
+	if l := levelPct(checkPct, thresh.CPULoadWarnMultiplier*100, thresh.CPULoadCritMultiplier*100); l != "" {
+		switch {
+		case !usingInstantaneous || loadCorroborated:
+			msg := fmt.Sprintf("%.0f%% CPU (user+sys)", cpu.UsagePct)
+			if cpu.LoadAvg1 > 0 {
+				msg += fmt.Sprintf(" — load avg %.2f across %d CPUs", cpu.LoadAvg1, cpu.NumCPU)
+			}
+			out = append(out, insight(l, corrCatCPULoad,
+				msg,
+				[]string{"to inspect: uptime", "to inspect: ps aux --sort=-%cpu | head -10", "to inspect: top -b -n1 | head -25"},
+			))
+		default:
+			// internal-analysis-07-02: checkPct crossed a WARN/CRIT threshold
+			// via the instantaneous /proc/stat sample, but the load-avg
+			// corroboration gate above exists precisely because dsd's own
+			// parallel collectors can transiently spike it — so this branch
+			// silently dropped the reading with zero trace, indistinguishable
+			// from "CPU is fine". Disclose the uncorroborated reading instead
+			// (INFO — doesn't raise the verdict, since it may be dsd's own
+			// noise) so a genuine short burst isn't evadable with no signal
+			// at all.
+			out = append(out, unverifiedInsight("INFO", corrCatCPULoad,
+				fmt.Sprintf("%.0f%% CPU (user+sys) momentarily — could not corroborate against the 1-min load average (may be a transient spike, including dsd's own collectors, or a genuine short burst)", cpu.UsagePct),
+				[]string{"to inspect: uptime", "to inspect: ps aux --sort=-%cpu | head -10"},
+			))
 		}
-		out = append(out, insight(l, corrCatCPULoad,
-			msg,
-			[]string{"to inspect: uptime", "to inspect: ps aux --sort=-%cpu | head -10", "to inspect: top -b -n1 | head -25"},
-		))
 	}
 
 	// CPU steal — hypervisor is withholding CPU from this VM.
@@ -129,6 +146,16 @@ func checkCPU(cpu models.CPUInfo, thresh Thresholds, ctrCtx platform.ContainerCo
 			out = append(out, insight("WARN", "CPU Load/RunQueue",
 				fmt.Sprintf("%d runnable tasks on %s — more tasks ready to run than cores available",
 					cpu.RunQueue, cpuLabel),
+				runQueueHints(cpu),
+			))
+		case cpu.RunQueue >= 2*cpu.NumCPU:
+			// internal-analysis-07-02: the run queue itself cleared the WARN
+			// tier's raw threshold, but load avg didn't corroborate at the
+			// matching tier — the same "could be dsd's own parallel
+			// collectors" ambiguity the corroboration gate above exists for.
+			// Disclose rather than silently drop it with no trace.
+			out = append(out, unverifiedInsight("INFO", "CPU Load/RunQueue",
+				fmt.Sprintf("%d runnable tasks on %s momentarily — could not corroborate against the 1-min load average", cpu.RunQueue, cpuLabel),
 				runQueueHints(cpu),
 			))
 		}

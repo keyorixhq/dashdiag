@@ -64,11 +64,11 @@ func TestCheckCPU_LoadCorroboration(t *testing.T) {
 	tests := []struct {
 		name string
 		cpu  models.CPUInfo
-		want string
+		want string // "" means no WARN/CRIT (an uncorroborated INFO disclosure may still be present)
 	}{
 		{
 			// 95% user+sys but load avg says the box is idle (0.1/2 = 5%) — almost
-			// always dsd measuring its own collection. Suppressed.
+			// always dsd measuring its own collection. WARN/CRIT suppressed.
 			"usage spike uncorroborated by idle load is suppressed",
 			models.CPUInfo{UsagePct: 95, LoadAvg1: 0.1, NumCPU: 2}, "",
 		},
@@ -78,7 +78,7 @@ func TestCheckCPU_LoadCorroboration(t *testing.T) {
 			models.CPUInfo{UsagePct: 95, LoadAvg1: 1.9, NumCPU: 2}, "CRIT",
 		},
 		{
-			// 4× run-queue but idle load avg — dsd's own runnable processes. Suppressed.
+			// 4× run-queue but idle load avg — dsd's own runnable processes. WARN/CRIT suppressed.
 			"run-queue spike uncorroborated by idle load is suppressed",
 			models.CPUInfo{RunQueue: 8, LoadAvg1: 0.1, NumCPU: 2}, "",
 		},
@@ -89,7 +89,7 @@ func TestCheckCPU_LoadCorroboration(t *testing.T) {
 		},
 		{
 			// A genuinely idle box reads load 0.00 — a high instantaneous run-queue
-			// there is dsd's own collection footprint, not host pressure. Suppressed.
+			// there is dsd's own collection footprint, not host pressure. WARN/CRIT suppressed.
 			// (The collector always returns valid load data, so load 0 means idle,
 			// not "unavailable" — there is no fail-open case to lose a real detection.)
 			"idle load of zero suppresses run-queue spike",
@@ -98,8 +98,34 @@ func TestCheckCPU_LoadCorroboration(t *testing.T) {
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			assertLevel(t, checkCPU(tt.cpu, defaultThresh, platform.ContainerContext{}), tt.want)
+			got := checkCPU(tt.cpu, defaultThresh, platform.ContainerContext{})
+			if tt.want == "" {
+				if hasLevel(got, "WARN") || hasLevel(got, "CRIT") {
+					t.Errorf("expected no WARN/CRIT, got %+v", got)
+				}
+				return
+			}
+			assertLevel(t, got, tt.want)
 		})
+	}
+}
+
+// TestCheckCPU_UncorroboratedSpikeDisclosed is the regression test for
+// internal-analysis-07-02: TestCheckCPU_LoadCorroboration confirms the
+// WARN/CRIT verdict is correctly suppressed when load avg doesn't
+// corroborate an instantaneous CPU%/run-queue spike — but suppression must
+// not mean total silence. A genuine short-lived burst that happens to be
+// uncorroborable must still leave an INFO trace, not read identically to a
+// box that was never elevated at all.
+func TestCheckCPU_UncorroboratedSpikeDisclosed(t *testing.T) {
+	usage := checkCPU(models.CPUInfo{UsagePct: 95, LoadAvg1: 0.1, NumCPU: 2}, defaultThresh, platform.ContainerContext{})
+	if !hasInsightMsg(usage, "INFO", "could not corroborate") {
+		t.Errorf("expected an uncorroborated-CPU-spike disclosure, got %+v", usage)
+	}
+
+	runQueue := checkCPU(models.CPUInfo{RunQueue: 8, LoadAvg1: 0.1, NumCPU: 2}, defaultThresh, platform.ContainerContext{})
+	if !hasInsightMsg(runQueue, "INFO", "could not corroborate") {
+		t.Errorf("expected an uncorroborated-run-queue-spike disclosure, got %+v", runQueue)
 	}
 }
 
