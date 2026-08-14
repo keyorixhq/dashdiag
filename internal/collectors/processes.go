@@ -68,10 +68,10 @@ func (c *ProcessesCollector) Collect(ctx context.Context) (any, error) {
 	if runtime.GOOS == "darwin" {
 		return c.collectDarwin(ctx)
 	}
-	return c.collectLinux()
+	return c.collectLinux(ctx)
 }
 
-func (c *ProcessesCollector) collectLinux() (*models.ProcessInfo, error) {
+func (c *ProcessesCollector) collectLinux(ctx context.Context) (*models.ProcessInfo, error) {
 	dirs, err := glob("/proc/[0-9]*")
 	if err != nil {
 		return nil, fmt.Errorf("globbing /proc: %w", err)
@@ -84,6 +84,13 @@ func (c *ProcessesCollector) collectLinux() (*models.ProcessInfo, error) {
 	}
 	selfPID := os.Getpid()
 	for _, dir := range dirs {
+		// internal-collectors-27-03: dirs can hold up to maxCappedDirEntries
+		// (200k) PIDs on a busy host — without a ctx check here, this loop (and
+		// the goroutine running it) outlives both the caller's cancellation and
+		// the collector's own advertised Timeout().
+		if err := ctx.Err(); err != nil {
+			break
+		}
 		data, err := readFile(filepath.Join(dir, "stat")) // #nosec G304 -- root is hardcoded to /proc; dir is from glob("/proc/[0-9]*"), not user input
 		if err != nil {
 			continue

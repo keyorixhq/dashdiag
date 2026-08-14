@@ -163,6 +163,30 @@ func TestProcessesCollector_Collect_Linux_GlobError(t *testing.T) {
 	}
 }
 
+// TestProcessesCollector_Collect_Linux_CtxCancelledStopsLoop is the
+// regression test for internal-collectors-27-03: collectLinux's per-PID scan
+// must check ctx and stop, not run every /proc entry to completion regardless
+// of the caller's cancellation or the collector's own advertised Timeout().
+func TestProcessesCollector_Collect_Linux_CtxCancelledStopsLoop(t *testing.T) {
+	dirs := []string{"/proc/100", "/proc/200"}
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutGlob("/proc/[0-9]*", dirs)
+		b.PutFile("/proc/100/stat", []byte("100 (myapp) Z 1 100 100 0 -1 0"))
+		b.PutFile("/proc/200/stat", []byte("200 (myapp) Z 1 200 200 0 -1 0"))
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	c := NewProcessesCollector()
+	result, err := c.Collect(ctx)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	info := result.(*models.ProcessInfo)
+	if info.ZombieCount != 0 || info.HungCount != 0 {
+		t.Errorf("expected the per-PID scan to stop immediately on a cancelled ctx, got %+v", info)
+	}
+}
+
 func TestProcessesCollector_Collect_Linux_UnreadableOrMalformedStat(t *testing.T) {
 	dirs := []string{"/proc/100", "/proc/200"}
 	withFixtureSource(t, func(b *source.Bundle) {
