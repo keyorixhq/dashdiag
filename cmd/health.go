@@ -226,12 +226,6 @@ func persistHealthRun(ctx context.Context, snap *baseline.Snapshot, insights []m
 	// state to compute a meaningful diff.
 	prior, _ := store.ReadAll(path, snap.Hostname, 1)
 
-	s, err := store.Open(path)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "store: %v\n", err)
-		return
-	}
-
 	levels := make([]string, 0, len(insights))
 	for _, ins := range insights {
 		levels = append(levels, ins.Level)
@@ -247,18 +241,12 @@ func persistHealthRun(ctx context.Context, snap *baseline.Snapshot, insights []m
 		Verdict:   store.VerdictFromInsights(levels),
 		Checks:    checks,
 	}
-	if err := s.Append(ctx, cur); err != nil {
+	// Append and Prune run under one cross-process lock (store.PersistAndPrune)
+	// so a concurrent `dsd health --persist` invocation can't race this
+	// store's rename against our append and silently lose an entry.
+	if err := store.PersistAndPrune(ctx, path, cur, snap.Hostname, defaultMaxHistory); err != nil {
 		fmt.Fprintf(os.Stderr, "store: %v\n", err)
-		_ = s.Close()
 		return
-	}
-
-	// Close before pruning so the rename in Prune has no open writer racing it.
-	if cerr := s.Close(); cerr != nil {
-		fmt.Fprintf(os.Stderr, "store: %v\n", cerr)
-	}
-	if err := store.Prune(path, snap.Hostname, defaultMaxHistory); err != nil {
-		fmt.Fprintf(os.Stderr, "store: prune: %v\n", err)
 	}
 
 	if len(prior) == 0 {

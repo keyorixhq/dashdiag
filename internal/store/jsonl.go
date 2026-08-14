@@ -244,6 +244,30 @@ func stripControl(s string) string {
 	}, s)
 }
 
+// PersistAndPrune appends e to the store at path, then prunes it to
+// maxEntries for hostname — both under a single cross-process exclusive
+// lock (see withLock), so a concurrent `dsd health --persist` invocation can
+// never race this store's Append against its own or another process's Prune
+// and silently lose an entry (internal-store-01-01). This is the combined
+// operation cmd/health.go's persistHealthRun needs; callers should use this
+// instead of calling Open/Append/Close/Prune separately.
+func PersistAndPrune(ctx context.Context, path string, e Entry, hostname string, maxEntries int) error {
+	return withLock(path, func() error {
+		s, err := Open(path)
+		if err != nil {
+			return err
+		}
+		if err := s.Append(ctx, e); err != nil {
+			_ = s.Close()
+			return err
+		}
+		if err := s.Close(); err != nil {
+			return err
+		}
+		return Prune(path, hostname, maxEntries)
+	})
+}
+
 // Close flushes and closes the underlying file.
 func (s *JSONLStore) Close() error {
 	s.mu.Lock()
