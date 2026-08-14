@@ -816,6 +816,20 @@ func checkSecurityDrift(diff *baseline.SecurityDiff) []models.Insight {
 		))
 	}
 
+	// Removed SUID binary = CRIT (internal-baseline-01-02): a vanished SUID
+	// binary is the drift signal for exactly the attack this feature exists
+	// to catch — a hardened sudo/su wrapper swapped for a non-SUID trojan
+	// that achieves privilege some other way (setcap, a background listener).
+	if len(diff.RemovedSUIDs) > 0 {
+		out = append(out, insight("CRIT", secCatHardening,
+			fmt.Sprintf("%d SUID binary(ies) removed since last security baseline", len(diff.RemovedSUIDs)),
+			[]string{
+				"to investigate: confirm each removed path — was it a legitimate package removal/update, or does something now provide the same privilege differently (setcap, a new listener)?",
+				secFixUpdateBaseline,
+			},
+		))
+	}
+
 	// Changed SSH config = WARN
 	if len(diff.ChangedSSHFiles) > 0 {
 		out = append(out, insight("WARN", secCatHardening,

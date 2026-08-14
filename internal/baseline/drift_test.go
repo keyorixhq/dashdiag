@@ -46,14 +46,17 @@ func TestDiffSecurityBaseline(t *testing.T) {
 		}
 	})
 
-	t.Run("removed SUID detected (not a change)", func(t *testing.T) {
+	// internal-baseline-01-02: a removed SUID binary IS drift — it's the
+	// signal for a hardened sudo/su wrapper swapped for a non-SUID trojan
+	// achieving privilege some other way. HasChanges previously ignored it.
+	t.Run("removed SUID detected (is a change)", func(t *testing.T) {
 		cur := &models.SecurityInfo{SUIDBinaries: []string{"/usr/bin/sudo"}}
 		d := DiffSecurityBaseline(base, cur)
 		if len(d.RemovedSUIDs) != 1 || d.RemovedSUIDs[0] != "/usr/bin/passwd" {
 			t.Errorf("RemovedSUIDs = %v", d.RemovedSUIDs)
 		}
-		if d.HasChanges() {
-			t.Error("a removed SUID alone is informational, not a change")
+		if !d.HasChanges() {
+			t.Error("a removed SUID must count as a change")
 		}
 	})
 

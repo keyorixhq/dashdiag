@@ -153,6 +153,14 @@ func printSecurityDrift(diff *baseline.SecurityDiff, mode output.OutputMode) {
 		}
 	}
 
+	if len(diff.RemovedSUIDs) > 0 {
+		fmt.Println("\nSUID binaries removed since baseline:")
+		for _, raw := range diff.RemovedSUIDs {
+			s := output.SanitizeControl(raw)
+			fmt.Printf("  %s  %s  [confirm: legitimate removal, or privilege regained another way?]\n", asciiOr(secLvlFail, iconFail, mode), s)
+		}
+	}
+
 	if len(diff.ChangedSSHFiles) > 0 {
 		fmt.Println("\nChanged SSH config files:")
 		for _, raw := range diff.ChangedSSHFiles {
@@ -200,7 +208,7 @@ func printSecurityDrift(diff *baseline.SecurityDiff, mode output.OutputMode) {
 	// Drive the summary severity from the drift heuristics.
 	insights := analysis.CheckSecurityDrift(diff)
 	recordWorstInsight(insights) // BUG-022: new SUID = CRIT, SSH/sudo/cron change = WARN
-	changes := len(diff.NewSUIDs) + len(diff.ChangedSSHFiles) +
+	changes := len(diff.NewSUIDs) + len(diff.RemovedSUIDs) + len(diff.ChangedSSHFiles) +
 		len(diff.AddedSSHFiles) + len(diff.RemovedSSHFiles) +
 		len(diff.NewSudoEntries) + len(diff.NewCronEntries)
 	baselineDate := diff.BaselineSavedAt.Format("2006-01-02")
