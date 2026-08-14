@@ -59,6 +59,27 @@ func TestPrometheusSkipsUnavailable(t *testing.T) {
 	}
 }
 
+// TestPrometheusKeepsSeriesForErroredCollector is the regression test for
+// internal-runner-01-01: a failed/timed-out collector (Data: nil, Err set —
+// runner.RunAll synthesizes exactly this on a timeout) must keep its
+// dsd_check_status series present, not silently disappear the same way a
+// genuinely-not-applicable collector does. ApplyThresholds always converts
+// r.Err into an INFO insight, so the series must still emit as long as that
+// insight exists.
+func TestPrometheusKeepsSeriesForErroredCollector(t *testing.T) {
+	results := []runner.Result{
+		availResult("Swap"),
+		{Name: "Kafka", Data: nil}, // simulates the synthesized nil-Data timeout Result
+	}
+	insights := []models.Insight{
+		{Level: "INFO", Check: "Kafka", Message: "check could not run — timed out"},
+	}
+	out := PrometheusMetrics(results, insights)
+	if !strings.Contains(out, `dsd_check_status{check="kafka"}`) {
+		t.Errorf("errored collector's series must still be emitted, got:\n%s", out)
+	}
+}
+
 func TestPromLabel(t *testing.T) {
 	cases := map[string]string{
 		"CPU Load":  "cpu_load",

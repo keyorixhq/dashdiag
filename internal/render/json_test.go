@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -63,6 +64,59 @@ func TestRenderJSON_VerdictField(t *testing.T) {
 	}
 	if out.Counts.Crit != 1 || out.Counts.Warn != 1 || out.Counts.Info != 1 {
 		t.Errorf("counts = %+v, want crit=1 warn=1 info=1", out.Counts)
+	}
+}
+
+// TestRenderJSON_ErroredCountsField is the regression test for
+// internal-render-03-04: a failed collector (r.Err != nil) typically produces
+// only an INFO-level "couldn't measure" insight, which never raises
+// Verdict/Crit/Warn on its own — Counts.Errored must still surface that a
+// check didn't run at all, so a machine consumer branching on
+// Verdict/Counts alone (not iterating checks[]) can see it.
+func TestRenderJSON_ErroredCountsField(t *testing.T) {
+	results := []runner.Result{
+		{Name: "Disk", Data: models.DiskInfo{}},
+		{Name: "Kafka", Err: errors.New("collector timed out")},
+	}
+	insights := []models.Insight{
+		{Check: "Kafka", Level: "INFO", Message: "kafka check could not run"},
+	}
+	data, err := RenderJSON(results, insights)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out JSONOutput
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatalf("output is not valid JSON: %v", err)
+	}
+	if out.Verdict != "OK" {
+		t.Errorf("verdict = %q, want OK (an INFO insight alone must not raise verdict)", out.Verdict)
+	}
+	if out.Counts.Errored != 1 {
+		t.Errorf("Counts.Errored = %d, want 1", out.Counts.Errored)
+	}
+}
+
+// TestRenderJSON_ErroredCountsField_NoErrors confirms Errored stays 0 (and is
+// omitted from the JSON via omitempty) when nothing failed — must not
+// introduce noise for the common healthy-run case.
+func TestRenderJSON_ErroredCountsField_NoErrors(t *testing.T) {
+	results := []runner.Result{
+		{Name: "Disk", Data: models.DiskInfo{}},
+	}
+	data, err := RenderJSON(results, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out JSONOutput
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatalf("output is not valid JSON: %v", err)
+	}
+	if out.Counts.Errored != 0 {
+		t.Errorf("Counts.Errored = %d, want 0", out.Counts.Errored)
+	}
+	if strings.Contains(string(data), `"errored"`) {
+		t.Error(`expected "errored" to be omitted from JSON via omitempty when zero`)
 	}
 }
 
