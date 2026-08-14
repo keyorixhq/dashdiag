@@ -20,4 +20,10 @@ type VaultInfo struct {
 	HTTPStatus   int    `json:"http_status,omitempty"`
 	Status       string `json:"status"`
 	StatusReason string `json:"status_reason,omitempty"`
+	// IdentityUnverified is true when the process listening on :8200 could not
+	// be confirmed via its own cmdline — only an unauthenticated HTTP response
+	// shape matched. Any unprivileged local process can otherwise spoof a fake
+	// "reachable, unsealed" verdict about this secrets-management service by
+	// binding the port first.
+	IdentityUnverified bool `json:"identity_unverified,omitempty"`
 }

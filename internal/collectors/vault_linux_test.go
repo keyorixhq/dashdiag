@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 // seedVaultFixture installs a fakeCombinedFixture with a controlled dial
@@ -219,5 +220,50 @@ func TestVaultCollect_Sealed(t *testing.T) {
 	info := raw.(*models.VaultInfo)
 	if !info.Sealed {
 		t.Error("Sealed = false, want true")
+	}
+}
+
+// TestVaultCollect_IdentityUnverified_NoSS is the regression test for
+// internal-collectors-33-05: when the listener's own identity can't be
+// confirmed (here, ss is unavailable), IdentityUnverified must be true even
+// though the health/seal-status responses parsed as valid Vault JSON.
+func TestVaultCollect_IdentityUnverified_NoSS(t *testing.T) {
+	health := `{"initialized":true,"sealed":false,"version":"1.15.0"}`
+	seal := `{"storage_type":"raft"}`
+	seedVaultFixture(t, true, health, seal) // no PutCmd for ss — command errors as not-recorded
+
+	raw, err := NewVaultCollector().Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.VaultInfo)
+	if !info.IdentityUnverified {
+		t.Error("IdentityUnverified = false, want true when ss is unavailable")
+	}
+}
+
+// TestVaultCollect_IdentityVerified confirms IdentityUnverified is false when
+// ss+cmdline confirm a real vault process.
+func TestVaultCollect_IdentityVerified(t *testing.T) {
+	health := `{"initialized":true,"sealed":false,"version":"1.15.0"}`
+	seal := `{"storage_type":"raft"}`
+	healthEnc, _ := json.Marshal(httpGetResult{Body: []byte(health), Code: 200})
+	sealEnc, _ := json.Marshal(httpGetResult{Body: []byte(seal), Code: 200})
+	withCombinedFixture(t, map[string][]byte{
+		"dial/tcp/127.0.0.1:8200":                        {'1'},
+		"http/https://127.0.0.1:8200/v1/sys/health":      healthEnc,
+		"http/https://127.0.0.1:8200/v1/sys/seal-status": sealEnc,
+	}, nil, func(b *source.Bundle) {
+		b.PutCmd("ss", []string{"-tlnp"}, "LISTEN 0 128 127.0.0.1:8200 0.0.0.0:* users:((\"vault\",pid=999,fd=6))\n", 0)
+		b.PutFile("/proc/999/cmdline", []byte("/usr/bin/vault\x00server\x00-config=/etc/vault.d/vault.hcl\x00"))
+	})
+
+	raw, err := NewVaultCollector().Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.VaultInfo)
+	if info.IdentityUnverified {
+		t.Error("IdentityUnverified = true, want false when ss+cmdline confirm a real vault process")
 	}
 }

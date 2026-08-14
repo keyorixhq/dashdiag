@@ -19,4 +19,9 @@ type AlertmanagerInfo struct {
 	ConfigReloadOK   bool `json:"config_reload_ok,omitempty"`
 
 	StatusReason string `json:"status_reason,omitempty"`
+	// IdentityUnverified is true when the process listening on the Alertmanager
+	// port could not be confirmed via its own cmdline — only an unauthenticated
+	// HTTP response shape matched. Any unprivileged local process can otherwise
+	// spoof a fake "healthy" verdict by binding the port first.
+	IdentityUnverified bool `json:"identity_unverified,omitempty"`
 }

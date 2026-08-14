@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 func TestEnvoyCollectorIdentity(t *testing.T) {
@@ -174,5 +175,42 @@ func TestParseEnvoyMembership(t *testing.T) {
 	}
 	if info.DegradedSample == "" {
 		t.Error("a degraded (partially healthy) cluster should populate DegradedSample")
+	}
+}
+
+// TestDetectEnvoy_IdentityUnverified_NoSS is the regression test for
+// internal-collectors-12-01: when the listener's own identity can't be
+// confirmed (here, ss is unavailable), IdentityUnverified must be true even
+// though the {version,state} response shape matched.
+func TestDetectEnvoy_IdentityUnverified_NoSS(t *testing.T) {
+	withCombinedFixture(t, map[string][]byte{
+		"dial/tcp/127.0.0.1:9901":                {'1'},
+		"http/http://127.0.0.1:9901/server_info": promHTTPResult(t, `{"version":"1.30.1","state":"LIVE"}`, 200),
+	}, nil, nil) // no PutCmd for ss — command errors as not-recorded
+	_, info := detectEnvoy(context.Background())
+	if info == nil {
+		t.Fatal("detectEnvoy() = nil, want a result")
+	}
+	if !info.IdentityUnverified {
+		t.Error("IdentityUnverified = false, want true when ss is unavailable")
+	}
+}
+
+// TestDetectEnvoy_IdentityVerified confirms IdentityUnverified is false when
+// ss+cmdline confirm a real envoy process.
+func TestDetectEnvoy_IdentityVerified(t *testing.T) {
+	withCombinedFixture(t, map[string][]byte{
+		"dial/tcp/127.0.0.1:9901":                {'1'},
+		"http/http://127.0.0.1:9901/server_info": promHTTPResult(t, `{"version":"1.30.1","state":"LIVE"}`, 200),
+	}, nil, func(b *source.Bundle) {
+		b.PutCmd("ss", []string{"-tlnp"}, "LISTEN 0 128 127.0.0.1:9901 0.0.0.0:* users:((\"envoy\",pid=777,fd=9))\n", 0)
+		b.PutFile("/proc/777/cmdline", []byte("/usr/bin/envoy\x00-c\x00/etc/envoy/envoy.yaml\x00"))
+	})
+	_, info := detectEnvoy(context.Background())
+	if info == nil {
+		t.Fatal("detectEnvoy() = nil, want a result")
+	}
+	if info.IdentityUnverified {
+		t.Error("IdentityUnverified = true, want false when ss+cmdline confirm a real envoy process")
 	}
 }

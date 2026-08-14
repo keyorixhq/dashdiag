@@ -58,3 +58,15 @@ func pidCmdlineContains(pid int, substr string) bool {
 	cmdline := strings.ToLower(strings.ReplaceAll(string(data), "\x00", " "))
 	return strings.Contains(cmdline, strings.ToLower(substr))
 }
+
+// tcpPortIdentityVerified reports whether the process listening on the given
+// port can be confirmed (via ss -tlnp + its own cmdline) to plausibly be the
+// expected service. False whenever it can't be confirmed either way — ss
+// unavailable, the non-root ownership blind spot, or a genuine mismatch —
+// which callers should treat as "identity unverified", not "definitely not
+// the real service" (a false negative here is far less costly than a false
+// positive: it just adds a disclosure, never suppresses a real finding).
+func tcpPortIdentityVerified(ctx context.Context, port, expectedSubstr string) bool {
+	pid, checked := tcpListenerPID(ctx, port)
+	return checked && pid != 0 && pidCmdlineContains(pid, expectedSubstr)
+}

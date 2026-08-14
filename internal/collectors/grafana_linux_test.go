@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 func TestGrafanaCollectorIdentity(t *testing.T) {
@@ -126,5 +127,42 @@ func TestGrafanaCollector_Collect_DatabaseNotOK(t *testing.T) {
 	}
 	if info.DatabaseOK {
 		t.Error("DatabaseOK = true, want false when database status is not \"ok\"")
+	}
+}
+
+// TestDetectGrafana_IdentityUnverified_NoSS is the regression test for
+// internal-collectors-13-01: when the listener's own identity can't be
+// confirmed (here, ss is unavailable), IdentityUnverified must be true even
+// though the {database,version} response shape matched.
+func TestDetectGrafana_IdentityUnverified_NoSS(t *testing.T) {
+	withCombinedFixture(t, map[string][]byte{
+		"dial/tcp/127.0.0.1:3000":               {'1'},
+		"http/http://127.0.0.1:3000/api/health": promHTTPResult(t, `{"database":"ok","version":"11.1.0"}`, 200),
+	}, nil, nil) // no PutCmd for ss — command errors as not-recorded
+	_, info := detectGrafana(context.Background())
+	if info == nil {
+		t.Fatal("detectGrafana() = nil, want a result")
+	}
+	if !info.IdentityUnverified {
+		t.Error("IdentityUnverified = false, want true when ss is unavailable")
+	}
+}
+
+// TestDetectGrafana_IdentityVerified confirms IdentityUnverified is false
+// when ss+cmdline confirm a real grafana process.
+func TestDetectGrafana_IdentityVerified(t *testing.T) {
+	withCombinedFixture(t, map[string][]byte{
+		"dial/tcp/127.0.0.1:3000":               {'1'},
+		"http/http://127.0.0.1:3000/api/health": promHTTPResult(t, `{"database":"ok","version":"11.1.0"}`, 200),
+	}, nil, func(b *source.Bundle) {
+		b.PutCmd("ss", []string{"-tlnp"}, "LISTEN 0 128 127.0.0.1:3000 0.0.0.0:* users:((\"grafana-server\",pid=888,fd=7))\n", 0)
+		b.PutFile("/proc/888/cmdline", []byte("/usr/sbin/grafana-server\x00--config=/etc/grafana/grafana.ini\x00"))
+	})
+	_, info := detectGrafana(context.Background())
+	if info == nil {
+		t.Fatal("detectGrafana() = nil, want a result")
+	}
+	if info.IdentityUnverified {
+		t.Error("IdentityUnverified = true, want false when ss+cmdline confirm a real grafana process")
 	}
 }

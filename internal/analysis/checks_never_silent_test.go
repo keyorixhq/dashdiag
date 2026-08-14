@@ -102,6 +102,38 @@ var neverSilentChecks = []neverSilentCheck{
 		wantSubstr: "could not read /proc/net/netstat",
 	},
 	{
+		name:    "checkAlertmanager: identity unverified",
+		checkFn: "checkAlertmanager",
+		run: func() []models.Insight {
+			return checkAlertmanager(models.AlertmanagerInfo{Detected: true, StatusRead: true, ConfigReloadRead: true, ConfigReloadOK: true, IdentityUnverified: true})
+		},
+		wantSubstr: "identity could not be confirmed",
+	},
+	{
+		name:    "checkEnvoy: identity unverified",
+		checkFn: "checkEnvoy",
+		run: func() []models.Insight {
+			return checkEnvoy(models.EnvoyInfo{Detected: true, StatsRead: true, ClustersTotal: 1, UpstreamsTotal: 1, UpstreamsHealthy: 1, IdentityUnverified: true})
+		},
+		wantSubstr: "identity could not be confirmed",
+	},
+	{
+		name:    "checkGrafana: identity unverified",
+		checkFn: "checkGrafana",
+		run: func() []models.Insight {
+			return checkGrafana(models.GrafanaInfo{Detected: true, HealthRead: true, DatabaseOK: true, IdentityUnverified: true})
+		},
+		wantSubstr: "identity could not be confirmed",
+	},
+	{
+		name:    "checkVault: identity unverified",
+		checkFn: "checkVault",
+		run: func() []models.Insight {
+			return checkVault(models.VaultInfo{Available: true, Reachable: true, StatusRead: true, Initialized: true, TLSEnabled: true, IdentityUnverified: true})
+		},
+		wantSubstr: "identity could not be confirmed",
+	},
+	{
 		name:    "checkOCI: on OCI but every sub-check unreachable",
 		checkFn: "checkOCI",
 		run: func() []models.Insight {

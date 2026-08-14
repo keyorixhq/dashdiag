@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 func TestAlertmanagerCollectorIdentity(t *testing.T) {
@@ -185,5 +186,42 @@ func TestParseAMConfigReload(t *testing.T) {
 					tc.metrics, ok, found, tc.wantOK, tc.wantFound)
 			}
 		})
+	}
+}
+
+// TestDetectAlertmanager_IdentityUnverified_NoSS is the regression test for
+// internal-collectors-01-02: when the listener's own identity can't be
+// confirmed (here, ss is unavailable), IdentityUnverified must be true even
+// though the JSON response shape matched.
+func TestDetectAlertmanager_IdentityUnverified_NoSS(t *testing.T) {
+	withCombinedFixture(t, map[string][]byte{
+		"dial/tcp/127.0.0.1:9093":                  {'1'},
+		"http/http://127.0.0.1:9093/api/v2/status": promHTTPResult(t, `{"cluster":{"status":"ready","peers":[{"name":"a"}]},"versionInfo":{"version":"0.27.0"}}`, 200),
+	}, nil, nil) // no PutCmd for ss — command errors as not-recorded
+	_, info := detectAlertmanager(context.Background())
+	if info == nil {
+		t.Fatal("detectAlertmanager() = nil, want a result")
+	}
+	if !info.IdentityUnverified {
+		t.Error("IdentityUnverified = false, want true when ss is unavailable")
+	}
+}
+
+// TestDetectAlertmanager_IdentityVerified confirms IdentityUnverified is
+// false when ss+cmdline confirm a real alertmanager process.
+func TestDetectAlertmanager_IdentityVerified(t *testing.T) {
+	withCombinedFixture(t, map[string][]byte{
+		"dial/tcp/127.0.0.1:9093":                  {'1'},
+		"http/http://127.0.0.1:9093/api/v2/status": promHTTPResult(t, `{"cluster":{"status":"ready","peers":[{"name":"a"}]},"versionInfo":{"version":"0.27.0"}}`, 200),
+	}, nil, func(b *source.Bundle) {
+		b.PutCmd("ss", []string{"-tlnp"}, "LISTEN 0 128 127.0.0.1:9093 0.0.0.0:* users:((\"alertmanager\",pid=555,fd=8))\n", 0)
+		b.PutFile("/proc/555/cmdline", []byte("/usr/bin/alertmanager\x00--config.file=/etc/alertmanager/alertmanager.yml\x00"))
+	})
+	_, info := detectAlertmanager(context.Background())
+	if info == nil {
+		t.Fatal("detectAlertmanager() = nil, want a result")
+	}
+	if info.IdentityUnverified {
+		t.Error("IdentityUnverified = true, want false when ss+cmdline confirm a real alertmanager process")
 	}
 }
