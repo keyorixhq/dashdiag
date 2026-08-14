@@ -34,9 +34,15 @@ func detectGrafana(ctx context.Context) (base string, info *models.GrafanaInfo) 
 		if json.Unmarshal(body, &h) != nil || (h.Database == "" && h.Version == "") {
 			continue
 		}
+		// internal-collectors-13-01: the {database,version} shape check above
+		// confirms "something Grafana-shaped answered", not "this is really
+		// Grafana" — any unprivileged local process can bind :3000 first and
+		// serve a crafted /api/health. Cross-check the listener's own cmdline
+		// before trusting it at full confidence.
 		return b, &models.GrafanaInfo{
 			Detected: true, HealthRead: true, Version: h.Version,
 			DatabaseStatus: h.Database, DatabaseOK: h.Database == "ok",
+			IdentityUnverified: !tcpPortIdentityVerified(ctx, "3000", "grafana"),
 		}
 	}
 	return "", nil

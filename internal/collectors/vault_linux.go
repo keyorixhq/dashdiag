@@ -38,6 +38,12 @@ func (c *VaultCollector) Collect(ctx context.Context) (any, error) {
 		return info, nil
 	}
 	info.Reachable = true
+	// internal-collectors-33-05: vaultProbeBase only confirmed a non-empty HTTP
+	// response body, not that the responder is really Vault — any unprivileged
+	// local process can bind :8200 first and serve a crafted body. Cross-check
+	// the listener's own cmdline before trusting Initialized/Sealed/StorageType
+	// at full confidence.
+	info.IdentityUnverified = !tcpPortIdentityVerified(ctx, "8200", "vault")
 
 	// /v1/sys/health: initialized, sealed, version. Vault uses non-200 status codes
 	// to signal state (200=active, 429=standby, 503=sealed, 501=uninitialised) —

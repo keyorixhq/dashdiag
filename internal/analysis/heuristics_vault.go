@@ -47,6 +47,15 @@ func checkVault(v models.VaultInfo) []models.Insight {
 	}
 
 	var out []models.Insight
+	if v.IdentityUnverified {
+		// internal-collectors-33-05: vaultProbeBase only confirmed a
+		// non-empty HTTP response, not that the responder is really Vault —
+		// spoofable by any unprivileged local process binding :8200 first.
+		// Disclose alongside (never replacing) whatever finding follows.
+		out = append(out, unverifiedInsight("INFO", "Vault",
+			"Vault was detected via an HTTP response only — the listening process's identity could not be confirmed",
+			[]string{"note: run as root, or verify with: ss -tlnp | grep :8200"}))
+	}
 
 	// Dev mode: no persistence, root token printed to stdout, TLS disabled.
 	// Report this before the TLS check — dev mode implies no TLS by design, so

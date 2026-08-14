@@ -35,7 +35,15 @@ func detectEnvoy(ctx context.Context) (base string, info *models.EnvoyInfo) {
 			State   string `json:"state"`
 		}
 		if json.Unmarshal(body, &s) == nil && s.State != "" {
-			return b, &models.EnvoyInfo{Detected: true, Version: s.Version, State: s.State}
+			// internal-collectors-12-01: the {version,state} shape check above
+			// confirms "something Envoy-admin-shaped answered", not "this is
+			// really Envoy" — any unprivileged local process can bind :9901
+			// first and serve a crafted /server_info. Cross-check the
+			// listener's own cmdline before trusting it at full confidence.
+			return b, &models.EnvoyInfo{
+				Detected: true, Version: s.Version, State: s.State,
+				IdentityUnverified: !tcpPortIdentityVerified(ctx, "9901", "envoy"),
+			}
 		}
 	}
 	return "", nil

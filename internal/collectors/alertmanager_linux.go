@@ -41,9 +41,15 @@ func detectAlertmanager(ctx context.Context) (base string, info *models.Alertman
 		if json.Unmarshal(body, &s) != nil || s.Cluster.Status == "" {
 			continue
 		}
+		// internal-collectors-01-02: the JSON-shape check above confirms
+		// "something Alertmanager-shaped answered", not "this is really
+		// Alertmanager" — any unprivileged local process can bind :9093 first
+		// and serve a crafted cluster.status. Cross-check the listener's own
+		// cmdline before trusting the response at full confidence.
 		return b, &models.AlertmanagerInfo{
 			Detected: true, StatusRead: true, Version: s.VersionInfo.Version,
 			ClusterStatus: s.Cluster.Status, ClusterPeers: len(s.Cluster.Peers),
+			IdentityUnverified: !tcpPortIdentityVerified(ctx, "9093", "alertmanager"),
 		}
 	}
 	return "", nil
