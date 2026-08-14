@@ -49,11 +49,11 @@ func Log(ctx context.Context, component, msg string, kvs ...any) {
 	ts := time.Now().Format("15:04:05.000")
 	var sb strings.Builder
 
-	fmt.Fprintf(&sb, "[debug] %s  %-14s  %s", ts, component, msg)
+	fmt.Fprintf(&sb, "[debug] %s  %-14s  %s", ts, component, truncateDebugValue(msg))
 
 	// Append key=value pairs.
 	for i := 0; i+1 < len(kvs); i += 2 {
-		fmt.Fprintf(&sb, "  %v=%v", kvs[i], kvs[i+1])
+		fmt.Fprintf(&sb, "  %v=%s", kvs[i], truncateDebugValue(fmt.Sprintf("%v", kvs[i+1])))
 	}
 	// If an odd kv was passed, surface it so we notice the bug.
 	if len(kvs)%2 != 0 {
@@ -81,9 +81,26 @@ func Logf(ctx context.Context, component, format string, args ...any) {
 	msg := fmt.Sprintf(format, args...)
 	// Same rationale as Log above: args can carry attacker-influenced text
 	// from the diagnosed host — strip control/ANSI-escape bytes (including
-	// embedded newlines) before this reaches the operator's terminal.
-	line := fmt.Sprintf("[debug] %s  %-14s  %s", ts, component, msg)
+	// embedded newlines) and cap the length before this reaches the
+	// operator's terminal.
+	line := fmt.Sprintf("[debug] %s  %-14s  %s", ts, component, truncateDebugValue(msg))
 	fmt.Fprintln(os.Stderr, stripControl(line))
+}
+
+// maxDebugValueLen caps how many runes a single formatted kv value (Log) or
+// message (Logf) contributes to a debug line. internal-debug-01-02: every
+// value here can ultimately originate from the host being diagnosed (raw
+// command/file output embedded as an error or detail kv) — --debug must not
+// be able to flood the operator's terminal or grow one line unboundedly just
+// because a probe returned something huge.
+const maxDebugValueLen = 2000
+
+func truncateDebugValue(s string) string {
+	r := []rune(s)
+	if len(r) <= maxDebugValueLen {
+		return s
+	}
+	return string(r[:maxDebugValueLen]) + "…(truncated)"
 }
 
 // stripControl removes control characters (including ESC, which starts
