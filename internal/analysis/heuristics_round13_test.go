@@ -120,6 +120,26 @@ func TestCheckKernelSecurity_AVCSamples(t *testing.T) {
 	assertLevel(t, checkKernelSecurity(mac, defaultThresh), "WARN")
 }
 
+// TestCheckKernelSecurity_AVCSamples_UnsafeCommWithheld is the regression
+// test for internal-analysis-11-01: an AVC comm= field is attacker-settable
+// via prctl(PR_SET_NAME) and not restricted to a safe charset. The
+// getsebool hint is a copy-pasteable shell command, so a comm value
+// containing shell metacharacters must never be spliced into it.
+func TestCheckKernelSecurity_AVCSamples_UnsafeCommWithheld(t *testing.T) {
+	mac := models.KernelSecurityInfo{
+		SELinuxPresent: true, SELinuxMode: "enforcing", SELinuxDenials: 5,
+		SELinuxAVCSamples: []string{`type=AVC msg=audit(1): avc: denied { read } comm="httpd; rm -rf ~" name="x"`},
+	}
+	got := checkKernelSecurity(mac, defaultThresh)
+	for _, ins := range got {
+		for _, h := range ins.Hints {
+			if strings.Contains(h, "getsebool") && strings.Contains(h, "rm -rf") {
+				t.Errorf("unsafe comm value was spliced into a copy-pasteable hint: %q", h)
+			}
+		}
+	}
+}
+
 // TestCheckSecurity_SELinuxGroups covers the grouped-AVC hint path including
 // truncateSELinux on a long fix command.
 func TestCheckSecurity_SELinuxGroups(t *testing.T) {

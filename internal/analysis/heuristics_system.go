@@ -621,9 +621,17 @@ func checkSELinuxDenials(mac models.KernelSecurityInfo, thresh Thresholds) []mod
 			"to inspect: sealert -a /var/log/audit/audit.log",
 		}
 		if len(mac.SELinuxAVCSamples) > 0 {
+			// internal-analysis-11-01: proc is an AVC log line's comm= field,
+			// attacker-settable via prctl(PR_SET_NAME) and not restricted to a
+			// safe charset. This hint is a copy-pasteable shell command, so an
+			// unvalidated proc here is a local privesc if an operator pastes
+			// it into a root shell — validate before splicing it in (see
+			// looksLikeSafeToken).
 			procs := extractAVCProcessNames(mac.SELinuxAVCSamples)
 			for _, proc := range procs {
-				hints = append(hints, fmt.Sprintf("to check booleans: getsebool -a | grep %s", proc))
+				if looksLikeSafeToken(proc) {
+					hints = append(hints, fmt.Sprintf("to check booleans: getsebool -a | grep %s", proc))
+				}
 			}
 		} else {
 			hints = append(hints, "to check booleans: getsebool -a | grep <process-name>")
