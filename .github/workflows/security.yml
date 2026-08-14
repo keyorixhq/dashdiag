@@ -72,13 +72,16 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      # TEMPORARY pin to 1.26.5 (normally floats '1.26' — see ci.yml's top note).
-      # GO-2026-5856 is a crypto/tls Encrypted-Client-Hello leak fixed in go1.26.5,
-      # but GitHub's setup-go version manifest still serves 1.26.4, so a floating
-      # '1.26' fails govulncheck here. Revert to '1.26' once the manifest lists
-      # 1.26.5 (then the float catches this and future stdlib CVE fixes on its own).
+      # Floats '1.26' (see ci.yml's top note) so a newly published stdlib CVE
+      # fix lands here automatically with no code change of our own needed.
+      # Was TEMPORARILY pinned to 1.26.5 (2026-07-xx) while GitHub's setup-go
+      # manifest lagged behind a just-fixed CVE; the manifest has since caught
+      # up (confirmed serving 1.26.5, and the govulncheck failure that
+      # prompted reverting this pin was itself GO-2026-6218 et al., fixed in
+      # 1.26.6 — proof the manifest is no longer the bottleneck), so this
+      # reverts per the pin's own stated condition.
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with: {go-version: '1.26.5', cache: true}
+        with: {go-version: '1.26', cache: true}
 
       - name: govulncheck
         # Pinned, not @latest (OSSF Scorecard Pinned-Dependencies) — a compromised
