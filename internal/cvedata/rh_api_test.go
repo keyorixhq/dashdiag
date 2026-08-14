@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -367,6 +368,33 @@ func TestEnrichFromRHAPI_FallsBackToFirstPackageStateEntry(t *testing.T) {
 	EnrichFromRHAPI(context.Background(), "CVE-2024-0002", result)
 	if result.FixState != "Will not fix" || result.AffectedPkg != "foo" {
 		t.Errorf("result = %+v, want the fallback first entry", result)
+	}
+}
+
+// TestEnrichFromRHAPI_FallbackNotAffectedDoesNotClaimConfirmed is the
+// regression test for internal-cvedata-02-01: when no package_state entry
+// matched the running product/distro, the unmatched-fallback entry's
+// FixState describes an ARBITRARY other product — claiming "Red Hat
+// confirmed: not affected on this product" from it would attribute a
+// confirmation Red Hat never made for this system.
+func TestEnrichFromRHAPI_FallbackNotAffectedDoesNotClaimConfirmed(t *testing.T) {
+	withOSRelease(t, "ID=rhel\nVERSION_ID=\"9.4\"\n")
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		_, _ = w.Write([]byte(`{
+			"package_state": [
+				{"product_name": "Some Unrelated Product", "fix_state": "Not affected", "package_name": "foo", "cpe": "cpe:/o:other:thing:1"}
+			]
+		}`))
+	}))
+	defer srv.Close()
+	prevAPI := rhSecurityAPI
+	rhSecurityAPI = srv.URL + "/%s.json"
+	t.Cleanup(func() { rhSecurityAPI = prevAPI })
+
+	result := &models.CVEResult{Status: models.CVENotAffected}
+	EnrichFromRHAPI(context.Background(), "CVE-2024-0004", result)
+	if strings.Contains(result.StatusReason, "Red Hat confirmed") {
+		t.Errorf("fallback (unmatched-product) entry must not claim a Red Hat confirmation, got %q", result.StatusReason)
 	}
 }
 

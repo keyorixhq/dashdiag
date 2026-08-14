@@ -113,6 +113,7 @@ func EnrichFromRHAPI(ctx context.Context, cveID string, result *models.CVEResult
 
 	// Find the most relevant product entry for the running distro
 	rhel := detectRHELMajor()
+	matched := false
 	for _, ps := range data.PackageState {
 		nameLower := strings.ToLower(ps.ProductName)
 		if strings.Contains(nameLower, rhel) ||
@@ -120,6 +121,7 @@ func EnrichFromRHAPI(ctx context.Context, cveID string, result *models.CVEResult
 			strings.Contains(ps.CPE, ":"+rhel) {
 			result.FixState = ps.FixState
 			result.AffectedPkg = ps.PackageName
+			matched = true
 			break
 		}
 	}
@@ -129,9 +131,18 @@ func EnrichFromRHAPI(ctx context.Context, cveID string, result *models.CVEResult
 		result.AffectedPkg = data.PackageState[0].PackageName
 	}
 
-	// If RH API says "Not affected" and package manager is uncertain, clarify status
+	// internal-cvedata-02-01: FixState from the unmatched-fallback entry
+	// above describes an ARBITRARY other product/CPE, not the running
+	// distro — claiming "Red Hat confirmed" from it would attribute a
+	// confirmation Red Hat never made for this system. Only the genuinely
+	// matched entry earns that wording; the fallback case says so.
 	if result.FixState == "Not affected" && result.Status == models.CVENotAffected {
-		result.StatusReason = "Red Hat confirmed: not affected on this product"
+		switch {
+		case matched:
+			result.StatusReason = "Red Hat confirmed: not affected on this product"
+		case result.AffectedPkg != "":
+			result.StatusReason = "Red Hat data available but no entry matched this product/distro — unconfirmed for this system"
+		}
 	}
 }
 
