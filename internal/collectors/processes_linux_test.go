@@ -98,7 +98,13 @@ func TestProcessesCollector_Collect_Linux(t *testing.T) {
 	normalParentStr := strconv.Itoa(normalParent)
 	shellParent := normalParent + 1
 	shellParentStr := strconv.Itoa(shellParent)
-	withFixtureSource(t, func(b *source.Bundle) {
+	withCombinedFixture(t, nil, map[string]string{
+		// internal-collectors-27-02: the shell-parent skip is now verified via
+		// /proc/<ppid>/exe (kernel-set at exec(), not the spoofable comm name)
+		// — see isVerifiedShellParent. This fixture's shellParent is a GENUINE
+		// bash parent, so its /exe link resolves to a real shell binary.
+		"/proc/" + shellParentStr + "/exe": "/bin/bash",
+	}, func(b *source.Bundle) {
 		b.PutGlob("/proc/[0-9]*", dirs)
 		b.PutFile("/proc/100/stat", []byte("100 (nginx) S "+normalParentStr+" 100 100 0 -1 0"))
 		b.PutFile("/proc/200/stat", []byte("200 (myapp) Z "+normalParentStr+" 200 200 0 -1 0"))
@@ -151,6 +157,38 @@ func TestProcessesCollector_Collect_Linux(t *testing.T) {
 	}
 	if info.HungProcs[0].PID != 300 || info.HungProcs[0].WChan != "pipe_wait" {
 		t.Errorf("HungProcs[0] = %+v, want PID=300 WChan=pipe_wait", info.HungProcs[0])
+	}
+}
+
+// TestProcessesCollector_Collect_Linux_SpoofedShellParentNotExempted is the
+// regression test for internal-collectors-27-02: a process whose comm name
+// self-reports as "bash" (spoofable via prctl(PR_SET_NAME)) but whose actual
+// /proc/<pid>/exe does NOT resolve to a real shell binary must NOT exempt its
+// zombie child — otherwise any process can hide a real zombie leak by simply
+// renaming itself.
+func TestProcessesCollector_Collect_Linux_SpoofedShellParentNotExempted(t *testing.T) {
+	selfPID := os.Getpid()
+	fakeParent := selfPID + 200000
+	fakeParentStr := strconv.Itoa(fakeParent)
+	dirs := []string{"/proc/900"}
+	withCombinedFixture(t, nil, map[string]string{
+		// The parent's real executable is NOT a shell — comm alone claims
+		// "bash", but /exe (kernel-verified) says otherwise.
+		"/proc/" + fakeParentStr + "/exe": "/usr/bin/evil-payload",
+	}, func(b *source.Bundle) {
+		b.PutGlob("/proc/[0-9]*", dirs)
+		b.PutFile("/proc/900/stat", []byte("900 (zombiechild) Z "+fakeParentStr+" 900 900 0 -1 0"))
+		b.PutFile("/proc/"+fakeParentStr+"/comm", []byte("bash\n")) // spoofed
+	})
+
+	c := NewProcessesCollector()
+	result, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	info := result.(*models.ProcessInfo)
+	if info.ZombieCount != 1 {
+		t.Errorf("ZombieCount = %d, want 1 — a spoofed comm name must not exempt the zombie, got %+v", info.ZombieCount, info.ZombieProcs)
 	}
 }
 
