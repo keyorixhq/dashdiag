@@ -531,11 +531,24 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyc
 	// Shared with dsd net (analysis.TimeWaitLevel): WARN 1000, CRIT 5000 — health
 	// previously had no CRIT tier, so a host with 60k TIME_WAIT read the same WARN
 	// as one with 1001 (BUG-050 class).
+	// SockstatUnreadable/NetstatUnreadable are only ever set inside the deep
+	// collector's own parse path, so these stay silent (both false) on a
+	// non-deep run — no double disclosure for "deep wasn't requested".
+	if net.SockstatUnreadable {
+		out = append(out, unverifiedInsight("INFO", catNetwork,
+			"could not read /proc/net/sockstat — TIME_WAIT count not measured",
+			[]string{"to inspect: cat /proc/net/sockstat"}))
+	}
 	if lv := TimeWaitLevel(net.TimeWaitCount); lv != "" {
 		out = append(out, insight(lv, catNetwork,
 			fmt.Sprintf("%d TIME_WAIT sockets — high connection churn or missing tcp_tw_reuse", net.TimeWaitCount),
 			[]string{"to inspect: ss -tan | grep TIME-WAIT | wc -l", "to inspect: ss -tan state time-wait | head -10", "to fix: sysctl -w net.ipv4.tcp_tw_reuse=1"},
 		))
+	}
+	if net.NetstatUnreadable {
+		out = append(out, unverifiedInsight("INFO", catNetwork,
+			"could not read /proc/net/netstat — SYN retransmit/listen-overflow/retransmit-failure counters not measured",
+			[]string{"to inspect: cat /proc/net/netstat | grep TcpExt"}))
 	}
 	out = append(out, deepTCPCounterInsights(net)...)
 	if net.ConntrackUsedPct >= 80 {

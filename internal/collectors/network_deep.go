@@ -123,8 +123,13 @@ func jitterStddev(values []float64) float64 {
 // rate-normalizes them against UptimeSec rather than reading the raw total as "now".
 // TimeWait (sockstat) is a live snapshot, not cumulative.
 func parseTCPCounters(info *models.NetworkInfo) {
-	// /proc/net/sockstat: current socket counts including TIME_WAIT
-	if data, err := readFile("/proc/net/sockstat"); err == nil {
+	// /proc/net/sockstat: current socket counts including TIME_WAIT. A read
+	// failure must not read the same as "0 TIME_WAIT sockets" — TimeWaitLevel(0)
+	// returns "" (no insight at all), so an unset SockstatUnreadable here would
+	// silently pass a host whose churn was never actually measured.
+	if data, err := readFile("/proc/net/sockstat"); err != nil {
+		info.SockstatUnreadable = true
+	} else {
 		for line := range strings.SplitSeq(string(data), "\n") {
 			if strings.HasPrefix(line, "TCP:") {
 				fields := strings.Fields(line)
@@ -140,12 +145,17 @@ func parseTCPCounters(info *models.NetworkInfo) {
 		}
 	}
 
-	// /proc/net/netstat: TcpExt counters — two rows: header then values
+	// /proc/net/netstat: TcpExt counters — two rows: header then values. Same
+	// silent-zero risk as above: DeepTCPCounterLevel floors out at 0 and returns
+	// "" for all three counters, so a read failure here produces zero insights,
+	// identical to a genuinely quiet host.
 	data, err := readFile("/proc/net/netstat")
 	if err != nil {
+		info.NetstatUnreadable = true
 		return
 	}
 	lines := strings.Split(string(data), "\n")
+	foundTCPExt := false
 	for i := 0; i+1 < len(lines); i++ {
 		if !strings.HasPrefix(lines[i], "TcpExt:") {
 			continue
@@ -170,7 +180,14 @@ func parseTCPCounters(info *models.NetworkInfo) {
 		info.SynRetransCount = get("TCPSynRetrans")
 		info.ListenOverflows = get("ListenOverflows")
 		info.RetransFailCount = get("TCPRetransFail")
+		foundTCPExt = true
 		break
+	}
+	if !foundTCPExt {
+		// The file read succeeded but no well-formed "TcpExt:" header+value pair
+		// was found — a malformed/truncated read, same silent-zero risk as the
+		// file-read failure above.
+		info.NetstatUnreadable = true
 	}
 
 	// /proc/uptime — first field is seconds since boot; lets the heuristics turn the

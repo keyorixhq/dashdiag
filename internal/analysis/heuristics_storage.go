@@ -1321,6 +1321,15 @@ func checkDiskExtras(disk models.DiskInfo) []models.Insight {
 	if disk.SteamOS != nil {
 		out = append(out, checkSteamOSDisk(disk.SteamOS)...)
 	}
+	// A diskutil-list enumeration failure (macOS) produces the same empty
+	// Drives slice as a genuine zero-physical-drives host — impossible on
+	// real Mac hardware — so disclose it explicitly rather than silently
+	// skipping every SMART insight below.
+	if disk.DrivesListUnreadable {
+		out = append(out, unverifiedInsight("INFO", "Disk",
+			"could not enumerate physical drives — diskutil list failed or returned no output",
+			[]string{"to inspect: diskutil list"}))
+	}
 	// SMART health
 	for _, d := range disk.Drives {
 		if d.SMART == nil || d.SMART.Error != "" {
