@@ -99,7 +99,20 @@ func collectSMARTDrives(ctx context.Context, info *models.HardwareInfo) {
 	}
 
 	var scan smartctlScan
-	if err := json.Unmarshal([]byte(scanOut), &scan); err != nil || len(scan.Devices) == 0 {
+	if err := json.Unmarshal([]byte(scanOut), &scan); err != nil {
+		// internal-collectors-14-02: smartctl ran and produced output, but it
+		// wasn't valid JSON (a version mismatch, truncated output, a wrapper
+		// script mangling stdout). Distinct from "smartctl not installed"
+		// above and from a genuine zero-devices scan below — a parse failure
+		// must not silently read as "no drives to check".
+		info.Drives = append(info.Drives, models.HardwareDrive{
+			Device:            "(scan)",
+			SmartctlAvailable: true,
+			Error:             "smartctl --scan-open produced unparseable JSON output",
+		})
+		return
+	}
+	if len(scan.Devices) == 0 {
 		return
 	}
 
