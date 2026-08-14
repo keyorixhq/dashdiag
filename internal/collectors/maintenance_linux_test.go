@@ -531,6 +531,30 @@ func TestServiceRestartCollector_Collect_StaleFound(t *testing.T) {
 	}
 }
 
+// TestServiceRestartCollector_Collect_CtxCancelledStopsLoop is the
+// regression test for internal-collectors-20-02: the per-PID /proc/*/maps
+// scan must check ctx and stop, not run every entry to completion regardless
+// of the caller's cancellation or the collector's own advertised Timeout().
+func TestServiceRestartCollector_Collect_CtxCancelledStopsLoop(t *testing.T) {
+	withLookPathFixture(t, map[string]bool{"dpkg": true}, func(b *source.Bundle) {
+		b.PutGlob("/proc/[0-9]*/maps", []string{"/proc/123/maps"})
+		b.PutFile("/proc/123/maps", []byte(
+			"7f0000000000-7f0000010000 r-xp 00000000 08:01 123 /lib/x86_64-linux-gnu/libssl.so.3 (deleted)\n"))
+		b.PutFile("/proc/123/comm", []byte("nginx\n"))
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	c := NewServiceRestartCollector()
+	raw, err := c.Collect(ctx)
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	info := raw.(*models.ServiceRestartInfo)
+	if info.StaleCount != 0 {
+		t.Errorf("expected the per-PID scan to stop immediately on a cancelled ctx, got %+v", info)
+	}
+}
+
 func TestServiceRestartCollector_Collect_Clean(t *testing.T) {
 	withLookPathFixture(t, map[string]bool{"dpkg": true}, func(b *source.Bundle) {
 		b.PutGlob("/proc/[0-9]*/maps", []string{"/proc/123/maps"})
