@@ -49,14 +49,23 @@ type NetworkInfo struct {
 	// "host appears offline" finding so DSD_OFFLINE never produces a false CRIT.
 	ConnectivityProbeDisabled bool `json:"connectivity_probe_disabled,omitempty"`
 	// Deep metrics (populated by NetworkDeepCollector)
-	TimeWaitCount    int             `json:"time_wait_count,omitempty"`    // TIME_WAIT sockets
-	SynRetransCount  int             `json:"syn_retrans_count,omitempty"`  // TCPSynRetrans — SYN retransmissions
-	ListenOverflows  int             `json:"listen_overflows,omitempty"`   // ListenOverflows — SYN backlog saturation
-	RetransFailCount int             `json:"retrans_fail_count,omitempty"` // TCPRetransFail — persistent retransmit failures
-	UptimeSec        float64         `json:"uptime_sec,omitempty"`         // host uptime — to rate-normalize the since-boot counters above
-	ConntrackUsedPct float64         `json:"conntrack_used_pct,omitempty"` // nf_conntrack fill %
-	Status           string          `json:"status"`
-	StatusReason     string          `json:"status_reason"`
-	Bonds            []BondInterface `json:"bonds,omitempty"`
-	SteamOSWifi      *SteamOSWifi    `json:"steamos_wifi,omitempty"` // SteamOS-only Wi-Fi + Remote Play profile (Spec 20 + 22B)
+	TimeWaitCount    int     `json:"time_wait_count,omitempty"`    // TIME_WAIT sockets
+	SynRetransCount  int     `json:"syn_retrans_count,omitempty"`  // TCPSynRetrans — SYN retransmissions
+	ListenOverflows  int     `json:"listen_overflows,omitempty"`   // ListenOverflows — SYN backlog saturation
+	RetransFailCount int     `json:"retrans_fail_count,omitempty"` // TCPRetransFail — persistent retransmit failures
+	UptimeSec        float64 `json:"uptime_sec,omitempty"`         // host uptime — to rate-normalize the since-boot counters above
+	// SockstatUnreadable is true when /proc/net/sockstat couldn't be read,
+	// leaving TimeWaitCount at its zero value — indistinguishable from a
+	// genuine 0 TIME_WAIT sockets without this flag (TimeWaitLevel(0) == "").
+	SockstatUnreadable bool `json:"sockstat_unreadable,omitempty"`
+	// NetstatUnreadable is true when /proc/net/netstat couldn't be read, or was
+	// read but no well-formed "TcpExt:" row was found — leaving SynRetransCount/
+	// ListenOverflows/RetransFailCount at their zero values, indistinguishable
+	// from a genuinely quiet host (DeepTCPCounterLevel floors out at 0 == "").
+	NetstatUnreadable bool            `json:"netstat_unreadable,omitempty"`
+	ConntrackUsedPct  float64         `json:"conntrack_used_pct,omitempty"` // nf_conntrack fill %
+	Status            string          `json:"status"`
+	StatusReason      string          `json:"status_reason"`
+	Bonds             []BondInterface `json:"bonds,omitempty"`
+	SteamOSWifi       *SteamOSWifi    `json:"steamos_wifi,omitempty"` // SteamOS-only Wi-Fi + Remote Play profile (Spec 20 + 22B)
 }
