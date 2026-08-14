@@ -80,9 +80,20 @@ func (c *AWSCollector) Collect(ctx context.Context) (interface{}, error) {
 	if (enaAnyNonzero(ena1) || ebsAnyNonzero(ebs1)) && !isReplaySource() {
 		if sleepCtx(ctx, time.Second) {
 			ena2 := enaRead(ctx)
-			ebs2, _ := ebsRead(ctx)
+			ebs2, ebsMeta2 := ebsRead(ctx)
 			enaDelta = enaComputeDelta(ena1, ena2)
-			ebsDelta = ebsComputeDelta(ebs1, ebs2)
+			// internal-collectors-02-01: a failed second read returns a
+			// zero-value map, and subSat's saturating subtraction would
+			// otherwise turn that into a false zero "not currently
+			// throttled" delta — indistinguishable from a genuinely quiet
+			// device. Skip the delta (leaves Active* at zero, same as
+			// today) but disclose it via EBSDeltaReadFailed instead of
+			// silently trusting it.
+			if ebsMeta2.failed || ebsMeta2.needsRoot {
+				info.EBSDeltaReadFailed = true
+			} else {
+				ebsDelta = ebsComputeDelta(ebs1, ebs2)
+			}
 			info.Sampled = true
 		}
 	}

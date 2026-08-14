@@ -100,6 +100,7 @@ var guardedUnverifiedSignals = map[string]string{
 	// Cloud / virt / other — heuristic folds the unmeasured state to INFO/WARN.
 	"AWSInfo.EBSNeedsRoot":              "analysis/heuristics_aws_test.go (non-root EBS read → INFO)",
 	"AWSInfo.EBSReadFailed":             "analysis/heuristics_aws_test.go (sibling of EBSNeedsRoot)",
+	"AWSInfo.EBSDeltaReadFailed":        "analysis/heuristics_gapfill7_test.go TestCheckAWS_EBSDeltaReadFailed (internal-collectors-02-01: a failed second-sample read must not silently compute a false zero 'not currently throttled' delta)",
 	"KVMInfo.VMsUnreadable":             "collectors/kvm_pve_test.go + analysis/heuristics_round4_test.go",
 	"GPUDevice.Unreadable":              "analysis (gpu all-zero/unreadable → not OK); see memory gpu-allzero-falseok-deferred",
 	"NFSMount.ServerReachable":          "analysis (NFS reachability heuristic, net deep)",
