@@ -29,6 +29,31 @@ import (
 // Repo is the GitHub owner/name the updater talks to.
 const Repo = "keyorixhq/dashdiag"
 
+// maxAPIResponseBytes bounds the GitHub releases API JSON response and the
+// small release assets (checksums.txt, the .minisig signature) fetched via
+// fetchBytes. None of these are legitimately large — a release JSON document
+// or a checksums file lists at most a few dozen assets, and a minisig
+// signature is a few hundred bytes — so an unbounded read here would let a
+// compromised/spoofed response (or a MITM on a downgraded connection) drive
+// unbounded memory allocation before any signature/checksum check ever runs.
+// Mirrors the same LimitReader-with-slack pattern used by
+// share.maxDecodedReportBytes and cvedata.boundDecompressed elsewhere in
+// this codebase. The actual platform binary (downloadToTemp) is exempt: it
+// streams straight to a temp file on disk, not into memory, and its size is
+// validated by the sha256 checksum regardless.
+const maxAPIResponseBytes = 4 << 20 // 4MiB
+
+// limitedBody wraps r with a cap of maxAPIResponseBytes+1 so a response
+// exceeding the limit is distinguishable (via limitCheck) from one that
+// legitimately ends exactly at the boundary.
+func limitedBody(r io.Reader) io.Reader {
+	return io.LimitReader(r, maxAPIResponseBytes+1)
+}
+
+// limitExceeded reports whether n bytes read through a limitedBody reader
+// hit its cap — i.e. the real response was larger than maxAPIResponseBytes.
+func limitExceeded(n int) bool { return n > maxAPIResponseBytes }
+
 // Asset is one file attached to a GitHub release.
 type Asset struct {
 	Name string `json:"name"`
@@ -80,7 +105,7 @@ func LatestRelease(ctx context.Context) (*Release, error) {
 		return nil, fmt.Errorf("GitHub API returned %d", resp.StatusCode)
 	}
 	var rel Release
-	if err := json.NewDecoder(resp.Body).Decode(&rel); err != nil {
+	if err := json.NewDecoder(limitedBody(resp.Body)).Decode(&rel); err != nil {
 		return nil, err
 	}
 	if rel.TagName == "" {
@@ -242,14 +267,23 @@ func Apply(ctx context.Context, rel *Release) (string, error) {
 	return exe, nil
 }
 
-// fetchBytes GETs url and returns the full body.
+// fetchBytes GETs url and returns the full body. Used only for the small
+// release assets (checksums.txt, the .minisig signature) — see
+// maxAPIResponseBytes for why this is capped.
 func fetchBytes(ctx context.Context, url string) ([]byte, error) {
 	body, err := httpGet(ctx, dlClient, url)
 	if err != nil {
 		return nil, err
 	}
 	defer body.Close()
-	return io.ReadAll(body)
+	data, err := io.ReadAll(limitedBody(body))
+	if err != nil {
+		return nil, err
+	}
+	if limitExceeded(len(data)) {
+		return nil, fmt.Errorf("response from %s exceeds maximum size (%d bytes) — refusing to read further", url, maxAPIResponseBytes)
+	}
+	return data, nil
 }
 
 // checksumFor returns the hex sha256 for assetName from checksums.txt content.
