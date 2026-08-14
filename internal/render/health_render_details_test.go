@@ -57,6 +57,32 @@ func TestRenderDetailsTable_StripsControlChars(t *testing.T) {
 	}
 }
 
+// TestRenderDetailsTable_TruncatesOversizedCell is the regression test for
+// internal-render-02-03: column width is the max cell length in that column
+// with no cap, so one oversized cell (e.g. a journalctl line with no
+// embedded newline) would pad every other row in that column out to match
+// it. A cell over maxDetailsCellLen must be truncated before it reaches
+// width computation.
+func TestRenderDetailsTable_TruncatesOversizedCell(t *testing.T) {
+	r := NewRenderer(output.ModeHuman)
+	huge := strings.Repeat("x", 5000)
+	d := &models.Details{
+		Title:   "Zombies",
+		Columns: []string{"PID", "Detail"},
+		Rows:    [][]string{{"123", huge}, {"456", "short"}},
+	}
+	out := captureStdout(t, func() { r.renderDetails(d) })
+	if strings.Contains(out, huge) {
+		t.Errorf("renderDetails did not truncate the oversized cell")
+	}
+	if !strings.Contains(out, "…") {
+		t.Errorf("expected a truncation marker in the output")
+	}
+	if d.Rows[0][1] != huge {
+		t.Errorf("renderDetails must not mutate the underlying model")
+	}
+}
+
 // TestRenderDetailsLogTail covers the log_tail Type branch: each line of the
 // KV["log_tail"] value is printed as its own indented line.
 func TestRenderDetailsLogTail(t *testing.T) {
