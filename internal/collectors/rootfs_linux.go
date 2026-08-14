@@ -45,7 +45,17 @@ func (c *RootFSCollector) Collect(_ context.Context) (interface{}, error) {
 		// certify`'s regression detection can't see through on its own.
 		return nil, fmt.Errorf("reading /proc/mounts: %w", err)
 	}
-	mounts, _ := readMounts(strings.NewReader(string(data)))
+	mounts, err := readMounts(strings.NewReader(string(data)))
+	if err != nil {
+		// internal-models-11-04: readMounts's own error (e.g. bufio.ErrTooLong
+		// on an abnormally long line — a long NFS options list is a realistic
+		// trigger) was previously discarded here. A partial scan that stops
+		// before reaching the "/" line silently drops it from `mounts`, and
+		// the fallthrough below reads that identically to "root is rw,
+		// healthy" — same class of bug as the readFile error above, just one
+		// layer deeper. Propagate it the same way.
+		return nil, fmt.Errorf("parsing /proc/mounts: %w", err)
+	}
 	var root *mountEntry
 	for i := range mounts {
 		if mounts[i].mountPoint == "/" {
