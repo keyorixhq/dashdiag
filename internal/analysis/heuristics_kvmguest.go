@@ -58,6 +58,26 @@ func checkKVMGuest(v models.KVMGuestInfo) []models.Insight {
 
 	out = append(out, kvmguestStealInsight(v)...)
 
+	// internal-analysis-05-04: an empty EmulatedNICs/EmulatedDisks only proves
+	// "fully paravirtual" when the underlying sysfs enumeration actually
+	// succeeded — if /sys/class/net or /sys/block itself couldn't be read,
+	// EmulatedNICs/EmulatedDisks stay empty for the exact same reason a
+	// genuinely healthy guest does, and the "all clean" recognition line
+	// below would otherwise claim a paravirtual path that was never verified.
+	if len(out) == 0 && (!v.NICDriversChecked || !v.DiskBusesChecked) {
+		var unread []string
+		if !v.NICDriversChecked {
+			unread = append(unread, "NIC drivers (/sys/class/net)")
+		}
+		if !v.DiskBusesChecked {
+			unread = append(unread, "disk buses (/sys/block)")
+		}
+		return append(out, unverifiedInsight("INFO", "KVMGuest",
+			fmt.Sprintf("QEMU/KVM guest (%s) — could not verify paravirtual NIC/disk drivers: %s unreadable",
+				kvmguestProductName(v), strings.Join(unread, ", ")),
+			nil))
+	}
+
 	// All clean → one recognition line so the operator sees dsd identified the
 	// platform and verified the paravirtual path (matches the VMware collector).
 	if len(out) == 0 {

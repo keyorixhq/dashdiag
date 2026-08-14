@@ -309,6 +309,17 @@ var neverSilentChecks = []neverSilentCheck{
 		},
 		wantSubstr: "could not be verified",
 	},
+	{
+		name:    "checkKVMGuest: NIC/disk driver enumeration failed (unreadable /sys/class/net or /sys/block)",
+		checkFn: "checkKVMGuest",
+		run: func() []models.Insight {
+			return checkKVMGuest(models.KVMGuestInfo{
+				IsGuest: true, QGAChannelPresent: true, QGAInstalled: true, QGARunning: true,
+				NICDriversChecked: false, DiskBusesChecked: false,
+			})
+		},
+		wantSubstr: "could not verify",
+	},
 }
 
 func TestChecksNeverSilentlySkip(t *testing.T) {

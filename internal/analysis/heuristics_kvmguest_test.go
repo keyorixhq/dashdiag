@@ -60,6 +60,8 @@ func TestCheckKVMGuest_AllCleanUnknownProductAndClocksource(t *testing.T) {
 		QGAChannelPresent: true,
 		QGAInstalled:      true,
 		QGARunning:        true,
+		NICDriversChecked: true,
+		DiskBusesChecked:  true,
 	}
 	out := checkKVMGuest(v)
 	if !hasInsightMsg(out, "INFO", "QEMU/KVM guest (QEMU)") {
@@ -268,5 +270,35 @@ func TestKvmguestOrUnknown(t *testing.T) {
 	}
 	if got := kvmguestOrUnknown("kvm-clock"); got != "kvm-clock" {
 		t.Errorf("non-empty string must be returned as-is, got %q", got)
+	}
+}
+
+// TestCheckKVMGuest_NICDiskEnumerationUnchecked is the regression test for
+// internal-analysis-05-04: when /sys/class/net or /sys/block itself couldn't
+// be enumerated, an empty EmulatedNICs/EmulatedDisks must not be read as
+// "confirmed fully paravirtual" — the same empty result a genuinely healthy
+// guest produces.
+func TestCheckKVMGuest_NICDiskEnumerationUnchecked(t *testing.T) {
+	t.Parallel()
+	got := checkKVMGuest(models.KVMGuestInfo{
+		IsGuest: true, QGAChannelPresent: true, QGAInstalled: true, QGARunning: true,
+		NICDriversChecked: false, DiskBusesChecked: false,
+	})
+	if !hasInsightMsg(got, "INFO", "could not verify") {
+		t.Errorf("expected an unverified disclosure when enumeration failed, got %+v", got)
+	}
+}
+
+// TestCheckKVMGuest_FullyVerifiedClean confirms the genuine "all clean"
+// recognition line still fires when both enumerations succeeded — must not
+// introduce noise on a healthy, fully-verified guest.
+func TestCheckKVMGuest_FullyVerifiedClean(t *testing.T) {
+	t.Parallel()
+	got := checkKVMGuest(models.KVMGuestInfo{
+		IsGuest: true, QGAChannelPresent: true, QGAInstalled: true, QGARunning: true,
+		NICDriversChecked: true, DiskBusesChecked: true,
+	})
+	if !hasInsightMsg(got, "INFO", "paravirtual NIC+disk in use") {
+		t.Errorf("expected the genuine all-clean recognition line, got %+v", got)
 	}
 }
