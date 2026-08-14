@@ -50,3 +50,24 @@ func TestCheckHA(t *testing.T) {
 		t.Error("fencing enabled but no device must WARN")
 	}
 }
+
+// TestCheckHA_AmbiguousResources is the regression test for
+// internal-collectors-14-04: a resource counted in ResourcesTotal but not
+// classified into Started/Stopped/Failed (a multi-state resource's
+// transitional role, or a blocked/unmanaged resource) must be disclosed, not
+// silently vanish from every tally.
+func TestCheckHA_AmbiguousResources(t *testing.T) {
+	t.Parallel()
+	base := models.HAInfo{
+		Available: true, Running: true, StatusReadable: true,
+		QuorumKnown: true, Quorate: true, NodesOnline: 2, NodesTotal: 2,
+		StonithEnabled: true, StonithDevices: 1,
+	}
+	ambiguous := base
+	ambiguous.ResourcesTotal = 1
+	ambiguous.AmbiguousResources = []string{"promotable-rsc"}
+	got := checkHA(ambiguous)
+	if !hasInsightMsg(got, "INFO", "unrecognized role/state") {
+		t.Errorf("expected an ambiguous-resource disclosure, got %+v", got)
+	}
+}

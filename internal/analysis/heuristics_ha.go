@@ -51,6 +51,15 @@ func checkHA(d models.HAInfo) []models.Insight {
 			fmt.Sprintf("%d cluster resource(s) stopped: %s", len(d.StoppedResources), strings.Join(firstN(d.StoppedResources, 3), ", ")),
 			[]string{haInspectCrmStat, "to start: crm resource start <rsc>"}))
 	}
+	if len(d.AmbiguousResources) > 0 {
+		// internal-collectors-14-04: these resources are counted in
+		// ResourcesTotal but matched none of Failed/Started/Stopped above —
+		// a multi-state resource's transitional role or a blocked/unmanaged
+		// resource. Disclose rather than let them silently vanish.
+		out = append(out, unverifiedInsight("INFO", haCatHACluster,
+			fmt.Sprintf("%d cluster resource(s) in an unrecognized role/state, not counted as started/stopped/failed: %s", len(d.AmbiguousResources), strings.Join(firstN(d.AmbiguousResources, 3), ", ")),
+			[]string{haInspectCrmStat, "note: common for multi-state (promotable) resources mid-transition (Promoting/Unpromoted/Stopping) or a blocked/unmanaged resource"}))
+	}
 	if !d.StonithEnabled {
 		out = append(out, insight("WARN", haCatHACluster,
 			"STONITH (fencing) is DISABLED — on a node failure the cluster cannot safely fence it, risking split-brain and data corruption on shared storage",

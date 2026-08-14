@@ -16,6 +16,13 @@ type HAInfo struct {
 	ResourcesTotal   int      `json:"resources_total"`
 	FailedResources  []string `json:"failed_resources,omitempty"`
 	StoppedResources []string `json:"stopped_resources,omitempty"`
-	StonithEnabled   bool     `json:"stonith_enabled"`
-	StonithDevices   int      `json:"stonith_devices"` // configured fence devices
+	// AmbiguousResources lists resource IDs counted in ResourcesTotal whose
+	// role/active state matched none of Failed/Started/Stopped — a multi-state
+	// resource's transitional role (e.g. "Unpromoted"/"Promoting"/"Stopping")
+	// or a blocked/unmanaged resource. Without this, such a resource silently
+	// vanishes from every tally: ResourcesTotal counts it but none of the
+	// three per-state slices do.
+	AmbiguousResources []string `json:"ambiguous_resources,omitempty"`
+	StonithEnabled     bool     `json:"stonith_enabled"`
+	StonithDevices     int      `json:"stonith_devices"` // configured fence devices
 }
