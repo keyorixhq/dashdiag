@@ -305,14 +305,22 @@ func parseNFTRuleset(out string, info *models.FirewallInfo) {
 
 	scanner := bufio.NewScanner(strings.NewReader(out))
 	var currentTable, currentChain string
+	// internal-collectors-12-06: a set/map/flowtable block's own definition
+	// lines (`type ipv4_addr`, `elements = { ... }`, `flags interval`, `size
+	// N`) are not filtering rules — they were previously counted as rules
+	// purely for being non-empty lines inside a `{...}` block, so a table
+	// containing only named sets/maps and no actual accept/drop rule (and no
+	// policy-drop hook) still set Active=true from set-definition lines alone.
+	inNonFilterBlock := false
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
-		if strings.HasPrefix(line, "table ") {
+		switch {
+		case strings.HasPrefix(line, "table "):
 			parts := strings.Fields(line)
 			if len(parts) >= 3 {
 				currentTable = parts[2]
 			}
-		} else if strings.HasPrefix(line, "chain ") {
+		case strings.HasPrefix(line, "chain "):
 			parts := strings.Fields(line)
 			if len(parts) >= 2 {
 				currentChain = parts[1]
@@ -328,7 +336,16 @@ func parseNFTRuleset(out string, info *models.FirewallInfo) {
 				ch.Policy = "accept"
 			}
 			info.Chains = append(info.Chains, ch)
-		} else if line != "" && !strings.HasSuffix(line, "{") && !strings.HasPrefix(line, "}") {
+		case strings.HasPrefix(line, "set ") || strings.HasPrefix(line, "map ") || strings.HasPrefix(line, "flowtable "):
+			// A single-line `set foo { ... }` (inline elements) never opens a
+			// standalone block, so only enter the skip state when this line
+			// itself doesn't already close with the matching brace.
+			if strings.HasSuffix(line, "{") {
+				inNonFilterBlock = true
+			}
+		case strings.HasPrefix(line, "}"):
+			inNonFilterBlock = false
+		case line != "" && !strings.HasSuffix(line, "{"):
 			// In real `nft list ruleset`, an input base chain's policy sits on its
 			// `type filter hook input priority …; policy drop;` line — NOT the
 			// `chain input {` line the block above inspects — so DefaultDrop was never
@@ -339,7 +356,9 @@ func parseNFTRuleset(out string, info *models.FirewallInfo) {
 					info.Chains[n-1].Policy = "drop"
 				}
 			}
-			info.TotalRules++
+			if !inNonFilterBlock {
+				info.TotalRules++
+			}
 		}
 	}
 	// Active only when there is actual filtering — an empty `nft list ruleset`
