@@ -92,7 +92,8 @@ func TestBindParseZoneFile_DepthGuard(t *testing.T) {
 	if err := os.WriteFile(main, []byte(`zone "x" { type master; file "/zones/x.db"; };`), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if zones := bindParseZoneFile(main, 6); zones != nil {
+	opened := 0
+	if zones := bindParseZoneFile(main, 6, &opened); zones != nil {
 		t.Errorf("depth > 5 should short-circuit to nil, got %+v", zones)
 	}
 }
@@ -108,8 +109,43 @@ func TestBindParseZoneFile_ScanTooLong(t *testing.T) {
 	if err := os.WriteFile(main, []byte(huge+"\n"), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	if zones := bindParseZoneFile(main, 0); zones != nil {
+	opened := 0
+	if zones := bindParseZoneFile(main, 0, &opened); zones != nil {
 		t.Errorf("oversized line should yield nil, got %+v", zones)
+	}
+}
+
+// TestBindParseZones_IncludeBreadthCapped is the regression test for
+// internal-collectors-03-04: the depth-5 guard only bounds how deep a single
+// include chain can go, not how many sibling `include` directives one file
+// may list. A named.conf with many includes to files that themselves yield
+// 0 zones (so the len(zones)>=20 early-exit never fires) must still stop
+// opening files once bindMaxIncludeFiles is reached.
+func TestBindParseZones_IncludeBreadthCapped(t *testing.T) {
+	dir := t.TempDir()
+	const includeCount = bindMaxIncludeFiles * 2
+
+	var b strings.Builder
+	for i := range includeCount {
+		incPath := filepath.Join(dir, fmt.Sprintf("inc%d.conf", i))
+		// Each included file has zero zones and no further includes, so the
+		// len(zones)>=20 early-exit inside bindParseZoneFile never fires —
+		// only the file-open budget can stop the loop.
+		if err := os.WriteFile(incPath, []byte("// empty\n"), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		fmt.Fprintf(&b, "include %q;\n", incPath)
+	}
+	main := filepath.Join(dir, "named.conf")
+	if err := os.WriteFile(main, []byte(b.String()), 0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	opened := 0
+	bindParseZoneFile(main, 0, &opened)
+	// +1 for main itself.
+	if opened > bindMaxIncludeFiles+1 {
+		t.Errorf("opened %d files, want at most %d (bindMaxIncludeFiles+1) — the breadth cap did not stop recursion", opened, bindMaxIncludeFiles+1)
 	}
 }
 
