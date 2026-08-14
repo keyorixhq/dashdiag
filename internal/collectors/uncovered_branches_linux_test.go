@@ -217,7 +217,7 @@ func TestParseStorcli_EmptyVDName(t *testing.T) {
     "VD LIST":[{"DG/VD":"0/1","TYPE":"RAID1","State":"Optl","Name":""}]
   }
 }]}`
-	ctrls, ok := parseStorcli(json)
+	ctrls, _, ok := parseStorcli(json)
 	if !ok || len(ctrls) != 1 {
 		t.Fatalf("parseStorcli() = (%v, %v), want one ctrl ok", ctrls, ok)
 	}

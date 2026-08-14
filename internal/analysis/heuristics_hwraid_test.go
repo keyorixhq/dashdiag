@@ -90,3 +90,20 @@ func TestCheckHWRaidHonestDegradation(t *testing.T) {
 		t.Error("unparseable output must INFO as unverified")
 	}
 }
+
+// TestCheckHWRaid_BBUStatusUnreadable is the regression test for
+// internal-collectors-16-02: a BBU/CacheVault entry present but with its
+// state field unreadable (schema drift) must be disclosed as unverified,
+// not silently treated as "no battery-backed cache fitted."
+func TestCheckHWRaid_BBUStatusUnreadable(t *testing.T) {
+	t.Parallel()
+	unreadable := models.HWRaidInfo{Available: true, Tool: "storcli", Controllers: []models.HWRaidController{{
+		ID: 0, Model: "MegaRAID 9560",
+		VirtualDrives:       []models.HWRaidVD{{Name: "data", State: "Optimal"}},
+		BBUStatusUnreadable: true,
+	}}}
+	got := checkHWRaid(unreadable)
+	if !hasInsightMsg(got, "INFO", "could not be read") {
+		t.Errorf("expected an unverified BBU disclosure, got %+v", got)
+	}
+}
