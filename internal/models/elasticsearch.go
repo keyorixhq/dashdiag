@@ -20,4 +20,10 @@ type ElasticsearchInfo struct {
 	ActiveShardsPct  float64 `json:"active_shards_pct,omitempty"`
 
 	StatusReason string `json:"status_reason,omitempty"`
+	// IdentityUnverified is true when the process listening on the ES port
+	// could not be confirmed as a real Elasticsearch/OpenSearch process via
+	// its own /proc/<pid>/cmdline — only an unauthenticated HTTP response
+	// shape matched. An unprivileged local process can otherwise spoof a fake
+	// "healthy cluster" by binding the port and mimicking the response shape.
+	IdentityUnverified bool `json:"identity_unverified,omitempty"`
 }

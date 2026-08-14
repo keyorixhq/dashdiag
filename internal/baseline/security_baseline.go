@@ -48,9 +48,12 @@ type SecurityDiff struct {
 // HasChanges returns true when any drift was detected. Added and removed SSH
 // config files count: an attacker dropping /etc/ssh/sshd_config.d/99-evil.conf
 // (PermitRootLogin yes) or deleting a hardening drop-in is exactly the drift
-// this is meant to catch.
+// this is meant to catch. RemovedSUIDs counts too — a previously-SUID binary
+// (a hardened sudo/su wrapper) swapped for a non-SUID trojan achieving
+// privilege some other way (setcap, a background listener) is exactly the
+// tamper this feature exists to catch (internal-baseline-01-02).
 func (d *SecurityDiff) HasChanges() bool {
-	return len(d.NewSUIDs) > 0 || len(d.NewSudoEntries) > 0 ||
+	return len(d.NewSUIDs) > 0 || len(d.RemovedSUIDs) > 0 || len(d.NewSudoEntries) > 0 ||
 		len(d.NewCronEntries) > 0 || len(d.ChangedSSHFiles) > 0 ||
 		len(d.AddedSSHFiles) > 0 || len(d.RemovedSSHFiles) > 0
 }

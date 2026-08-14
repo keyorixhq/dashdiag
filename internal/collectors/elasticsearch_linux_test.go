@@ -5,10 +5,13 @@ package collectors
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 // esHTTPResult builds the JSON blob httpGetCached's Cached-key value must
@@ -274,4 +277,77 @@ func TestElasticsearchCollector_Collect_DistinctStatusReasons(t *testing.T) {
 	if reason1 == reason2 {
 		t.Errorf("expected distinct StatusReason strings, both were %q", reason1)
 	}
+}
+
+// TestDetectElasticsearch_IdentityVerified is the regression test for
+// internal-collectors-11-04: when `ss -tlnp` attributes the :9200 listener to
+// a PID whose cmdline mentions "elasticsearch", IdentityUnverified must be
+// false.
+func TestDetectElasticsearch_IdentityVerified(t *testing.T) {
+	body := `{"cluster_name":"escluster","tagline":"You Know, for Search","version":{"number":"8.13.0","distribution":""}}`
+	withCombinedFixture(t, map[string][]byte{
+		"dial/tcp/127.0.0.1:9200":     {'1'},
+		"http/http://127.0.0.1:9200/": esHTTPResult(t, body, 200),
+	}, nil, func(b *source.Bundle) {
+		b.PutCmd("ss", []string{"-tlnp"}, esSSListenLine(4242), 0)
+		b.PutFile(esCmdlinePath(4242), esCmdline("java", "-Des.path.home=/usr/share/elasticsearch", "org.elasticsearch.bootstrap.Elasticsearch"))
+	})
+	info := detectElasticsearch(context.Background())
+	if info == nil {
+		t.Fatal("detectElasticsearch() = nil, want a result")
+	}
+	if info.IdentityUnverified {
+		t.Error("IdentityUnverified = true, want false when ss+cmdline confirm a real elasticsearch process")
+	}
+}
+
+// TestDetectElasticsearch_IdentityUnverified_NoSS covers the case where `ss`
+// is unavailable — detection must still return a result (HTTP shape matched)
+// but flag it as identity-unverified rather than silently trusting it.
+func TestDetectElasticsearch_IdentityUnverified_NoSS(t *testing.T) {
+	body := `{"cluster_name":"escluster","tagline":"You Know, for Search","version":{"number":"8.13.0","distribution":""}}`
+	withCombinedFixture(t, map[string][]byte{
+		"dial/tcp/127.0.0.1:9200":     {'1'},
+		"http/http://127.0.0.1:9200/": esHTTPResult(t, body, 200),
+	}, nil, nil) // no PutCmd for ss — command errors as not-recorded
+	info := detectElasticsearch(context.Background())
+	if info == nil {
+		t.Fatal("detectElasticsearch() = nil, want a result")
+	}
+	if !info.IdentityUnverified {
+		t.Error("IdentityUnverified = false, want true when ss is unavailable")
+	}
+}
+
+// TestDetectElasticsearch_IdentityUnverified_WrongProcess covers a spoofing
+// attempt: something else entirely (no "elasticsearch" in cmdline) is bound
+// to :9200 and happens to answer with an ES-shaped body.
+func TestDetectElasticsearch_IdentityUnverified_WrongProcess(t *testing.T) {
+	body := `{"cluster_name":"fake","tagline":"You Know, for Search","version":{"number":"1.0.0","distribution":""}}`
+	withCombinedFixture(t, map[string][]byte{
+		"dial/tcp/127.0.0.1:9200":     {'1'},
+		"http/http://127.0.0.1:9200/": esHTTPResult(t, body, 200),
+	}, nil, func(b *source.Bundle) {
+		b.PutCmd("ss", []string{"-tlnp"}, esSSListenLine(666), 0)
+		b.PutFile(esCmdlinePath(666), esCmdline("nc", "-lk", "-p", "9200"))
+	})
+	info := detectElasticsearch(context.Background())
+	if info == nil {
+		t.Fatal("detectElasticsearch() = nil, want a result")
+	}
+	if !info.IdentityUnverified {
+		t.Error("IdentityUnverified = false, want true — cmdline does not mention elasticsearch")
+	}
+}
+
+func esSSListenLine(pid int) string {
+	return fmt.Sprintf("LISTEN 0 128 127.0.0.1:9200 0.0.0.0:* users:((\"proc\",pid=%d,fd=10))\n", pid)
+}
+
+func esCmdlinePath(pid int) string {
+	return fmt.Sprintf("/proc/%d/cmdline", pid)
+}
+
+func esCmdline(argv ...string) []byte {
+	return []byte(strings.Join(argv, "\x00") + "\x00")
 }

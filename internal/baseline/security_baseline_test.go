@@ -176,15 +176,24 @@ func TestSecurityDiffHasChanges_TrueWhenNewSUIDs(t *testing.T) {
 	}
 }
 
+// TestSecurityDiffHasChanges_TrueWhenRemovedSUIDs is the regression test for
+// internal-baseline-01-02: a SUID binary vanishing between baselines is
+// exactly the drift signal for an attacker swapping a hardened sudo/su
+// wrapper for a non-SUID trojan achieving privilege some other way (setcap, a
+// background listener). HasChanges previously ignored RemovedSUIDs entirely,
+// so `dsd security --drift` reported "No security drift detected" in exactly
+// the scenario this feature exists to catch.
+func TestSecurityDiffHasChanges_TrueWhenRemovedSUIDs(t *testing.T) {
+	d := SecurityDiff{RemovedSUIDs: []string{"/usr/bin/gone"}}
+	if !d.HasChanges() {
+		t.Error("HasChanges should be true when RemovedSUIDs is non-empty")
+	}
+}
+
 func TestSecurityDiffHasChanges_FalseWhenEmpty(t *testing.T) {
 	d := SecurityDiff{}
 	if d.HasChanges() {
 		t.Error("HasChanges should be false on an empty diff")
-	}
-	// RemovedSUIDs alone is informational and must not count as drift.
-	d2 := SecurityDiff{RemovedSUIDs: []string{"/usr/bin/gone"}}
-	if d2.HasChanges() {
-		t.Error("HasChanges should be false when only RemovedSUIDs is set")
 	}
 }
 

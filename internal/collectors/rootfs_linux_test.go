@@ -4,6 +4,7 @@ package collectors
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -237,6 +238,34 @@ func TestRootFSCollect_MountsReadError(t *testing.T) {
 	raw, err := c.Collect(context.Background())
 	if err == nil {
 		t.Fatal("Collect() error = nil, want a propagated read error when /proc/mounts is unreadable")
+	}
+	if raw != nil {
+		t.Errorf("Collect() = %v, want nil data alongside the error", raw)
+	}
+}
+
+// TestRootFSCollect_MountsParseError is the regression test for
+// internal-models-11-04's remaining gap: readMounts's OWN error (distinct
+// from the outer /proc/mounts readFile error already covered by
+// TestRootFSCollect_MountsReadError) was silently discarded via
+// `mounts, _ := readMounts(...)`. A single line exceeding bufio.Scanner's
+// default max token size (64KB — a long NFS options list is a realistic
+// real-world trigger) makes Scan() stop before reaching later lines,
+// including "/" if it comes after — this must propagate as a real error, not
+// fall through to "no root entry, healthy".
+func TestRootFSCollect_MountsParseError(t *testing.T) {
+	overlong := "/dev/fake /mnt/nfs nfs " + strings.Repeat("a", 70*1024) + " 0 0\n"
+	mounts := overlong + "/dev/sda1 / ext4 ro,relatime,errors=remount-ro 0 0\n"
+	b := source.NewBundle()
+	b.PutFile("/proc/mounts", []byte(mounts))
+	b.PutFile("/etc/fstab", []byte("/dev/sda1 / ext4 errors=remount-ro 0 1\n"))
+	restore := SetSource(source.NewReplay(b))
+	defer SetSource(restore)
+
+	c := &RootFSCollector{}
+	raw, err := c.Collect(context.Background())
+	if err == nil {
+		t.Fatal("Collect() error = nil, want a propagated parse error when a mounts line exceeds the scanner's max token size")
 	}
 	if raw != nil {
 		t.Errorf("Collect() = %v, want nil data alongside the error", raw)
