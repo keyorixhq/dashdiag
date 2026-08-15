@@ -43,8 +43,11 @@ if ! go vet ./... 2>&1; then
 fi
 echo "  ✅ go vet"
 
-# 4. Tests with -short flag — skips slow integration tests, keeps it under 15s
-if ! go test -short -count=1 -timeout 30s ./... 2>&1; then
+# 4. Tests with -short flag — skips slow integration tests. Budget matches
+# CI's own bump (180s->300s, see ci.yml): the cmd package's test suite alone
+# now regularly takes 30-36s even under -short, so a flat 30s ceiling here
+# was failing on unrelated commits, not just slow ones.
+if ! go test -short -count=1 -timeout 60s ./... 2>&1; then
     echo "❌ Tests failed"
     exit 1
 fi
