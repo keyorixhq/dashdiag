@@ -140,7 +140,7 @@ func TestSysctlCollector_CollectLinux_FullHappyPath(t *testing.T) {
 	files["/proc/100/comm"] = "nginx\n"
 
 	c := NewSysctlCollector()
-	info, err := c.collectLinux()
+	info, err := c.collectLinux(context.Background())
 	if err != nil {
 		t.Fatalf("collectLinux() error: %v", err)
 	}
@@ -189,7 +189,7 @@ func TestSysctlCollector_CollectLinux_TCPTWReuseBoundary(t *testing.T) {
 		}})
 		t.Cleanup(func() { SetSource(prev) })
 		c := NewSysctlCollector()
-		info, err := c.collectLinux()
+		info, err := c.collectLinux(context.Background())
 		if err != nil {
 			t.Fatalf("collectLinux() error: %v", err)
 		}
@@ -202,7 +202,7 @@ func TestSysctlCollector_CollectLinux_TCPTWReuseBoundary(t *testing.T) {
 		prev := SetSource(fakeSysctlSource{files: map[string]string{}})
 		t.Cleanup(func() { SetSource(prev) })
 		c := NewSysctlCollector()
-		info, err := c.collectLinux()
+		info, err := c.collectLinux(context.Background())
 		if err != nil {
 			t.Fatalf("collectLinux() error: %v", err)
 		}
@@ -216,7 +216,7 @@ func TestSysctlCollector_CollectLinux_MissingFilesStayZeroValue(t *testing.T) {
 	prev := SetSource(fakeSysctlSource{files: map[string]string{}})
 	t.Cleanup(func() { SetSource(prev) })
 	c := NewSysctlCollector()
-	info, err := c.collectLinux()
+	info, err := c.collectLinux(context.Background())
 	if err != nil {
 		t.Fatalf("collectLinux() error: %v (best-effort, must never error)", err)
 	}
@@ -279,7 +279,7 @@ func TestDetectWorkload(t *testing.T) {
 			}
 			prev := SetSource(fakeSysctlSource{files: files, glob: dirs})
 			t.Cleanup(func() { SetSource(prev) })
-			if got := detectWorkload(); got != tt.want {
+			if got := detectWorkload(context.Background()); got != tt.want {
 				t.Errorf("detectWorkload() = %q, want %q", got, tt.want)
 			}
 		})
@@ -296,8 +296,53 @@ func TestDetectWorkload_UnreadableCommSkipped(t *testing.T) {
 	}
 	prev := SetSource(fakeSysctlSource{files: files, glob: []string{"/proc/1", "/proc/2"}})
 	t.Cleanup(func() { SetSource(prev) })
-	if got := detectWorkload(); got != "webserver" {
+	if got := detectWorkload(context.Background()); got != "webserver" {
 		t.Errorf("detectWorkload() = %q, want webserver (unreadable comm skipped, not fatal)", got)
+	}
+}
+
+// TestDetectWorkload_CtxCancelled covers internal-collectors-32-02: a
+// pre-cancelled context must stop the /proc/<pid>/comm scan loop before it
+// reads any entry, rather than running the full scan to completion with no
+// way for the caller/runner (Timeout()=1s) to preempt it. Seeds more than
+// one PID so a bug that ignores ctx entirely would still produce a
+// recognizable workload match.
+func TestDetectWorkload_CtxCancelled(t *testing.T) {
+	files := map[string]string{
+		"/proc/1/comm": "nginx\n",
+		"/proc/2/comm": "nginx\n",
+	}
+	prev := SetSource(fakeSysctlSource{files: files, glob: []string{"/proc/1", "/proc/2"}})
+	t.Cleanup(func() { SetSource(prev) })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	if got := detectWorkload(ctx); got != "default" {
+		t.Errorf("detectWorkload(cancelled ctx) = %q, want default (loop bailed before reading any comm file)", got)
+	}
+}
+
+// TestSysctlCollector_CollectLinux_CtxCancelled covers the same concern at
+// the Collect()/collectLinux() level: a pre-cancelled context must still
+// return a best-effort SysctlInfo (never an error — this collector is
+// documented best-effort) with Workload left at its zero-value "default"
+// rather than actually scanning /proc.
+func TestSysctlCollector_CollectLinux_CtxCancelled(t *testing.T) {
+	files := map[string]string{
+		"/proc/1/comm": "nginx\n",
+	}
+	prev := SetSource(fakeSysctlSource{files: files, glob: []string{"/proc/1"}})
+	t.Cleanup(func() { SetSource(prev) })
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	c := NewSysctlCollector()
+	info, err := c.collectLinux(ctx)
+	if err != nil {
+		t.Fatalf("collectLinux() error: %v (best-effort, must never error)", err)
+	}
+	if info.Workload != "default" {
+		t.Errorf("Workload = %q, want default (detectWorkload bailed on the cancelled ctx before matching nginx)", info.Workload)
 	}
 }
 

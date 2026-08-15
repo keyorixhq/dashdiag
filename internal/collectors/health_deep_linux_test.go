@@ -814,7 +814,7 @@ func TestTopMemoryProcs_EntryReadError(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutGlob("/proc/[0-9]*", []string{"/proc/999"})
 	})
-	procs, _, _ := topMemoryProcs(5)
+	procs, _, _ := topMemoryProcs(context.Background(), 5)
 	if len(procs) != 0 {
 		t.Errorf("expected empty result when status read fails, got %v", procs)
 	}
@@ -829,7 +829,7 @@ func TestTopMemoryProcs_ZeroRSS(t *testing.T) {
 		b.PutFile("/proc/1001/comm", []byte("idle\n"))
 		b.PutFile("/proc/1001/cgroup", []byte("0::/\n"))
 	})
-	procs, _, _ := topMemoryProcs(5)
+	procs, _, _ := topMemoryProcs(context.Background(), 5)
 	if len(procs) != 0 {
 		t.Errorf("expected empty result when rssKB==0, got %v", procs)
 	}
@@ -845,7 +845,7 @@ func TestTopMemoryProcs_ValidEntry(t *testing.T) {
 		b.PutFile("/proc/1002/comm", []byte("worker\n"))
 		b.PutFile("/proc/1002/cgroup", []byte("0::/system.slice/worker.service\n"))
 	})
-	procs, totalMB, _ := topMemoryProcs(5)
+	procs, totalMB, _ := topMemoryProcs(context.Background(), 5)
 	if len(procs) != 1 {
 		t.Fatalf("expected 1 proc, got %d", len(procs))
 	}
@@ -870,7 +870,7 @@ func TestTopMemoryProcs_TruncatesToN(t *testing.T) {
 		b.PutFile("/proc/2002/comm", []byte("big\n"))
 		b.PutFile("/proc/2002/cgroup", []byte("0::/\n"))
 	})
-	procs, _, _ := topMemoryProcs(1)
+	procs, _, _ := topMemoryProcs(context.Background(), 1)
 	if len(procs) != 1 {
 		t.Fatalf("expected truncation to 1, got %d", len(procs))
 	}
@@ -891,9 +891,33 @@ func TestTopMemoryProcs_HidepidRestrictsVisibility(t *testing.T) {
 		b.PutFile("/proc/1002/comm", []byte("worker\n"))
 		b.PutFile("/proc/1002/cgroup", []byte("0::/system.slice/worker.service\n"))
 	})
-	_, _, needsRoot := topMemoryProcs(5)
+	_, _, needsRoot := topMemoryProcs(context.Background(), 5)
 	if !needsRoot {
 		t.Error("expected needsRoot=true when PID 1 is absent from the glob results (hidepid=2), even with no read errors")
+	}
+}
+
+// TestTopMemoryProcs_CtxCancelled covers internal-collectors-15-03: a
+// pre-cancelled context must stop the entries loop before it scans any PID,
+// rather than running the full scan to completion with no way for the
+// caller/runner to preempt it. Seeds more than one PID so a bug that ignores
+// ctx entirely would still produce a non-empty result.
+func TestTopMemoryProcs_CtxCancelled(t *testing.T) {
+	// no t.Parallel(): withFixtureSource mutates the package-level activeSource.
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutGlob("/proc/[0-9]*", []string{"/proc/1", "/proc/2001", "/proc/2002"})
+		b.PutFile("/proc/2001/status", []byte("Name:\tsmall\nVmRSS:\t1024 kB\n"))
+		b.PutFile("/proc/2001/comm", []byte("small\n"))
+		b.PutFile("/proc/2001/cgroup", []byte("0::/\n"))
+		b.PutFile("/proc/2002/status", []byte("Name:\tbig\nVmRSS:\t8192 kB\n"))
+		b.PutFile("/proc/2002/comm", []byte("big\n"))
+		b.PutFile("/proc/2002/cgroup", []byte("0::/\n"))
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	procs, totalMB, _ := topMemoryProcs(ctx, 5)
+	if len(procs) != 0 || totalMB != 0 {
+		t.Errorf("expected an empty scan for a pre-cancelled context, got procs=%+v totalMB=%v", procs, totalMB)
 	}
 }
 

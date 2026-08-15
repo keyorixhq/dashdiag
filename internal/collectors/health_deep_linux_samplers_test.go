@@ -197,7 +197,7 @@ func TestReadAllProcIO(t *testing.T) {
 		b.PutFile("/proc/100/io", []byte("read_bytes: 1024\nwrite_bytes: 2048\n"))
 		b.PutFile("/proc/100/comm", []byte("myapp\n"))
 	})
-	counters, needsRoot := readAllProcIO()
+	counters, needsRoot := readAllProcIO(context.Background())
 	if needsRoot {
 		t.Error("expected needsRoot=false")
 	}
@@ -219,7 +219,7 @@ func TestReadAllProcIO_PermissionDenied(t *testing.T) {
 	})
 	t.Cleanup(func() { SetSource(prev) })
 
-	_, needsRoot := readAllProcIO()
+	_, needsRoot := readAllProcIO(context.Background())
 	if !needsRoot {
 		t.Error("expected needsRoot=true when a proc/<pid>/io read is denied")
 	}
@@ -227,7 +227,7 @@ func TestReadAllProcIO_PermissionDenied(t *testing.T) {
 
 func TestReadAllProcIO_GlobFails(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {})
-	counters, needsRoot := readAllProcIO()
+	counters, needsRoot := readAllProcIO(context.Background())
 	if counters != nil || needsRoot {
 		t.Errorf("expected nil/false when the glob itself fails, got %+v/%v", counters, needsRoot)
 	}
@@ -245,9 +245,32 @@ func TestReadAllProcIO_HidepidRestrictsVisibility(t *testing.T) {
 		b.PutFile("/proc/100/io", []byte("read_bytes: 1024\nwrite_bytes: 2048\n"))
 		b.PutFile("/proc/100/comm", []byte("myapp\n"))
 	})
-	_, needsRoot := readAllProcIO()
+	_, needsRoot := readAllProcIO(context.Background())
 	if !needsRoot {
 		t.Error("expected needsRoot=true when PID 1 is absent from the glob results (hidepid=2), even with no read errors")
+	}
+}
+
+// TestReadAllProcIO_CtxCancelled covers internal-collectors-15-03: a
+// pre-cancelled context must stop the entries loop before it scans any PID —
+// seeds more than one PID so a bug that ignores ctx entirely would still
+// produce a non-empty result map.
+func TestReadAllProcIO_CtxCancelled(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		// /proc/1 present so procVisibilityRestricted (computed from the glob
+		// results BEFORE the loop, unaffected by ctx) reports needsRoot=false —
+		// isolates the assertion to the loop's own ctx-bail behavior.
+		b.PutGlob("/proc/[0-9]*", []string{"/proc/1", "/proc/100", "/proc/101"})
+		b.PutFile("/proc/100/io", []byte("read_bytes: 1024\nwrite_bytes: 2048\n"))
+		b.PutFile("/proc/100/comm", []byte("myapp\n"))
+		b.PutFile("/proc/101/io", []byte("read_bytes: 1024\nwrite_bytes: 2048\n"))
+		b.PutFile("/proc/101/comm", []byte("myapp2\n"))
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	result, needsRoot := readAllProcIO(ctx)
+	if len(result) != 0 || needsRoot {
+		t.Errorf("expected an empty scan for a pre-cancelled context, got result=%+v needsRoot=%v", result, needsRoot)
 	}
 }
 
@@ -302,7 +325,7 @@ func TestReadAllProcCPU(t *testing.T) {
 		b.PutFile("/proc/100/comm", []byte("myapp\n"))
 		b.PutFile("/proc/stat", []byte("cpu  1000 0 500 8500 0 0 0 0\n"))
 	})
-	counters, sysTotal, _ := readAllProcCPU()
+	counters, sysTotal, _ := readAllProcCPU(context.Background())
 	c, ok := counters[100]
 	if !ok {
 		t.Fatal("expected an entry for pid 100")
@@ -318,7 +341,7 @@ func TestReadAllProcCPU(t *testing.T) {
 // TestReadAllProcCPU_GlobFails covers the "glob errors -> (nil, 0)" branch.
 func TestReadAllProcCPU_GlobFails(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {})
-	counters, sysTotal, _ := readAllProcCPU()
+	counters, sysTotal, _ := readAllProcCPU(context.Background())
 	if counters != nil || sysTotal != 0 {
 		t.Errorf("expected nil/0 when the glob itself fails, got %+v/%d", counters, sysTotal)
 	}
@@ -333,7 +356,7 @@ func TestReadAllProcCPU_NonNumericEntrySkipped(t *testing.T) {
 		b.PutGlob("/proc/[0-9]*", []string{"/proc/self"})
 		b.PutFile("/proc/stat", []byte("cpu  1000 0 500 8500 0 0 0 0\n"))
 	})
-	counters, sysTotal, _ := readAllProcCPU()
+	counters, sysTotal, _ := readAllProcCPU(context.Background())
 	if len(counters) != 0 {
 		t.Errorf("expected an empty map (non-numeric entry skipped), got %+v", counters)
 	}
@@ -352,7 +375,7 @@ func TestReadAllProcCPU_UnparseableStatSkipped(t *testing.T) {
 		b.PutFile("/proc/100/stat", []byte("100 (myapp S 1 100\n")) // missing ")"
 		b.PutFile("/proc/stat", []byte("cpu  1000 0 500 8500 0 0 0 0\n"))
 	})
-	counters, _, _ := readAllProcCPU()
+	counters, _, _ := readAllProcCPU(context.Background())
 	if _, ok := counters[100]; ok {
 		t.Errorf("expected pid 100 to be skipped (unparseable stat), got %+v", counters)
 	}
@@ -369,9 +392,31 @@ func TestReadAllProcCPU_HidepidRestrictsVisibility(t *testing.T) {
 		b.PutFile("/proc/100/comm", []byte("myapp\n"))
 		b.PutFile("/proc/stat", []byte("cpu  1000 0 500 8500 0 0 0 0\n"))
 	})
-	_, _, needsRoot := readAllProcCPU()
+	_, _, needsRoot := readAllProcCPU(context.Background())
 	if !needsRoot {
 		t.Error("expected needsRoot=true when PID 1 is absent from the glob results (hidepid=2), even with no read errors")
+	}
+}
+
+// TestReadAllProcCPU_CtxCancelled covers internal-collectors-15-03: a
+// pre-cancelled context must stop the entries loop before it scans any PID —
+// seeds more than one PID so a bug that ignores ctx entirely would still
+// produce a non-empty result map.
+func TestReadAllProcCPU_CtxCancelled(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		// /proc/1 present so procVisibilityRestricted (computed from the glob
+		// results BEFORE the loop, unaffected by ctx) reports needsRoot=false —
+		// isolates the assertion to the loop's own ctx-bail behavior.
+		b.PutGlob("/proc/[0-9]*", []string{"/proc/1", "/proc/100", "/proc/101"})
+		b.PutFile("/proc/100/stat", []byte("100 (myapp) S 1 100 100 0 -1 4194304 0 0 0 0 10 5 0 0 20 0 1 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0\n"))
+		b.PutFile("/proc/100/comm", []byte("myapp\n"))
+		b.PutFile("/proc/stat", []byte("cpu  1000 0 500 8500 0 0 0 0\n"))
+	})
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	counters, _, needsRoot := readAllProcCPU(ctx)
+	if len(counters) != 0 || needsRoot {
+		t.Errorf("expected an empty scan for a pre-cancelled context, got counters=%+v needsRoot=%v", counters, needsRoot)
 	}
 }
 
@@ -825,7 +870,7 @@ func TestReadAllProcIO_NonNumericEntry(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutGlob("/proc/[0-9]*", []string{"/proc/1", "/proc/notanumber"})
 	})
-	result, needsRoot := readAllProcIO()
+	result, needsRoot := readAllProcIO(context.Background())
 	if needsRoot {
 		t.Error("expected needsRoot=false when no real IO reads were attempted")
 	}

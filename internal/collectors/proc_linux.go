@@ -30,7 +30,7 @@ func (c *ProcCollector) Collect(ctx context.Context) (interface{}, error) {
 	if c.PID == 0 {
 		// Top-list mode — reuse existing top-process data
 		info := &models.ProcInfo{}
-		topProcs, _, _ := topMemoryProcs(15)
+		topProcs, _, _ := topMemoryProcs(ctx, 15)
 		info.TopProcs = topProcs
 		return info, nil
 	}

@@ -76,7 +76,7 @@ func (c *HealthDeepCollector) Collect(ctx context.Context) (interface{}, error) 
 	}
 
 	// Top memory consumers from /proc/<pid>/status
-	info.TopProcs, info.TotalProcsMB, info.TopProcsNeedsRoot = topMemoryProcs(10)
+	info.TopProcs, info.TotalProcsMB, info.TopProcsNeedsRoot = topMemoryProcs(ctx, 10)
 
 	// Extended memory breakdown
 	collectMemDetail(info)
@@ -254,7 +254,7 @@ func procVisibilityRestricted(entries []string) bool {
 // plus whether the scan had restricted visibility (see procVisibilityRestricted
 // and readAllProcIO's identical per-PID permission tracking) — TopProcs/
 // TotalProcsMB then only reflect what this UID could see, not the true set.
-func topMemoryProcs(n int) ([]models.ProcessMemStat, float64, bool) {
+func topMemoryProcs(ctx context.Context, n int) ([]models.ProcessMemStat, float64, bool) {
 	entries, err := glob(hdCgroupProc)
 	if err != nil {
 		return nil, 0, false
@@ -279,6 +279,14 @@ func topMemoryProcs(n int) ([]models.ProcessMemStat, float64, bool) {
 	totalRSSKB := uint64(0)
 
 	for _, entry := range entries {
+		// internal-collectors-15-03: entries can hold up to maxCappedDirEntries
+		// (200k) PIDs on a busy host — without a ctx check here, this loop can
+		// run well past the collector's own advertised Timeout() (8s) with no
+		// way for the runner to preempt it (same concern as processes.go's
+		// identical /proc/[0-9]* scan).
+		if err := ctx.Err(); err != nil {
+			break
+		}
 		statusPath := filepath.Join(entry, "status")
 		data, err := readFile(filepath.Clean(statusPath)) // #nosec G304
 		if err != nil {
@@ -358,7 +366,7 @@ func procCommName(pid int) string {
 // process directories with no read error at all) — that process's I/O is
 // invisible to this sample, so the ranking below may not reflect the true
 // top consumer.
-func readAllProcIO() (map[int]procIOCounters, bool) {
+func readAllProcIO(ctx context.Context) (map[int]procIOCounters, bool) {
 	entries, err := glob(hdCgroupProc)
 	if err != nil {
 		return nil, false
@@ -366,6 +374,13 @@ func readAllProcIO() (map[int]procIOCounters, bool) {
 	result := make(map[int]procIOCounters, len(entries))
 	needsRoot := procVisibilityRestricted(entries)
 	for _, entry := range entries {
+		// internal-collectors-15-03: entries can hold up to maxCappedDirEntries
+		// (200k) PIDs on a busy host — without a ctx check here, this loop can
+		// run well past the collector's own advertised Timeout() (8s) with no
+		// way for the runner to preempt it.
+		if err := ctx.Err(); err != nil {
+			break
+		}
 		pid, err := strconv.Atoi(filepath.Base(entry))
 		if err != nil {
 			continue
@@ -400,13 +415,13 @@ func readAllProcIO() (map[int]procIOCounters, bool) {
 // culprit attribution: names the process behind a busy device, not just the
 // device itself).
 func (c *HealthDeepCollector) sampleTopIOProcs(ctx context.Context, n int) topIOSample {
-	before, needsRoot1 := readAllProcIO()
+	before, needsRoot1 := readAllProcIO(ctx)
 	select {
 	case <-ctx.Done():
 		return topIOSample{}
 	case <-time.After(500 * time.Millisecond):
 	}
-	after, needsRoot2 := readAllProcIO()
+	after, needsRoot2 := readAllProcIO(ctx)
 
 	procs := computeTopIORates(before, after, n)
 	for i := range procs {
@@ -467,7 +482,7 @@ type procCPUCounters struct {
 // "cpu " line of /proc/stat) needed to normalize per-process ticks into a %,
 // plus whether the scan had restricted visibility — see procVisibilityRestricted
 // and readAllProcIO's identical per-PID permission tracking.
-func readAllProcCPU() (map[int]procCPUCounters, uint64, bool) {
+func readAllProcCPU(ctx context.Context) (map[int]procCPUCounters, uint64, bool) {
 	entries, err := glob(hdCgroupProc)
 	if err != nil {
 		return nil, 0, false
@@ -475,6 +490,13 @@ func readAllProcCPU() (map[int]procCPUCounters, uint64, bool) {
 	result := make(map[int]procCPUCounters, len(entries))
 	needsRoot := procVisibilityRestricted(entries)
 	for _, entry := range entries {
+		// internal-collectors-15-03: entries can hold up to maxCappedDirEntries
+		// (200k) PIDs on a busy host — without a ctx check here, this loop can
+		// run well past the collector's own advertised Timeout() (8s) with no
+		// way for the runner to preempt it.
+		if err := ctx.Err(); err != nil {
+			break
+		}
 		pid, err := strconv.Atoi(filepath.Base(entry))
 		if err != nil {
 			continue
@@ -549,13 +571,13 @@ type topCPUSample struct {
 // delta, scaled by core count. Matches top/htop's per-process %CPU convention,
 // which can exceed 100% for a multi-threaded process.
 func (c *HealthDeepCollector) sampleTopCPUProcs(ctx context.Context, n int) topCPUSample {
-	before, sysBefore, needsRoot1 := readAllProcCPU()
+	before, sysBefore, needsRoot1 := readAllProcCPU(ctx)
 	select {
 	case <-ctx.Done():
 		return topCPUSample{}
 	case <-time.After(500 * time.Millisecond):
 	}
-	after, sysAfter, needsRoot2 := readAllProcCPU()
+	after, sysAfter, needsRoot2 := readAllProcCPU(ctx)
 
 	procs := computeTopCPURates(before, after, sysAfter-sysBefore, n)
 	for i := range procs {
