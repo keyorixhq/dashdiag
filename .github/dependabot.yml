@@ -14,6 +14,22 @@ updates:
     ignore:
       - dependency-name: "*"
         update-types: ["version-update:semver-major"]
+    # A patch/minor bump costs almost the same CI minutes as a major one --
+    # CodeQL/SonarCloud/the full test suite scale with the codebase, not the
+    # diff -- so bundling routine bumps into one PR cuts total CI cost
+    # roughly N-fold for the same amount of dependency churn. Majors stay
+    # ungrouped (and already excluded above) since they warrant individual
+    # review.
+    groups:
+      go-patch-minor:
+        update-types:
+          - "minor"
+          - "patch"
+    # Absorb same-week re-releases/yanks into the next scheduled run instead
+    # of opening a fresh PR immediately -- ecosystem convention Keyorix's
+    # dependabot.yml already applies.
+    cooldown:
+      default-days: 7
 
   - package-ecosystem: "github-actions"
     directory: "/"
@@ -22,3 +38,15 @@ updates:
       day: "monday"
     commit-message:
       prefix: "ci"
+    # Prevents exactly what already happened this week: codeql-action's
+    # init/analyze/upload-sarif sub-actions bumped as three separate PRs
+    # (#2e3fc173/#7b9268e7/#69a71faa) -- merging only one of the three leaves
+    # workflows mixing CodeQL action versions, which CodeQL treats as a hard
+    # configuration error. Grouping guarantees they land together.
+    groups:
+      actions-patch-minor:
+        update-types:
+          - "minor"
+          - "patch"
+    cooldown:
+      default-days: 7

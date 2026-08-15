@@ -13,12 +13,19 @@ if ! go test -race -count=1 -timeout 90s ./... 2>&1; then
 fi
 echo "  ✅ tests (race)"
 
-# 2. golangci-lint — full linter suite
+# 2. golangci-lint — full linter suite. On a non-Linux dev machine this
+# lints for the HOST's GOOS, so any symbol whose only real callers live in a
+# _linux.go (or //go:build linux) file falsely reports as `unused` -- CI
+# always lints on a real Linux runner and never sees this. If this step
+# fails ONLY with `unused` findings pointing at Linux-only files, that's
+# expected noise, not a real bug: use `make lint-linux` (real Linux
+# container) instead before pushing Linux-collector changes.
 if command -v golangci-lint &>/dev/null; then
     echo "  Running golangci-lint..."
     if ! golangci-lint run ./... 2>&1; then
         echo "❌ golangci-lint failed"
-        echo "   Fix issues then: git push"
+        echo "   Fix issues, or if they're all 'unused' findings in _linux.go files,"
+        echo "   re-check with: make lint-linux"
         exit 1
     fi
     echo "  ✅ golangci-lint"
