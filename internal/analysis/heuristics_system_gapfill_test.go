@@ -135,3 +135,70 @@ func TestCheckKernelSecurity_PolicyPkgMissing(t *testing.T) {
 		t.Errorf("missing policy package must CRIT, got %+v", got)
 	}
 }
+
+// TestCheckKernelSecurity_IndependentIndeterminateDisclosures is the
+// regression test for the false-OK fix (measurement-honesty-03):
+// checkKernelSecurity's SELinux-unreadable and AppArmor-unreadable
+// disclosures were both nested inside `if !seActive && !aaActive`, which
+// meant (1) an active AppArmor suppressed the SELinux-unreadable INFO
+// entirely, since aaActive=true makes the outer gate false, and (2) when both
+// mechanisms were indeterminate, an early `return` after the SELinux branch
+// dropped the AppArmor disclosure. Both disclosures must now be independent
+// of the other mechanism's active/indeterminate state.
+func TestCheckKernelSecurity_IndependentIndeterminateDisclosures(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name string
+		mac  models.KernelSecurityInfo
+		want []struct{ level, msg string }
+	}{
+		{
+			name: "AppArmor active + SELinux unreadable still discloses SELinux",
+			mac: models.KernelSecurityInfo{
+				SELinuxPresent:  true,
+				SELinuxMode:     "unknown", // seIndeterminate
+				AppArmorPresent: true,
+				AppArmorMode:    "enforce", // aaActive — previously suppressed the SELinux disclosure
+			},
+			want: []struct{ level, msg string }{
+				{"INFO", "SELinux is present but its enforce state could not be read"},
+			},
+		},
+		{
+			name: "SELinux active + AppArmor unreadable still discloses AppArmor",
+			mac: models.KernelSecurityInfo{
+				SELinuxPresent:  true,
+				SELinuxMode:     "enforcing", // seActive — previously suppressed the AppArmor disclosure
+				AppArmorPresent: true,
+				AppArmorMode:    "unknown", // aaIndeterminate
+			},
+			want: []struct{ level, msg string }{
+				{"INFO", "AppArmor present but mode unreadable"},
+			},
+		},
+		{
+			name: "both indeterminate — neither disclosure is dropped by the other's early return",
+			mac: models.KernelSecurityInfo{
+				SELinuxPresent:  true,
+				SELinuxMode:     "unknown",
+				AppArmorPresent: true,
+				AppArmorMode:    "unknown",
+			},
+			want: []struct{ level, msg string }{
+				{"INFO", "SELinux is present but its enforce state could not be read"},
+				{"INFO", "AppArmor present but mode unreadable"},
+			},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := checkKernelSecurity(tt.mac, defaultThresh)
+			for _, w := range tt.want {
+				if !hasInsightMsg(got, w.level, w.msg) {
+					t.Errorf("want %s insight containing %q, got %+v", w.level, w.msg, got)
+				}
+			}
+		})
+	}
+}

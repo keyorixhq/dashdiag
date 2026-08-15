@@ -780,6 +780,37 @@ func TestParseAIDE(t *testing.T) {
 		if info.AIDELastRunDays != -1 {
 			t.Errorf("AIDELastRunDays = %d, want -1 (never run)", info.AIDELastRunDays)
 		}
+		if info.AIDEDBUnreadable {
+			t.Error("a genuinely absent (not permission-denied) db path must not report AIDEDBUnreadable")
+		}
+	})
+
+	// internal-models-11-05: the AIDE database path exists but stat-ing it is
+	// refused (EACCES, non-root) — must be distinguished from "never run" so the
+	// analysis layer doesn't tell the operator to `aide --init` a database it
+	// never actually looked at. Uses fakeStatPermissionDeniedSource (defined in
+	// infiniband_linux_test.go) since the Bundle API has no public seam for a
+	// permission-denied Stat result.
+	t.Run("installed but database unreadable", func(t *testing.T) {
+		b := source.NewBundle()
+		b.PutStat("/usr/sbin/aide", source.FileMeta{})
+		prev := SetSource(fakeStatPermissionDeniedSource{
+			Replay:     source.NewReplay(b),
+			deniedPath: "/var/lib/aide/aide.db",
+		})
+		t.Cleanup(func() { SetSource(prev) })
+
+		info := &models.SecurityInfo{}
+		parseAIDE(info)
+		if !info.AIDEInstalled || info.AIDEDBExists {
+			t.Fatalf("expected installed-but-no-db, got %+v", info)
+		}
+		if info.AIDELastRunDays != -1 {
+			t.Errorf("AIDELastRunDays = %d, want -1 (unreadable, same sentinel as never-run)", info.AIDELastRunDays)
+		}
+		if !info.AIDEDBUnreadable {
+			t.Error("expected AIDEDBUnreadable=true when the db path is present but permission-denied")
+		}
 	})
 }
 
@@ -811,6 +842,42 @@ func TestParseSupportconfig(t *testing.T) {
 		}
 		if info.SupportconfigLastRunDays != -1 {
 			t.Errorf("SupportconfigLastRunDays = %d, want -1 (never run)", info.SupportconfigLastRunDays)
+		}
+		if info.SupportconfigUnreadable {
+			t.Error("a genuinely-recorded-empty /var/log listing must not report SupportconfigUnreadable")
+		}
+	})
+
+	// internal-models-11-05: /var/log itself is present but cannot be listed
+	// (EACCES, non-root) while searching for supportconfig archives — must be
+	// distinguished from "genuinely never run" so the analysis layer doesn't
+	// tell the operator to collect a fresh supportconfig over a directory it
+	// never actually looked at. Uses fakePermissionDeniedDirSource (defined in
+	// k8s_linux_collectors_test.go) since the Bundle API has no public seam for
+	// a permission-denied ReadDir result.
+	t.Run("installed, /var/log unreadable", func(t *testing.T) {
+		b := source.NewBundle()
+		b.PutStat("/usr/sbin/supportconfig", source.FileMeta{})
+		b.PutGlob("/var/log/scc_*.txz", nil)
+		b.PutGlob("/var/log/nts_*.tbz", nil)
+		b.PutGlob("/tmp/scc_*.txz", nil)
+		b.PutGlob("/tmp/nts_*.tbz", nil)
+		prev := SetSource(&fakePermissionDeniedDirSource{
+			Replay: source.NewReplay(b),
+			dirs:   map[string]bool{"/var/log": true},
+		})
+		t.Cleanup(func() { SetSource(prev) })
+
+		info := &models.SecurityInfo{}
+		parseSupportconfig(info)
+		if !info.SupportconfigAvailable {
+			t.Fatal("expected SupportconfigAvailable=true")
+		}
+		if info.SupportconfigLastRunDays != -1 {
+			t.Errorf("SupportconfigLastRunDays = %d, want -1 (unreadable, same sentinel as never-run)", info.SupportconfigLastRunDays)
+		}
+		if !info.SupportconfigUnreadable {
+			t.Error("expected SupportconfigUnreadable=true when /var/log is present but permission-denied")
 		}
 	})
 

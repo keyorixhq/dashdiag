@@ -509,34 +509,43 @@ func checkKernelSecurity(mac models.KernelSecurityInfo, thresh Thresholds) []mod
 		))
 	}
 
+	// SELinux-unreadable and AppArmor-unreadable disclosures are independent
+	// signals — each mechanism's readability is unrelated to the other's
+	// active/indeterminate state, so neither may be gated behind the other.
+	// (Previously both were nested inside `!seActive && !aaActive`, which meant
+	// an active AppArmor suppressed the SELinux-unreadable disclosure entirely,
+	// and an early `return` after the SELinux branch dropped the AppArmor
+	// disclosure whenever both were indeterminate.)
+	if seIndeterminate {
+		// selinuxfs is mounted but the *world-readable* enforce node yielded no
+		// mode — an unusual/transient state (policy mid-load, odd container view),
+		// NOT a privilege gap. Re-running as root would NOT help (non-root can
+		// read the same node), so don't suggest it — point at the node instead.
+		// (Contrast AppArmor below, whose mode lives in a root-only node.)
+		out = append(out, unverifiedInsight("INFO", catKernelSec,
+			"SELinux is present but its enforce state could not be read — policy may be mid-load or in an unusual state",
+			[]string{
+				"to inspect: cat /sys/fs/selinux/enforce   (1=enforcing, 0=permissive)",
+				"to inspect: getenforce  /  sestatus",
+			},
+		))
+	}
+	if aaIndeterminate {
+		// AppArmor's mode lives in /sys/kernel/security/apparmor/profiles, which
+		// is root-only — so here "unknown" genuinely IS a privilege gap and
+		// re-running as root resolves it.
+		out = append(out, unverifiedInsight("INFO", catKernelSec,
+			"AppArmor present but mode unreadable — re-run as root",
+			nil,
+		))
+	}
+
 	if !seActive && !aaActive {
-		if seIndeterminate {
-			// selinuxfs is mounted but the *world-readable* enforce node yielded no
-			// mode — an unusual/transient state (policy mid-load, odd container view),
-			// NOT a privilege gap. Re-running as root would NOT help (non-root can
-			// read the same node), so don't suggest it — point at the node instead.
-			// (Contrast AppArmor below, whose mode lives in a root-only node.)
-			return append(out, unverifiedInsight("INFO", catKernelSec,
-				"SELinux is present but its enforce state could not be read — policy may be mid-load or in an unusual state",
-				[]string{
-					"to inspect: cat /sys/fs/selinux/enforce   (1=enforcing, 0=permissive)",
-					"to inspect: getenforce  /  sestatus",
-				},
-			))
-		}
-		if aaIndeterminate {
-			// AppArmor's mode lives in /sys/kernel/security/apparmor/profiles, which
-			// is root-only — so here "unknown" genuinely IS a privilege gap and
-			// re-running as root resolves it.
-			return append(out, unverifiedInsight("INFO", catKernelSec,
-				"AppArmor present but mode unreadable — re-run as root",
-				nil,
-			))
-		}
 		// On non-Linux platforms (macOS, etc.) neither SELinux nor AppArmor
 		// is applicable — suppress the "not enforced" INFO row. But any
 		// insights already in `out` (e.g. a CRIT for an invalid SELINUXTYPE=
-		// found in the policy-type block above) must still be returned.
+		// found in the policy-type block above, or an unverified-disclosure
+		// INFO from the indeterminate checks above) must still be returned.
 		if runtime.GOOS != "linux" {
 			return out
 		}

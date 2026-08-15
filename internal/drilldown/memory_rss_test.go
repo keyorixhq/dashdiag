@@ -75,6 +75,64 @@ func TestTopProcessesByRSSLinux_MissingStatusFileSkipped(t *testing.T) {
 	}
 }
 
+// TestTopProcessesByRSSLinux_PermissionDeniedSetsPartial is the regression
+// test for the false-OK fix (internal-drilldown-02-03): a permission-denied
+// /proc/<pid>/status read (owned by another user) must flip the partial flag
+// and surface an honest Note rather than silently vanishing from the ranking
+// the same way a genuinely-exited process does — mirrors
+// TestTopProcessesBySwapLinux_PermissionDeniedSetsPartial (swap_test.go),
+// whose partial+Note pattern this replicates for RSS. A directory with mode
+// 0000 triggers EACCES for a non-root reader.
+func TestTopProcessesByRSSLinux_PermissionDeniedSetsPartial(t *testing.T) {
+	t.Parallel()
+	if os.Geteuid() == 0 {
+		t.Skip("running as root — permission bits don't block the read")
+	}
+	procRoot := t.TempDir()
+	writeMeminfoFixture(t, procRoot, 1_000_000)
+	const pid = 654
+	dir := filepath.Join(procRoot, strconv.Itoa(pid))
+	if err := os.MkdirAll(dir, 0000); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(dir, 0755) }) // TempDir cleanup needs read perms restored
+
+	got, err := topProcessesByRSSLinuxAt(context.Background(), 5, procRoot)
+	if err != nil {
+		t.Fatalf("topProcessesByRSSLinuxAt: %v", err)
+	}
+	if len(got.Rows) != 0 {
+		t.Errorf("expected the permission-denied process to be excluded from rows, got %+v", got.Rows)
+	}
+	if got.Note == "" {
+		t.Error("expected a partial-visibility note when /proc/<pid>/status is permission-denied")
+	}
+}
+
+// TestTopProcessesByRSSLinux_MissingStatusFileNotPartial is the companion
+// boundary guard: a genuinely-vanished status file (ENOENT, not EACCES —
+// TestTopProcessesByRSSLinux_MissingStatusFileSkipped's scenario) must NOT
+// set the partial flag or Note, since nothing was actually hidden by
+// insufficient privilege.
+func TestTopProcessesByRSSLinux_MissingStatusFileNotPartial(t *testing.T) {
+	t.Parallel()
+	procRoot := t.TempDir()
+	writeMeminfoFixture(t, procRoot, 1_000_000)
+	const pid = 655
+	dir := filepath.Join(procRoot, strconv.Itoa(pid))
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+
+	got, err := topProcessesByRSSLinuxAt(context.Background(), 5, procRoot)
+	if err != nil {
+		t.Fatalf("topProcessesByRSSLinuxAt: %v", err)
+	}
+	if got.Note != "" {
+		t.Errorf("expected no partial-visibility note for a genuinely-vanished status file, got %q", got.Note)
+	}
+}
+
 func TestTopProcessesByRSSLinux_ZeroRSSExcluded(t *testing.T) {
 	t.Parallel()
 	procRoot := t.TempDir()

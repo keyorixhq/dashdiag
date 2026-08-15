@@ -43,12 +43,19 @@ func topProcessesByRSSLinux(ctx context.Context, n int) (*models.Details, error)
 func topProcessesByRSSLinuxAt(ctx context.Context, n int, procRoot string) (*models.Details, error) {
 	var mu sync.Mutex
 	var procs []procMem
+	partial := false
 
 	totalKB := systemTotalMemKB(procRoot)
 
 	err := walkProcs(ctx, procRoot, func(pid int) error {
 		path := filepath.Join(procRoot, fmt.Sprintf("%d", pid), "status")
 		f, err := os.Open(path)
+		if os.IsPermission(err) {
+			mu.Lock()
+			partial = true
+			mu.Unlock()
+			return nil
+		}
 		if err != nil {
 			return nil
 		}
@@ -99,12 +106,16 @@ func topProcessesByRSSLinuxAt(ctx context.Context, n int, procRoot string) (*mod
 		})
 	}
 
-	return &models.Details{
+	d := &models.Details{
 		Type:    tableProcesses,
 		Title:   "Top processes by memory (RSS)",
 		Columns: []string{"PID", "MEM%", "RSS", "COMMAND"},
 		Rows:    rows,
-	}, nil
+	}
+	if partial {
+		d.Note = "some processes hidden — run as root for full visibility"
+	}
+	return d, nil
 }
 
 func topProcessesByRSSMac(ctx context.Context, n int) (*models.Details, error) {

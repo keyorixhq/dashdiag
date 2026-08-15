@@ -133,6 +133,30 @@ func checkSecurityAuditGaps(sec models.SecurityInfo) []models.Insight {
 		))
 	}
 
+	// internal-models-11-05: the AIDE database path existed but couldn't be
+	// stat'd (non-root) — checkRHELSecurityHardening's AIDEDBExists==false
+	// branch below still fires its "never initialised" WARN off the same -1
+	// sentinel, so this is an ADDITIVE disclosure that corrects the remediation
+	// story (re-run as root, not `aide --init`) rather than a replacement.
+	if sec.AIDEDBUnreadable {
+		out = append(out, unverifiedInsight("INFO", secCatHardening,
+			"AIDE database path exists but could not be read — file integrity state was NOT verified",
+			[]string{secAuditRunAsRoot},
+		))
+	}
+
+	// internal-models-11-05: /var/log couldn't be listed (non-root) while
+	// searching for supportconfig archives — checkSUSESecurityHardening's
+	// SupportconfigLastRunDays==-1 branch below still fires its "never run"
+	// INFO off the same -1 sentinel, so this is an ADDITIVE disclosure with the
+	// correct remediation (re-run as root, not "collect a fresh supportconfig").
+	if sec.SupportconfigUnreadable {
+		out = append(out, unverifiedInsight("INFO", secCatHardening,
+			"/var/log could not be listed — supportconfig archive history was NOT verified",
+			[]string{secAuditRunAsRoot},
+		))
+	}
+
 	return out
 }
 

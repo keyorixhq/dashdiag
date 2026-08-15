@@ -147,7 +147,14 @@ type SecurityInfo struct {
 	AIDEInstalled   bool   `json:"aide_installed"`          // aide binary present
 	AIDEDBExists    bool   `json:"aide_db_exists"`          // /var/lib/aide/aide.db exists
 	AIDELastRunDays int    `json:"aide_last_run_days"`      // days since last aide check (-1 = never)
-	AuditRules      int    `json:"audit_rules"`             // number of active auditd rules (-1 = unavailable)
+	// AIDEDBUnreadable is true when the AIDE database path exists but could not
+	// be stat'd (permission denied, non-root) — distinct from AIDEDBExists==false
+	// genuinely meaning "never initialised". Without this, a present-but-unreadable
+	// database collapses into the same "never initialised" WARN, telling the
+	// operator to `aide --init` (destroying/reinitializing a database that is
+	// actually fine) when the real fix is to re-run as root.
+	AIDEDBUnreadable bool `json:"aide_db_unreadable,omitempty"`
+	AuditRules       int  `json:"audit_rules"` // number of active auditd rules (-1 = unavailable)
 	// AuditRulesUnreadable is true when auditd IS installed and running but
 	// `auditctl -l` was refused (EACCES, non-root) — distinct from AuditRules==-1
 	// meaning auditd genuinely isn't installed/running. Without this, CIS rule
@@ -159,6 +166,12 @@ type SecurityInfo struct {
 	SupportconfigAvailable   bool   `json:"supportconfig_available"`         // supportutils package installed
 	SupportconfigLastRunDays int    `json:"supportconfig_last_run_days"`     // days since last archive (-1 = never)
 	SupportconfigArchive     string `json:"supportconfig_archive,omitempty"` // path to most recent archive
+	// SupportconfigUnreadable is true when /var/log could not be listed
+	// (permission denied, non-root) while searching for supportconfig archives —
+	// distinct from SupportconfigLastRunDays==-1 genuinely meaning "never run".
+	// Without this, a present-but-unreadable archive directory collapses into
+	// the same "never run" INFO as a host that has genuinely never run it.
+	SupportconfigUnreadable bool `json:"supportconfig_unreadable,omitempty"`
 
 	// SUSEConnect subscription
 	SUSEConnectRegistered  bool   `json:"suseconnect_registered,omitempty"`
