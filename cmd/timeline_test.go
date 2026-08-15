@@ -103,6 +103,26 @@ func TestPrintTimelineEvents(t *testing.T) {
 	}
 }
 
+// TestPrintTimelineEvents_StripsControlChars guards terminal escape
+// injection: journal Unit/Message text is attacker-influenced (the
+// collector's decodeJournalMessage comment notes raw non-UTF-8/binary bytes
+// can appear), unlike other cmd/ print sites that already sanitize.
+func TestPrintTimelineEvents_StripsControlChars(t *testing.T) {
+	events := []models.TimelineEvent{
+		{TimeStr: "10:00", Source: "journal", Level: "CRIT", Unit: "evil\x1b]0;pwned\x07.service", Message: "boom\x1b[2Jscreen-clear evil"},
+	}
+	out := captureStdout(t, func() { printTimelineEvents(events, output.ModePlain) })
+	if strings.Contains(out, "\x1b") {
+		t.Errorf("printTimelineEvents output still contains ESC byte:\n%s", out)
+	}
+	if !strings.Contains(out, "evil]0;pwned") {
+		t.Errorf("printTimelineEvents output missing sanitized unit text:\n%s", out)
+	}
+	if !strings.Contains(out, "boom[2Jscreen-clear") {
+		t.Errorf("printTimelineEvents output missing sanitized message text:\n%s", out)
+	}
+}
+
 func TestPrintTimeline(t *testing.T) {
 	clean := &models.TimelineInfo{WindowHours: 1}
 	out := captureStdout(t, func() { printTimeline(clean, 1500*time.Millisecond, output.ModePlain) })

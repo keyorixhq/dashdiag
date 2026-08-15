@@ -889,7 +889,8 @@ func topMessages(counts map[string]int, n int) []string {
 	return result
 }
 
-const topErrorMsgCap = 120 // truncate long messages in structured top-error entries
+const topErrorMsgCap = 120   // truncate long messages in structured top-error entries
+const topErrorSourceCap = 64 // truncate long sources (e.g. via SYSLOG_IDENTIFIER/systemd-cat) in structured top-error entries
 
 // parseJournalTopError parses one `journalctl --output=short-iso` line into a
 // structured TopError. Format: "2026-06-03T19:16:09+00:00 host unit[pid]: message".
@@ -941,6 +942,9 @@ func sourceAndMessage(fields []string, msgStart int) (source, message string) {
 	source = strings.TrimSuffix(fields[msgStart-1], ":")
 	if i := strings.IndexByte(source, '['); i >= 0 {
 		source = source[:i]
+	}
+	if len(source) > topErrorSourceCap {
+		source = source[:topErrorSourceCap]
 	}
 	message = strings.Join(fields[msgStart:], " ")
 	if len(message) > topErrorMsgCap {

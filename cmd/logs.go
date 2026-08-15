@@ -129,10 +129,15 @@ func printLogsSeverity(info *models.LogsInfo, mode output.OutputMode) {
 		fmt.Printf("  %s  Errors:   %d\n", asciiOr("fail", iconFail, mode), info.ErrorCount)
 		if len(info.TopCritical) > 0 {
 			for _, e := range info.TopCritical {
+				// e.Source/e.Message come from journal SYSLOG_IDENTIFIER and log
+				// text (sourceAndMessage in logs_linux.go), attacker-influenced —
+				// same treatment as the other print sites in this file.
+				source := output.SanitizeControl(e.Source)
+				msg := output.SanitizeControl(e.Message)
 				if age := formatAgeMin(e.AgeMin); age != "" {
-					fmt.Printf("       %s: %s — %s\n", e.Source, e.Message, age)
+					fmt.Printf("       %s: %s — %s\n", source, msg, age)
 				} else {
-					fmt.Printf("       %s: %s\n", e.Source, e.Message)
+					fmt.Printf("       %s: %s\n", source, msg)
 				}
 			}
 		} else {
