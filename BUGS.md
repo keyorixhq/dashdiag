@@ -1628,6 +1628,28 @@ honest (K8s WARN→INFO non-root).
   stayed 2 (driven by the real fault only).
 **Commit:** (this PR)
 
+### BUG-100 — install.sh silently degrades to checksum-only when minisign is absent (deferred, not yet fixed)
+**Found:** adversarial-review re-verification sweep (finding `install-script-06`), not a hardware
+  discovery — logged here per user request as a known gap to revisit rather than a bug fixed in
+  this session.
+**Root cause:** `verify_signature()` (`install.sh:179-216`) requires `minisign` to enforce the
+  release signature. When `minisign` isn't installed — the default on most hosts, since it ships
+  with essentially no distro out of the box — `signature_unenforced()` prints a stderr warning
+  ("verified checksum only") and proceeds, rather than failing closed, unless the caller passes
+  `--require-signature`. `MINISIGN_PUBKEY` is pinned and `--require-signature` exists as a
+  fail-closed opt-in, so this is a deliberate, already-documented tradeoff, not an oversight — but
+  it means the common case (`curl | sh` with no flags) only gets checksum integrity, not signature
+  authenticity. An attacker who compromises the release origin/CDN and can serve a
+  self-consistent malicious binary + matching `checksums.txt` is not caught by the default path.
+**Not fixed yet — options to weigh when picked up:**
+  1. Promote `--require-signature` to the default for the CI-generated GitHub Actions install step
+     (`cmd/hook.go`'s `githubWorkflow` const) — CI environments can tolerate the stricter failure
+     mode (missing `minisign` would just fail the job, forcing it to be installed).
+  2. Vendor/bootstrap a minimal static `minisign` verifier so the check can run without requiring
+     the tool to be pre-installed.
+  3. Leave as-is and just make the stderr warning louder / require an explicit acknowledgement.
+**Commit:** none yet — deferred.
+
 ### BUG-098 — cold dnf metadata cache → CVE/Packages scan swallows a real Critical CVE
 **Found:** live, first-ever dsd pass on Oracle Linux 9.7 on a free-tier OCI Ampere A1 instance
   (`aarch64`, UEK 6.12). A cold-cache `dsd health --packages --cve` reported
