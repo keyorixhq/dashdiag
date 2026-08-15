@@ -5,6 +5,7 @@ package collectors
 import (
 	"bufio"
 	"context"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"time"
@@ -60,27 +61,34 @@ func parseLaunchctlList(out string) (total, running int, failed []models.Launchd
 		statusStr := fields[1]
 		label := fields[2]
 
-		// Skip Apple internal kernel/OS noise
-		if isLaunchdNoise(label) {
-			total--
-			continue
-		}
-
 		pid := 0
 		if pidStr != "-" {
 			pid, _ = strconv.Atoi(pidStr)
 		}
-		if pid > 0 {
-			running++
-		}
-
 		status := 0
 		if statusStr != "-" {
 			status, _ = strconv.Atoi(statusStr)
 		}
-
 		// Failed = not running + non-zero last exit code
-		if pid == 0 && status != 0 {
+		isFailed := pid == 0 && status != 0
+
+		// Skip Apple internal kernel/OS noise. A "com.apple." Label is
+		// self-reported by whatever plist declares it — a plist dropped in a
+		// user-writable LaunchAgents directory can claim any Label it wants.
+		// Trust the prefix for the bulk of (non-failing) noise, but a FAILED
+		// "com.apple." entry must have a plist actually present under the
+		// SIP-protected system launchd directories before its failure is
+		// suppressed; otherwise the suppression itself becomes the perfect
+		// place to hide a failing persistence mechanism.
+		if isLaunchdNoise(label) && (!isFailed || !isAppleLabel(label) || isGenuineAppleLaunchdPlist(label)) {
+			total--
+			continue
+		}
+
+		if pid > 0 {
+			running++
+		}
+		if isFailed {
 			failed = append(failed, models.LaunchdService{
 				Label:  label,
 				Status: status,
@@ -88,6 +96,35 @@ func parseLaunchctlList(out string) (total, running int, failed []models.Launchd
 		}
 	}
 	return total, running, failed
+}
+
+// isAppleLabel reports whether label carries the "com.apple." prefix that
+// isLaunchdNoise treats as blanket-trusted noise.
+func isAppleLabel(label string) bool {
+	return strings.HasPrefix(strings.ToLower(label), "com.apple.")
+}
+
+// systemLaunchdDirs are the SIP-protected directories where Apple's own
+// launchd services are defined — not writable outside of a system update,
+// unlike ~/Library/LaunchAgents or /Library/LaunchAgents.
+var systemLaunchdDirs = []string{
+	"/System/Library/LaunchAgents",
+	"/System/Library/LaunchDaemons",
+}
+
+// isGenuineAppleLaunchdPlist reports whether label resolves to an actual
+// plist under a SIP-protected system launchd directory (checked via statFile,
+// the source-routed stat used package-wide, so this replays under `dsd
+// replay` instead of hitting the live filesystem). label.plist is the
+// filename convention Apple's own daemons follow; a label with no matching
+// file there did not come from a system-owned plist.
+func isGenuineAppleLaunchdPlist(label string) bool {
+	for _, dir := range systemLaunchdDirs {
+		if _, err := statFile(filepath.Join(dir, label+".plist")); err == nil {
+			return true
+		}
+	}
+	return false
 }
 
 // isLaunchdNoise returns true for services that are safe to ignore when "failed".
