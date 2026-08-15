@@ -24,7 +24,12 @@ const (
 // discloses LVMInfo.PresenceReadFailed, rather than the health run silently
 // skipping the LVM section entirely.
 func IsLVMPresent() bool {
-	present, absent := lvmPresenceCheck()
+	// No collector ctx is available at this pre-run gate — it is called from
+	// cmd/ while building the collector list, before the runner ever assigns
+	// a per-collector deadline. context.Background() here is a genuine root,
+	// not a re-created one (see lvmPresenceCheck's ctx-threaded call from
+	// Collect for the actual per-collector-deadline path).
+	present, absent := lvmPresenceCheck(context.Background())
 	return present || !absent
 }
 
@@ -33,8 +38,8 @@ func IsLVMPresent() bool {
 // genuinely could not be found/started (a spawn/lookup failure) — a
 // non-zero exit means the binary WAS found and ran, so that case returns
 // present=false, absent=false: ambiguous, not a confirmed absence.
-func lvmPresenceCheck() (present, absent bool) {
-	_, err := runCmd(context.Background(), "lvs", "--version")
+func lvmPresenceCheck(ctx context.Context) (present, absent bool) {
+	_, err := runCmd(ctx, "lvs", "--version")
 	if err == nil {
 		return true, false
 	}
@@ -56,7 +61,7 @@ func (c *LVMCollector) Timeout() time.Duration { return 5 * time.Second }
 func (c *LVMCollector) Collect(ctx context.Context) (interface{}, error) {
 	info := &models.LVMInfo{}
 
-	present, absent := lvmPresenceCheck()
+	present, absent := lvmPresenceCheck(ctx)
 	if absent {
 		// lvm2 genuinely not installed — clean absence
 		return info, nil

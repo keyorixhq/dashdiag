@@ -65,7 +65,7 @@ func TestBindDetect_ByProcess(t *testing.T) {
 		b.PutDir("/proc/60", []string{"comm"})
 		b.PutFile("/proc/60/comm", []byte("named\n"))
 	})
-	if !bindDetect() {
+	if !bindDetect(context.Background()) {
 		t.Error("bindDetect() = false, want true")
 	}
 }
@@ -75,7 +75,7 @@ func TestBindDetect_BySystemctlFallback(t *testing.T) {
 		b.PutDir("/proc", []string{})
 		b.PutCmd("systemctl", []string{"is-active", "--quiet", "named"}, "", 0)
 	})
-	if !bindDetect() {
+	if !bindDetect(context.Background()) {
 		t.Error("bindDetect() = false, want true (systemctl fallback)")
 	}
 }
@@ -85,8 +85,58 @@ func TestBindDetect_NotRunning(t *testing.T) {
 		b.PutDir("/proc", []string{})
 		b.PutCmd("systemctl", []string{"is-active", "--quiet", "named"}, "", 3)
 	})
-	if bindDetect() {
+	if bindDetect(context.Background()) {
 		t.Error("bindDetect() = true, want false")
+	}
+}
+
+// emptyProcSource fakes an empty /proc listing (so anyProcessNamed always
+// misses and bindDetect falls through to the systemctl runCmd branch) while
+// leaving every other Source method live via the embedded source.Live.
+type emptyProcSource struct {
+	source.Live
+}
+
+func (s emptyProcSource) ReadDir(dir string) ([]string, error) {
+	if dir == "/proc" {
+		return nil, nil
+	}
+	return s.Live.ReadDir(dir)
+}
+
+// TestBindDetect_ContextCancelled guards subprocess-wrappers-02: bindDetect's
+// systemctl fallback previously ran via runCmd(context.Background(), ...),
+// decoupled from the collector's own ctx. Inject a mock Exec that only
+// resolves after a real ctx.Done() (or a 2s fallback) and call with an
+// already-cancelled ctx: with the collector's ctx genuinely threaded through,
+// the call returns almost immediately; the pre-fix code (a hidden
+// context.Background() call) would instead ride out the full 2s window and
+// misreport BIND as detected.
+func TestBindDetect_ContextCancelled(t *testing.T) {
+	prev := SetSource(emptyProcSource{Live: source.Live{
+		Exec: func(ctx context.Context, _ string, _ ...string) (source.Result, error) {
+			select {
+			case <-ctx.Done():
+				return source.Result{}, ctx.Err()
+			case <-time.After(2 * time.Second):
+				return source.Result{}, nil // "systemctl is-active" success
+			}
+		},
+	}})
+	defer SetSource(prev)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // already cancelled before bindDetect ever runs
+
+	start := time.Now()
+	detected := bindDetect(ctx)
+	elapsed := time.Since(start)
+
+	if elapsed > 1*time.Second {
+		t.Errorf("bindDetect took %v with an already-cancelled ctx — want a fast return via ctx.Done(), not riding out the mock's 2s window (ctx not propagated to runCmd)", elapsed)
+	}
+	if detected {
+		t.Error("detected = true, want false — the systemctl call should have been cancelled")
 	}
 }
 

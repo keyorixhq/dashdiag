@@ -61,7 +61,7 @@ func (c *GCPCollector) Collect(ctx context.Context) (interface{}, error) {
 	info := &models.GCPInfo{IsGCP: true}
 
 	info.NICDriver, info.UsesGVNIC = gcpNICDriver("/sys/class/net")
-	info.GuestAgentInstalled, info.GuestAgentRunning = gcpGuestAgentState()
+	info.GuestAgentInstalled, info.GuestAgentRunning = gcpGuestAgentState(ctx)
 	info.MaintenanceChecked, info.OnHostMaintenance, info.ActiveMaintenance, info.Preemptible = gcpMaintenance(ctx)
 	info.OSLoginChecked, info.OSLoginEnabled = gcpOSLogin(ctx)
 	info.TimeSyncChecked, info.UsesMetadataNTP = gcpTimeSyncConfigured()
@@ -97,7 +97,7 @@ func gcpNICDriver(netDir string) (driver string, usesGVNIC bool) {
 // account management silently break); not-installed is silent (some minimal images run
 // without it). The modern unit is google-guest-agent; older images split it into
 // google-accounts-daemon / google-network-daemon.
-func gcpGuestAgentState() (installed, running bool) {
+func gcpGuestAgentState(ctx context.Context) (installed, running bool) {
 	for _, bin := range []string{"google_guest_agent", "google_osconfig_agent"} {
 		if _, err := lookPath(bin); err == nil {
 			installed = true
@@ -117,7 +117,7 @@ func gcpGuestAgentState() (installed, running bool) {
 		return false, false
 	}
 	for _, unit := range []string{"google-guest-agent", "google-accounts-daemon"} {
-		if out, err := runCmd(context.Background(), "systemctl", "is-active", unit); err == nil &&
+		if out, err := runCmd(ctx, "systemctl", "is-active", unit); err == nil &&
 			strings.TrimSpace(out) == "active" {
 			return true, true
 		}

@@ -143,7 +143,7 @@ func TestGcpGuestAgentState_InstalledAndRunning(t *testing.T) {
 	}, nil, func(b *source.Bundle) {
 		b.PutCmd("systemctl", []string{"is-active", "google-guest-agent"}, "active\n", 0)
 	})
-	installed, running := gcpGuestAgentState()
+	installed, running := gcpGuestAgentState(context.Background())
 	if !installed || !running {
 		t.Errorf("installed=%v running=%v, want true/true", installed, running)
 	}
@@ -156,7 +156,7 @@ func TestGcpGuestAgentState_InstalledNotRunning(t *testing.T) {
 		b.PutCmd("systemctl", []string{"is-active", "google-guest-agent"}, "inactive\n", 3)
 		b.PutCmd("systemctl", []string{"is-active", "google-accounts-daemon"}, "inactive\n", 3)
 	})
-	installed, running := gcpGuestAgentState()
+	installed, running := gcpGuestAgentState(context.Background())
 	if !installed || running {
 		t.Errorf("installed=%v running=%v, want true/false", installed, running)
 	}
@@ -168,7 +168,7 @@ func TestGcpGuestAgentState_InstalledViaMarkerFile(t *testing.T) {
 		b.PutCmdNotFound("systemctl", []string{"is-active", "google-guest-agent"})
 		b.PutCmdNotFound("systemctl", []string{"is-active", "google-accounts-daemon"})
 	})
-	installed, running := gcpGuestAgentState()
+	installed, running := gcpGuestAgentState(context.Background())
 	if !installed || running {
 		t.Errorf("installed=%v running=%v, want true/false", installed, running)
 	}
@@ -176,9 +176,64 @@ func TestGcpGuestAgentState_InstalledViaMarkerFile(t *testing.T) {
 
 func TestGcpGuestAgentState_NotInstalled(t *testing.T) {
 	withCombinedFixture(t, nil, nil, nil)
-	installed, running := gcpGuestAgentState()
+	installed, running := gcpGuestAgentState(context.Background())
 	if installed || running {
 		t.Errorf("installed=%v running=%v, want false/false", installed, running)
+	}
+}
+
+// gcpMarkerFileSource fakes the google-guest-agent marker file's presence (so
+// gcpGuestAgentState's installed gate is true and it reaches the systemctl
+// runCmd branch) while leaving every other Source method live via the
+// embedded source.Live.
+type gcpMarkerFileSource struct {
+	source.Live
+}
+
+func (s gcpMarkerFileSource) Stat(path string) (source.FileMeta, error) {
+	if path == "/usr/bin/google_guest_agent" {
+		return source.FileMeta{}, nil
+	}
+	return s.Live.Stat(path)
+}
+
+// TestGcpGuestAgentState_ContextCancelled guards subprocess-wrappers-02:
+// gcpGuestAgentState's systemctl is-active probe previously ran via
+// runCmd(context.Background(), ...), decoupled from the collector's own ctx.
+// Inject a mock Exec that only resolves after a real ctx.Done() (or a 2s
+// fallback per unit) and call with an already-cancelled ctx: with the
+// collector's ctx genuinely threaded through, both candidate units' runCmd
+// calls return almost immediately; the pre-fix code (a hidden context.
+// Background() call) would instead ride out the full 2s window on each unit
+// and misreport the guest agent as running.
+func TestGcpGuestAgentState_ContextCancelled(t *testing.T) {
+	prev := SetSource(gcpMarkerFileSource{Live: source.Live{
+		Exec: func(ctx context.Context, _ string, _ ...string) (source.Result, error) {
+			select {
+			case <-ctx.Done():
+				return source.Result{}, ctx.Err()
+			case <-time.After(2 * time.Second):
+				return source.Result{Stdout: []byte("active\n")}, nil
+			}
+		},
+	}})
+	defer SetSource(prev)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // already cancelled before gcpGuestAgentState ever runs
+
+	start := time.Now()
+	installed, running := gcpGuestAgentState(ctx)
+	elapsed := time.Since(start)
+
+	if elapsed > 1*time.Second {
+		t.Errorf("gcpGuestAgentState took %v with an already-cancelled ctx — want a fast return via ctx.Done(), not riding out the mock's 2s window per unit (ctx not propagated to runCmd)", elapsed)
+	}
+	if !installed {
+		t.Error("installed = false, want true — the marker file should have been found")
+	}
+	if running {
+		t.Error("running = true, want false — the systemctl calls should have been cancelled")
 	}
 }
 

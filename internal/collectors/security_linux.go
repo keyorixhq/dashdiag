@@ -65,7 +65,7 @@ func (c *SecurityCollector) Collect(ctx context.Context) (interface{}, error) {
 		info.NeedsRoot = true
 	}
 
-	parseSSHConfig(info)
+	parseSSHConfig(ctx, info)
 	parseFailedLogins(ctx, info)
 	parseListeningPorts(info)
 	parseSudoers(info)
@@ -104,7 +104,7 @@ func (c *SecurityCollector) Collect(ctx context.Context) (interface{}, error) {
 //
 // Both paths feed the same parseSSHFileContent parser since sshd -T output
 // uses the same "key value" format as sshd_config.
-func parseSSHConfig(info *models.SecurityInfo) {
+func parseSSHConfig(ctx context.Context, info *models.SecurityInfo) {
 	// Default values matching OpenSSH compiled defaults.
 	// "Safe" defaults (enabled features) are true; "dangerous" defaults that
 	// must be explicitly disabled are also true so a commented-out directive in
@@ -119,7 +119,7 @@ func parseSSHConfig(info *models.SecurityInfo) {
 
 	// Try sshd -T first — gives the fully merged effective configuration.
 	// On RHEL 10 this requires root; non-root exits 0 but prints "Permission denied".
-	if out, err := runCmd(context.Background(), "sshd", "-T"); err == nil {
+	if out, err := runCmd(ctx, "sshd", "-T"); err == nil {
 		outStr := out
 		if !strings.Contains(outStr, "Permission denied") && len(strings.TrimSpace(outStr)) > 0 {
 			parseSSHFileContent(outStr, info)
@@ -1806,14 +1806,22 @@ func parseAIDE(info *models.SecurityInfo) {
 		"/var/lib/aide/aide.db.new",
 	}
 	for _, p := range dbPaths {
-		if fi, err := statFile(p); err == nil {
+		fi, err := statFile(p)
+		if err == nil {
 			info.AIDEDBExists = true
 			days := int(time.Since(fi.ModTime).Hours() / 24)
 			info.AIDELastRunDays = days
 			return
 		}
+		// Permission-denied (non-root) means the database might actually exist —
+		// distinct from a genuine ENOENT, which means it was truly never
+		// initialised. Flag it so the analysis layer doesn't tell the operator
+		// to `aide --init` over a database it never actually looked at.
+		if os.IsPermission(err) {
+			info.AIDEDBUnreadable = true
+		}
 	}
-	info.AIDELastRunDays = -1 // installed but never run
+	info.AIDELastRunDays = -1 // installed but never run (or unreadable — see AIDEDBUnreadable)
 }
 
 // parseAuditRules counts active auditd rules via auditctl.
@@ -1880,7 +1888,8 @@ func parseSupportconfig(info *models.SecurityInfo) {
 	// Also check for directory-based output (SLES 16 default). statFile (not
 	// e.Info(), whose source-fake FileInfo carries a zero ModTime) so the
 	// directory's real mtime participates in the newest-wins comparison.
-	if entries, err := readDirEntries("/var/log"); err == nil {
+	entries, err := readDirEntries("/var/log")
+	if err == nil {
 		for _, e := range entries {
 			if e.IsDir() && (strings.HasPrefix(e.Name(), "scc_") || strings.HasPrefix(e.Name(), "nts_")) {
 				p := "/var/log/" + e.Name()
@@ -1891,6 +1900,11 @@ func parseSupportconfig(info *models.SecurityInfo) {
 			}
 		}
 	}
+	// Permission-denied (non-root) listing /var/log means archives may exist
+	// but couldn't be enumerated — distinct from a genuine "never run". Flagged
+	// below only if the search ultimately turns up nothing, since a match found
+	// via another path (e.g. /tmp) still counts as a real answer.
+	logDirUnreadable := err != nil && os.IsPermission(err)
 
 	for _, pattern := range patterns {
 		matches, err := glob(pattern)
@@ -1914,7 +1928,10 @@ func parseSupportconfig(info *models.SecurityInfo) {
 	}
 
 	if newestPath == "" {
-		info.SupportconfigLastRunDays = -1 // never run
+		info.SupportconfigLastRunDays = -1 // never run (or unreadable — see SupportconfigUnreadable)
+		if logDirUnreadable {
+			info.SupportconfigUnreadable = true
+		}
 		return
 	}
 

@@ -57,6 +57,42 @@ func TestIsLVMPresent(t *testing.T) {
 	})
 }
 
+// TestLVMPresenceCheck_ContextCancelled guards subprocess-wrappers-02:
+// lvmPresenceCheck previously ran `lvs --version` via runCmd(context.
+// Background(), ...), decoupled from the collector's own ctx — the runner's
+// per-collector deadline could never cancel it. Inject a mock Exec that only
+// resolves after a real ctx.Done() (or a 2s fallback), then call with an
+// already-cancelled ctx: if the collector's ctx is genuinely threaded through
+// to runCmd, the call returns almost immediately via ctx.Done(); the pre-fix
+// code (a hidden context.Background() call) would instead ride out the full
+// 2s window and misreport LVM as present.
+func TestLVMPresenceCheck_ContextCancelled(t *testing.T) {
+	prev := SetSource(source.Live{Exec: func(ctx context.Context, _ string, _ ...string) (source.Result, error) {
+		select {
+		case <-ctx.Done():
+			return source.Result{}, ctx.Err()
+		case <-time.After(2 * time.Second):
+			return source.Result{Stdout: []byte("  LVM version:     2.03.11(2)\n")}, nil
+		}
+	}})
+	defer SetSource(prev)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // already cancelled before lvmPresenceCheck ever runs
+
+	start := time.Now()
+	present, absent := lvmPresenceCheck(ctx)
+	elapsed := time.Since(start)
+
+	if elapsed > 1*time.Second {
+		t.Errorf("lvmPresenceCheck took %v with an already-cancelled ctx — want a fast return via ctx.Done(), not riding out the mock's 2s window (ctx not propagated to runCmd)", elapsed)
+	}
+	if present {
+		t.Error("present = true, want false — the command should have been cancelled before it could report a version")
+	}
+	_ = absent
+}
+
 // TestLVMCollector_Collect_NotDetected guards the gate-off path: when lvm2 is
 // not installed, Collect must return an empty LVMInfo{} without running any
 // further vgs/pvs/lvs commands.

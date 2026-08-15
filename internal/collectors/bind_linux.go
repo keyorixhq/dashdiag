@@ -31,7 +31,7 @@ func (c *BINDCollector) Collect(ctx context.Context) (interface{}, error) {
 	info := &models.BINDInfo{}
 
 	// Gate: is named running?
-	if !bindDetect() {
+	if !bindDetect(ctx) {
 		return nil, nil // named not running — omit section
 	}
 	info.Detected = true
@@ -81,11 +81,11 @@ func bindServiceActive(ctx context.Context) bool {
 // bindDetect returns true when a BIND daemon process is running. Matches
 // /proc/<pid>/comm (portable; busybox `pgrep -x` matches argv[0] incl. path) with a
 // systemctl fallback for setups where the process name differs from the unit.
-func bindDetect() bool {
+func bindDetect(ctx context.Context) bool {
 	if anyProcessNamed(bindProcNamed, bindProcBIND9, bindProcNamedSDB) {
 		return true
 	}
-	_, err := runCmd(context.Background(), "systemctl", "is-active", "--quiet", bindProcNamed)
+	_, err := runCmd(ctx, "systemctl", "is-active", "--quiet", bindProcNamed)
 	return err == nil
 }
 

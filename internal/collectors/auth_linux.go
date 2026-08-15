@@ -116,7 +116,7 @@ func (c *AuthCollector) Collect(ctx context.Context) (interface{}, error) {
 	// value when the directive is absent, which is indistinguishable from an
 	// explicit "no", and acting on that would risk a false "you're safe" downgrade.
 	var sec models.SecurityInfo
-	parseSSHConfig(&sec)
+	parseSSHConfig(ctx, &sec)
 	if sec.SSHAuditSource == "sshd -T" {
 		info.SSHConfigChecked = true
 		info.PasswordAuthEnabled = sec.SSHPasswordAuth
