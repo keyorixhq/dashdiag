@@ -151,3 +151,24 @@ func TestRunDecode_InvalidPayloadJSONErrors(t *testing.T) {
 		t.Fatal("a blob whose payload isn't valid dsd JSON should error")
 	}
 }
+
+// TestRunDecode_JSONFlagRejectsInvalidPayload is the regression test for
+// cmd-03-03: the --json branch used to write the decoded payload straight to
+// stdout with no validation, unlike the human-rendered path. A corrupted or
+// hostile blob must be rejected the same way regardless of --json.
+func TestRunDecode_JSONFlagRejectsInvalidPayload(t *testing.T) {
+	blob := share.Encode([]byte("not valid json"))
+	withHookStdin(t, blob)
+	cmd := newBareDecodeCmd()
+	_ = cmd.Flags().Set("json", "true")
+	var runErr error
+	out := captureStdout(t, func() {
+		runErr = runDecode(cmd, nil)
+	})
+	if runErr == nil {
+		t.Fatal("--json with a blob whose payload isn't valid dsd JSON should error")
+	}
+	if out != "" {
+		t.Errorf("nothing should reach stdout before validation fails, got: %q", out)
+	}
+}

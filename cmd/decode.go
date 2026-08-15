@@ -65,6 +65,17 @@ func runDecode(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("decode: %w", err)
 	}
 
+	// Validate before either branch: share.Decode only unwraps base64/gzip, it
+	// does not guarantee the payload is JSON at all, let alone a dsd report.
+	// The --json branch used to skip this and write reportJSON straight to
+	// stdout unchecked (cmd-03-03) -- a corrupted or hostile blob would emit
+	// arbitrary decompressed bytes with no validation, unlike the human-
+	// rendered path just below, which always required valid JSON.
+	var report render.JSONOutput
+	if err := json.Unmarshal(reportJSON, &report); err != nil {
+		return fmt.Errorf("decode: report payload is not valid dsd JSON: %w", err)
+	}
+
 	if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
 		_, _ = os.Stdout.Write(reportJSON)
 		if len(reportJSON) > 0 && reportJSON[len(reportJSON)-1] != '\n' {
@@ -73,10 +84,6 @@ func runDecode(cmd *cobra.Command, args []string) error {
 		return nil
 	}
 
-	var report render.JSONOutput
-	if err := json.Unmarshal(reportJSON, &report); err != nil {
-		return fmt.Errorf("decode: report payload is not valid dsd JSON: %w", err)
-	}
 	fmt.Print(render.RenderReportText(report))
 	return nil
 }
