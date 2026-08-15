@@ -1628,10 +1628,9 @@ honest (K8s WARN→INFO non-root).
   stayed 2 (driven by the real fault only).
 **Commit:** (this PR)
 
-### BUG-100 — install.sh silently degrades to checksum-only when minisign is absent (deferred, not yet fixed)
+### BUG-100 — install.sh silently degrades to checksum-only when minisign is absent
 **Found:** adversarial-review re-verification sweep (finding `install-script-06`), not a hardware
-  discovery — logged here per user request as a known gap to revisit rather than a bug fixed in
-  this session.
+  discovery. Initially logged as a deferred gap, fixed in a follow-up pass the same day.
 **Root cause:** `verify_signature()` (`install.sh:179-216`) requires `minisign` to enforce the
   release signature. When `minisign` isn't installed — the default on most hosts, since it ships
   with essentially no distro out of the box — `signature_unenforced()` prints a stderr warning
@@ -1641,14 +1640,14 @@ honest (K8s WARN→INFO non-root).
   it means the common case (`curl | sh` with no flags) only gets checksum integrity, not signature
   authenticity. An attacker who compromises the release origin/CDN and can serve a
   self-consistent malicious binary + matching `checksums.txt` is not caught by the default path.
-**Not fixed yet — options to weigh when picked up:**
-  1. Promote `--require-signature` to the default for the CI-generated GitHub Actions install step
-     (`cmd/hook.go`'s `githubWorkflow` const) — CI environments can tolerate the stricter failure
-     mode (missing `minisign` would just fail the job, forcing it to be installed).
-  2. Vendor/bootstrap a minimal static `minisign` verifier so the check can run without requiring
-     the tool to be pre-installed.
-  3. Leave as-is and just make the stderr warning louder / require an explicit acknowledgement.
-**Commit:** none yet — deferred.
+**Fix:** left the default (non-CI) install path's tradeoff untouched — failing closed there would
+  break the default `curl | sh` experience for the overwhelming majority of installs, since most
+  boxes genuinely lack `minisign`. Instead hardened the one environment dsd fully controls the
+  package manager for: the CI-generated GitHub Actions workflow (`cmd/hook.go`'s `githubWorkflow`
+  const, written by `dsd hook install`) now installs `minisign` via `apt-get` first, then passes
+  `--require-signature` to `install.sh`, holding the CI-triggered install to the same fail-closed
+  standard `dsd update` already enforces for every subsequent update.
+**Commit:** (this PR)
 
 ### BUG-098 — cold dnf metadata cache → CVE/Packages scan swallows a real Critical CVE
 **Found:** live, first-ever dsd pass on Oracle Linux 9.7 on a free-tier OCI Ampere A1 instance
