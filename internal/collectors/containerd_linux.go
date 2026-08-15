@@ -20,9 +20,9 @@ var ctrBinaries = []string{
 }
 
 // findCtr returns the first usable ctr binary path, or "" if none found.
-func findCtr() string {
+func findCtr(ctx context.Context) string {
 	for _, bin := range ctrBinaries {
-		if out, err := runCmd(context.Background(), bin, "version"); err == nil && out != "" {
+		if out, err := runCmd(ctx, bin, "version"); err == nil && out != "" {
 			return bin
 		}
 	}
@@ -111,7 +111,7 @@ func (c *ContainerdCollector) Collect(ctx context.Context) (interface{}, error) 
 	info.Available = true
 	info.ServiceState = containerdServiceState(ctx)
 
-	ctrBin := findCtr()
+	ctrBin := findCtr(ctx)
 	info.CtrBinaryFound = ctrBin != ""
 	if ctrBin != "" {
 		info.Version = containerdVersion(ctx, ctrBin)

@@ -202,14 +202,32 @@ func parseJournalLine(line string) *models.TimelineEvent {
 	}
 }
 
-// isNoisyJournalEntry returns true for entries that flood the timeline without adding value.
+// isNoisyJournalEntry returns true for entries that flood the timeline without
+// adding value.
+//
+// internal-collectors-33-04: suppression is anchored to unit IDENTITY only,
+// never to free-text message content. The previous version substring-matched
+// the noisy list against BOTH unit and msg, so a genuinely unrelated CRIT/WARN
+// whose message merely happened to mention "sudo" or "audit" anywhere in its
+// text was discarded outright — entry loss, not just miscategorization, and it
+// happened before dedup/CritCount/WarnCount ever saw the event. journalctl is
+// already queried with --priority=warning (see collectJournalEvents), so every
+// entry reaching this function is already CRIT or WARN; message-content
+// filtering would therefore either never fire (harmless) or silently drop a
+// real incident (harmful) — so it is not used at all here.
 func isNoisyJournalEntry(unit, msg string) bool {
-	noisy := []string{
-		"setroubleshoot", "audit", "sudo", "sshd",
-		"pam_unix", "AUDIT", "pam_unix(sudo",
+	// Systemd unit / syslog-identifier prefixes known to flood the timeline
+	// with low-value entries (SELinux troubleshoot advisories, the audit
+	// daemon and its audisp-* dispatcher children, sudo's own syslog
+	// identifier, sshd per-connection units).
+	noisyUnitPrefixes := []string{
+		"setroubleshoot",
+		"audit",
+		"sudo",
+		"sshd",
 	}
-	for _, n := range noisy {
-		if strings.Contains(unit, n) || strings.Contains(msg, n) {
+	for _, prefix := range noisyUnitPrefixes {
+		if strings.HasPrefix(unit, prefix) {
 			return true
 		}
 	}

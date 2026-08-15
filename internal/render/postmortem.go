@@ -45,9 +45,13 @@ func RenderPostMortem(title string, snap *baseline.Snapshot, insights []models.I
 		// substrings (e.g. a process name from /proc set via
 		// prctl(PR_SET_NAME)) — this postmortem is explicitly designed to be
 		// pasted into incident channels/tickets, and markdown doesn't escape
-		// raw control/ANSI bytes any more than a terminal does.
-		fmt.Fprintf(&sb, "| %s | %s | %s | — |\n",
-			output.SanitizeControl(check.Name), statusLabel, output.SanitizeControl(value))
+		// raw control/ANSI bytes any more than a terminal does. SanitizeControl
+		// only strips control/ANSI bytes; a literal '|' is an ordinary
+		// printable rune that would otherwise break/extend this markdown
+		// table's row structure (internal-render-03-06), so escape it too.
+		name := strings.ReplaceAll(output.SanitizeControl(check.Name), "|", "\\|")
+		escapedValue := strings.ReplaceAll(output.SanitizeControl(value), "|", "\\|")
+		fmt.Fprintf(&sb, "| %s | %s | %s | — |\n", name, statusLabel, escapedValue)
 	}
 
 	var crits, warns []models.Insight

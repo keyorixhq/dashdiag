@@ -6,10 +6,86 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/source"
 )
+
+// TestParseDarwinFirewall_ContextCancelled guards subprocess-wrappers-02:
+// parseDarwinFirewall's socketfilterfw probe previously ran via
+// runCmd(context.Background(), ...), decoupled from the collector's own ctx.
+// Inject a mock Exec that only resolves after a real ctx.Done() (or a 2s
+// fallback) and call with an already-cancelled ctx: with the collector's ctx
+// genuinely threaded through, the call returns almost immediately via
+// ctx.Done(); the pre-fix code (a hidden context.Background() call) would
+// instead ride out the full 2s window and misreport the firewall as active.
+func TestParseDarwinFirewall_ContextCancelled(t *testing.T) {
+	prev := SetSource(source.Live{Exec: func(ctx context.Context, _ string, _ ...string) (source.Result, error) {
+		select {
+		case <-ctx.Done():
+			return source.Result{}, ctx.Err()
+		case <-time.After(2 * time.Second):
+			return source.Result{Stdout: []byte("Firewall is enabled. (State = 1)")}, nil
+		}
+	}})
+	defer SetSource(prev)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // already cancelled before parseDarwinFirewall ever runs
+
+	info := &models.SecurityInfo{}
+	start := time.Now()
+	parseDarwinFirewall(ctx, info)
+	elapsed := time.Since(start)
+
+	if elapsed > 1*time.Second {
+		t.Errorf("parseDarwinFirewall took %v with an already-cancelled ctx — want a fast return via ctx.Done(), not riding out the mock's 2s window (ctx not propagated to runCmd)", elapsed)
+	}
+	if info.FirewallActive {
+		t.Error("FirewallActive = true, want false — the socketfilterfw call should have been cancelled")
+	}
+}
+
+// TestParseDarwinSystemSecurity_ContextCancelled guards subprocess-wrappers-
+// 02 for the same anti-pattern across parseDarwinSystemSecurity's three
+// probes (fdesetup, csrutil, spctl), all of which previously ran via
+// runCmd(context.Background(), ...).
+func TestParseDarwinSystemSecurity_ContextCancelled(t *testing.T) {
+	prev := SetSource(source.Live{Exec: func(ctx context.Context, name string, _ ...string) (source.Result, error) {
+		select {
+		case <-ctx.Done():
+			return source.Result{}, ctx.Err()
+		case <-time.After(2 * time.Second):
+			switch name {
+			case "fdesetup":
+				return source.Result{Stdout: []byte("FileVault is On.")}, nil
+			case "csrutil":
+				return source.Result{Stdout: []byte("System Integrity Protection status: enabled.")}, nil
+			case "spctl":
+				return source.Result{Stdout: []byte("assessments enabled")}, nil
+			}
+			return source.Result{}, nil
+		}
+	}})
+	defer SetSource(prev)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // already cancelled before parseDarwinSystemSecurity ever runs
+
+	info := &models.SecurityInfo{}
+	start := time.Now()
+	parseDarwinSystemSecurity(ctx, info)
+	elapsed := time.Since(start)
+
+	if elapsed > 1*time.Second {
+		t.Errorf("parseDarwinSystemSecurity took %v with an already-cancelled ctx — want a fast return via ctx.Done() on every probe, not riding out the mock's 2s window per call (ctx not propagated to runCmd)", elapsed)
+	}
+	if info.FileVaultEnabled || info.SIPEnabled || info.GatekeeperEnabled {
+		t.Errorf("FileVaultEnabled=%v SIPEnabled=%v GatekeeperEnabled=%v, want all false — every probe should have been cancelled",
+			info.FileVaultEnabled, info.SIPEnabled, info.GatekeeperEnabled)
+	}
+}
 
 // withDarwinFixtureSource mirrors the Linux withFixtureSource helper (defined
 // in a linux-only test file, so not usable here): swaps activeSource for a

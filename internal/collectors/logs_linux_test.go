@@ -142,6 +142,19 @@ func TestSourceAndMessage_TruncatesLongMessage(t *testing.T) {
 	}
 }
 
+// TestSourceAndMessage_TruncatesLongSource covers the topErrorSourceCap
+// truncation branch: a source token longer than the cap (e.g. via
+// SYSLOG_IDENTIFIER/systemd-cat, which the caller does not otherwise bound)
+// must be cut to exactly topErrorSourceCap runes.
+func TestSourceAndMessage_TruncatesLongSource(t *testing.T) {
+	t.Parallel()
+	longSource := strings.Repeat("y", topErrorSourceCap+50) + ":"
+	src, _ := sourceAndMessage([]string{"host", longSource, "msg"}, 2)
+	if len(src) != topErrorSourceCap {
+		t.Errorf("len(src) = %d, want %d (truncated)", len(src), topErrorSourceCap)
+	}
+}
+
 // TestAgeMinutes_ClampsNegative covers the "m < 0 -> 0" clamp: a timestamp
 // AFTER now (clock skew, or a future-dated log line) must not yield a
 // negative age.

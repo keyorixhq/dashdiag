@@ -200,8 +200,11 @@ func printTimelineEvents(events []models.TimelineEvent, mode output.OutputMode) 
 		if e.Source == "journal" {
 			src = "jrnl"
 		}
-		unit := truncateStr(e.Unit, 16)
-		msg := truncateStr(e.Message, 55)
+		// Journal messages can carry raw non-UTF-8/binary/control bytes (see
+		// decodeJournalMessage) — strip ANSI/OSC control sequences before they
+		// reach the terminal.
+		unit := truncateStr(output.SanitizeControl(e.Unit), 16)
+		msg := truncateStr(output.SanitizeControl(e.Message), 55)
 		countStr := ""
 		if e.Count > 1 {
 			countStr = fmt.Sprintf(" ×%d", e.Count)

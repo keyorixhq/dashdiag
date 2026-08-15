@@ -282,6 +282,21 @@ func TestCheckNVMe(t *testing.T) {
 		{"nvme overflow counters is WARN", nvme(models.NVMeDevice{Name: "nvme0", PowerOnHours: 1106804644422573096}), "WARN"},
 		{"nvme spare threshold over 100 is WARN", nvme(models.NVMeDevice{Name: "nvme0", AvailableSparePct: 50, SpareThresholdPct: 150}), "WARN"},
 		{"nvme overflow power cycles is WARN", nvme(models.NVMeDevice{Name: "nvme0", PowerCycles: 1106804644422573096}), "WARN"},
+		// internal-analysis-10-01: CriticalWarning/MediaErrors/PercentageUsed/
+		// UnsafeShutdowns previously had no upper bound, so a garbage-but-parseable
+		// huge non-negative value sailed through the plausibility gate and drove a
+		// false CRIT/WARN. Each must now be rejected as implausible (WARN, not the
+		// field's own CRIT/WARN verdict).
+		{"nvme overflow critical warning is WARN not CRIT", nvme(models.NVMeDevice{Name: "nvme0", CriticalWarning: 1106804644422573096}), "WARN"},
+		{"nvme overflow media errors is WARN not CRIT", nvme(models.NVMeDevice{Name: "nvme0", MediaErrors: 1106804644422573096}), "WARN"},
+		{"nvme overflow unsafe shutdowns is WARN not CRIT", nvme(models.NVMeDevice{Name: "nvme0", UnsafeShutdowns: 1106804644422573096}), "WARN"},
+		{"nvme overflow percentage used is WARN not CRIT", nvme(models.NVMeDevice{Name: "nvme0", PercentageUsed: 9223372036854775}), "WARN"},
+		// Boundaries must NOT reject real values: a genuinely failing drive at the
+		// ceiling (or just under it) still scores CRIT/WARN normally.
+		{"nvme critical warning at byte ceiling (0xFF) still CRIT", nvme(models.NVMeDevice{Name: "nvme0", CriticalWarning: 0xFF}), "CRIT"},
+		{"nvme media errors at ceiling still CRIT", nvme(models.NVMeDevice{Name: "nvme0", MediaErrors: 1_000_000_000}), "CRIT"},
+		{"nvme unsafe shutdowns at ceiling still WARN", nvme(models.NVMeDevice{Name: "nvme0", UnsafeShutdowns: 1_000_000_000}), "WARN"},
+		{"nvme percentage used at ceiling (1000) still WARN", nvme(models.NVMeDevice{Name: "nvme0", PercentageUsed: 1000}), "WARN"},
 		// Plausibility boundaries must NOT reject real drives: a genuinely failing
 		// drive (spare below a real threshold, hot but in-range) still CRITs/ WARNs.
 		{"nvme real failing drive still CRIT", nvme(models.NVMeDevice{Name: "nvme0", TempC: 45, AvailableSparePct: 5, SpareThresholdPct: 10, PowerOnHours: 40000}), "CRIT"},
@@ -324,6 +339,60 @@ func TestCheckNVMe(t *testing.T) {
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
 			assertLevel(t, checkNVMe(tt.info), tt.want)
+		})
+	}
+}
+
+// TestNvmeSmartPlausible_CeilingBoundaries pins the exact below/at/above
+// ceilings nvmeSmartPlausible enforces for CriticalWarning, MediaErrors,
+// PercentageUsed, and UnsafeShutdowns (internal-analysis-10-01). Before this
+// fix these four fields had no upper bound, so a garbage-but-parseable huge
+// non-negative value (near int64 max, same shape as the already-guarded
+// PowerOnHours/PowerCycles/AvailableSparePct/SpareThresholdPct/TempC fields)
+// sailed through and drove a false CRIT/WARN. A baseline plausible device is
+// used so only the field under test can flip the verdict.
+func TestNvmeSmartPlausible_CeilingBoundaries(t *testing.T) {
+	t.Parallel()
+	base := func() models.NVMeDevice {
+		return models.NVMeDevice{Name: "nvme0", TempC: 40, AvailableSparePct: 50, SpareThresholdPct: 10, PowerOnHours: 1000, PowerCycles: 100}
+	}
+	cases := []struct {
+		name  string
+		field func(*models.NVMeDevice)
+		want  bool
+	}{
+		// CriticalWarning: single-byte bitfield per NVMe spec, ceiling 0xFF.
+		{"critical warning below ceiling", func(d *models.NVMeDevice) { d.CriticalWarning = 1 }, true},
+		{"critical warning at ceiling (0xFF)", func(d *models.NVMeDevice) { d.CriticalWarning = 0xFF }, true},
+		{"critical warning above ceiling (0x100)", func(d *models.NVMeDevice) { d.CriticalWarning = 0x100 }, false},
+		{"critical warning negative", func(d *models.NVMeDevice) { d.CriticalWarning = -1 }, false},
+		// MediaErrors: shares PowerCycles's 1e9 sentinel-rejection ceiling.
+		{"media errors below ceiling", func(d *models.NVMeDevice) { d.MediaErrors = 5 }, true},
+		{"media errors at ceiling (1e9)", func(d *models.NVMeDevice) { d.MediaErrors = 1_000_000_000 }, true},
+		{"media errors above ceiling (1e9+1)", func(d *models.NVMeDevice) { d.MediaErrors = 1_000_000_001 }, false},
+		{"media errors implausible sentinel", func(d *models.NVMeDevice) { d.MediaErrors = 1106804644422573096 }, false},
+		{"media errors negative", func(d *models.NVMeDevice) { d.MediaErrors = -1 }, false},
+		// UnsafeShutdowns: same 1e9 ceiling as MediaErrors/PowerCycles.
+		{"unsafe shutdowns below ceiling", func(d *models.NVMeDevice) { d.UnsafeShutdowns = 3 }, true},
+		{"unsafe shutdowns at ceiling (1e9)", func(d *models.NVMeDevice) { d.UnsafeShutdowns = 1_000_000_000 }, true},
+		{"unsafe shutdowns above ceiling (1e9+1)", func(d *models.NVMeDevice) { d.UnsafeShutdowns = 1_000_000_001 }, false},
+		{"unsafe shutdowns negative", func(d *models.NVMeDevice) { d.UnsafeShutdowns = -1 }, false},
+		// PercentageUsed: may legitimately exceed 100 on worn drives, so the
+		// ceiling is generous (1000) rather than 100.
+		{"percentage used below ceiling", func(d *models.NVMeDevice) { d.PercentageUsed = 95 }, true},
+		{"percentage used above 100 but plausible (worn drive)", func(d *models.NVMeDevice) { d.PercentageUsed = 250 }, true},
+		{"percentage used at ceiling (1000)", func(d *models.NVMeDevice) { d.PercentageUsed = 1000 }, true},
+		{"percentage used above ceiling (1001)", func(d *models.NVMeDevice) { d.PercentageUsed = 1001 }, false},
+		{"percentage used negative", func(d *models.NVMeDevice) { d.PercentageUsed = -1 }, false},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			dev := base()
+			c.field(&dev)
+			if got := nvmeSmartPlausible(dev); got != c.want {
+				t.Errorf("nvmeSmartPlausible(%+v) = %v, want %v", dev, got, c.want)
+			}
 		})
 	}
 }

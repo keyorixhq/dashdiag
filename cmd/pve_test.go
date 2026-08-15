@@ -1,7 +1,9 @@
 package cmd
 
 import (
+	"strings"
 	"testing"
+	"unicode/utf8"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
@@ -103,5 +105,115 @@ func TestCountPVEIssuesStorageThreshold(t *testing.T) {
 		if got := countPVEIssues(st(c.usedPct)); got != c.want {
 			t.Errorf("countPVEIssues(storage %.0f%%) = %d, want %d (must match analysis.PVEStorageLevel)", c.usedPct, got, c.want)
 		}
+	}
+}
+
+// TestPrintPVEGuests_StripsControlChars guards terminal escape injection: a
+// VM/CT name is admin-set inside the guest config but reflected verbatim —
+// treat it as untrusted like every other pvesh-sourced string.
+func TestPrintPVEGuests_StripsControlChars(t *testing.T) {
+	// No t.Parallel(): captureStdout swaps the shared os.Stdout.
+	info := &models.PVEInfo{
+		RunningCount:   1,
+		GuestsVerified: true,
+		Guests:         []models.PVEGuest{{VMID: 100, Name: "evil\x1b]0;pwned\x07", Type: "qemu", Status: "running"}},
+	}
+	out := captureStdout(t, func() { printPVEGuests(info, output.ModePlain) })
+	if strings.Contains(out, "\x1b") {
+		t.Errorf("printPVEGuests output still contains ESC byte:\n%s", out)
+	}
+	if !strings.Contains(out, "evil]0;pwned") {
+		t.Errorf("printPVEGuests output missing sanitized guest name:\n%s", out)
+	}
+}
+
+// TestPrintPVEStorage_StripsControlChars guards terminal escape injection on
+// the storage pool name.
+func TestPrintPVEStorage_StripsControlChars(t *testing.T) {
+	// No t.Parallel(): captureStdout swaps the shared os.Stdout.
+	info := &models.PVEInfo{Storages: []models.PVEStorage{
+		{Name: "evil\x1b]0;pwned\x07", Type: "dir", Active: true, UsedPct: 10},
+	}}
+	out := captureStdout(t, func() { printPVEStorage(info, output.ModePlain) })
+	if strings.Contains(out, "\x1b") {
+		t.Errorf("printPVEStorage output still contains ESC byte:\n%s", out)
+	}
+	if !strings.Contains(out, "evil]0;pwned") {
+		t.Errorf("printPVEStorage output missing sanitized storage name:\n%s", out)
+	}
+}
+
+// TestPrintPVETaskErrors_StripsControlChars guards terminal escape injection
+// on task-error fields (Type/VMID/StartAt/Msg all come from pvesh task logs).
+func TestPrintPVETaskErrors_StripsControlChars(t *testing.T) {
+	// No t.Parallel(): captureStdout swaps the shared os.Stdout.
+	info := &models.PVEInfo{TaskErrors: []models.PVETaskError{
+		{Type: "vzdump", VMID: "100", StartAt: "10:00", Msg: "evil\x1b]0;pwned\x07"},
+	}}
+	out := captureStdout(t, func() { printPVETaskErrors(info, output.ModePlain) })
+	if strings.Contains(out, "\x1b") {
+		t.Errorf("printPVETaskErrors output still contains ESC byte:\n%s", out)
+	}
+	if !strings.Contains(out, "evil]0;pwned") {
+		t.Errorf("printPVETaskErrors output missing sanitized message:\n%s", out)
+	}
+}
+
+// TestPrintPVETaskErrors_RuneSafeTruncation covers cmd-11-05: the old
+// msg[:77] byte-offset truncation could split a multi-byte UTF-8 rune
+// straddling the cut point, writing invalid UTF-8 to stdout. Build a message
+// with a 3-byte rune positioned right at the byte-77 boundary and assert the
+// rendered output stays valid UTF-8.
+func TestPrintPVETaskErrors_RuneSafeTruncation(t *testing.T) {
+	// No t.Parallel(): captureStdout swaps the shared os.Stdout.
+	// 76 ASCII runes (bytes 0-75) + one 3-byte rune (bytes 76-78, i.e.
+	// straddling byte offset 77) + a long ASCII tail to push well past the cap.
+	msg := strings.Repeat("a", 76) + "世" + strings.Repeat("b", 40)
+	info := &models.PVEInfo{TaskErrors: []models.PVETaskError{
+		{Type: "vzdump", VMID: "100", StartAt: "10:00", Msg: msg},
+	}}
+	out := captureStdout(t, func() { printPVETaskErrors(info, output.ModePlain) })
+	if !utf8.ValidString(out) {
+		t.Errorf("printPVETaskErrors output is not valid UTF-8 after truncation:\n%q", out)
+	}
+	if !strings.Contains(out, "世") {
+		t.Errorf("expected the boundary rune to survive truncation intact, got:\n%s", out)
+	}
+}
+
+// TestPrintPVECluster_StripsControlChars guards terminal escape injection on
+// the cluster name and per-node names.
+func TestPrintPVECluster_StripsControlChars(t *testing.T) {
+	// No t.Parallel(): captureStdout swaps the shared os.Stdout.
+	info := &models.PVEInfo{
+		ClusterName: "evil\x1b]0;pwned\x07",
+		QuorumOK:    true,
+		Nodes:       []models.PVENode{{Name: "node\x1b]0;pwned\x07", Online: true}},
+	}
+	out := captureStdout(t, func() { printPVECluster(info, output.ModePlain) })
+	if strings.Contains(out, "\x1b") {
+		t.Errorf("printPVECluster output still contains ESC byte:\n%s", out)
+	}
+	if !strings.Contains(out, "evil]0;pwned") || !strings.Contains(out, "node]0;pwned") {
+		t.Errorf("printPVECluster output missing sanitized names:\n%s", out)
+	}
+}
+
+// TestPrintPVEBridges_StripsControlChars guards terminal escape injection on
+// bridge name and bridge_ports fields.
+func TestPrintPVEBridges_StripsControlChars(t *testing.T) {
+	// No t.Parallel(): captureStdout swaps the shared os.Stdout.
+	info := &models.PVEInfo{Bridges: []models.PVEBridge{
+		{Name: "evil\x1b]0;pwned\x07", Active: true, HasUplink: true, Ports: "eth\x1b[2J0", STPEnabled: true},
+	}}
+	out := captureStdout(t, func() { printPVEBridges(info, output.ModePlain) })
+	if strings.Contains(out, "\x1b") {
+		t.Errorf("printPVEBridges output still contains ESC byte:\n%s", out)
+	}
+	if !strings.Contains(out, "evil]0;pwned") {
+		t.Errorf("printPVEBridges output missing sanitized bridge name:\n%s", out)
+	}
+	if !strings.Contains(out, "eth[2J0") {
+		t.Errorf("printPVEBridges output missing sanitized ports field:\n%s", out)
 	}
 }

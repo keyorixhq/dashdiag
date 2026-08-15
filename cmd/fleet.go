@@ -225,7 +225,7 @@ func printFleetTable(summary fleet.Summary, mode output.OutputMode) {
 		if !r.Reachable {
 			issue = r.Error
 		}
-		issue = truncate(strings.ReplaceAll(issue, "\n", " "), 60)
+		issue = truncate(strings.ReplaceAll(output.SanitizeControl(issue), "\n", " "), 60)
 		fmt.Fprintf(w, "%s\t%s\t%d\t%d\t%dms\t%s\n",
 			r.Host, status, r.Crit, r.Warn, r.ElapsedMs, issue)
 	}
@@ -262,8 +262,8 @@ func printFleetIssues(summary fleet.Summary, _ output.OutputMode) {
 			where = g.Hosts[0]
 		}
 		fmt.Fprintf(w, "  %s\t%s\t%s\t%s\t%s\n",
-			g.Scope, g.Level, g.Check, where,
-			truncate(strings.ReplaceAll(g.Sample, "\n", " "), 52))
+			g.Scope, g.Level, output.SanitizeControl(g.Check), where,
+			truncate(strings.ReplaceAll(output.SanitizeControl(g.Sample), "\n", " "), 52))
 		shown++
 	}
 	_ = w.Flush()

@@ -172,7 +172,7 @@ func printDiskBtrfs(info *models.DiskInfo, mode output.OutputMode) {
 		fmt.Printf("  %s  %-30s  %s%s\n", icon, v.MountPoint, devStr, statusStr)
 		for _, d := range v.Devices {
 			devIcon := "  "
-			label := d.Path
+			label := output.SanitizeControl(d.Path)
 			if d.Missing {
 				devIcon = "  " + asciiOr("fail", iconFail, mode)
 				label = "<missing disk>"
@@ -224,7 +224,7 @@ func printDiskZFS(info *models.DiskInfo, mode output.OutputMode) {
 			scrubStr = "  " + asciiOr("warn", iconWarnSp, mode) + " never scrubbed"
 		}
 		fmt.Printf("  %s  %-20s %s  %.0f%%  %.1fGB%s%s\n",
-			icon, p.Name, p.State, p.UsedPct, p.SizeGB, errStr, scrubStr)
+			icon, output.SanitizeControl(p.Name), p.State, p.UsedPct, p.SizeGB, errStr, scrubStr)
 	}
 }
 
@@ -249,7 +249,7 @@ func printDiskFilesystems(info *models.DiskInfo, mode output.OutputMode) {
 			roNote = " [ro]"
 		}
 		fmt.Printf("  %s  %-22s %-6s %.1fG / %.1fG  (%.0f%%)%s\n",
-			icon, fs.Mount, fs.FSType, fs.UsedGB, fs.TotalGB, fs.UsedPct, roNote)
+			icon, output.SanitizeControl(fs.Mount), fs.FSType, fs.UsedGB, fs.TotalGB, fs.UsedPct, roNote)
 		if !imageFS && fs.InodesUsedPct >= analysis.DefaultDiskWarnPct {
 			fmt.Printf("       %s  inodes at %.0f%%\n", asciiOr("warn", iconWarnSp, mode), fs.InodesUsedPct)
 		}
@@ -473,7 +473,7 @@ func printDiskLVM(lvm *models.LVMInfo, mode output.OutputMode) {
 			note = "  (fully allocated — normal; see filesystem usage)"
 		}
 		fmt.Printf("  %s  %-20s %.1fGB total  %.1fGB free  (%.0f%%)%s\n",
-			icon, vg.Name, vg.SizeGB, vg.FreeGB, vg.FreePct, note)
+			icon, output.SanitizeControl(vg.Name), vg.SizeGB, vg.FreeGB, vg.FreePct, note)
 		if vg.MissingPVs > 0 {
 			fmt.Printf("       %s %d missing PV(s) — data at risk\n", asciiOr("fail", iconFail, mode), vg.MissingPVs)
 		}
@@ -491,7 +491,7 @@ func printDiskLVM(lvm *models.LVMInfo, mode output.OutputMode) {
 				dIcon = asciiOr("warn", iconWarnSp, mode)
 			}
 			fmt.Printf("  %s  %-20s Data: %.0f%%  Meta: %.0f%%\n",
-				dIcon, fmt.Sprintf("%s/%s", p.VG, p.Name), p.DataPct, p.MetaPct)
+				dIcon, fmt.Sprintf("%s/%s", output.SanitizeControl(p.VG), output.SanitizeControl(p.Name)), p.DataPct, p.MetaPct)
 		}
 	}
 
@@ -507,7 +507,7 @@ func printDiskLVM(lvm *models.LVMInfo, mode output.OutputMode) {
 				sIcon = asciiOr("warn", iconWarnSp, mode)
 			}
 			fmt.Printf("  %s  %-20s → %-20s  Snap%%: %.0f%%\n",
-				sIcon, fmt.Sprintf("%s/%s", s.VG, s.Name), s.Origin, s.DataPct)
+				sIcon, fmt.Sprintf("%s/%s", output.SanitizeControl(s.VG), output.SanitizeControl(s.Name)), output.SanitizeControl(s.Origin), s.DataPct)
 		}
 	}
 
@@ -527,7 +527,7 @@ func printDiskLVM(lvm *models.LVMInfo, mode output.OutputMode) {
 				status = "in sync"
 			}
 			fmt.Printf("  %s  %-20s  %s  %s\n",
-				rIcon, fmt.Sprintf("%s/%s", r.VG, r.Name), r.Type, status)
+				rIcon, fmt.Sprintf("%s/%s", output.SanitizeControl(r.VG), output.SanitizeControl(r.Name)), r.Type, status)
 		}
 	}
 }

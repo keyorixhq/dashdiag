@@ -1126,25 +1126,73 @@ func pkgIntegrityLdconfig(ctx context.Context, pi *models.PackageIntegrity) {
 	pi.LdconfigOK = err == nil
 }
 
-// pkgIntegrityLdd checks canary binaries for missing shared libraries.
+// pkgIntegrityLdd checks canary binaries for missing shared libraries via
+// `readelf -d`, a static-analysis tool that only parses ELF headers and
+// never executes the inspected file, cross-referencing the NEEDED library
+// names against the ld.so cache (`ldconfig -p`, which also only reads its
+// own cache file). Deliberately never runs `ldd <bin>`: ldd's own man page
+// documents that it can execute the binary it's inspecting, which is
+// exactly backwards here -- this function exists specifically to check
+// canary binaries for signs of tampering, i.e. the case where one may have
+// been replaced by something malicious that should never be executed.
 func pkgIntegrityLdd(ctx context.Context, pi *models.PackageIntegrity) {
+	cacheCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
+	cacheOut, err := runCmd(cacheCtx, "ldconfig", "-p")
+	cancel()
+	if err != nil {
+		return
+	}
+	known := parseLdconfigCache(cacheOut)
+
 	canaries := []string{"/bin/ls", "/usr/bin/ssh", "/usr/bin/python3"}
 	for _, bin := range canaries {
 		if !fileExists(bin) {
 			continue
 		}
-		lddCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-		out, err := runCmd(lddCtx, "ldd", bin)
-		cancel()
-		if err != nil {
+		readelfCtx, rcancel := context.WithTimeout(ctx, 3*time.Second)
+		out, rerr := runCmd(readelfCtx, "readelf", "-d", bin)
+		rcancel()
+		if rerr != nil {
 			continue
 		}
-		for _, line := range strings.Split(out, "\n") {
-			if strings.Contains(line, "not found") {
-				lib := strings.TrimSpace(strings.Split(line, "=>")[0])
+		for _, lib := range parseReadelfNeeded(out) {
+			if !known[lib] {
 				pi.MissingLibs = append(pi.MissingLibs,
 					lib+" (required by "+filepath.Base(bin)+")")
 			}
 		}
 	}
+}
+
+// parseLdconfigCache extracts the soname set from `ldconfig -p` output,
+// e.g. "\tlibc.so.6 (libc6,x86-64) => /lib/x86_64-linux-gnu/libc.so.6".
+func parseLdconfigCache(out string) map[string]bool {
+	known := make(map[string]bool)
+	for _, line := range strings.Split(out, "\n") {
+		line = strings.TrimSpace(line)
+		if i := strings.IndexByte(line, ' '); i > 0 {
+			known[line[:i]] = true
+		}
+	}
+	return known
+}
+
+// parseReadelfNeeded extracts DT_NEEDED library names from `readelf -d`
+// output, e.g.:
+//
+//	0x0000000000000001 (NEEDED)             Shared library: [libc.so.6]
+func parseReadelfNeeded(out string) []string {
+	var libs []string
+	for _, line := range strings.Split(out, "\n") {
+		if !strings.Contains(line, "(NEEDED)") {
+			continue
+		}
+		lb := strings.IndexByte(line, '[')
+		rb := strings.LastIndexByte(line, ']')
+		if lb < 0 || rb <= lb {
+			continue
+		}
+		libs = append(libs, line[lb+1:rb])
+	}
+	return libs
 }

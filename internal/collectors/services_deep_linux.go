@@ -19,6 +19,16 @@ const (
 	svcUserFlag  = "--user"
 )
 
+// svcFailedUnitInspectMax caps how many failed units we run journalctl+
+// systemctl-show against, mirroring sshdMaxInspect's cap-a-loop convention
+// in systemd.go. Without a bound, a host with an unusually large number of
+// failed units (internal-collectors-30-04) can burn the collector's 15s
+// Timeout() on this loop alone, leaving NO budget for the fields collected
+// AFTER it (NeedsDaemonReload, MaskedUnits, BootOffenders, collectUserUnits)
+// — their runCmd calls then race an already-expired ctx and silently
+// zero-value, indistinguishable from "checked, clean; nothing to report".
+const svcFailedUnitInspectMax = 20
+
 // ServicesDeepCollector runs systemd health checks:
 // failed units + last journal lines, boot offenders, journal integrity,
 // masked unit detection, and daemon-reload status.
@@ -58,8 +68,16 @@ func (c *ServicesDeepCollector) Collect(ctx context.Context) (interface{}, error
 		}
 	}
 
-	// 2. Last journal lines + exit code per failed unit (parallel, capped)
+	// 2. Last journal lines + exit code per failed unit (capped at
+	// svcFailedUnitInspectMax — see its doc comment). Units beyond the cap
+	// keep the bare name/state from FailedUnits (step 1) but no journal/exit
+	// enrichment; FailedUnitsInspectTruncated discloses that the list wasn't
+	// fully inspected so a renderer never presents it as complete.
 	for i := range info.FailedUnits {
+		if i >= svcFailedUnitInspectMax {
+			info.FailedUnitsInspectTruncated = true
+			break
+		}
 		unit := &info.FailedUnits[i]
 		logOut, err := runCmd(ctx, "journalctl", "-u", unit.Name,
 			"-n", "8", svcNoPager, "--output=short", "--no-hostname")

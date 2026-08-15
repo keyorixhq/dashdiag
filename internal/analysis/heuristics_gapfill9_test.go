@@ -21,6 +21,51 @@ func TestDiskGrowthHints_Default(t *testing.T) {
 	}
 }
 
+// TestDiskGrowthHints_UnsafeTokenFallback covers cmd-04-05: fs.Device/fs.Mount
+// are parsed verbatim from /proc/mounts-shaped data with no charset
+// restriction. diskGrowthHints splices them into copy-pasteable "to fix:"
+// shell commands for ext*/xfs/btrfs, so a value containing shell
+// metacharacters must never reach the spliced hint — it must fall back to a
+// generic, non-pasteable hint instead (mirrors the RAUC inactive-slot pattern
+// in heuristics_steamos.go). A well-formed value must still produce the
+// specific, copy-pasteable command.
+func TestDiskGrowthHints_UnsafeTokenFallback(t *testing.T) {
+	t.Parallel()
+	const evil = "/dev/sda1; rm -rf /"
+	cases := []struct {
+		name       string
+		fs         models.FilesystemInfo
+		wantSubstr string // must appear in hints[0]
+		wantAbsent string // must NOT appear anywhere in hints
+	}{
+		{"ext4 safe device produces specific command", models.FilesystemInfo{FSType: "ext4", Device: "/dev/sda1"}, "resize2fs /dev/sda1", ""},
+		{"ext4 unsafe device falls back to generic hint", models.FilesystemInfo{FSType: "ext4", Device: evil}, "withheld", evil},
+		{"xfs safe mount produces specific command", models.FilesystemInfo{FSType: "xfs", Mount: "/data"}, "xfs_growfs /data", ""},
+		{"xfs unsafe mount falls back to generic hint", models.FilesystemInfo{FSType: "xfs", Mount: evil}, "withheld", evil},
+		{"btrfs safe mount produces specific command", models.FilesystemInfo{FSType: "btrfs", Mount: "/data"}, "btrfs filesystem resize max /data", ""},
+		{"btrfs unsafe mount falls back to generic hint", models.FilesystemInfo{FSType: "btrfs", Mount: evil}, "withheld", evil},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			hints := diskGrowthHints(c.fs)
+			if len(hints) == 0 {
+				t.Fatal("expected at least one hint, got none")
+			}
+			if !strings.Contains(hints[0], c.wantSubstr) {
+				t.Errorf("hints[0] = %q, want substring %q", hints[0], c.wantSubstr)
+			}
+			if c.wantAbsent != "" {
+				for _, h := range hints {
+					if strings.Contains(h, c.wantAbsent) {
+						t.Errorf("hint %q must not splice unsafe raw value %q", h, c.wantAbsent)
+					}
+				}
+			}
+		})
+	}
+}
+
 // TestCheckAppArmorDenials_MoreThanFiveGroups covers the i >= 5 break branch inside
 // checkAppArmorDenials — when more than 5 denial groups are present, the hints list
 // must cap at 5 entries and append a "...and N more" line.

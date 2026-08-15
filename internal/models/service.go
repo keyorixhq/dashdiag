@@ -57,12 +57,19 @@ type ServicesDeepInfo struct {
 	// one blanket-suppressed sshd@ per-connection instance's ExecMainStatus lookup
 	// failed, so a genuine per-connection sshd fault could be hiding among the
 	// suppressed pile rather than a confirmed-benign one.
-	SSHDStatusUnverified bool           `json:"sshd_status_unverified,omitempty"`
-	FailedUnits          []SystemdUnit  `json:"failed_units,omitempty"`
-	NeedsDaemonReload    []string       `json:"needs_daemon_reload,omitempty"`
-	MaskedUnits          []string       `json:"masked_units,omitempty"`
-	JournalHealthy       bool           `json:"journal_healthy"`
-	JournalLastValid     string         `json:"journal_last_valid,omitempty"`
-	BootOffenders        []BootOffender `json:"boot_top_offenders,omitempty"`
-	UserUnits            *UserUnitsInfo `json:"user_units,omitempty"`
+	SSHDStatusUnverified bool `json:"sshd_status_unverified,omitempty"`
+	// FailedUnitsInspectTruncated is true when the failed-unit list is longer
+	// than svcFailedUnitInspectMax (internal/collectors/services_deep_linux.go)
+	// — the units beyond the cap kept their bare name/state from the initial
+	// `systemctl list-units --failed` scan, but were never enriched with
+	// journalctl log lines or a systemctl-show exit code. Guards against
+	// presenting a partially-inspected list as a complete one.
+	FailedUnitsInspectTruncated bool           `json:"failed_units_inspect_truncated,omitempty"`
+	FailedUnits                 []SystemdUnit  `json:"failed_units,omitempty"`
+	NeedsDaemonReload           []string       `json:"needs_daemon_reload,omitempty"`
+	MaskedUnits                 []string       `json:"masked_units,omitempty"`
+	JournalHealthy              bool           `json:"journal_healthy"`
+	JournalLastValid            string         `json:"journal_last_valid,omitempty"`
+	BootOffenders               []BootOffender `json:"boot_top_offenders,omitempty"`
+	UserUnits                   *UserUnitsInfo `json:"user_units,omitempty"`
 }

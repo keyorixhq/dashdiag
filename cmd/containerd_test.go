@@ -108,6 +108,29 @@ func TestPrintContainerdUnavailable(t *testing.T) {
 	}
 }
 
+// TestPrintContainerd_StripsControlChars guards terminal escape injection:
+// SocketPath, ServiceState, Version, and namespace names are all sourced from
+// a live containerd socket / gRPC response, which an untrusted or compromised
+// container runtime fully controls.
+func TestPrintContainerd_StripsControlChars(t *testing.T) {
+	evil := "\x1b[2Jscreen-clear evil"
+	out := captureStdout(t, func() {
+		printContainerd(&models.ContainerdInfo{
+			Available: true, SocketPath: evil,
+			ServiceState: evil, Version: evil,
+			CtrBinaryFound:  true,
+			TotalContainers: 1,
+			Namespaces:      []models.ContainerdNamespace{{Name: evil, ContainerCount: 1}},
+		}, output.ModePlain)
+	})
+	if strings.Contains(out, "\x1b") {
+		t.Errorf("printContainerd output still contains ESC byte:\n%s", out)
+	}
+	if !strings.Contains(out, "[2Jscreen-clear evil") {
+		t.Errorf("printContainerd output missing sanitized-but-present evil text:\n%s", out)
+	}
+}
+
 // TestRunContainerd exercises runContainerd's real (read-only) socket-detection
 // gate in both --plain and --json mode. On this test host containerd is not
 // installed, so both must take the "not detected" short-circuit path without

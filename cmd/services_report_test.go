@@ -89,6 +89,43 @@ func TestPrintSystemdHealthFailedUnitsQueried(t *testing.T) {
 	}
 }
 
+// TestPrintSystemdHealthFailedUnitsInspectTruncated guards
+// internal-collectors-30-04's disclosure: when the collector capped
+// per-unit journal/exit-code enrichment (FailedUnitsInspectTruncated),
+// the renderer must say so rather than presenting the (partially
+// enriched) FailedUnits list as complete.
+func TestPrintSystemdHealthFailedUnitsInspectTruncated(t *testing.T) {
+	info := &models.ServicesDeepInfo{
+		FailedUnitsQueried:          true,
+		FailedUnitsInspectTruncated: true,
+		FailedUnits: []models.SystemdUnit{
+			{Name: "nginx.service", SubState: "failed"},
+		},
+		JournalHealthy: true,
+	}
+	out := captureStdout(t, func() { printSystemdHealth(info, output.ModePlain) })
+	if !strings.Contains(out, "truncated") {
+		t.Errorf("expected a truncation disclosure in the output, got:\n%s", out)
+	}
+}
+
+// TestPrintSystemdHealthFailedUnitsInspectNotTruncated guards the converse:
+// a fully-inspected list (the common case) must NOT print the truncation
+// caveat.
+func TestPrintSystemdHealthFailedUnitsInspectNotTruncated(t *testing.T) {
+	info := &models.ServicesDeepInfo{
+		FailedUnitsQueried: true,
+		FailedUnits: []models.SystemdUnit{
+			{Name: "nginx.service", SubState: "failed"},
+		},
+		JournalHealthy: true,
+	}
+	out := captureStdout(t, func() { printSystemdHealth(info, output.ModePlain) })
+	if strings.Contains(out, "truncated") {
+		t.Errorf("a fully-inspected list must not print the truncation caveat, got:\n%s", out)
+	}
+}
+
 func TestPrintSystemdHealthFailedUnitDetail(t *testing.T) {
 	info := &models.ServicesDeepInfo{
 		FailedUnitsQueried: true,

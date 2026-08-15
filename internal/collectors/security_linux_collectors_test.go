@@ -6,6 +6,7 @@ import (
 	"context"
 	"os"
 	"testing"
+	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/platform"
@@ -46,7 +47,7 @@ func TestParseSSHConfig_SSHDDashT(t *testing.T) {
 		b.PutCmd("sshd", []string{"-T"}, "permitrootlogin no\npasswordauthentication no\n", 0)
 	})
 	info := &models.SecurityInfo{}
-	parseSSHConfig(info)
+	parseSSHConfig(context.Background(), info)
 	if info.SSHAuditSource != "sshd -T" {
 		t.Errorf("SSHAuditSource = %q, want %q", info.SSHAuditSource, "sshd -T")
 	}
@@ -61,7 +62,7 @@ func TestParseSSHConfig_PermissionDeniedFallsBackToFile(t *testing.T) {
 		b.PutFile("/etc/ssh/sshd_config", []byte("PermitRootLogin no\n"))
 	})
 	info := &models.SecurityInfo{}
-	parseSSHConfig(info)
+	parseSSHConfig(context.Background(), info)
 	if info.SSHAuditSource != "file" {
 		t.Errorf("SSHAuditSource = %q, want file", info.SSHAuditSource)
 	}
@@ -76,7 +77,7 @@ func TestParseSSHConfig_SSHDCommandMissingFallsBackToFile(t *testing.T) {
 		b.PutFile("/etc/ssh/sshd_config", []byte("PermitRootLogin yes\n"))
 	})
 	info := &models.SecurityInfo{}
-	parseSSHConfig(info)
+	parseSSHConfig(context.Background(), info)
 	if info.SSHAuditSource != "file" || !info.SSHPermitRoot {
 		t.Errorf("expected file source with PermitRootLogin=true, got %+v", info)
 	}
@@ -90,7 +91,7 @@ func TestParseSSHConfig_DropIns(t *testing.T) {
 		b.PutFile("/etc/ssh/sshd_config.d/50-cloud-init.conf", []byte("PasswordAuthentication yes\n"))
 	})
 	info := &models.SecurityInfo{}
-	parseSSHConfig(info)
+	parseSSHConfig(context.Background(), info)
 	if info.SSHAuditSource != "file" {
 		t.Errorf("SSHAuditSource = %q, want file", info.SSHAuditSource)
 	}
@@ -104,9 +105,48 @@ func TestParseSSHConfig_NoFilesFound(t *testing.T) {
 		b.PutCmdNotFound("sshd", []string{"-T"})
 	})
 	info := &models.SecurityInfo{}
-	parseSSHConfig(info)
+	parseSSHConfig(context.Background(), info)
 	if info.SSHAuditSource != "" {
 		t.Errorf("SSHAuditSource = %q, want empty when nothing readable", info.SSHAuditSource)
+	}
+}
+
+// TestParseSSHConfig_ContextCancelled guards subprocess-wrappers-02:
+// parseSSHConfig's `sshd -T` probe previously ran via runCmd(context.
+// Background(), ...), decoupled from the collector's own ctx. Inject a mock
+// Exec that only resolves after a real ctx.Done() (or a 2s fallback) and call
+// with an already-cancelled ctx: with the collector's ctx genuinely threaded
+// through, the sshd -T call returns almost immediately via ctx.Done() and
+// parseSSHConfig falls through to the file-parse path; the pre-fix code (a
+// hidden context.Background() call) would instead ride out the full 2s
+// window and report SSHAuditSource="sshd -T" off a cancelled collector run.
+func TestParseSSHConfig_ContextCancelled(t *testing.T) {
+	prev := SetSource(source.Live{Exec: func(ctx context.Context, name string, _ ...string) (source.Result, error) {
+		if name != "sshd" {
+			return source.Result{}, os.ErrNotExist
+		}
+		select {
+		case <-ctx.Done():
+			return source.Result{}, ctx.Err()
+		case <-time.After(2 * time.Second):
+			return source.Result{Stdout: []byte("permitrootlogin no\n")}, nil
+		}
+	}})
+	defer SetSource(prev)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // already cancelled before parseSSHConfig ever runs
+
+	info := &models.SecurityInfo{}
+	start := time.Now()
+	parseSSHConfig(ctx, info)
+	elapsed := time.Since(start)
+
+	if elapsed > 1*time.Second {
+		t.Errorf("parseSSHConfig took %v with an already-cancelled ctx — want a fast return via ctx.Done(), not riding out the mock's 2s window (ctx not propagated to runCmd)", elapsed)
+	}
+	if info.SSHAuditSource == "sshd -T" {
+		t.Error(`SSHAuditSource = "sshd -T", want the file-parse fallback — the sshd -T call should have been cancelled`)
 	}
 }
 

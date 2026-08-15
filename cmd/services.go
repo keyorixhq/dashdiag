@@ -249,6 +249,12 @@ func printSystemdHealth(info *models.ServicesDeepInfo, mode output.OutputMode) {
 				fmt.Printf("       → %s\n", truncate(output.SanitizeControl(line), 100))
 			}
 		}
+		if info.FailedUnitsInspectTruncated {
+			// Some failed units beyond the inspection cap kept only their bare
+			// name/state (no journal lines or exit code) — say so, don't let the
+			// truncated list read as a fully-enriched one.
+			printLine(mode, "info", svcSectionFailedUnits, "log/exit-code detail truncated — too many failed units to inspect all of them")
+		}
 	}
 
 	if len(info.NeedsDaemonReload) == 0 {

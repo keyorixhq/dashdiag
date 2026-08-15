@@ -93,17 +93,6 @@ func SetSource(s source.Source) source.Source {
 // rather than a bare source.Live that would lose LC_ALL=C.
 func ActiveSource() source.Source { return curSource() }
 
-// geteuid/getuid are seams over os.Geteuid/os.Getuid so tests can exercise the
-// root and non-root branches of root-gated collectors deterministically,
-// regardless of the uid the test binary actually runs under. CI runs the Linux
-// jobs as a non-root user, so a collector that gates privileged probes on
-// os.Geteuid()==0 would otherwise be untestable there (same var-seam pattern as
-// runCmd/lookPath above). Swap via swapGeteuid/swapGetuid in tests.
-var (
-	geteuid = os.Geteuid
-	getuid  = os.Getuid
-)
-
 // localeSafeExec is the live exec backend: LC_ALL=C, the same force-kill-after-
 // cancel semantics runCmd always had, and stdout+stderr+exit captured into a
 // source.Result. A non-zero exit is reported via ExitCode with a nil error; only

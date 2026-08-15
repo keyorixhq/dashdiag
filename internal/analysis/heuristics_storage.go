@@ -77,6 +77,30 @@ func nvmeSmartPlausible(dev models.NVMeDevice) bool {
 	if dev.PowerCycles < 0 || dev.PowerCycles > maxPlausibleCycles {
 		return false
 	}
+	// internal-analysis-10-01: the collector rejects negative values but
+	// applies no upper bound, so a garbage-but-parseable huge non-negative
+	// value (near int64 max) sails through and drives a false CRIT/WARN —
+	// same bug class as the counters above. CriticalWarning is a single-byte
+	// bitfield per the NVMe spec (0x00-0xFF); anything above that is garbage.
+	const maxPlausibleCriticalWarning = 0xFF
+	if dev.CriticalWarning < 0 || dev.CriticalWarning > maxPlausibleCriticalWarning {
+		return false
+	}
+	// MediaErrors/UnsafeShutdowns are cumulative counters of the same
+	// implausible-sentinel shape as PowerCycles — share its ceiling.
+	if dev.MediaErrors < 0 || dev.MediaErrors > maxPlausibleCycles {
+		return false
+	}
+	if dev.UnsafeShutdowns < 0 || dev.UnsafeShutdowns > maxPlausibleCycles {
+		return false
+	}
+	// PercentageUsed may legitimately exceed 100 on genuinely worn drives (per
+	// spec), so allow generous headroom while still rejecting near-int64-max
+	// garbage.
+	const maxPlausiblePercentageUsed = 1000
+	if dev.PercentageUsed < 0 || dev.PercentageUsed > maxPlausiblePercentageUsed {
+		return false
+	}
 	return true
 }
 
@@ -1645,19 +1669,40 @@ func isWritableOnDiskFS(fsType string) bool {
 // diskGrowthHints returns the filesystem-appropriate online-grow command. The
 // device is already the right size (that is what the check detected), so only the
 // filesystem needs growing — no growpart/parted step.
+//
+// cmd-04-05: fs.Device/fs.Mount are parsed verbatim from /proc/mounts-shaped
+// data with no charset restriction — a crafted mount/device string could carry
+// shell metacharacters. These hints are copy-pasteable shell commands, so
+// validate the token before splicing it in (see looksLikeSafeToken); fall
+// back to a generic, non-pasteable hint otherwise.
 func diskGrowthHints(fs models.FilesystemInfo) []string {
 	switch {
 	case strings.HasPrefix(fs.FSType, "ext"):
+		if !looksLikeSafeToken(fs.Device) {
+			return []string{
+				"to fix: grow the ext2/3/4 filesystem to fill its device (device name withheld — contains unexpected characters)",
+				"note: resize2fs grows an ext2/3/4 filesystem online to fill its device",
+			}
+		}
 		return []string{
 			fmt.Sprintf("to fix: resize2fs %s", fs.Device),
 			"note: resize2fs grows an ext2/3/4 filesystem online to fill its device",
 		}
 	case fs.FSType == "xfs":
+		if !looksLikeSafeToken(fs.Mount) {
+			return []string{
+				"to fix: grow the XFS filesystem to fill its device (mount point withheld — contains unexpected characters)",
+				"note: XFS grows online (mounted) and can only grow, never shrink",
+			}
+		}
 		return []string{
 			fmt.Sprintf("to fix: xfs_growfs %s", fs.Mount),
 			"note: XFS grows online (mounted) and can only grow, never shrink",
 		}
 	case fs.FSType == "btrfs":
+		if !looksLikeSafeToken(fs.Mount) {
+			return []string{"to fix: grow the btrfs filesystem to fill its device (mount point withheld — contains unexpected characters)"}
+		}
 		return []string{fmt.Sprintf("to fix: btrfs filesystem resize max %s", fs.Mount)}
 	default:
 		return []string{fmt.Sprintf("to fix: grow the %s filesystem on %s to fill the device", fs.FSType, fs.Device)}

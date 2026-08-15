@@ -41,7 +41,7 @@ func TestFindCtr_First(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("ctr", []string{"version"}, "Client:\n  Version: 1.6.24\n", 0)
 	})
-	if got := findCtr(); got != "ctr" {
+	if got := findCtr(context.Background()); got != "ctr" {
 		t.Errorf("findCtr() = %q, want ctr", got)
 	}
 }
@@ -52,7 +52,7 @@ func TestFindCtr_FallsBackToK3sPath(t *testing.T) {
 		b.PutCmdNotFound("containerd-ctr", []string{"version"})
 		b.PutCmd("/usr/local/bin/ctr", []string{"version"}, "Client:\n  Version: 1.7.0\n", 0)
 	})
-	if got := findCtr(); got != "/usr/local/bin/ctr" {
+	if got := findCtr(context.Background()); got != "/usr/local/bin/ctr" {
 		t.Errorf("findCtr() = %q, want /usr/local/bin/ctr", got)
 	}
 }
@@ -65,7 +65,7 @@ func TestFindCtr_SkipsEmptyOutput(t *testing.T) {
 		b.PutCmd("ctr", []string{"version"}, "", 0) // exits 0 but no output — not usable
 		b.PutCmd("containerd-ctr", []string{"version"}, "Client:\n  Version: 1.6.24\n", 0)
 	})
-	if got := findCtr(); got != "containerd-ctr" {
+	if got := findCtr(context.Background()); got != "containerd-ctr" {
 		t.Errorf("findCtr() = %q, want containerd-ctr (ctr's empty-output result must be skipped)", got)
 	}
 }
@@ -76,8 +76,43 @@ func TestFindCtr_NoneFound(t *testing.T) {
 			b.PutCmdNotFound(bin, []string{"version"})
 		}
 	})
-	if got := findCtr(); got != "" {
+	if got := findCtr(context.Background()); got != "" {
 		t.Errorf("findCtr() = %q, want empty", got)
+	}
+}
+
+// TestFindCtr_ContextCancelled guards subprocess-wrappers-02: findCtr
+// previously ran each candidate binary's `version` probe via
+// runCmd(context.Background(), ...), decoupled from the collector's own ctx.
+// Inject a mock Exec that only resolves after a real ctx.Done() (or a 2s
+// fallback per candidate) and call with an already-cancelled ctx: with the
+// collector's ctx genuinely threaded through, every candidate's runCmd call
+// returns almost immediately; the pre-fix code (a hidden context.Background()
+// call) would instead ride out the full 2s window on EACH of the four
+// candidates in ctrBinaries.
+func TestFindCtr_ContextCancelled(t *testing.T) {
+	prev := SetSource(source.Live{Exec: func(ctx context.Context, _ string, _ ...string) (source.Result, error) {
+		select {
+		case <-ctx.Done():
+			return source.Result{}, ctx.Err()
+		case <-time.After(2 * time.Second):
+			return source.Result{Stdout: []byte("Client:\n  Version: 1.6.24\n")}, nil
+		}
+	}})
+	defer SetSource(prev)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel() // already cancelled before findCtr ever runs
+
+	start := time.Now()
+	got := findCtr(ctx)
+	elapsed := time.Since(start)
+
+	if elapsed > 1*time.Second {
+		t.Errorf("findCtr took %v with an already-cancelled ctx — want a fast return via ctx.Done() for every candidate, not riding out the mock's 2s window per binary (ctx not propagated to runCmd)", elapsed)
+	}
+	if got != "" {
+		t.Errorf("findCtr() = %q, want empty — every candidate's version probe should have been cancelled", got)
 	}
 }
 

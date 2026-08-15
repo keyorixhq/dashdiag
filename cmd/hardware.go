@@ -85,10 +85,10 @@ func printHardwareSystemSection(info *models.HardwareInfo) {
 	if info.System.Vendor != "" || info.System.Model != "" {
 		fmt.Println(render.StyleBold.Render("System"))
 		if info.System.Vendor != "" {
-			fmt.Printf("  %-14s %s\n", "Vendor:", info.System.Vendor)
+			fmt.Printf("  %-14s %s\n", "Vendor:", output.SanitizeControl(info.System.Vendor))
 		}
 		if info.System.Model != "" {
-			fmt.Printf("  %-14s %s\n", "Model:", info.System.Model)
+			fmt.Printf("  %-14s %s\n", "Model:", output.SanitizeControl(info.System.Model))
 		}
 		fmt.Println()
 	}
@@ -164,9 +164,9 @@ func printHardwareDrivesSection(info *models.HardwareInfo, mode output.OutputMod
 			continue
 		}
 
-		prefix := d.Device
+		prefix := output.SanitizeControl(d.Device)
 		if d.Model != "" {
-			prefix = fmt.Sprintf("%s — %s", d.Device, d.Model)
+			prefix = fmt.Sprintf("%s — %s", output.SanitizeControl(d.Device), output.SanitizeControl(d.Model))
 		}
 		fmt.Println(render.StyleBold.Render(prefix))
 
@@ -261,12 +261,12 @@ func printHardwareThermalsSection(info *models.HardwareInfo, mode output.OutputM
 			// unreported. Shared plausibility logic (see analysis/temp.go).
 			if !analysis.TempPlausible(float64(t.TempC), analysis.TempCeilSilicon) {
 				fmt.Printf("  %-14s %s  not reported  (%s)\n",
-					t.Label+":", output.StatusIcon("info", mode), t.Sensor)
+					output.SanitizeControl(t.Label)+":", output.StatusIcon("info", mode), output.SanitizeControl(t.Sensor))
 				continue
 			}
 			level, note := coreThermalLevel(t.TempC, info.CPU.LoadPct)
 			fmt.Printf("  %-14s %s  %d°C%s  (%s)\n",
-				t.Label+":", output.StatusIcon(level, mode), t.TempC, note, t.Sensor)
+				output.SanitizeControl(t.Label)+":", output.StatusIcon(level, mode), t.TempC, note, output.SanitizeControl(t.Sensor))
 		}
 		fmt.Println()
 	}
@@ -292,11 +292,11 @@ func printHardwareNetworkSection(info *models.HardwareInfo, mode output.OutputMo
 			}
 			driver := ""
 			if n.Driver != "" {
-				driver = fmt.Sprintf(" [%s]", n.Driver)
+				driver = fmt.Sprintf(" [%s]", output.SanitizeControl(n.Driver))
 			}
 			fmt.Printf("  %-14s %s  %s%s%s  MAC: %s\n",
-				n.Name+":", output.StatusIcon(stateLevel, mode),
-				n.State, speed, driver, n.MAC)
+				output.SanitizeControl(n.Name)+":", output.StatusIcon(stateLevel, mode),
+				n.State, speed, driver, output.SanitizeControl(n.MAC))
 			if n.RxErrors > 0 || n.TxErrors > 0 {
 				fmt.Printf("  %-14s %s  rx_errors:%d  tx_errors:%d\n",
 					"errors:", output.StatusIcon(errLevel, mode), n.RxErrors, n.TxErrors)

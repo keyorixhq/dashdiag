@@ -31,6 +31,29 @@ func TestPrintHardwareReportSystem(t *testing.T) {
 	}
 }
 
+// TestPrintHardwareReportSanitizesControlChars guards against terminal-escape
+// injection via hardware-vendor/DMI, sysfs, and driver-sourced strings —
+// System.Vendor/Model (DMI), drive Device/Model (sysfs/smartctl), thermal
+// Label/Sensor (hwmon), and NIC Driver/MAC/Name (sysfs/ethtool) — all
+// attacker-influenceable by hardware/firmware the operator doesn't fully
+// trust (a hostile USB device, a crafted VM's virtual DMI/NIC identity).
+func TestPrintHardwareReportSanitizesControlChars(t *testing.T) {
+	const esc = "\x1b[2J"
+	out := captureStdout(t, func() {
+		printHardwareReport(&models.HardwareInfo{
+			System: models.HardwareSystem{Vendor: "Dell Inc." + esc, Model: "PowerEdge" + esc},
+			Drives: []models.HardwareDrive{
+				{Device: "sda" + esc, Model: "Samsung" + esc, SmartctlAvailable: true, SmartOK: true},
+			},
+			Thermals: []models.HardwareThermal{{Label: "Package" + esc, Sensor: "coretemp" + esc, TempC: 50}},
+			NICs:     []models.HardwareNIC{{Name: "eth0" + esc, State: "up", Driver: "ixgbe" + esc, MAC: "00:11:22" + esc}},
+		}, output.ModePlain, 0)
+	})
+	if strings.Contains(out, esc) {
+		t.Errorf("printHardwareReport must strip terminal escape sequences, got:\n%q", out)
+	}
+}
+
 func TestPrintHardwareReportCPU(t *testing.T) {
 	full := captureStdout(t, func() {
 		printHardwareReport(&models.HardwareInfo{CPU: models.HardwareCPU{

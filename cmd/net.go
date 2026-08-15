@@ -748,7 +748,7 @@ func printDNS(info *models.DNSResolverInfo, mode output.OutputMode) {
 	// Nameservers
 	if len(info.Nameservers) > 0 {
 		printLine(mode, "info", "Nameservers",
-			strings.Join(info.Nameservers, "  "))
+			output.SanitizeControl(strings.Join(info.Nameservers, "  ")))
 	} else {
 		printLine(mode, "warn", "Nameservers", "none configured")
 	}
@@ -756,7 +756,7 @@ func printDNS(info *models.DNSResolverInfo, mode output.OutputMode) {
 	// Search domains
 	if len(info.SearchDomains) > 0 {
 		printLine(mode, "info", "Search domains",
-			strings.Join(info.SearchDomains, "  "))
+			output.SanitizeControl(strings.Join(info.SearchDomains, "  ")))
 	}
 
 	// Options
@@ -771,7 +771,7 @@ func printDNS(info *models.DNSResolverInfo, mode output.OutputMode) {
 	} else {
 		printLine(mode, "fail", "External resolution", "FAILED")
 		if info.ResolvTestError != "" {
-			fmt.Printf("     → %s\n", info.ResolvTestError)
+			fmt.Printf("     → %s\n", output.SanitizeControl(info.ResolvTestError))
 		}
 	}
 

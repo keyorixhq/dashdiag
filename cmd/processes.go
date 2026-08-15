@@ -225,7 +225,7 @@ func zombiesTable(info *models.ProcessInfo) *models.Details {
 		rows = append(rows, []string{
 			fmt.Sprintf("%d", p.PID),
 			fmt.Sprintf("%d", p.PPID),
-			p.ParentName,
+			output.SanitizeControl(p.ParentName),
 		})
 	}
 	return &models.Details{
@@ -244,8 +244,8 @@ func hungTable(info *models.ProcessInfo) *models.Details {
 	for _, p := range info.HungProcs {
 		rows = append(rows, []string{
 			fmt.Sprintf("%d", p.PID),
-			p.Name,
-			p.WChan,
+			output.SanitizeControl(p.Name),
+			output.SanitizeControl(p.WChan),
 		})
 	}
 	return &models.Details{

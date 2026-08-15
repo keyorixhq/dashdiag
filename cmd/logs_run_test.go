@@ -101,6 +101,31 @@ func TestPrintLogsSeverityBranches(t *testing.T) {
 	}
 }
 
+// TestPrintLogsSeverity_StripsControlChars guards terminal escape injection:
+// TopCritical Source/Message come from journal SYSLOG_IDENTIFIER and log
+// text (sourceAndMessage in logs_linux.go), attacker-influenced via
+// systemd-cat, unlike the other print sites in this file that already
+// sanitize (printLogsOOM/Segfaults/CrashLoops/CrashFiles).
+func TestPrintLogsSeverity_StripsControlChars(t *testing.T) {
+	out := captureStdout(t, func() {
+		printLogsSeverity(&models.LogsInfo{
+			ErrorCount: 1,
+			TopCritical: []models.TopError{
+				{Source: "evil\x1b]0;pwned\x07", Message: "boom\x1b[2Jscreen-clear evil", AgeMin: -1},
+			},
+		}, output.ModePlain)
+	})
+	if strings.Contains(out, "\x1b") {
+		t.Errorf("printLogsSeverity output still contains ESC byte:\n%s", out)
+	}
+	if !strings.Contains(out, "evil]0;pwned") {
+		t.Errorf("printLogsSeverity output missing sanitized source:\n%s", out)
+	}
+	if !strings.Contains(out, "boom[2Jscreen-clear evil") {
+		t.Errorf("printLogsSeverity output missing sanitized message:\n%s", out)
+	}
+}
+
 func TestPrintLogsOOMBranches(t *testing.T) {
 	none := captureStdout(t, func() { printLogsOOM(&models.LogsInfo{}, output.ModePlain) })
 	if !strings.Contains(none, "none") {

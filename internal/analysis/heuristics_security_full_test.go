@@ -197,3 +197,63 @@ func TestCheckPAMFailures_Clean(t *testing.T) {
 		t.Errorf("no PAM module failures should produce no insight, got %+v", got)
 	}
 }
+
+// TestCheckSecurityAuditGaps_AIDEDBUnreadable is the regression test for the
+// false-OK fix (internal-models-11-05): the AIDE database path existing but
+// being unreadable (non-root) must disclose its own INFO, ADDITIVE to
+// checkRHELSecurityHardening's "never been initialised" WARN (which still
+// fires off the same AIDEDBExists==false / -1 sentinel) — never a silent
+// swap of a misleading "aide --init" remediation for the real "run as root"
+// fix.
+func TestCheckSecurityAuditGaps_AIDEDBUnreadable(t *testing.T) {
+	t.Parallel()
+	sec := models.SecurityInfo{AIDEInstalled: true, AIDEDBExists: false, AIDEDBUnreadable: true}
+	got := checkSecurity(sec)
+	if !hasInsightMsg(got, "INFO", "NOT verified") {
+		t.Errorf("unreadable AIDE database must produce an INFO disclosure, got %+v", got)
+	}
+	if !hasInsightMsg(got, "WARN", "never been initialised") {
+		t.Errorf("the AIDE-unreadable INFO must be additive to the existing WARN, got %+v", got)
+	}
+}
+
+// TestCheckSecurityAuditGaps_AIDEDBUnreadable_Clean guards the boundary: a
+// genuinely-never-initialised AIDE database (AIDEDBUnreadable left false)
+// must NOT produce the unreadable disclosure.
+func TestCheckSecurityAuditGaps_AIDEDBUnreadable_Clean(t *testing.T) {
+	t.Parallel()
+	sec := models.SecurityInfo{AIDEInstalled: true, AIDEDBExists: false}
+	if got := checkSecurityAuditGaps(sec); hasInsightMsg(got, "INFO", "NOT verified") {
+		t.Errorf("AIDEDBUnreadable=false must not produce the unreadable disclosure, got %+v", got)
+	}
+}
+
+// TestCheckSecurityAuditGaps_SupportconfigUnreadable is the regression test
+// for the false-OK fix (internal-models-11-05): /var/log being unreadable
+// (non-root) while searching for supportconfig archives must disclose its
+// own INFO, ADDITIVE to checkSUSESecurityHardening's "never run" INFO (which
+// still fires off the same SupportconfigLastRunDays==-1 sentinel) — never a
+// silent swap of "collect a fresh supportconfig" for the real "run as root"
+// fix.
+func TestCheckSecurityAuditGaps_SupportconfigUnreadable(t *testing.T) {
+	t.Parallel()
+	sec := models.SecurityInfo{SupportconfigAvailable: true, SupportconfigLastRunDays: -1, SupportconfigUnreadable: true}
+	got := checkSecurity(sec)
+	if !hasInsightMsg(got, "INFO", "NOT verified") {
+		t.Errorf("unreadable /var/log must produce an INFO disclosure, got %+v", got)
+	}
+	if !hasInsightMsg(got, "INFO", "never run") {
+		t.Errorf("the supportconfig-unreadable INFO must be additive to the existing 'never run' INFO, got %+v", got)
+	}
+}
+
+// TestCheckSecurityAuditGaps_SupportconfigUnreadable_Clean guards the
+// boundary: a genuinely-never-run supportconfig (SupportconfigUnreadable left
+// false) must NOT produce the unreadable disclosure.
+func TestCheckSecurityAuditGaps_SupportconfigUnreadable_Clean(t *testing.T) {
+	t.Parallel()
+	sec := models.SecurityInfo{SupportconfigAvailable: true, SupportconfigLastRunDays: -1}
+	if got := checkSecurityAuditGaps(sec); hasInsightMsg(got, "INFO", "NOT verified") {
+		t.Errorf("SupportconfigUnreadable=false must not produce the unreadable disclosure, got %+v", got)
+	}
+}

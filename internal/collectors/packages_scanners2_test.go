@@ -801,11 +801,25 @@ func TestPkgIntegrityLdconfig_Fails(t *testing.T) {
 	}
 }
 
+// ldconfigCacheFixture is the standard `ldconfig -p` fixture output used by
+// the pkgIntegrityLdd tests below: libc.so.6 is known-good, libfoo.so.2 is
+// deliberately absent so it can be asserted as "missing".
+const ldconfigCacheFixture = "1234 libs found in cache:\n" +
+	"\tlibc.so.6 (libc6,x86-64) => /lib/x86_64-linux-gnu/libc.so.6\n"
+
 func TestPkgIntegrityLdd_MissingLibDetected(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("ldconfig", []string{"-p"}, ldconfigCacheFixture, 0)
 		b.PutStat("/bin/ls", source.FileMeta{})
-		b.PutCmd("ldd", []string{"/bin/ls"},
-			"linux-vdso.so.1 (0x00007fff)\nlibfoo.so.2 => not found\nlibc.so.6 => /lib/x86_64-linux-gnu/libc.so.6\n", 0)
+		// readelf -d never executes /bin/ls -- it's a static ELF-header parser,
+		// which is the entire point of the fix (internal-collectors-25-01):
+		// `ldd` documents that it can execute the binary it inspects, which is
+		// backwards for a tamper-detection check on a possibly-compromised binary.
+		b.PutCmd("readelf", []string{"-d", "/bin/ls"},
+			"Dynamic section at offset 0x2e10 contains 2 entries:\n"+
+				"  Tag        Type                         Name/Value\n"+
+				" 0x0000000000000001 (NEEDED)             Shared library: [libfoo.so.2]\n"+
+				" 0x0000000000000001 (NEEDED)             Shared library: [libc.so.6]\n", 0)
 		// /usr/bin/ssh and /usr/bin/python3 are left unseeded — statFile replays
 		// ErrNotRecorded, which fileExists treats as "doesn't exist" (not permission).
 	})
@@ -821,6 +835,7 @@ func TestPkgIntegrityLdd_MissingLibDetected(t *testing.T) {
 
 func TestPkgIntegrityLdd_BinaryAbsent(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("ldconfig", []string{"-p"}, ldconfigCacheFixture, 0)
 		// All three canary paths left unseeded — statFile replays ErrNotRecorded,
 		// which fileExists treats as "doesn't exist".
 	})
@@ -831,15 +846,61 @@ func TestPkgIntegrityLdd_BinaryAbsent(t *testing.T) {
 	}
 }
 
-func TestPkgIntegrityLdd_LddFails(t *testing.T) {
+func TestPkgIntegrityLdd_ReadelfFails(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("ldconfig", []string{"-p"}, ldconfigCacheFixture, 0)
 		b.PutStat("/bin/ls", source.FileMeta{})
-		b.PutCmdNotFound("ldd", []string{"/bin/ls"})
+		b.PutCmdNotFound("readelf", []string{"-d", "/bin/ls"})
 		// /usr/bin/ssh and /usr/bin/python3 left unseeded — treated as absent.
 	})
 	pi := &models.PackageIntegrity{}
 	pkgIntegrityLdd(context.Background(), pi)
 	if len(pi.MissingLibs) != 0 {
-		t.Errorf("expected no findings when ldd itself fails, got %+v", pi.MissingLibs)
+		t.Errorf("expected no findings when readelf itself fails, got %+v", pi.MissingLibs)
+	}
+}
+
+// TestPkgIntegrityLdd_LdconfigFails is the regression test for
+// internal-collectors-25-01: without a usable ld.so cache to compare
+// against, pkgIntegrityLdd must bail out entirely rather than falling back
+// to executing the canary binaries (the exact ldd vulnerability being closed).
+func TestPkgIntegrityLdd_LdconfigFails(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmdNotFound("ldconfig", []string{"-p"})
+		b.PutStat("/bin/ls", source.FileMeta{})
+		// No readelf fixture seeded — if pkgIntegrityLdd tried to call it despite
+		// ldconfig failing, PutCmd's absence would make runCmd return an error
+		// via ErrNotRecorded, which the missing-libs loop would just skip; the
+		// real assertion is len(MissingLibs)==0, proving the early return fired.
+	})
+	pi := &models.PackageIntegrity{}
+	pkgIntegrityLdd(context.Background(), pi)
+	if len(pi.MissingLibs) != 0 {
+		t.Errorf("expected no findings when the ldconfig cache is unavailable, got %+v", pi.MissingLibs)
+	}
+}
+
+func TestParseReadelfNeeded(t *testing.T) {
+	t.Parallel()
+	out := "Dynamic section at offset 0x2e10 contains 3 entries:\n" +
+		"  Tag        Type                         Name/Value\n" +
+		" 0x0000000000000001 (NEEDED)             Shared library: [libc.so.6]\n" +
+		" 0x000000000000000c (INIT)               0x1000\n" +
+		" 0x0000000000000001 (NEEDED)             Shared library: [libm.so.6]\n"
+	got := parseReadelfNeeded(out)
+	want := []string{"libc.so.6", "libm.so.6"}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Errorf("parseReadelfNeeded = %v, want %v", got, want)
+	}
+}
+
+func TestParseLdconfigCache(t *testing.T) {
+	t.Parallel()
+	got := parseLdconfigCache(ldconfigCacheFixture)
+	if !got["libc.so.6"] {
+		t.Errorf("expected libc.so.6 to be known, got %v", got)
+	}
+	if got["libfoo.so.2"] {
+		t.Errorf("expected libfoo.so.2 to be absent, got %v", got)
 	}
 }

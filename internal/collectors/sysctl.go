@@ -70,10 +70,10 @@ func (c *SysctlCollector) Collect(ctx context.Context) (any, error) {
 	if runtime.GOOS == "darwin" {
 		return c.collectDarwin(ctx)
 	}
-	return c.collectLinux()
+	return c.collectLinux(ctx)
 }
 
-func (c *SysctlCollector) collectLinux() (*models.SysctlInfo, error) {
+func (c *SysctlCollector) collectLinux(ctx context.Context) (*models.SysctlInfo, error) {
 	info := &models.SysctlInfo{Available: true}
 	// Best-effort reads — partial data is still useful
 	// internal-collectors-32-01: a failed read must not silently become 0 — every
@@ -126,16 +126,24 @@ func (c *SysctlCollector) collectLinux() (*models.SysctlInfo, error) {
 	}
 
 	// Detect workload from running process names
-	info.Workload = detectWorkload()
+	info.Workload = detectWorkload(ctx)
 
 	return info, nil
 }
 
 // detectWorkload scans /proc/*/comm to identify the primary workload.
-func detectWorkload() string {
+func detectWorkload(ctx context.Context) string {
 	procs := make(map[string]bool)
 	dirs, _ := glob("/proc/[0-9]*")
 	for _, dir := range dirs {
+		// internal-collectors-32-02: dirs can hold up to maxCappedDirEntries
+		// (200k) PIDs on a busy host, each requiring a comm-file read — without
+		// a ctx check here, this loop can run well past the collector's own
+		// advertised Timeout() (1s) with no way for the runner to preempt it
+		// (same concern as processes.go's identical /proc/[0-9]* scan).
+		if err := ctx.Err(); err != nil {
+			break
+		}
 		comm, err := readFile(filepath.Join(dir, "comm")) // #nosec G304
 		if err != nil {
 			continue

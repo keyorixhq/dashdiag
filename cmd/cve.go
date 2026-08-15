@@ -16,6 +16,7 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/collectors"
 	"github.com/keyorixhq/dashdiag/internal/cvedata"
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/output"
 	"github.com/keyorixhq/dashdiag/internal/render"
 	"github.com/keyorixhq/dashdiag/internal/runner"
 )
@@ -212,9 +213,9 @@ func printCVEResult(r *models.CVEResult) {
 	if r.FixState != "" {
 		pkg := ""
 		if r.AffectedPkg != "" {
-			pkg = " — package: " + r.AffectedPkg
+			pkg = " — package: " + output.SanitizeControl(r.AffectedPkg)
 		}
-		fmt.Printf("Red Hat fix state: %s%s\n", r.FixState, pkg)
+		fmt.Printf("Red Hat fix state: %s%s\n", output.SanitizeControl(r.FixState), pkg)
 	}
 	if r.KnownExploited {
 		kev := "🔴 CISA KEV: actively exploited in the wild"
@@ -237,10 +238,10 @@ func printCVEResult(r *models.CVEResult) {
 			for _, p := range r.AffectedPackages {
 				line := "  • "
 				if p.Advisory != "" {
-					line += p.Advisory
+					line += output.SanitizeControl(p.Advisory)
 				}
 				if p.Name != "" {
-					line += " " + p.Name
+					line += " " + output.SanitizeControl(p.Name)
 				}
 				if p.Severity != "" {
 					line += " (" + p.Severity + ")"
@@ -250,10 +251,10 @@ func printCVEResult(r *models.CVEResult) {
 			fmt.Println()
 		}
 		if r.FixCommand != "" {
-			fmt.Printf("  to fix:    %s\n", r.FixCommand)
+			fmt.Printf("  to fix:    %s\n", output.SanitizeControl(r.FixCommand))
 		}
 		if r.FallbackURL != "" {
-			fmt.Printf("  more info: %s\n", r.FallbackURL)
+			fmt.Printf("  more info: %s\n", output.SanitizeControl(r.FallbackURL))
 		}
 
 	case models.CVEPatched:
@@ -274,7 +275,7 @@ func printCVEResult(r *models.CVEResult) {
 			fmt.Printf(cveFmtItem, r.StatusReason)
 		}
 		if r.FallbackURL != "" {
-			fmt.Printf("\n  Check manually: %s\n", r.FallbackURL)
+			fmt.Printf("\n  Check manually: %s\n", output.SanitizeControl(r.FallbackURL))
 		}
 	}
 

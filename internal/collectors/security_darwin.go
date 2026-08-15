@@ -54,8 +54,8 @@ func (c *SecurityCollector) Collect(ctx context.Context) (any, error) {
 	parseDarwinSSHConfig(info)
 	parseDarwinListeningPorts(ctx, info)
 	parseDarwinSudoers(info)
-	parseDarwinFirewall(info)
-	parseDarwinSystemSecurity(info)
+	parseDarwinFirewall(ctx, info)
+	parseDarwinSystemSecurity(ctx, info)
 	parseDarwinSuspectLaunchd(ctx, info)
 
 	return info, nil
@@ -210,9 +210,9 @@ func parseDarwinSudoersFile(path string, info *models.SecurityInfo) {
 }
 
 // parseDarwinFirewall reads the macOS Application Firewall global state.
-func parseDarwinFirewall(info *models.SecurityInfo) {
+func parseDarwinFirewall(ctx context.Context, info *models.SecurityInfo) {
 	fw := "/usr/libexec/ApplicationFirewall/socketfilterfw"
-	out, err := runCmd(context.Background(), fw, "--getglobalstate")
+	out, err := runCmd(ctx, fw, "--getglobalstate")
 	if err != nil {
 		return
 	}
@@ -230,21 +230,21 @@ func parseDarwinFirewall(info *models.SecurityInfo) {
 
 // parseDarwinSystemSecurity checks FileVault, SIP, and Gatekeeper. It also sets
 // IsDarwin, which gates the macOS-specific heuristics in checkSecurity().
-func parseDarwinSystemSecurity(info *models.SecurityInfo) {
+func parseDarwinSystemSecurity(ctx context.Context, info *models.SecurityInfo) {
 	info.IsDarwin = true
 
 	// FileVault disk encryption
-	if out, err := runCmd(context.Background(), "fdesetup", "status"); err == nil {
+	if out, err := runCmd(ctx, "fdesetup", "status"); err == nil {
 		info.FileVaultEnabled = strings.Contains(strings.ToLower(out), "filevault is on")
 	}
 
 	// System Integrity Protection
-	if out, err := runCmd(context.Background(), "csrutil", "status"); err == nil {
+	if out, err := runCmd(ctx, "csrutil", "status"); err == nil {
 		info.SIPEnabled = strings.Contains(strings.ToLower(out), "enabled")
 	}
 
 	// Gatekeeper
-	if out, err := runCmd(context.Background(), "spctl", "--status"); err == nil {
+	if out, err := runCmd(ctx, "spctl", "--status"); err == nil {
 		info.GatekeeperEnabled = strings.Contains(strings.ToLower(out), "assessments enabled")
 	}
 }

@@ -249,7 +249,7 @@ func printPVEGuests(info *models.PVEInfo, mode output.OutputMode) {
 			typeStr = "CT"
 		}
 		fmt.Printf("  %s  %s  %-4d  %-20s  %s%s\n",
-			icon, typeStr, g.VMID, g.Name, g.Status, note)
+			icon, typeStr, g.VMID, output.SanitizeControl(g.Name), g.Status, note)
 	}
 
 	// Resource overcommit check
@@ -306,7 +306,7 @@ func printPVEStorage(info *models.PVEInfo, mode output.OutputMode) {
 				s.UsedGB, s.TotalGB, s.UsedPct)
 		}
 		fmt.Printf("  %s  %-16s %-10s%s%s\n",
-			icon, s.Name, s.Type, sizeStr, note)
+			icon, output.SanitizeControl(s.Name), s.Type, sizeStr, note)
 	}
 }
 
@@ -325,15 +325,19 @@ func printPVETaskErrors(info *models.PVEInfo, mode output.OutputMode) {
 		if critTypes[e.Type] {
 			icon = asciiOr("fail", iconFail, mode)
 		}
-		msg := e.Msg
-		if len(msg) > 80 {
-			msg = msg[:77] + "..."
+		// cmd-11-05: truncate by rune, not byte — a multi-byte UTF-8 character
+		// sitting across the byte-77 cut would otherwise produce invalid UTF-8
+		// written to stdout. Mirrors truncateProcStr (cmd/proc.go).
+		msg := output.SanitizeControl(e.Msg)
+		if r := []rune(msg); len(r) > 80 {
+			msg = string(r[:77]) + "..."
 		}
 		vmid := e.VMID
 		if vmid == "" {
 			vmid = "-"
 		}
-		fmt.Printf("  %s  %-10s %-6s %s  \"%s\"\n", icon, e.Type, vmid, e.StartAt, msg)
+		fmt.Printf("  %s  %-10s %-6s %s  \"%s\"\n",
+			icon, output.SanitizeControl(e.Type), output.SanitizeControl(vmid), output.SanitizeControl(e.StartAt), msg)
 	}
 }
 
@@ -341,7 +345,7 @@ func printPVECluster(info *models.PVEInfo, mode output.OutputMode) {
 	if info.ClusterName == "" && len(info.Nodes) == 0 {
 		return // single-node, no cluster
 	}
-	fmt.Printf("\n[Cluster]  %s\n", info.ClusterName)
+	fmt.Printf("\n[Cluster]  %s\n", output.SanitizeControl(info.ClusterName))
 	if info.QuorumOK {
 		fmt.Println("  " + asciiOr("ok", iconOK, mode) + "  Quorate: yes")
 	} else {
@@ -356,7 +360,7 @@ func printPVECluster(info *models.PVEInfo, mode output.OutputMode) {
 		if !n.Online {
 			status = "OFFLINE"
 		}
-		fmt.Printf("  %s  %s  %s\n", icon, n.Name, status)
+		fmt.Printf("  %s  %s  %s\n", icon, output.SanitizeControl(n.Name), status)
 	}
 }
 
@@ -474,12 +478,13 @@ func printPVEBridges(info *models.PVEInfo, mode output.OutputMode) {
 	}
 	fmt.Printf("\n[Network]\n")
 	for _, b := range info.Bridges {
+		name := output.SanitizeControl(b.Name)
 		switch {
 		case !b.Active:
-			fmt.Printf("  %s  %-8s DOWN  — VMs on this bridge lose network\n", asciiOr("fail", iconFail, mode), b.Name)
+			fmt.Printf("  %s  %-8s DOWN  — VMs on this bridge lose network\n", asciiOr("fail", iconFail, mode), name)
 			continue
 		case !b.HasUplink:
-			fmt.Printf("  %s  %-8s UP   ← no uplink interface attached\n", asciiOr("warn", iconWarnSp, mode), b.Name)
+			fmt.Printf("  %s  %-8s UP   ← no uplink interface attached\n", asciiOr("warn", iconWarnSp, mode), name)
 			fmt.Println("       This bridge has no physical NIC — VMs on it are isolated.")
 			continue
 		}
@@ -492,13 +497,13 @@ func printPVEBridges(info *models.PVEInfo, mode output.OutputMode) {
 		if b.STPEnabled {
 			icon = asciiOr("warn", iconWarnSp, mode)
 		}
-		fmt.Printf("  %s  %-8s UP   ← %s  STP: %s", icon, b.Name, b.Ports, stp)
+		fmt.Printf("  %s  %-8s UP   ← %s  STP: %s", icon, name, output.SanitizeControl(b.Ports), stp)
 		if b.STPEnabled {
 			fmt.Print("  (may cause ~30s boot delay)")
 		}
 		fmt.Println()
 		if b.STPEnabled {
-			fmt.Printf("       → nmcli connection modify %s bridge.stp no\n", b.Name)
+			fmt.Printf("       → nmcli connection modify %s bridge.stp no\n", name)
 		}
 	}
 }

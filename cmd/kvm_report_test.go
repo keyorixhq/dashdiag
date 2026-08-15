@@ -53,6 +53,23 @@ func TestPrintKVMVMsFindings(t *testing.T) {
 	}
 }
 
+// TestPrintKVMVMs_SanitizesControlChars guards against terminal-escape
+// injection via libvirt-sourced VM Name/LastLogError/MissingDiskPath — any
+// local user able to define a domain (virsh define, a crafted XML) or
+// trigger a QEMU log line controls this text.
+func TestPrintKVMVMs_SanitizesControlChars(t *testing.T) {
+	const esc = "\x1b[2J"
+	out := captureStdout(t, func() {
+		printKVMVMs(&models.KVMInfo{VMs: []models.KVMVM{
+			{Name: "vm1" + esc, State: models.KVMCrashed, LastLogError: "qemu: terminating" + esc,
+				MissingDiskPath: "/var/lib/libvirt/images/vm1.qcow2" + esc},
+		}}, output.ModePlain)
+	})
+	if strings.Contains(out, esc) {
+		t.Errorf("printKVMVMs must strip terminal escape sequences from Name/LastLogError/MissingDiskPath, got:\n%q", out)
+	}
+}
+
 func TestPrintKVMNetworks(t *testing.T) {
 	if out := captureStdout(t, func() { printKVMNetworks(&models.KVMInfo{}, output.ModePlain) }); out != "" {
 		t.Errorf("no networks should print nothing, got:\n%s", out)

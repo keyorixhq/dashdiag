@@ -1,8 +1,13 @@
 package baseline
 
 import (
+	"bytes"
+	"compress/zlib"
+	"crypto/sha1" //nolint:gosec // G505/G401: git's own object hash algorithm, not used for security here
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -11,6 +16,35 @@ import (
 
 	"github.com/keyorixhq/dashdiag/internal/output"
 )
+
+// writeLooseCommit builds a real git loose-object file (zlib-compressed
+// "commit <len>\0<body>") under gitDir/objects/xx/yyyy... and returns its sha.
+func writeLooseCommit(t *testing.T, gitDir string, committerTS int64) string {
+	t.Helper()
+	body := fmt.Sprintf("tree 4b825dc642cb6eb9a060e54bf8d69288fbee4904\n"+
+		"author A <a@x> %d +0000\ncommitter C <c@x> %d +0000\n\nmsg\n", committerTS, committerTS)
+	obj := fmt.Sprintf("commit %d\x00%s", len(body), body)
+	sum := sha1.Sum([]byte(obj)) //nolint:gosec // deriving a git object hash, not a security boundary
+	sha := hex.EncodeToString(sum[:])
+
+	var compressed bytes.Buffer
+	zw := zlib.NewWriter(&compressed)
+	if _, err := zw.Write([]byte(obj)); err != nil {
+		t.Fatal(err)
+	}
+	if err := zw.Close(); err != nil {
+		t.Fatal(err)
+	}
+
+	objDir := filepath.Join(gitDir, "objects", sha[:2])
+	if err := os.MkdirAll(objDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(objDir, sha[2:]), compressed.Bytes(), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return sha
+}
 
 // parseBootTime pulls the btime epoch out of /proc/stat-shaped content.
 func TestParseBootTime(t *testing.T) {
@@ -515,4 +549,160 @@ func versions(snaps []*Snapshot) []string {
 		out = append(out, s.Version)
 	}
 	return out
+}
+
+// TestGitLastCommitTime_RefFile covers the normal case: HEAD -> ref: refs/heads/main
+// -> a loose ref file -> a loose commit object.
+func TestGitLastCommitTime_RefFile(t *testing.T) {
+	t.Parallel()
+	repo := t.TempDir()
+	gitDir := filepath.Join(repo, ".git")
+	if err := os.MkdirAll(filepath.Join(gitDir, "refs", "heads"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wantTS := int64(1700000000)
+	sha := writeLooseCommit(t, gitDir, wantTS)
+	if err := os.WriteFile(filepath.Join(gitDir, "refs", "heads", "main"), []byte(sha+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := gitLastCommitTime(repo)
+	if err != nil {
+		t.Fatalf("gitLastCommitTime: %v", err)
+	}
+	if got.Unix() != wantTS {
+		t.Errorf("got %v (unix %d), want unix %d", got, got.Unix(), wantTS)
+	}
+}
+
+// TestGitLastCommitTime_DetachedHEAD covers HEAD containing a raw sha directly.
+func TestGitLastCommitTime_DetachedHEAD(t *testing.T) {
+	t.Parallel()
+	repo := t.TempDir()
+	gitDir := filepath.Join(repo, ".git")
+	if err := os.MkdirAll(gitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	wantTS := int64(1650000000)
+	sha := writeLooseCommit(t, gitDir, wantTS)
+	if err := os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte(sha+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := gitLastCommitTime(repo)
+	if err != nil {
+		t.Fatalf("gitLastCommitTime: %v", err)
+	}
+	if got.Unix() != wantTS {
+		t.Errorf("got unix %d, want %d", got.Unix(), wantTS)
+	}
+}
+
+// TestGitLastCommitTime_PackedRef covers a ref resolved via packed-refs
+// (the common post `git gc` state) rather than a loose refs/heads/* file.
+func TestGitLastCommitTime_PackedRef(t *testing.T) {
+	t.Parallel()
+	repo := t.TempDir()
+	gitDir := filepath.Join(repo, ".git")
+	if err := os.MkdirAll(gitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	wantTS := int64(1600000000)
+	sha := writeLooseCommit(t, gitDir, wantTS)
+	packed := "# pack-refs with: peeled fully-peeled sorted\n" + sha + " refs/heads/main\n"
+	if err := os.WriteFile(filepath.Join(gitDir, "packed-refs"), []byte(packed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := gitLastCommitTime(repo)
+	if err != nil {
+		t.Fatalf("gitLastCommitTime: %v", err)
+	}
+	if got.Unix() != wantTS {
+		t.Errorf("got unix %d, want %d", got.Unix(), wantTS)
+	}
+}
+
+// TestGitLastCommitTime_IgnoresConfigAlias is the regression test for
+// internal-baseline-01-03: a malicious `[alias] log = "!..."` in .git/config
+// used to let anyone who could write that file execute arbitrary commands
+// when an operator ran `dsd health --since-deploy` from that directory,
+// because the old implementation shelled out to `git log`. The fixed
+// implementation never execs a subprocess at all, so a canary command
+// wired into the alias must never run.
+func TestGitLastCommitTime_IgnoresConfigAlias(t *testing.T) {
+	t.Parallel()
+	repo := t.TempDir()
+	gitDir := filepath.Join(repo, ".git")
+	if err := os.MkdirAll(gitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	wantTS := int64(1690000000)
+	sha := writeLooseCommit(t, gitDir, wantTS)
+	if err := os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte(sha+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	canary := filepath.Join(repo, "pwned")
+	config := "[alias]\n\tlog = !touch " + canary + "\n"
+	if err := os.WriteFile(filepath.Join(gitDir, "config"), []byte(config), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := gitLastCommitTime(repo)
+	if err != nil {
+		t.Fatalf("gitLastCommitTime: %v", err)
+	}
+	if got.Unix() != wantTS {
+		t.Errorf("got unix %d, want %d", got.Unix(), wantTS)
+	}
+	if _, statErr := os.Stat(canary); statErr == nil {
+		t.Fatal("alias command executed — canary file was created, subprocess exec leaked back in")
+	}
+}
+
+// TestGitLastCommitTime_NoGitDir covers the "not a git repo at all" case.
+func TestGitLastCommitTime_NoGitDir(t *testing.T) {
+	t.Parallel()
+	if _, err := gitLastCommitTime(t.TempDir()); err == nil {
+		t.Error("expected an error with no .git directory present")
+	}
+}
+
+// TestGitLastCommitTime_PackedCommit covers the documented degradation: a
+// commit that's already been packed (e.g. after `git gc`) has no loose
+// object file, and this implementation deliberately doesn't parse packfiles.
+func TestGitLastCommitTime_PackedCommit(t *testing.T) {
+	t.Parallel()
+	repo := t.TempDir()
+	gitDir := filepath.Join(repo, ".git")
+	if err := os.MkdirAll(gitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// A plausible-looking sha with no corresponding loose object anywhere.
+	if err := os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte(strings.Repeat("a", 40)+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := gitLastCommitTime(repo); err == nil {
+		t.Error("expected an error when the commit object is missing/packed")
+	}
+}
+
+func TestValidateSHA(t *testing.T) {
+	t.Parallel()
+	valid := strings.Repeat("a1b2", 10) // 40 hex chars
+	if _, err := validateSHA(valid); err != nil {
+		t.Errorf("valid sha rejected: %v", err)
+	}
+	for _, bad := range []string{"", "xy", "not-hex-at-all-zzzz", strings.Repeat("a", 100)} {
+		if _, err := validateSHA(bad); err == nil {
+			t.Errorf("validateSHA(%q) should have failed", bad)
+		}
+	}
 }
