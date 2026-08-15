@@ -135,7 +135,7 @@ func largestDirsFallback(ctx context.Context, mount string) (*models.Details, er
 		default:
 		}
 		full := filepath.Join(mount, e.Name())
-		size, _ := dirSize(full)
+		size, _ := dirSize(ctx, full)
 		dirs = append(dirs, entry{path: full, bytes: size})
 	}
 	sort.Slice(dirs, func(i, j int) bool { return dirs[i].bytes > dirs[j].bytes })
@@ -155,19 +155,63 @@ func largestDirsFallback(ctx context.Context, mount string) (*models.Details, er
 	}, nil
 }
 
-func dirSize(path string) (int64, error) {
-	var total int64
-	err := filepath.WalkDir(path, func(_ string, d os.DirEntry, err error) error {
-		if err != nil {
-			return nil
-		}
-		if !d.IsDir() {
-			info, err := d.Info()
-			if err == nil {
-				total += info.Size()
+// maxDirSizeWalkEntries bounds how many directory entries a single dirSize
+// walk will visit before giving up and returning whatever total it has
+// accumulated so far. Without this cap, one pathologically large or deep
+// directory (e.g. a maildir with millions of tiny files) can make a single
+// WalkDir call run far longer than the caller's drilldown budget. Set well
+// below the fsaccess.go maxCappedDirEntries (200_000) precedent because this
+// cap bounds wall-clock work against a multi-second drilldown budget, not
+// just memory — a lower ceiling keeps worst-case walk time reasonable even
+// on slow storage.
+const maxDirSizeWalkEntries = 20_000
+
+// maxDirSizeWalkBytes is a companion cap to maxDirSizeWalkEntries for the
+// opposite shape of pathological directory: comparatively few but enormous
+// files, where the entry-count cap alone would never trip.
+const maxDirSizeWalkBytes = 1 << 40 // 1TiB
+
+// dirSize walks path and sums file sizes, bounded by ctx. filepath.WalkDir
+// itself has no context awareness and cannot be interrupted once it starts,
+// so the walk runs in its own goroutine and dirSize selects on ctx.Done()
+// vs. the walk's result — the same non-blocking shape documented in
+// CLAUDE.md for NFS stale-mount detection. If ctx fires first, dirSize
+// returns immediately with ctx.Err(); the goroutine is not joined but is
+// left to finish (or hit maxDirSizeWalkEntries/maxDirSizeWalkBytes and exit)
+// on its own — it never panics or blocks forever, so it doesn't leak.
+func dirSize(ctx context.Context, path string) (int64, error) {
+	type result struct {
+		total int64
+		err   error
+	}
+	ch := make(chan result, 1)
+
+	go func() {
+		var total int64
+		var visited int64
+		err := filepath.WalkDir(path, func(_ string, d os.DirEntry, err error) error {
+			if err != nil {
+				return nil
 			}
-		}
-		return nil
-	})
-	return total, err
+			visited++
+			if visited > maxDirSizeWalkEntries || total > maxDirSizeWalkBytes {
+				return filepath.SkipAll
+			}
+			if !d.IsDir() {
+				info, err := d.Info()
+				if err == nil {
+					total += info.Size()
+				}
+			}
+			return nil
+		})
+		ch <- result{total: total, err: err}
+	}()
+
+	select {
+	case r := <-ch:
+		return r.total, r.err
+	case <-ctx.Done():
+		return 0, ctx.Err()
+	}
 }
