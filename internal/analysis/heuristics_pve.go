@@ -194,11 +194,22 @@ func checkPVECluster(p models.PVEInfo) []models.Insight {
 		}
 		for _, n := range p.Nodes {
 			if !n.Online {
+				// internal-analysis-06-05: n.Name is a PVE cluster node name
+				// parsed verbatim from the cluster status response with no
+				// charset restriction — a crafted name containing shell
+				// metacharacters would be spliced unvalidated into this
+				// copy-pasteable "ssh root@<node> '...'" hint. Validate before
+				// splicing it in (see looksLikeSafeToken); fall back to a
+				// generic, non-pasteable hint otherwise.
+				sshHint := "to inspect: ssh root@<node> 'systemctl status pve-cluster corosync'  (node name withheld — contains unexpected characters)"
+				if looksLikeSafeToken(n.Name) {
+					sshHint = fmt.Sprintf("to inspect: ssh root@%s 'systemctl status pve-cluster corosync'", n.Name)
+				}
 				out = append(out, insight("CRIT", pveCatPVE,
 					fmt.Sprintf("cluster node %s is OFFLINE", n.Name),
 					[]string{
 						inspectPVECMStatus,
-						fmt.Sprintf("to inspect: ssh root@%s 'systemctl status pve-cluster corosync'", n.Name),
+						sshHint,
 					},
 				))
 			}

@@ -94,6 +94,40 @@ func TestRenderPostMortem_SanitizesControlChars(t *testing.T) {
 	}
 }
 
+// TestRenderPostMortem_EscapesPipeInTableCells guards Finding
+// internal-render-03-06: output.SanitizeControl strips control/ANSI bytes but
+// does not escape a literal '|', which is an ordinary printable rune. A
+// value containing '|' (e.g. an Insight.Message derived from a
+// /proc/pid/comm process name, attacker-settable via prctl(PR_SET_NAME))
+// would otherwise break/extend the markdown table row's structure when this
+// postmortem is pasted into Slack/Jira/GitHub. Both check.Name and the
+// rendered value must have literal '|' escaped to "\|".
+func TestRenderPostMortem_EscapesPipeInTableCells(t *testing.T) {
+	t.Parallel()
+	snap := &baseline.Snapshot{
+		Hostname:  "host1",
+		Timestamp: time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC),
+		Checks:    []baseline.CheckResult{{Name: "Weird|Check", Status: "WARN", Value: "a|b|c"}},
+	}
+	got := RenderPostMortem("incident", snap, nil, output.ModeHuman)
+	if !strings.Contains(got, "Weird\\|Check") {
+		t.Errorf("expected check name pipe to be escaped as \\|, got:\n%s", got)
+	}
+	if !strings.Contains(got, "a\\|b\\|c") {
+		t.Errorf("expected value pipe to be escaped as \\|, got:\n%s", got)
+	}
+	// The row must contain exactly the 5 unescaped pipes that delimit the 4
+	// markdown table columns ("| a | b | c | d |") — any additional bare '|'
+	// would mean an escape was missed and the row structure is broken.
+	for _, line := range strings.Split(got, "\n") {
+		if strings.Contains(line, "Weird") {
+			if n := strings.Count(line, "|") - strings.Count(line, "\\|"); n != 5 {
+				t.Errorf("table row has unexpected unescaped pipe count %d, line: %q", n, line)
+			}
+		}
+	}
+}
+
 // TestRenderPostMortem_NoIssues covers the branch where there are no CRIT/WARN
 // insights: the Issues Detected and Recommended Investigation Steps sections
 // must both be entirely absent (not empty headers).
