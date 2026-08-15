@@ -197,6 +197,23 @@ func TestHardOOMDoesNotFireWithoutMemoryCrit(t *testing.T) {
 	}
 }
 
+// TestHardOOMDoesNotFireWithUnmeasuredSwap is the regression test for
+// internal-analysis-01-03: without a Swap insight at all (never measured),
+// the rule must not claim swap was "not a factor" — that's unverified, not
+// confirmed non-CRIT.
+func TestHardOOMDoesNotFireWithUnmeasuredSwap(t *testing.T) {
+	insights := []models.Insight{
+		ins("CRIT", "Memory", "RAM at 98%"),
+		ins("CRIT", "Logs", "5 OOM kills"),
+	}
+	corrs := Correlate(insights)
+	for _, c := range corrs {
+		if c.Name == "Hard OOM Event" {
+			t.Error("Hard OOM should not fire when swap was never measured")
+		}
+	}
+}
+
 // ── ruleIOUnderMemoryPressure ────────────────────────────────────────────────
 
 func TestIOUnderMemPressureFires(t *testing.T) {
