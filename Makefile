@@ -80,14 +80,23 @@ test-linux-root:
 .PHONY: check
 check: fmt-check vet lint
 
+# NOT `gofmt -w .`/`gofmt -l .`: gofmt walks the raw filesystem with no
+# .gitignore awareness, unlike `go vet ./...`/`go test ./...` below (module-
+# scoped, skip dot-dirs automatically). On a dev machine with a populated
+# .scratch/ (vendored module cache, scratch experiments) or nested
+# .claude/worktrees/ (other concurrent worktrees, each its own git index),
+# `-w .` would rewrite files it has no business touching -- silently
+# corrupting another worktree's uncommitted state or a vendored module
+# cache's checksummed contents. Scope to this repo's own tracked .go files.
 .PHONY: fmt
 fmt:
-	gofmt -w .
-	goimports -w . 2>/dev/null || true
+	gofmt -w $$(git ls-files -- '*.go')
+	goimports -w $$(git ls-files -- '*.go') 2>/dev/null || true
 
 .PHONY: fmt-check
 fmt-check:
-	@if [ -n "$$(gofmt -l .)" ]; then echo "❌ Files need formatting:"; gofmt -l .; exit 1; fi
+	@unformatted="$$(gofmt -l $$(git ls-files -- '*.go'))"; \
+	if [ -n "$$unformatted" ]; then echo "❌ Files need formatting:"; echo "$$unformatted"; exit 1; fi
 	@echo "✅ Format OK"
 
 .PHONY: vet

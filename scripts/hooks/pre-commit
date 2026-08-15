@@ -17,13 +17,22 @@ else
     echo "  ⚠️  gitleaks not installed — brew install gitleaks (skipping)"
 fi
 
-# 2. Format check — instant
-if [ -n "$(gofmt -l .)" ]; then
-    echo ""
-    echo "❌ Files need formatting. Run: make fmt"
-    echo ""
-    gofmt -l .
-    exit 1
+# 2. Format check — staged .go files only, instant. NOT `gofmt -l .`: gofmt
+# walks the raw filesystem with no .gitignore awareness (unlike `go vet
+# ./...`/`go test ./...` below, which are module-scoped and skip dot-dirs
+# automatically), so on a dev machine with an accumulated .scratch/ or
+# .claude/worktrees/ tree it recurses into thousands of unrelated/malformed
+# .go files (vendored module caches, scratch experiments) and can never pass.
+staged_go_files="$(git diff --cached --name-only --diff-filter=ACM -- '*.go')"
+if [ -n "$staged_go_files" ]; then
+    unformatted="$(gofmt -l $staged_go_files)"
+    if [ -n "$unformatted" ]; then
+        echo ""
+        echo "❌ Files need formatting. Run: make fmt"
+        echo ""
+        echo "$unformatted"
+        exit 1
+    fi
 fi
 echo "  ✅ gofmt"
 

@@ -13,6 +13,15 @@ on:
 permissions:
   contents: read
 
+# Cancel superseded runs on the same ref: a later push/merge on the same
+# branch makes an in-flight run's result moot before it even finishes, and
+# this is by far the most expensive workflow in the repo (8-way-effective
+# test matrix, replay-hermeticity passes, Docker/QEMU smoke jobs) -- letting
+# a superseded run burn its full runtime is pure wasted Actions-minute spend.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
 # Every setup-go step below uses `go-version: '1.26'` (floating minor), NOT
 # go-version-file: go.mod (exact patch). A go.mod-pinned patch silently goes
 # stale the moment Go ships a stdlib CVE fix in a newer patch — this bit us
@@ -24,6 +33,40 @@ permissions:
 # without anyone remembering to bump go.mod.
 
 jobs:
+  # Lints this repo's own .github/workflows/*.yml files. Ported from Keyorix
+  # (sibling repo, same org) after noticing DashDiag has zero linting on its
+  # 7 workflow files despite 4 of them (ci/security/codeql/sonarcloud) hand-
+  # duplicating the same docs-only `changes` gate logic -- a YAML/syntax slip
+  # there currently goes undetected until GitHub silently refuses to run the
+  # workflow, rather than failing a PR check.
+  workflow-lint:
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    env:
+      # actionlint publishes an official checksums.txt; verified it against a
+      # locally-recomputed sha256 of the same asset before pinning here,
+      # matching this repo's gitleaks/govulncheck pinned-binary convention.
+      ACTIONLINT_VERSION: 1.7.12
+      ACTIONLINT_LINUX_AMD64_SHA256: 8aca8db96f1b94770f1b0d72b6dddcb1ebb8123cb3712530b08cc387b349a3d8
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Cache actionlint binary
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: actionlint
+          key: actionlint-${{ env.ACTIONLINT_VERSION }}-${{ runner.os }}
+
+      - name: actionlint
+        run: |
+          if [ ! -x ./actionlint ]; then
+            curl --proto '=https' --tlsv1.2 -fsSLO "https://github.com/rhysd/actionlint/releases/download/v${ACTIONLINT_VERSION}/actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz"
+            echo "${ACTIONLINT_LINUX_AMD64_SHA256}  actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" | sha256sum -c -
+            tar -xz -f "actionlint_${ACTIONLINT_VERSION}_linux_amd64.tar.gz" actionlint
+          fi
+          ./actionlint
+
   # Diff-aware skip gate. A docs-only PR (README/CHANGELOG/docs/** etc.) can't
   # change anything the jobs below check, so there's no reason to run an
   # 8-way-effective test matrix, two replay-hermeticity passes, and four
