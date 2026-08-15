@@ -205,6 +205,7 @@ func replayPlatformGuard(b *source.Bundle, force bool) error {
 	if fam == runtime.GOOS || force {
 		return nil
 	}
+	//lint:ignore ST1005 intentional multi-line user-facing CLI guidance, not a wrapped error
 	//nolint:staticcheck // ST1005: intentional multi-line user-facing CLI guidance, not a wrapped error
 	return fmt.Errorf(
 		"bundle was captured on %s (%q) but you are replaying on %s.\n"+
