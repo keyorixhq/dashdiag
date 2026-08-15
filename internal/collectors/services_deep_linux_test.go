@@ -4,6 +4,8 @@ package collectors
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -127,6 +129,71 @@ func TestServicesDeepCollector_Collect_HappyPath(t *testing.T) {
 	// user daemon.
 	if info.UserUnits == nil || !info.UserUnits.Available {
 		t.Errorf("UserUnits = %+v, want non-nil with Available=true (degraded is not a disconnect)", info.UserUnits)
+	}
+}
+
+// TestServicesDeepCollector_Collect_FailedUnitsInspectCap guards
+// internal-collectors-30-04: with more failed units than
+// svcFailedUnitInspectMax, the per-unit journalctl/systemctl-show
+// enrichment loop must stop at the cap (so later Collect() fields —
+// NeedsDaemonReload/MaskedUnits/BootOffenders/UserUnits — still get a
+// ctx budget) and FailedUnitsInspectTruncated must disclose the cut-off
+// rather than silently under-enriching the tail of the list.
+func TestServicesDeepCollector_Collect_FailedUnitsInspectCap(t *testing.T) {
+	const numUnits = svcFailedUnitInspectMax + 5 // 25 units, 5 over the cap
+
+	withFixtureSource(t, func(b *source.Bundle) {
+		var listOut strings.Builder
+		for i := 0; i < numUnits; i++ {
+			name := fmt.Sprintf("unit%d.service", i)
+			listOut.WriteString(name + " loaded failed failed Unit\n")
+			// Every unit has a valid seeded journalctl/systemctl-show response —
+			// if the cap didn't stop the loop, ALL of them would get enriched.
+			b.PutCmd("journalctl", []string{"-u", name, "-n", "8", "--no-pager", "--output=short", "--no-hostname"},
+				"May 19 10:00:00 host unit["+fmt.Sprint(i)+"]: boom\n", 0)
+			b.PutCmd("systemctl", []string{"show", name, "--property=ExecMainStatus,ActiveState,SubState"},
+				"ExecMainStatus=1\nActiveState=failed\nSubState=failed\n", 0)
+		}
+		b.PutCmd("systemctl", []string{"list-units", "--failed", "--plain", "--no-legend", "--no-pager"}, listOut.String(), 0)
+		b.PutCmdNotFound("systemctl", []string{"list-units", "--type=service", "--state=loaded", "--plain", "--no-legend", "--no-pager"})
+		b.PutCmdNotFound("systemctl", []string{"list-units", "--type=service", "--state=masked", "--plain", "--no-legend", "--no-pager"})
+		b.PutCmdNotFound("systemd-analyze", []string{"blame", "--no-pager"})
+		b.PutCmdNotFound("systemctl", []string{"--user", "is-system-running"})
+	})
+	c := NewServicesDeepCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.ServicesDeepInfo)
+
+	if len(info.FailedUnits) != numUnits {
+		t.Fatalf("FailedUnits = %d, want %d (the cap only limits ENRICHMENT, not the list itself)", len(info.FailedUnits), numUnits)
+	}
+	if !info.FailedUnitsInspectTruncated {
+		t.Error("FailedUnitsInspectTruncated = false, want true when the failed-unit count exceeds the cap")
+	}
+
+	enriched := 0
+	for _, u := range info.FailedUnits {
+		if len(u.LastLogLines) > 0 || u.ExitCode != 0 {
+			enriched++
+		}
+	}
+	if enriched != svcFailedUnitInspectMax {
+		t.Errorf("enriched units = %d, want exactly %d (the cap)", enriched, svcFailedUnitInspectMax)
+	}
+	// The units within the cap must be the ones enriched (in order), not an
+	// arbitrary subset.
+	for i := 0; i < svcFailedUnitInspectMax; i++ {
+		if len(info.FailedUnits[i].LastLogLines) == 0 {
+			t.Errorf("FailedUnits[%d] should be enriched (within the cap), got %+v", i, info.FailedUnits[i])
+		}
+	}
+	for i := svcFailedUnitInspectMax; i < numUnits; i++ {
+		if len(info.FailedUnits[i].LastLogLines) != 0 || info.FailedUnits[i].ExitCode != 0 {
+			t.Errorf("FailedUnits[%d] should NOT be enriched (beyond the cap), got %+v", i, info.FailedUnits[i])
+		}
 	}
 }
 
