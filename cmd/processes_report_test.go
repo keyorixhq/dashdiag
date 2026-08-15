@@ -38,6 +38,39 @@ func TestHungTable(t *testing.T) {
 	}
 }
 
+// TestZombiesTable_StripsControlChars guards terminal escape injection:
+// ParentName comes from /proc/<pid>/stat's comm field, which any process can
+// set to arbitrary bytes (e.g. via prctl(PR_SET_NAME) or argv[0]).
+func TestZombiesTable_StripsControlChars(t *testing.T) {
+	evil := "\x1b[2Jscreen-clear evil"
+	d := zombiesTable(&models.ProcessInfo{ZombieProcs: []models.ProcessState{{PID: 1, PPID: 2, ParentName: evil}}})
+	out := captureStdout(t, func() {
+		printProcessTable(d)
+	})
+	if strings.Contains(out, "\x1b") {
+		t.Errorf("zombiesTable/printProcessTable output still contains ESC byte:\n%s", out)
+	}
+	if !strings.Contains(out, "[2Jscreen-clear evil") {
+		t.Errorf("output missing sanitized-but-present evil text:\n%s", out)
+	}
+}
+
+// TestHungTable_StripsControlChars mirrors TestZombiesTable_StripsControlChars
+// for hungTable's Name and WChan fields, both sourced from untrusted /proc data.
+func TestHungTable_StripsControlChars(t *testing.T) {
+	evil := "\x1b[2Jscreen-clear evil"
+	d := hungTable(&models.ProcessInfo{HungProcs: []models.ProcessState{{PID: 1, Name: evil, WChan: evil}}})
+	out := captureStdout(t, func() {
+		printProcessTable(d)
+	})
+	if strings.Contains(out, "\x1b") {
+		t.Errorf("hungTable/printProcessTable output still contains ESC byte:\n%s", out)
+	}
+	if !strings.Contains(out, "[2Jscreen-clear evil") {
+		t.Errorf("output missing sanitized-but-present evil text:\n%s", out)
+	}
+}
+
 func TestPrintProcessTable(t *testing.T) {
 	out := captureStdout(t, func() {
 		printProcessTable(&models.Details{

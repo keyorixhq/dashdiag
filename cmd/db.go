@@ -113,7 +113,7 @@ func printPostgresState(p *models.PostgresInfo, mode output.OutputMode) {
 	if p.Accepting {
 		fmt.Fprintf(os.Stdout, "  %s accepting connections\n", asciiOr("ok", iconOK, mode))
 	} else {
-		fmt.Fprintf(os.Stdout, "  %s NOT accepting — %s\n", asciiOr("fail", iconFail, mode), p.AcceptReason)
+		fmt.Fprintf(os.Stdout, "  %s NOT accepting — %s\n", asciiOr("fail", iconFail, mode), output.SanitizeControl(p.AcceptReason))
 	}
 	if p.MetricsRead {
 		fmt.Fprintf(os.Stdout, "  Connections: %d / %d\n", p.ActiveConns, p.MaxConnections)
@@ -134,7 +134,7 @@ func printMySQLState(m *models.MySQLInfo, mode output.OutputMode) {
 	if name == "" {
 		name = "MySQL"
 	}
-	fmt.Fprintf(os.Stdout, "\n🐬 %s %s\n", name, m.Version)
+	fmt.Fprintf(os.Stdout, "\n🐬 %s %s\n", output.SanitizeControl(name), output.SanitizeControl(m.Version))
 	if m.MetricsRead {
 		fmt.Fprintf(os.Stdout, "  %s reachable\n", asciiOr("ok", iconOK, mode))
 		fmt.Fprintf(os.Stdout, "  Connections: %d / %d\n", m.ThreadsConnected, m.MaxConnections)
@@ -157,11 +157,11 @@ func printRedisState(r *models.RedisInfo, mode output.OutputMode) {
 	if r.MetricsRead {
 		if r.MaxMemoryBytes > 0 {
 			fmt.Fprintf(os.Stdout, "  Memory: %.0f%% of %s (%s)\n",
-				float64(r.UsedMemoryBytes)/float64(r.MaxMemoryBytes)*100, humanBytes(r.MaxMemoryBytes), r.MaxMemoryPolicy)
+				float64(r.UsedMemoryBytes)/float64(r.MaxMemoryBytes)*100, humanBytes(r.MaxMemoryBytes), output.SanitizeControl(r.MaxMemoryPolicy))
 		} else {
 			fmt.Fprintf(os.Stdout, "  Memory: %s (no maxmemory limit)\n", humanBytes(r.UsedMemoryBytes))
 		}
-		fmt.Fprintf(os.Stdout, "  Role: %s · clients: %d\n", orDefault(r.Role, "master"), r.ConnectedClients)
+		fmt.Fprintf(os.Stdout, "  Role: %s · clients: %d\n", output.SanitizeControl(orDefault(r.Role, "master")), r.ConnectedClients)
 	} else {
 		fmt.Fprintln(os.Stdout, "  (metrics unavailable — install redis-cli / check auth)")
 	}

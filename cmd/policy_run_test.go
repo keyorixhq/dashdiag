@@ -5,6 +5,8 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/analysis"
 )
 
 // Golden-output / wiring tests for policy.go's two subcommand RunE closures
@@ -62,6 +64,24 @@ func TestPolicyCheckCmdValidNoOptionalFields(t *testing.T) {
 	})
 	if strings.Contains(out, "ram_crit_pct") || strings.Contains(out, "disk_crit_pct") {
 		t.Errorf("unset thresholds should not be echoed, got:\n%s", out)
+	}
+}
+
+// TestPrintPolicyCheckResult_StripsControlChars guards terminal escape
+// injection: analysis.LoadPolicy normalizes Deny to WARN/CRIT today, but that
+// guarantee lives in a different layer than this print function — %v on a
+// []string does not escape control bytes, so the print site must sanitize
+// independently rather than trust the loader's current validation.
+func TestPrintPolicyCheckResult_StripsControlChars(t *testing.T) {
+	evil := "\x1b[2Jscreen-clear evil"
+	out := captureStdout(t, func() {
+		printPolicyCheckResult("policy.yaml", &analysis.PolicyFile{Deny: []string{evil}})
+	})
+	if strings.Contains(out, "\x1b") {
+		t.Errorf("printPolicyCheckResult output still contains ESC byte:\n%s", out)
+	}
+	if !strings.Contains(out, "[2Jscreen-clear evil") {
+		t.Errorf("printPolicyCheckResult output missing sanitized-but-present evil text:\n%s", out)
 	}
 }
 

@@ -100,7 +100,7 @@ func printContainerd(info *models.ContainerdInfo, mode output.OutputMode) {
 	}
 
 	if info.SocketPath != "" {
-		printLine(mode, "ok", "Socket", info.SocketPath)
+		printLine(mode, "ok", "Socket", output.SanitizeControl(info.SocketPath))
 	}
 	switch info.ServiceState {
 	case "active":
@@ -113,16 +113,16 @@ func printContainerd(info *models.ContainerdInfo, mode output.OutputMode) {
 	case "", "unknown":
 		printLine(mode, "info", "Service", "state unknown")
 	default:
-		printLine(mode, "info", "Service", info.ServiceState)
+		printLine(mode, "info", "Service", output.SanitizeControl(info.ServiceState))
 	}
 	if info.Version != "" {
-		printLine(mode, "ok", "Version", info.Version)
+		printLine(mode, "ok", "Version", output.SanitizeControl(info.Version))
 	}
 	if info.CtrBinaryFound {
 		printLine(mode, "ok", "Containers",
 			fmt.Sprintf("%d across %d namespace(s)", info.TotalContainers, len(info.Namespaces)))
 		for _, ns := range info.Namespaces {
-			fmt.Printf("     %-20s %d container(s)\n", ns.Name, ns.ContainerCount)
+			fmt.Printf("     %-20s %d container(s)\n", output.SanitizeControl(ns.Name), ns.ContainerCount)
 		}
 	} else {
 		// internal-collectors-05-01: no ctr/containerd-ctr binary found — namespace

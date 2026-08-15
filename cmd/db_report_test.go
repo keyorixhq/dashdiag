@@ -76,6 +76,22 @@ func TestPrintPostgresState(t *testing.T) {
 	}
 }
 
+// TestPrintPostgresState_StripsControlChars guards terminal escape injection:
+// AcceptReason is derived from the raw connection-attempt error, which can
+// echo attacker-influenced text (e.g. a hostile proxy's error banner).
+func TestPrintPostgresState_StripsControlChars(t *testing.T) {
+	evil := "\x1b[2Jscreen-clear evil"
+	out := captureStdout(t, func() {
+		printPostgresState(&models.PostgresInfo{Detected: true, Accepting: false, AcceptReason: evil}, output.ModePlain)
+	})
+	if strings.Contains(out, "\x1b") {
+		t.Errorf("printPostgresState output still contains ESC byte:\n%s", out)
+	}
+	if !strings.Contains(out, "[2Jscreen-clear evil") {
+		t.Errorf("printPostgresState output missing sanitized-but-present evil text:\n%s", out)
+	}
+}
+
 func TestPrintMySQLState(t *testing.T) {
 	if out := captureStdout(t, func() { printMySQLState(&models.MySQLInfo{Detected: false}, output.ModePlain) }); out != "" {
 		t.Errorf("an undetected server should print nothing, got:\n%s", out)
@@ -100,6 +116,22 @@ func TestPrintMySQLState(t *testing.T) {
 	})
 	if !strings.Contains(unmeasured, "metrics unavailable") {
 		t.Errorf("unread MySQL metrics should say so, got:\n%s", unmeasured)
+	}
+}
+
+// TestPrintMySQLState_StripsControlChars guards terminal escape injection:
+// Flavor and Version come from the server's own greeting/version string,
+// which an untrusted or compromised MySQL-protocol service fully controls.
+func TestPrintMySQLState_StripsControlChars(t *testing.T) {
+	evil := "\x1b[2Jscreen-clear evil"
+	out := captureStdout(t, func() {
+		printMySQLState(&models.MySQLInfo{Detected: true, Flavor: evil, Version: evil, MetricsRead: true}, output.ModePlain)
+	})
+	if strings.Contains(out, "\x1b") {
+		t.Errorf("printMySQLState output still contains ESC byte:\n%s", out)
+	}
+	if !strings.Contains(out, "[2Jscreen-clear evil") {
+		t.Errorf("printMySQLState output missing sanitized-but-present evil text:\n%s", out)
 	}
 }
 
@@ -134,6 +166,26 @@ func TestPrintRedisState(t *testing.T) {
 	})
 	if !strings.Contains(unmeasured, "metrics unavailable") {
 		t.Errorf("unread Redis metrics should say so, got:\n%s", unmeasured)
+	}
+}
+
+// TestPrintRedisState_StripsControlChars guards terminal escape injection:
+// MaxMemoryPolicy and Role come from the CONFIG GET / INFO responses of an
+// untrusted or compromised Redis-protocol service.
+func TestPrintRedisState_StripsControlChars(t *testing.T) {
+	evil := "\x1b[2Jscreen-clear evil"
+	out := captureStdout(t, func() {
+		printRedisState(&models.RedisInfo{
+			Detected: true, MetricsRead: true,
+			UsedMemoryBytes: 1, MaxMemoryBytes: 2, MaxMemoryPolicy: evil,
+			Role: evil,
+		}, output.ModePlain)
+	})
+	if strings.Contains(out, "\x1b") {
+		t.Errorf("printRedisState output still contains ESC byte:\n%s", out)
+	}
+	if !strings.Contains(out, "[2Jscreen-clear evil") {
+		t.Errorf("printRedisState output missing sanitized-but-present evil text:\n%s", out)
 	}
 }
 

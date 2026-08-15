@@ -131,3 +131,27 @@ func TestPrintDNSExternalFailedWithError(t *testing.T) {
 		t.Errorf("a failed resolution with an error detail should show both, got:\n%s", out)
 	}
 }
+
+// TestPrintDNS_StripsControlChars guards terminal escape injection: DNS
+// resolver config (nameservers, search domains, resolv.conf test error) comes
+// straight from /etc/resolv.conf / NetworkManager / systemd-resolved, all of
+// which can be influenced by an untrusted DHCP server or captive portal.
+func TestPrintDNS_StripsControlChars(t *testing.T) {
+	evil := "\x1b]0;pwned\x07evil"
+	out := captureStdout(t, func() {
+		printDNS(&models.DNSResolverInfo{
+			Available:          true,
+			Manager:            "resolv.conf",
+			Nameservers:        []string{evil},
+			SearchDomains:      []string{evil},
+			ExternalResolvesOK: false,
+			ResolvTestError:    evil,
+		}, output.ModePlain)
+	})
+	if strings.Contains(out, "\x1b") {
+		t.Errorf("printDNS output still contains ESC byte:\n%s", out)
+	}
+	if !strings.Contains(out, "]0;pwnedevil") {
+		t.Errorf("printDNS output missing sanitized-but-present evil text:\n%s", out)
+	}
+}

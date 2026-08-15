@@ -5,6 +5,7 @@ import (
 	"os"
 
 	"github.com/keyorixhq/dashdiag/internal/analysis"
+	"github.com/keyorixhq/dashdiag/internal/output"
 	"github.com/spf13/cobra"
 )
 
@@ -43,16 +44,29 @@ var policyCheckCmd = &cobra.Command{
 			fmt.Fprintf(os.Stderr, "dsd: policy invalid: %v\n", err)
 			return err
 		}
-		fmt.Printf("✅  Policy file %q is valid\n", args[0])
-		fmt.Printf("    deny levels: %v\n", p.Deny)
-		if p.RAMCritPct > 0 {
-			fmt.Printf("    ram_crit_pct: %.0f%%\n", p.RAMCritPct)
-		}
-		if p.DiskCritPct > 0 {
-			fmt.Printf("    disk_crit_pct: %.0f%%\n", p.DiskCritPct)
-		}
+		printPolicyCheckResult(args[0], p)
 		return nil
 	},
+}
+
+// printPolicyCheckResult prints a summary of a loaded, validated policy file.
+// p.Deny ultimately comes from a user-supplied YAML policy file
+// (analysis.LoadPolicy normalizes it to WARN/CRIT, but that guarantee lives
+// in a different layer) — %v on a []string does not escape control bytes, so
+// each level is sanitized before printing rather than relying on the caller.
+func printPolicyCheckResult(path string, p *analysis.PolicyFile) {
+	fmt.Printf("✅  Policy file %q is valid\n", path)
+	denyLevels := make([]string, len(p.Deny))
+	for i, level := range p.Deny {
+		denyLevels[i] = output.SanitizeControl(level)
+	}
+	fmt.Printf("    deny levels: %v\n", denyLevels)
+	if p.RAMCritPct > 0 {
+		fmt.Printf("    ram_crit_pct: %.0f%%\n", p.RAMCritPct)
+	}
+	if p.DiskCritPct > 0 {
+		fmt.Printf("    disk_crit_pct: %.0f%%\n", p.DiskCritPct)
+	}
 }
 
 func init() {
