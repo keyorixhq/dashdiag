@@ -63,7 +63,7 @@ func probeSocketPeerCred(sockPath string) socketPeerCred {
 		return socketPeerCred{}
 	}
 	var c socketPeerCred
-	if jerr := json.Unmarshal(data, &c); jerr != nil {
+	if err = json.Unmarshal(data, &c); err != nil {
 		return socketPeerCred{}
 	}
 	return c

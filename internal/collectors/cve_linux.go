@@ -29,6 +29,7 @@ const (
 	fixAptGetUpgrade  = "apt-get upgrade"
 	fixDNFSecurity    = "dnf upgrade --security"
 	fixZypperSecurity = "zypper patch --category security"
+	archAuditFailed   = "arch-audit failed: "
 )
 
 // cveIDStrictPattern validates a caller-supplied CVE identifier end to end
@@ -1126,7 +1127,7 @@ func checkCVEPacman(ctx context.Context, cveID string) *models.CVEResult {
 	out, err := runCmdOutput(ctx, cmdArchAudit, "--format", "%n %c %s")
 	if err != nil && len(out) == 0 {
 		result.Status = models.CVEUnknown
-		result.StatusReason = "arch-audit failed: " + err.Error()
+		result.StatusReason = archAuditFailed + err.Error()
 		result.FallbackURL = "https://security.archlinux.org/" + strings.ToLower(cveID)
 		return result
 	}
@@ -1185,7 +1186,7 @@ func scanAllPacman(ctx context.Context) *models.CVEAllResult {
 	// non-zero exactly when it has findings to report.
 	out, err := runCmdOutput(ctx, cmdArchAudit, "-u")
 	if err != nil && len(out) == 0 {
-		result.StatusReason = "arch-audit failed: " + err.Error()
+		result.StatusReason = archAuditFailed + err.Error()
 		result.ScanFailed = true
 		return result
 	}
@@ -1198,7 +1199,7 @@ func scanAllPacman(ctx context.Context) *models.CVEAllResult {
 	// (internal-collectors-07-03): an error with no real arch-audit finding
 	// line at all is a genuine failure, never a silent "up to date".
 	if err != nil && !strings.Contains(out, "is affected by") {
-		result.StatusReason = "arch-audit failed: " + err.Error()
+		result.StatusReason = archAuditFailed + err.Error()
 		result.ScanFailed = true
 		return result
 	}
