@@ -124,6 +124,47 @@ func TestPrintCVEResultCVSSAndFixState(t *testing.T) {
 	}
 }
 
+// TestPrintCVEResultSanitizesControlChars guards against terminal-escape
+// injection via package-manager-sourced fields: FixState/AffectedPkg (Red Hat
+// fix state), FixCommand/FallbackURL, and per-advisory Advisory/Name — all
+// attacker-influenceable by anything that can name a package or advisory ID
+// on the system (a malicious/compromised repo, a crafted local package).
+func TestPrintCVEResultSanitizesControlChars(t *testing.T) {
+	const esc = "\x1b[2J"
+
+	fixState := captureStdout(t, func() {
+		printCVEResult(&models.CVEResult{
+			CVE: "CVE-2026-0020", Status: models.CVENotAffected,
+			FixState: "Will not fix" + esc, AffectedPkg: "openssl" + esc,
+		})
+	})
+	if strings.Contains(fixState, esc) {
+		t.Errorf("printCVEResult must strip terminal escape sequences from FixState/AffectedPkg, got:\n%q", fixState)
+	}
+
+	vulnerable := captureStdout(t, func() {
+		printCVEResult(&models.CVEResult{
+			CVE: "CVE-2026-0021", Status: models.CVEVulnerable,
+			AffectedPackages: []models.CVEPackage{{Advisory: "RHSA" + esc, Name: "openssl" + esc, Severity: "critical"}},
+			FixCommand:       "dnf update" + esc,
+			FallbackURL:      "https://example.com/" + esc,
+		})
+	})
+	if strings.Contains(vulnerable, esc) {
+		t.Errorf("printCVEResult must strip terminal escape sequences from AffectedPackages/FixCommand/FallbackURL, got:\n%q", vulnerable)
+	}
+
+	unknown := captureStdout(t, func() {
+		printCVEResult(&models.CVEResult{
+			CVE: "CVE-2026-0022", Status: models.CVEUnknown,
+			FallbackURL: "https://example.com/" + esc,
+		})
+	})
+	if strings.Contains(unknown, esc) {
+		t.Errorf("printCVEResult must strip terminal escape sequences from the UNKNOWN-status FallbackURL, got:\n%q", unknown)
+	}
+}
+
 // TestPrintAdvisoryGroup covers the empty (no-op), CVEs-set, and
 // Summary-fallback branches — printAllCVEs' KEV test above only exercises the
 // bare-ID (neither CVEs nor Summary set) branch.

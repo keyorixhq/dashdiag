@@ -37,6 +37,37 @@ func TestPrintFleetTable(t *testing.T) {
 	}
 }
 
+// TestPrintFleetTable_SanitizesControlChars guards against terminal-escape
+// injection via a remote host's TopIssue/Error text — both come from another
+// machine's `dsd health --json` output over SSH, which a compromised or
+// malicious remote host fully controls.
+func TestPrintFleetTable_SanitizesControlChars(t *testing.T) {
+	t.Setenv("DSD_NO_NUDGE", "1")
+	const esc = "\x1b[2J"
+	summary := fleet.Summarize([]fleet.Result{
+		{Host: "web01", Reachable: true, Worst: "CRIT", Crit: 1, TopIssue: "disk full" + esc},
+		{Host: "web02", Reachable: false, Error: "connection refused" + esc},
+	})
+	out := captureStdout(t, func() { printFleetTable(summary, output.ModePlain) })
+	if strings.Contains(out, esc) {
+		t.Errorf("printFleetTable must strip terminal escape sequences from TopIssue/Error, got:\n%q", out)
+	}
+}
+
+// TestPrintFleetIssues_SanitizesControlChars guards against terminal-escape
+// injection via grouped-issue Check/Sample text sourced from remote hosts.
+func TestPrintFleetIssues_SanitizesControlChars(t *testing.T) {
+	const esc = "\x1b[2J"
+	summary := fleet.Summarize([]fleet.Result{
+		{Host: "web01", Reachable: true, Worst: "WARN", Warn: 1,
+			Issues: []fleet.Issue{{Check: "Disk" + esc, Level: "WARN", Message: "disk at 85%" + esc}}},
+	})
+	out := captureStdout(t, func() { printFleetIssues(summary, output.ModePlain) })
+	if strings.Contains(out, esc) {
+		t.Errorf("printFleetIssues must strip terminal escape sequences from Check/Sample, got:\n%q", out)
+	}
+}
+
 // TestPrintFleetTableWithNudge covers the waitlist-nudge line printed by
 // printFleetTable itself — TestPrintFleetTable above always silences it via
 // DSD_NO_NUDGE, so the nudge-rendering branch was never exercised.

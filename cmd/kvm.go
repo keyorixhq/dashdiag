@@ -165,15 +165,15 @@ func printKVMVMs(info *models.KVMInfo, mode output.OutputMode) {
 			autoStr = "  " + asciiOr("warn", "⚠️  ", mode) + "autostart=yes"
 		}
 		fmt.Printf("  %s %-20s %-10s%s%s\n",
-			icon, vm.Name, string(vm.State), memStr, autoStr)
+			icon, output.SanitizeControl(vm.Name), string(vm.State), memStr, autoStr)
 		if vm.DiskIOError {
-			fmt.Printf("       %sdisk I/O error recorded — to check: virsh domblkerror %s\n", asciiOr("fail", "❌ ", mode), vm.Name)
+			fmt.Printf("       %sdisk I/O error recorded — to check: virsh domblkerror %s\n", asciiOr("fail", "❌ ", mode), output.SanitizeControl(vm.Name))
 		}
 		if vm.LastLogError != "" {
-			fmt.Printf("       last log error: %s\n", vm.LastLogError)
+			fmt.Printf("       last log error: %s\n", output.SanitizeControl(vm.LastLogError))
 		}
 		if vm.MissingDiskPath != "" {
-			fmt.Printf("       %sdisk image missing: %s\n", asciiOr("fail", "❌ ", mode), vm.MissingDiskPath)
+			fmt.Printf("       %sdisk image missing: %s\n", asciiOr("fail", "❌ ", mode), output.SanitizeControl(vm.MissingDiskPath))
 		}
 		if len(vm.EmulatedNICs) > 0 {
 			fmt.Printf("       %sNIC(s) on emulated driver: %s\n", asciiOr("warn", "⚠️  ", mode), strings.Join(vm.EmulatedNICs, ", "))

@@ -150,6 +150,22 @@ func TestPrintDiskBtrfs(t *testing.T) {
 	}
 }
 
+// TestPrintDiskBtrfs_SanitizesControlChars guards against terminal-escape
+// injection via a btrfs device path (sysfs/btrfs-tool-derived — an attacker
+// with device-naming control, e.g. a crafted loop/USB device, controls it).
+func TestPrintDiskBtrfs_SanitizesControlChars(t *testing.T) {
+	const esc = "\x1b[2J"
+	out := captureStdout(t, func() {
+		printDiskBtrfs(&models.DiskInfo{BtrfsVolumes: []models.BtrfsVolume{
+			{MountPoint: "/", Status: "errors", TotalDevices: 1,
+				Devices: []models.BtrfsDev{{DevID: 1, Path: "/dev/evil" + esc}}},
+		}}, output.ModePlain)
+	})
+	if strings.Contains(out, esc) {
+		t.Errorf("printDiskBtrfs must strip terminal escape sequences from device Path, got:\n%q", out)
+	}
+}
+
 func TestPrintDiskZFS(t *testing.T) {
 	// zpool list errored (non-root): must surface "could not verify", never silent OK.
 	unreadable := captureStdout(t, func() {
@@ -214,6 +230,19 @@ func TestPrintDiskZFS(t *testing.T) {
 	}
 }
 
+// TestPrintDiskZFS_SanitizesControlChars guards against terminal-escape
+// injection via a ZFS pool name (attacker-controlled if they can create a
+// pool, e.g. on a loop/USB device).
+func TestPrintDiskZFS_SanitizesControlChars(t *testing.T) {
+	const esc = "\x1b[2J"
+	out := captureStdout(t, func() {
+		printDiskZFS(&models.DiskInfo{ZFSPools: []models.ZFSPool{{Name: "tank" + esc, State: "ONLINE"}}}, output.ModePlain)
+	})
+	if strings.Contains(out, esc) {
+		t.Errorf("printDiskZFS must strip terminal escape sequences from pool Name, got:\n%q", out)
+	}
+}
+
 func TestPrintDiskFilesystems(t *testing.T) {
 	// A packed-full read-only image filesystem (squashfs/iso9660/etc.) must NEVER
 	// render a fault icon even at 100% used — that's normal by design (#382).
@@ -265,6 +294,21 @@ func TestPrintDiskFilesystems(t *testing.T) {
 	})
 	if !strings.Contains(warnFS, "WARN") {
 		t.Errorf("a filesystem in the WARN band must render WARN, got:\n%s", warnFS)
+	}
+}
+
+// TestPrintDiskFilesystems_SanitizesControlChars guards against
+// terminal-escape injection via a mount point path (attacker-controlled by
+// anything that can mount a filesystem at a crafted path, e.g. a FUSE mount).
+func TestPrintDiskFilesystems_SanitizesControlChars(t *testing.T) {
+	const esc = "\x1b[2J"
+	out := captureStdout(t, func() {
+		printDiskFilesystems(&models.DiskInfo{Filesystems: []models.FilesystemInfo{
+			{Mount: "/mnt/evil" + esc, FSType: "ext4", TotalGB: 100, UsedGB: 10, UsedPct: 10},
+		}}, output.ModePlain)
+	})
+	if strings.Contains(out, esc) {
+		t.Errorf("printDiskFilesystems must strip terminal escape sequences from Mount, got:\n%q", out)
 	}
 }
 
@@ -406,6 +450,44 @@ func TestPrintDiskLVM(t *testing.T) {
 	})
 	if !strings.Contains(raidDegraded, "DEGRADED") {
 		t.Errorf("a degraded RAID LV must say so, got:\n%s", raidDegraded)
+	}
+}
+
+// TestPrintDiskLVM_SanitizesControlChars guards against terminal-escape
+// injection via LVM VG/LV/snapshot names (attacker-controlled by anything
+// that can create an LVM volume group, LV, thin pool, snapshot, or RAID LV
+// with a crafted name).
+func TestPrintDiskLVM_SanitizesControlChars(t *testing.T) {
+	const esc = "\x1b[2J"
+
+	vgOut := captureStdout(t, func() {
+		printDiskLVM(&models.LVMInfo{VGs: []models.LVMVG{{Name: "pve" + esc}}}, output.ModePlain)
+	})
+	if strings.Contains(vgOut, esc) {
+		t.Errorf("printDiskLVM must strip terminal escape sequences from VG Name, got:\n%q", vgOut)
+	}
+
+	thinOut := captureStdout(t, func() {
+		printDiskLVM(&models.LVMInfo{ThinPools: []models.LVMThinPool{{Name: "data" + esc, VG: "pve" + esc, DataPct: 10}}}, output.ModePlain)
+	})
+	if strings.Contains(thinOut, esc) {
+		t.Errorf("printDiskLVM must strip terminal escape sequences from thin pool VG/Name, got:\n%q", thinOut)
+	}
+
+	snapOut := captureStdout(t, func() {
+		printDiskLVM(&models.LVMInfo{Snapshots: []models.LVMSnapshot{
+			{Name: "snap0" + esc, VG: "pve" + esc, Origin: "root" + esc, DataPct: 10},
+		}}, output.ModePlain)
+	})
+	if strings.Contains(snapOut, esc) {
+		t.Errorf("printDiskLVM must strip terminal escape sequences from snapshot VG/Name/Origin, got:\n%q", snapOut)
+	}
+
+	raidOut := captureStdout(t, func() {
+		printDiskLVM(&models.LVMInfo{RaidLVs: []models.LVMRaidLV{{Name: "lv0" + esc, VG: "pve" + esc}}}, output.ModePlain)
+	})
+	if strings.Contains(raidOut, esc) {
+		t.Errorf("printDiskLVM must strip terminal escape sequences from RAID LV VG/Name, got:\n%q", raidOut)
 	}
 }
 
