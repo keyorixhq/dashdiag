@@ -73,6 +73,14 @@ func Log(ctx context.Context, component, msg string, kvs ...any) {
 
 // Logf writes a debug line using a printf-style format string.
 // Use Log for key=value pairs; use Logf when you need a free-form message.
+//
+// format MUST be a compile-time-literal format string — never pass free-form
+// or host-derived text directly as format (e.g. debug.Logf(ctx, "comp", s)).
+// Any "%" sequences in such text would be misinterpreted as format verbs.
+// Embed dynamic text via a verb instead: debug.Logf(ctx, "comp", "%s", s).
+// govet's printf analyzer (enabled via .golangci.yml) checks this at lint
+// time — see (github.com/keyorixhq/dashdiag/internal/debug).Logf in the
+// govet.settings.printf.funcs list.
 func Logf(ctx context.Context, component, format string, args ...any) {
 	if !Enabled(ctx) {
 		return

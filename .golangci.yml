@@ -23,6 +23,15 @@ linters:
     - cyclop
     - funlen
   settings:
+    govet:
+      settings:
+        printf:
+          # internal-debug-01-03: debug.Logf forwards format/args straight to
+          # fmt.Sprintf, so govet's printf analyzer already auto-detects it as
+          # a wrapper via call-graph analysis — this entry pins that guarantee
+          # explicitly rather than relying solely on the heuristic.
+          funcs:
+            - github.com/keyorixhq/dashdiag/internal/debug.Logf
     funlen:
       lines: 90
       statements: 80
