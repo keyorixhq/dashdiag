@@ -473,6 +473,29 @@ func TestCollectSteamOSWifi_ConnectedIWD(t *testing.T) {
 	}
 }
 
+// TestCollectSteamOSWifi_DSD_OFFLINE_SkipsCDNLookup is the regression test
+// for the missing DSD_OFFLINE gate on collectSteamOSWifi's Steam CDN DNS
+// probe (steamdeck-images.steamos.cloud) — every other live network probe in
+// this file honors DSD_OFFLINE, this one didn't. Proven by recording every
+// Cached() key requested, same technique as network_quick_test.go's
+// TestProbeConnectivity_DSD_OFFLINE_SkipsPingAndDNS.
+func TestCollectSteamOSWifi_DSD_OFFLINE_SkipsCDNLookup(t *testing.T) {
+	t.Setenv("DSD_OFFLINE", "1")
+	var calls []string
+	prev := SetSource(recordingCacheSource{Replay: source.NewReplay(source.NewBundle()), calls: &calls})
+	defer SetSource(prev)
+
+	w := collectSteamOSWifi(context.Background())
+	if w.CDNDNSKnown {
+		t.Error("expected CDNDNSKnown=false when DSD_OFFLINE is set")
+	}
+	for _, k := range calls {
+		if k == "steamos/cdn-dns" {
+			t.Fatal(`cachedJSON("steamos/cdn-dns", ...) was called despite DSD_OFFLINE — the live DNS lookup path was reached`)
+		}
+	}
+}
+
 // TestCollectSteamOSWifi_BothBackendsActive guards the iwd&&wpa branch — a
 // misconfigured device with both network daemons running, which BothBackends
 // exists to surface (neither of the single-backend cases exercise it).

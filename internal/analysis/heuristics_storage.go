@@ -1556,6 +1556,14 @@ func checkISCSI(i models.ISCSIInfo) []models.Insight {
 			"iSCSI session(s) present but their state needs root (iscsiadm reads root-only sysfs fields)",
 			[]string{"to verify: sudo iscsiadm -m session -P 1   (or run dsd as root)"})}
 	}
+	if i.SessionsParseFailed {
+		// internal-collectors-17-02: sysfs confirms session(s) exist, but
+		// iscsiadm's output didn't match the expected format — session state
+		// (logged-in vs failed/reconnecting) could not be determined.
+		return []models.Insight{unverifiedInsight("INFO", "iSCSI",
+			"iSCSI session(s) present (per /sys/class/iscsi_session) but their state could not be parsed from iscsiadm output",
+			[]string{"to inspect: iscsiadm -m session -P 1", "note: check LANG/LC_ALL — a non-English locale can change iscsiadm's field labels"})}
+	}
 	if !i.Available || len(i.Sessions) == 0 {
 		return nil
 	}

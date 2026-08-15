@@ -178,6 +178,13 @@ func applyCrmMon(info *models.HAInfo, x crmMonXML) {
 			info.ResourcesStarted++
 		case r.Role == "Stopped":
 			info.StoppedResources = append(info.StoppedResources, r.ID)
+		default:
+			// internal-collectors-14-04: a multi-state resource's transitional
+			// role (Unpromoted/Promoting/Stopping/Starting) or a blocked/
+			// unmanaged resource matches none of the three cases above —
+			// counted in ResourcesTotal but otherwise invisible. Record it
+			// rather than let it silently vanish from every tally.
+			info.AmbiguousResources = append(info.AmbiguousResources, r.ID)
 		}
 	}
 }

@@ -22,6 +22,11 @@ type HWRaidController struct {
 	PhysicalDrives []HWRaidPD `json:"physical_drives,omitempty"`
 	BBUStatus      string     `json:"bbu_status,omitempty"` // cache battery / capacitor health, verbatim
 	BBUDegraded    bool       `json:"bbu_degraded,omitempty"`
+	// BBUStatusUnreadable is true when a BBU/CacheVault entry IS present but
+	// its State field couldn't be read (schema drift) — distinct from no
+	// entry at all (genuinely no battery-backed cache fitted), which stays
+	// silent.
+	BBUStatusUnreadable bool `json:"bbu_status_unreadable,omitempty"`
 }
 
 // HWRaidVD is a virtual drive (logical volume the controller presents to the OS).

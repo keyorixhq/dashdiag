@@ -89,6 +89,7 @@ func TestRuleContainerCgroupOOM(t *testing.T) {
 	fires := Correlate([]models.Insight{
 		ins("CRIT", "Docker", "container app OOM-killed"),
 		ins("CRIT", "Cgroup", "memory.events oom_kill in app.slice"),
+		ins("OK", "Memory", "RAM at 40%"), // host memory confirmed clear
 	})
 	if corrByName(fires, "Container Memory-Limit OOM") == nil {
 		t.Fatalf("expected Container Memory-Limit OOM, got %+v", fires)
@@ -101,6 +102,20 @@ func TestRuleContainerCgroupOOM(t *testing.T) {
 	})
 	if corrByName(hostOOM, "Container Memory-Limit OOM") != nil {
 		t.Error("should not fire when host memory is also critical")
+	}
+}
+
+// TestRuleContainerCgroupOOMDoesNotFireWithUnmeasuredMemory is the regression
+// test for internal-analysis-01-03: without a Memory insight at all (never
+// measured, not confirmed clear), the rule must not claim "the host still
+// has RAM" — that claim is unverified, not merely unconfirmed-critical.
+func TestRuleContainerCgroupOOMDoesNotFireWithUnmeasuredMemory(t *testing.T) {
+	fires := Correlate([]models.Insight{
+		ins("CRIT", "Docker", "container app OOM-killed"),
+		ins("CRIT", "Cgroup", "memory.events oom_kill in app.slice"),
+	})
+	if corrByName(fires, "Container Memory-Limit OOM") != nil {
+		t.Error("should not fire when host memory was never measured")
 	}
 }
 
@@ -122,6 +137,7 @@ func TestRuleThermalThrottleUnderLoad(t *testing.T) {
 func TestRuleDNSResolverNotConnectivity(t *testing.T) {
 	fires := Correlate([]models.Insight{
 		ins("CRIT", "DNS", "resolution failing for all queries"),
+		ins("OK", "Network", "gateway reachable"), // network confirmed up
 	})
 	if corrByName(fires, "DNS Resolver Failure (network is up)") == nil {
 		t.Fatalf("expected DNS resolver correlation, got %+v", fires)
@@ -133,5 +149,18 @@ func TestRuleDNSResolverNotConnectivity(t *testing.T) {
 	})
 	if corrByName(withNet, "DNS Resolver Failure (network is up)") != nil {
 		t.Error("should not fire when the network is also down")
+	}
+}
+
+// TestRuleDNSResolverNotConnectivityDoesNotFireWithUnmeasuredNetwork is the
+// regression test for internal-analysis-01-03: without a Network insight at
+// all, the rule must not claim "the network link is healthy" — that's an
+// unverified claim, not a confirmed one.
+func TestRuleDNSResolverNotConnectivityDoesNotFireWithUnmeasuredNetwork(t *testing.T) {
+	fires := Correlate([]models.Insight{
+		ins("CRIT", "DNS", "resolution failing for all queries"),
+	})
+	if corrByName(fires, "DNS Resolver Failure (network is up)") != nil {
+		t.Error("should not fire when the network was never measured")
 	}
 }

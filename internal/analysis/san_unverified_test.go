@@ -121,3 +121,15 @@ func TestISCSINeedsRootIsInfoNotSilent(t *testing.T) {
 		t.Errorf("a failed session must still CRIT, got %+v", checkISCSI(fail))
 	}
 }
+
+// TestISCSISessionsParseFailedIsInfoNotSilent is the regression test for
+// internal-collectors-17-02: sysfs confirms session(s) exist but iscsiadm's
+// output didn't match the expected format, so session state (logged-in vs
+// failed/reconnecting) couldn't be determined — this must surface as an
+// unverified disclosure, never silently fall through to "no sessions."
+func TestISCSISessionsParseFailedIsInfoNotSilent(t *testing.T) {
+	got := checkISCSI(models.ISCSIInfo{Available: true, SessionsParseFailed: true})
+	if !hasInsightMsg(got, "INFO", "could not be parsed") {
+		t.Errorf("SessionsParseFailed must emit an unverified INFO, got %+v", got)
+	}
+}

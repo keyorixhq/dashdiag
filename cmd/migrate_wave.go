@@ -56,6 +56,7 @@ type waveResult struct {
 	DstBundle   *source.Bundle
 	Verdict     string
 	Regressions []baseline.DiffEntry
+	Unconfirmed []baseline.DiffEntry
 	Err         error
 }
 
@@ -153,7 +154,7 @@ func certifyPair(p wavePair, force, deep, pkg bool) waveResult {
 	_, _, srcSnap := replayBundle(r.SrcBundle, deep, pkg, false, false)
 	_, _, dstSnap := replayBundle(r.DstBundle, deep, pkg, false, false)
 	diff := baseline.ComputeDiff(srcSnap, dstSnap)
-	r.Verdict, r.Regressions = certifyVerdict(diff)
+	r.Verdict, r.Regressions, r.Unconfirmed = certifyVerdict(diff)
 	return r
 }
 
@@ -241,6 +242,7 @@ type wavePairJSON struct {
 	Destination certifyEndpoint     `json:"destination"`
 	Verdict     string              `json:"verdict"`
 	Regressions []certifyRegression `json:"regressions"`
+	Unconfirmed []certifyRegression `json:"unconfirmed_absences,omitempty"`
 	Error       string              `json:"error,omitempty"`
 }
 
@@ -264,6 +266,9 @@ func emitWaveJSON(results []waveResult, name string) error {
 		}
 		for _, reg := range r.Regressions {
 			pj.Regressions = append(pj.Regressions, certifyRegression{Name: reg.Name, Before: firstToken(reg.Before), After: firstToken(reg.After)})
+		}
+		for _, u := range r.Unconfirmed {
+			pj.Unconfirmed = append(pj.Unconfirmed, certifyRegression{Name: u.Name, Before: firstToken(u.Before), After: "absent"})
 		}
 		switch r.Verdict {
 		case certFail:

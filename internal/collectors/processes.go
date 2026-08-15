@@ -68,10 +68,10 @@ func (c *ProcessesCollector) Collect(ctx context.Context) (any, error) {
 	if runtime.GOOS == "darwin" {
 		return c.collectDarwin(ctx)
 	}
-	return c.collectLinux()
+	return c.collectLinux(ctx)
 }
 
-func (c *ProcessesCollector) collectLinux() (*models.ProcessInfo, error) {
+func (c *ProcessesCollector) collectLinux(ctx context.Context) (*models.ProcessInfo, error) {
 	dirs, err := glob("/proc/[0-9]*")
 	if err != nil {
 		return nil, fmt.Errorf("globbing /proc: %w", err)
@@ -84,6 +84,13 @@ func (c *ProcessesCollector) collectLinux() (*models.ProcessInfo, error) {
 	}
 	selfPID := os.Getpid()
 	for _, dir := range dirs {
+		// internal-collectors-27-03: dirs can hold up to maxCappedDirEntries
+		// (200k) PIDs on a busy host — without a ctx check here, this loop (and
+		// the goroutine running it) outlives both the caller's cancellation and
+		// the collector's own advertised Timeout().
+		if err := ctx.Err(); err != nil {
+			break
+		}
 		data, err := readFile(filepath.Join(dir, "stat")) // #nosec G304 -- root is hardcoded to /proc; dir is from glob("/proc/[0-9]*"), not user input
 		if err != nil {
 			continue
@@ -112,9 +119,10 @@ func (c *ProcessesCollector) collectLinux() (*models.ProcessInfo, error) {
 			continue
 		}
 		pid := pidFromDir(dir)
-		parentName := readComm(ppid)
-		// Skip shell-parented zombies — transient, always self-healing
-		if isShell(parentName) {
+		// Skip shell-parented zombies — transient, always self-healing.
+		// Verified via /proc/<ppid>/exe (kernel-set, not the spoofable comm
+		// name) — see isVerifiedShellParent.
+		if isVerifiedShellParent(ppid) {
 			continue
 		}
 		ps := models.ProcessState{PID: pid, PPID: ppid, Name: name, State: state}
@@ -242,4 +250,21 @@ func isShell(name string) bool {
 		return true
 	}
 	return false
+}
+
+// isVerifiedShellParent reports whether ppid's actual executable (not its
+// self-reported comm name) is a known shell. internal-collectors-27-02: comm
+// is spoofable via prctl(PR_SET_NAME) — a process could rename itself "bash"
+// to exempt its own zombie/hung children from ever being reported, hiding a
+// real leak. /proc/<pid>/exe is a symlink the kernel sets at exec() time and
+// userspace cannot rewrite, so it's the kernel-verified signal isKernelThreadByFlag
+// uses for the analogous kernel-thread exemption above. Returns false (not
+// exempted) when the link can't be read — an unreadable parent must count
+// its zombie/hung child rather than silently trust an unverifiable comm name.
+func isVerifiedShellParent(ppid int) bool {
+	target, err := readLink(fmt.Sprintf("/proc/%d/exe", ppid))
+	if err != nil {
+		return false
+	}
+	return isShell(filepath.Base(target))
 }

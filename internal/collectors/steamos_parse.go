@@ -334,9 +334,27 @@ func parseARPPeers(out, gateway string) int {
 // text references any of the given ports. Inferential and conservative: only a
 // line containing both a drop/reject action and a target port counts.
 func firewallBlocksPorts(ruleset string, ports []int) bool {
+	// internal-collectors-31-03: a real nftables base chain commonly expresses
+	// its block via a chain-level `type filter hook input priority 0; policy
+	// drop;` statement, with the matching `tcp dport 27036` rule on its own
+	// separate line carrying no drop/reject verb at all — the single-line
+	// "drop/reject AND port" check below never fires for that (very common,
+	// SteamOS-default) shape. Track policy-drop scope so a port match inside
+	// it counts too, unless the same line explicitly accepts (an allow rule
+	// ahead of the implicit policy-drop fallthrough).
+	chainPolicyDrop := false
 	for line := range strings.SplitSeq(ruleset, "\n") {
-		low := strings.ToLower(line)
-		if !strings.Contains(low, "drop") && !strings.Contains(low, "reject") {
+		trimmed := strings.TrimSpace(line)
+		low := strings.ToLower(trimmed)
+		switch {
+		case strings.HasPrefix(trimmed, "chain ") || strings.HasPrefix(trimmed, "}"):
+			chainPolicyDrop = false
+		case strings.Contains(low, "policy drop"):
+			chainPolicyDrop = true
+		}
+		blocking := strings.Contains(low, "drop") || strings.Contains(low, "reject") ||
+			(chainPolicyDrop && !strings.Contains(low, "accept"))
+		if !blocking {
 			continue
 		}
 		for _, p := range ports {

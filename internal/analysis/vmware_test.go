@@ -17,7 +17,7 @@ func TestCheckVMware(t *testing.T) {
 	// paravirtual-driver state (NIC drivers / pvscsi / balloon).
 	healthy := models.VMwareInfo{
 		IsGuest: true, ProductName: "VMware7,1",
-		ToolsInstalled: true, ToolsRunning: true,
+		ToolsInstalled: true, ToolsRunning: true, ToolsRunningVerified: true,
 		StatAvailable: true, // stats read, no host pressure
 		NICDrivers:    map[string]string{"ens160": "vmxnet3", "ens192": "vmxnet3"},
 		PVSCSILoaded:  true,
@@ -49,7 +49,7 @@ func TestCheckVMware(t *testing.T) {
 
 	// Emulated NIC → WARN naming the iface and driver.
 	emulated := checkVMware(models.VMwareInfo{
-		IsGuest: true, ToolsInstalled: true, ToolsRunning: true,
+		IsGuest: true, ToolsInstalled: true, ToolsRunning: true, ToolsRunningVerified: true,
 		StatAvailable: true,
 		EmulatedNICs:  []string{"ens160"},
 		NICDrivers:    map[string]string{"ens160": "e1000"},
@@ -357,7 +357,7 @@ func TestCheckVMwareVMXNET(t *testing.T) {
 func TestCheckVMwareConstraintsIntegration(t *testing.T) {
 	v := models.VMwareInfo{
 		IsGuest: true, ProductName: "VMware7,1",
-		ToolsInstalled: true, ToolsRunning: true,
+		ToolsInstalled: true, ToolsRunning: true, ToolsRunningVerified: true,
 		NICDrivers:      map[string]string{"ens160": "vmxnet3"},
 		StatAvailable:   true,
 		CPULimitMHz:     1200,

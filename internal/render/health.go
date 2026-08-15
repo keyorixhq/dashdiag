@@ -1445,6 +1445,19 @@ func abs(f float64) float64 {
 	return f
 }
 
+// maxDetailsCellLen bounds how many runes a single Details table cell (or
+// column header) contributes to the rendered width — see the call site in
+// renderDetails.
+const maxDetailsCellLen = 200
+
+func truncateDetailsCell(s string) string {
+	r := []rune(s)
+	if len(r) <= maxDetailsCellLen {
+		return s
+	}
+	return string(r[:maxDetailsCellLen]) + "…"
+}
+
 func (r *Renderer) renderDetails(d *models.Details) {
 	const indent = "   "
 
@@ -1458,15 +1471,21 @@ func (r *Renderer) renderDetails(d *models.Details) {
 		// attacker-influenced and must not carry raw control bytes to the
 		// terminal. The underlying model (d) is left untouched so --json/--yaml
 		// output keeps the raw values.
+		// internal-render-02-03: column width is derived from the max cell
+		// length in that column with no cap — a single oversized cell (a
+		// journalctl line with no embedded newline, say) would pad every
+		// other row in that column out to match it. Truncate after
+		// sanitizing so an untrusted Details table can't blow out terminal
+		// width unboundedly.
 		columns := make([]string, len(d.Columns))
 		for i, col := range d.Columns {
-			columns[i] = output.SanitizeControl(col)
+			columns[i] = truncateDetailsCell(output.SanitizeControl(col))
 		}
 		rows := make([][]string, len(d.Rows))
 		for i, row := range d.Rows {
 			sanRow := make([]string, len(row))
 			for j, cell := range row {
-				sanRow[j] = output.SanitizeControl(cell)
+				sanRow[j] = truncateDetailsCell(output.SanitizeControl(cell))
 			}
 			rows[i] = sanRow
 		}

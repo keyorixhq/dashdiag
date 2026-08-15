@@ -153,6 +153,19 @@ func exact(idx map[string]indexEntry, key, level string) bool {
 	return ok && e.level == level
 }
 
+// confirmedNot returns true only when key was actually checked (present in
+// idx) and its level differs from level. Unlike !exact(idx, key, level),
+// this returns false — not true — when the check never ran at all: a check
+// that produced no insight (silent-on-healthy) and a check that was never
+// executed both leave key absent from idx, so "absent" must not be read as
+// "confirmed healthy". internal-analysis-01-03: rules using !exact() as a
+// "this signal is clear" qualifier were firing on unmeasured signals, not
+// just confirmed-clear ones.
+func confirmedNot(idx map[string]indexEntry, key, level string) bool {
+	e, ok := idx[strings.ToLower(key)]
+	return ok && e.level != level
+}
+
 // ── Rules ────────────────────────────────────────────────────────────────────
 //
 // Each rule is a pure function: (index) → (Correlation, fired bool).
@@ -200,11 +213,12 @@ func ruleMemoryCascade(idx map[string]indexEntry) (Correlation, bool) {
 // Required signals:
 //   - Memory CRIT  (RAM at critical level)
 //   - Logs CRIT    (OOM kills recorded)
-//   - Swap NOT CRIT (swap wasn't the pressure valve — it wasn't being hit hard)
+//   - Swap confirmed NOT CRIT (swap was measured and wasn't the pressure
+//     valve — not merely unmeasured)
 func ruleHardOOM(idx map[string]indexEntry) (Correlation, bool) {
 	memCrit := exact(idx, corrCatMemory, "CRIT")
 	logsCrit := exact(idx, corrCatLogs, "CRIT")
-	swapNotCrit := !exact(idx, corrCatSwap, "CRIT")
+	swapNotCrit := confirmedNot(idx, corrCatSwap, "CRIT")
 
 	if !memCrit || !logsCrit || !swapNotCrit {
 		return Correlation{}, false
@@ -579,11 +593,12 @@ func ruleClockSkewTLSAuth(idx map[string]indexEntry) (Correlation, bool) {
 // Required signals:
 //   - Docker CRIT        (a container unhealthy / OOM-killed)
 //   - Cgroup CRIT        (a cgroup at its memory limit)
-//   - Memory NOT CRIT    (the host as a whole has headroom)
+//   - Memory confirmed NOT CRIT (the host was measured and has headroom —
+//     not merely unmeasured)
 func ruleContainerCgroupOOM(idx map[string]indexEntry) (Correlation, bool) {
 	dockerCrit := exact(idx, corrCatDocker, "CRIT")
 	cgroupCrit := exact(idx, "Cgroup", "CRIT")
-	hostMemOK := !exact(idx, corrCatMemory, "CRIT")
+	hostMemOK := confirmedNot(idx, corrCatMemory, "CRIT")
 
 	if !dockerCrit || !cgroupCrit || !hostMemOK {
 		return Correlation{}, false
@@ -633,10 +648,11 @@ func ruleThermalThrottleUnderLoad(idx map[string]indexEntry) (Correlation, bool)
 //
 // Required signals:
 //   - DNS CRIT          (resolution failing)
-//   - Network NOT CRIT  (the link/gateway is up — so it's not connectivity)
+//   - Network confirmed NOT CRIT (the link/gateway was measured and is up —
+//     not merely unmeasured, so it's not connectivity)
 func ruleDNSResolverNotConnectivity(idx map[string]indexEntry) (Correlation, bool) {
 	dnsCrit := exact(idx, "DNS", "CRIT")
-	networkOK := !exact(idx, corrCatNetwork, "CRIT")
+	networkOK := confirmedNot(idx, corrCatNetwork, "CRIT")
 
 	if !dnsCrit || !networkOK {
 		return Correlation{}, false

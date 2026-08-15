@@ -172,7 +172,7 @@ func TestPrintCertifyReport_WithRegressions(t *testing.T) {
 	regressions := []baseline.DiffEntry{{Name: "Disk", Before: "OK 40%", After: "CRIT unresized"}}
 
 	out := captureStdout(t, func() {
-		printCertifyReport(src, dst, certFail, regressions, srcSnap, dstSnap)
+		printCertifyReport(src, dst, certFail, regressions, nil, srcSnap, dstSnap)
 	})
 	if !strings.Contains(out, "FAIL") {
 		t.Errorf("expected the FAIL verdict in the report, got:\n%s", out)
@@ -182,7 +182,7 @@ func TestPrintCertifyReport_WithRegressions(t *testing.T) {
 	}
 
 	clean := captureStdout(t, func() {
-		printCertifyReport(src, dst, certPass, nil, srcSnap, dstSnap)
+		printCertifyReport(src, dst, certPass, nil, nil, srcSnap, dstSnap)
 	})
 	if !strings.Contains(clean, "No regressions") {
 		t.Errorf("no regressions should say so, got:\n%s", clean)
@@ -201,7 +201,7 @@ func TestPrintCertifyReport_SanitizesManifestControlChars(t *testing.T) {
 	dstSnap := &baseline.Snapshot{Hostname: "dst-host", Timestamp: time.Now()}
 
 	out := captureStdout(t, func() {
-		printCertifyReport(src, dst, certPass, nil, srcSnap, dstSnap)
+		printCertifyReport(src, dst, certPass, nil, nil, srcSnap, dstSnap)
 	})
 	if strings.Contains(out, esc) {
 		t.Errorf("printCertifyReport must strip terminal escape sequences from manifest fields, got:\n%q", out)
@@ -218,7 +218,7 @@ func TestEmitCertifyJSON_FailAndWarnRecordExitCode(t *testing.T) {
 
 	pendingExitCode = 0
 	out := captureStdout(t, func() {
-		if err := emitCertifyJSON(src, dst, certFail, regressions); err != nil {
+		if err := emitCertifyJSON(src, dst, certFail, regressions, nil); err != nil {
 			t.Fatalf("emitCertifyJSON: %v", err)
 		}
 	})
@@ -231,7 +231,7 @@ func TestEmitCertifyJSON_FailAndWarnRecordExitCode(t *testing.T) {
 
 	pendingExitCode = 0
 	captureStdout(t, func() {
-		if err := emitCertifyJSON(src, dst, certWarn, regressions); err != nil {
+		if err := emitCertifyJSON(src, dst, certWarn, regressions, nil); err != nil {
 			t.Fatalf("emitCertifyJSON: %v", err)
 		}
 	})

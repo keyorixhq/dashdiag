@@ -32,12 +32,20 @@ type KVMGuestInfo struct {
 	// CPU and cap throughput versus virtio-net.
 	NICDrivers   map[string]string `json:"nic_drivers,omitempty"`   // iface -> driver
 	EmulatedNICs []string          `json:"emulated_nics,omitempty"` // ifaces on emulated drivers
+	// NICDriversChecked is false when /sys/class/net itself couldn't be
+	// enumerated — distinct from a genuine empty NICDrivers (no interfaces
+	// found), which checkKVMGuest would otherwise read identically as
+	// "confirmed fully paravirtual".
+	NICDriversChecked bool `json:"nic_drivers_checked,omitempty"`
 
 	// Disk bus per block device. Paravirtual virtio-blk (vdX) / virtio-scsi are
 	// fast; emulated IDE/SATA (and legacy LSI SCSI) are slow — the single most common
 	// "why is my Proxmox VM slow" cause.
 	DiskBuses     map[string]string `json:"disk_buses,omitempty"`     // dev -> virtio-blk|virtio-scsi|sata|ide|scsi
 	EmulatedDisks []string          `json:"emulated_disks,omitempty"` // disks on an emulated bus
+	// DiskBusesChecked is false when /sys/block itself couldn't be
+	// enumerated — see NICDriversChecked.
+	DiskBusesChecked bool `json:"disk_buses_checked,omitempty"`
 
 	BalloonLoaded bool   `json:"balloon_loaded"`        // virtio_balloon present (host can reclaim memory)
 	Clocksource   string `json:"clocksource,omitempty"` // current_clocksource ("kvm-clock" is the paravirtual one)

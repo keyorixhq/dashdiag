@@ -58,6 +58,14 @@ func (c *KVMGuestCollector) Collect(ctx context.Context) (interface{}, error) {
 	info.QGARunning = kvmQGARunning(ctx)
 
 	// NIC drivers — reuse the shared sysfs walk, classify emulated with the KVM set.
+	// internal-analysis-05-04: collectNICDrivers/collectKVMDiskBuses silently
+	// skip unreadable entries and return (nil, nil) on a total enumeration
+	// failure — the same shape as a guest with zero interfaces/disks, which
+	// checkKVMGuest would otherwise report as confirmed-fully-paravirtual.
+	// A direct readDirEntries check here (independent of collectNICDrivers's
+	// internals) records whether enumeration was even attempted successfully.
+	_, dirErr := readDirEntries("/sys/class/net")
+	info.NICDriversChecked = dirErr == nil
 	drivers, _ := collectNICDrivers("/sys/class/net")
 	info.NICDrivers = drivers
 	for iface, drv := range drivers {
@@ -67,6 +75,8 @@ func (c *KVMGuestCollector) Collect(ctx context.Context) (interface{}, error) {
 	}
 	sort.Strings(info.EmulatedNICs)
 
+	_, blockDirErr := readDirEntries("/sys/block")
+	info.DiskBusesChecked = blockDirErr == nil
 	info.DiskBuses, info.EmulatedDisks = collectKVMDiskBuses("/sys/block")
 
 	info.BalloonLoaded = kernelModulePresent(readFileTrimmedLocal("/proc/modules"), "virtio_balloon")

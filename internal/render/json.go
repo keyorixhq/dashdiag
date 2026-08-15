@@ -33,6 +33,16 @@ type JSONCounts struct {
 	Crit int `json:"crit"`
 	Warn int `json:"warn"`
 	Info int `json:"info"`
+	// Errored is the number of checks[] entries with status "ERROR" (the
+	// collector itself failed to run — r.Err != nil). internal-render-03-04:
+	// Verdict/Crit/Warn/Info are derived purely from insight levels, and a
+	// failed collector typically produces only an INFO-level "couldn't
+	// measure" insight (never raising Verdict), so a machine consumer
+	// branching on Verdict/Counts alone had no way to see that some checks
+	// didn't run at all — the per-check "ERROR" status was only visible by
+	// iterating checks[]. Additive, omitempty: existing consumers validating
+	// against the frozen schema are unaffected when it's zero.
+	Errored int `json:"errored,omitempty"`
 }
 
 type JSONCheck struct {
@@ -145,6 +155,11 @@ func buildOutput(results []runner.Result, insights []models.Insight) JSONOutput 
 	})
 
 	verdict, counts := summarizeInsights(insights)
+	for _, c := range checks {
+		if c.Status == "ERROR" {
+			counts.Errored++
+		}
+	}
 
 	return JSONOutput{
 		Hostname:  hostname,

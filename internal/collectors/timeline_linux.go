@@ -3,6 +3,7 @@
 package collectors
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -232,15 +233,33 @@ func decodeJournalMessage(raw json.RawMessage) string {
 	}
 	// Array-of-bytes form: [104,101,...]. encoding/json maps []byte to base64, so
 	// decode into []int and rebuild the bytes ourselves.
-	var nums []int
-	if err := json.Unmarshal(raw, &nums); err == nil {
-		bs := make([]byte, len(nums))
-		for i, n := range nums {
-			bs[i] = byte(n)
-		}
-		return string(bs)
+	// internal-collectors-33-01: json.Unmarshal(raw, &nums) would allocate a
+	// []int sized to whatever the field claims (~24B/element including decoder
+	// overhead) before truncateMessage ever gets a chance to trim it — a
+	// crafted MESSAGE field near the subprocess output cap could balloon into
+	// several hundred MB from one log line. Decode token-by-token instead and
+	// stop well past what a 140-rune truncated message could ever need.
+	const maxJournalByteArrayLen = 4096
+	dec := json.NewDecoder(bytes.NewReader(raw))
+	tok, err := dec.Token()
+	if err != nil {
+		return ""
 	}
-	return ""
+	if d, ok := tok.(json.Delim); !ok || d != '[' {
+		return ""
+	}
+	bs := make([]byte, 0, maxJournalByteArrayLen)
+	for dec.More() {
+		if len(bs) >= maxJournalByteArrayLen {
+			break
+		}
+		var n int
+		if err := dec.Decode(&n); err != nil {
+			return ""
+		}
+		bs = append(bs, byte(n))
+	}
+	return string(bs)
 }
 
 // truncateMessage caps a message at 140 runes (not bytes) so a multi-byte rune is

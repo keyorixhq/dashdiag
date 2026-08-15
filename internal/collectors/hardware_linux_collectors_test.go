@@ -151,14 +151,19 @@ func TestCollectSMARTDrives_SkipsDashPrefixedDeviceName(t *testing.T) {
 	}
 }
 
+// TestCollectSMARTDrives_ScanUnparseable is the regression test for
+// internal-collectors-14-02: malformed/unparseable smartctl --scan-open
+// JSON is a genuine read/parse failure — smartctl IS installed and ran —
+// distinct from a confirmed zero-devices scan (TestCollectSMARTDrives_NoDevicesFound).
+// It must be disclosed, not silently read as "no drives to check".
 func TestCollectSMARTDrives_ScanUnparseable(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("smartctl", []string{"--scan-open", "--json=c"}, "not json", 0)
 	})
 	info := &models.HardwareInfo{}
 	collectSMARTDrives(context.Background(), info)
-	if len(info.Drives) != 0 {
-		t.Errorf("Drives = %+v, want none when scan JSON is unparseable", info.Drives)
+	if len(info.Drives) != 1 || !info.Drives[0].SmartctlAvailable || info.Drives[0].Error == "" {
+		t.Errorf("Drives = %+v, want one disclosure entry (SmartctlAvailable=true, Error set) when scan JSON is unparseable", info.Drives)
 	}
 }
 

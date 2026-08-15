@@ -30,3 +30,21 @@ func swapLookPath(t *testing.T, fake func(file string) (string, error)) {
 // errNotFound is a stand-in for the "command not found" error exec.Command
 // returns; only its non-nilness matters to the code under test.
 var errNotFound = errors.New("executable file not found in $PATH")
+
+// TestRunCmd_RealSubprocess exercises the actual (unswapped) package-level
+// runCmd against a real subprocess — every other test in this package swaps
+// it out. internal-drilldown-01-07: runCmd's stdout capture went from a
+// plain unbounded bytes.Buffer to source.NewCapWriter(source.MaxCapturedOutput);
+// this confirms that wiring still round-trips real output correctly (the
+// cap's own enforcement at the byte level is proven independently in
+// internal/source/capwriter_test.go — generating tens of MB of subprocess
+// output here to exercise the cap itself would be wasteful).
+func TestRunCmd_RealSubprocess(t *testing.T) {
+	out, err := runCmd(context.Background(), "echo", "-n", "hello-from-real-subprocess")
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if out != "hello-from-real-subprocess" {
+		t.Errorf("runCmd output = %q, want %q", out, "hello-from-real-subprocess")
+	}
+}

@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"strconv"
 	"strings"
 	"testing"
 	"time"
@@ -186,6 +187,33 @@ func TestDecodeJournalMessage(t *testing.T) {
 				t.Errorf("decodeJournalMessage(%s) = %q, want %q", tt.raw, got, tt.want)
 			}
 		})
+	}
+}
+
+// TestDecodeJournalMessage_ByteArrayCapped is the regression test for
+// internal-collectors-33-01: a byte-array MESSAGE field far larger than any
+// truncated display could ever need must not allocate proportionally to its
+// claimed length — decodeJournalMessage must stop at maxJournalByteArrayLen
+// instead of building a []int/[]byte sized to the whole input.
+func TestDecodeJournalMessage_ByteArrayCapped(t *testing.T) {
+	t.Parallel()
+	const n = 200_000 // far past the 4096-element cap
+	var b strings.Builder
+	b.WriteByte('[')
+	for i := range n {
+		if i > 0 {
+			b.WriteByte(',')
+		}
+		b.WriteString(strconv.Itoa('a' + i%26))
+	}
+	b.WriteByte(']')
+
+	got := decodeJournalMessage(json.RawMessage(b.String()))
+	if len(got) != 4096 {
+		t.Errorf("decodeJournalMessage returned %d bytes, want exactly the 4096-element cap", len(got))
+	}
+	if got[:2] != "ab" {
+		t.Errorf("expected the capped result to start with the real leading bytes, got %q", got[:10])
 	}
 }
 

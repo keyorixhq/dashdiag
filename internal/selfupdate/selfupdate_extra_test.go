@@ -222,6 +222,52 @@ func TestFetchBytes_Error(t *testing.T) {
 	}
 }
 
+// TestFetchBytes_SizeCapped is the regression test for internal-selfupdate-01-02:
+// fetchBytes (used for checksums.txt and the .minisig signature) must refuse a
+// response larger than maxAPIResponseBytes rather than buffering it unbounded
+// into memory.
+func TestFetchBytes_SizeCapped(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		chunk := make([]byte, 64*1024)
+		for written := 0; written < maxAPIResponseBytes+len(chunk); written += len(chunk) {
+			if _, err := w.Write(chunk); err != nil {
+				return
+			}
+		}
+	}))
+	defer srv.Close()
+	_, err := fetchBytes(context.Background(), srv.URL)
+	if err == nil {
+		t.Fatal("expected fetchBytes to refuse an oversized response")
+	}
+	if !strings.Contains(err.Error(), "exceeds maximum size") {
+		t.Errorf("expected a size-cap error, got: %v", err)
+	}
+}
+
+// TestLatestRelease_SizeCapped is the same regression for the GitHub releases
+// API JSON path: an oversized body must fail rather than be decoded unbounded.
+func TestLatestRelease_SizeCapped(t *testing.T) {
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.Header().Set("Content-Type", "application/json")
+		fmt.Fprint(w, `{"tag_name":"v9.9.9","assets":[`)
+		filler := strings.Repeat("a", 1024)
+		for written := 0; written < maxAPIResponseBytes+len(filler); written += len(filler) {
+			fmt.Fprintf(w, `{"name":"%s","browser_download_url":"x"},`, filler)
+		}
+		fmt.Fprint(w, `{"name":"end","browser_download_url":"x"}]}`)
+	}))
+	defer srv.Close()
+	origBase := apiBase
+	apiBase = srv.URL
+	defer func() { apiBase = origBase }()
+
+	_, err := LatestRelease(context.Background())
+	if err == nil {
+		t.Fatal("expected LatestRelease to fail decoding an oversized response")
+	}
+}
+
 func TestDownloadToTemp_Errors(t *testing.T) {
 	t.Run("httpGet fails", func(t *testing.T) {
 		srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

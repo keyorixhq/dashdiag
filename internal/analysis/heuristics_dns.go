@@ -20,6 +20,20 @@ func checkDNS(d models.DNSResolverInfo) []models.Insight {
 		return nil
 	}
 
+	if d.ProbeSkipped {
+		// internal-collectors-09-01: the live resolution probe never ran
+		// (DSD_OFFLINE) — ExternalResolvesOK/InternalResolvesOK stay at their
+		// zero value, which every branch below would otherwise misread as
+		// "resolution is failing" and fire a false CRIT/WARN. Disclose
+		// unmeasured and only report the config-shape issues that don't
+		// depend on the live probe result.
+		out = append(out, unverifiedInsight("INFO", "DNS",
+			"DNS resolution probe was skipped (DSD_OFFLINE) — external/internal resolution not verified",
+			[]string{"to verify manually: dig google.com"}))
+		out = append(out, checkDNSConfigOnly(d)...)
+		return out
+	}
+
 	// No nameservers at all AND resolution failing: the resolver is unconfigured and
 	// broken. The Manager!="none" guard below would otherwise suppress this entirely,
 	// so a host with an empty /etc/resolv.conf whose live probe failed produced ZERO
@@ -103,6 +117,31 @@ func checkDNS(d models.DNSResolverInfo) []models.Insight {
 }
 
 func checkDNSQuality(d models.DNSResolverInfo) []models.Insight {
+	out := checkDNSConfigOnly(d)
+	// HasLoopback fires for ANY loopback nameserver that isn't the systemd-resolved
+	// stub (127.0.0.53) — including a perfectly healthy local caching resolver
+	// (dnsmasq, unbound, pdns-recursor, Pi-hole) that detectDNSManager doesn't know
+	// how to name. Gate on resolution actually failing: a config-shape WARN that
+	// contradicts a successful live probe is a false alarm, not a diagnosis. Not
+	// probe-independent, so this stays out of checkDNSConfigOnly (also called from
+	// the ProbeSkipped short-circuit above, where !ExternalResolvesOK is unmeasured
+	// rather than a real failure).
+	if d.HasLoopback && !d.ExternalResolvesOK {
+		out = append(out, insight("WARN", "DNS",
+			"loopback nameserver (127.x.x.x) in /etc/resolv.conf but systemd-resolved is not active — DNS may fail",
+			[]string{
+				"to fix: sudo systemctl enable --now systemd-resolved",
+				"to fix: or replace 127.0.0.1 with a real nameserver IP",
+			},
+		))
+	}
+	return out
+}
+
+// checkDNSConfigOnly reports config-shape DNS issues that don't depend on the
+// live resolution probe's result — safe to run even when the probe was
+// skipped (DSD_OFFLINE).
+func checkDNSConfigOnly(d models.DNSResolverInfo) []models.Insight {
 	var out []models.Insight
 
 	if d.TooManyNameservers {
@@ -112,20 +151,6 @@ func checkDNSQuality(d models.DNSResolverInfo) []models.Insight {
 			[]string{
 				"to fix: remove extra nameservers from /etc/resolv.conf",
 				"note: if managed by NetworkManager, adjust connection DNS settings",
-			},
-		))
-	}
-	// HasLoopback fires for ANY loopback nameserver that isn't the systemd-resolved
-	// stub (127.0.0.53) — including a perfectly healthy local caching resolver
-	// (dnsmasq, unbound, pdns-recursor, Pi-hole) that detectDNSManager doesn't know
-	// how to name. Gate on resolution actually failing: a config-shape WARN that
-	// contradicts a successful live probe is a false alarm, not a diagnosis.
-	if d.HasLoopback && !d.ExternalResolvesOK {
-		out = append(out, insight("WARN", "DNS",
-			"loopback nameserver (127.x.x.x) in /etc/resolv.conf but systemd-resolved is not active — DNS may fail",
-			[]string{
-				"to fix: sudo systemctl enable --now systemd-resolved",
-				"to fix: or replace 127.0.0.1 with a real nameserver IP",
 			},
 		))
 	}

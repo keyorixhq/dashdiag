@@ -75,6 +75,13 @@ func checkHWRaid(d models.HWRaidInfo) []models.Insight {
 			out = append(out, insight("WARN", hwRaidCat,
 				fmt.Sprintf("%s: controller cache battery/capacitor is not healthy (%s) — the controller may have disabled write-back cache (slower writes), and unflushed cache is at risk on power loss", label, c.BBUStatus),
 				[]string{hwRaidInspectPfx + hwRaidInspectHint(d.Tool)}))
+		} else if c.BBUStatusUnreadable {
+			// internal-collectors-16-02: a BBU/CacheVault entry was present
+			// but its state couldn't be read — distinct from no entry at all
+			// (genuinely no battery-backed cache, which stays silent).
+			out = append(out, unverifiedInsight("INFO", hwRaidCat,
+				fmt.Sprintf("%s: cache battery/capacitor state could not be read — health unverified", label),
+				[]string{hwRaidInspectPfx + hwRaidInspectHint(d.Tool)}))
 		}
 	}
 	return out

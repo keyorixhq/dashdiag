@@ -46,6 +46,10 @@
         "info": {
           "type": "integer",
           "description": "Number of INFO-level insights"
+        },
+        "errored": {
+          "type": "integer",
+          "description": "Number of checks[] entries with status \"ERROR\" (the collector itself failed to run) — distinct from the CRIT/WARN/INFO insight tallies above, since a failed collector typically produces only an INFO-level insight and never raises verdict/warn/crit on its own"
         }
       }
     },

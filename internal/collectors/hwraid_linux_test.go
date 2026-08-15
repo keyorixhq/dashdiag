@@ -197,6 +197,34 @@ func TestHWRaidCollector_Collect_ToolInstalledNoControllers(t *testing.T) {
 	}
 }
 
+// TestHWRaidCollector_Collect_SchemaDriftedControllersReadFailed is the
+// regression test for internal-collectors-16-03: the JSON DID list a
+// controller entry (rawCount > 0) but it had no recognizable Success/VD/PD
+// data — a schema-drifted response, not "genuinely no controller card"
+// (which is the rawCount==0 case covered by
+// TestHWRaidCollector_Collect_ToolInstalledNoControllers). Must set
+// ReadFailed, not silently return nil.
+func TestHWRaidCollector_Collect_SchemaDriftedControllersReadFailed(t *testing.T) {
+	withCombinedFixture(t, map[string][]byte{
+		"lookpath/storcli64": []byte("/opt/MegaRAID/storcli/storcli64"),
+	}, nil, func(b *source.Bundle) {
+		b.PutCmd("storcli64", []string{"/cALL", "show", "all", "J"},
+			`{"Controllers":[{"Command Status":{"Status":"Failure"},"Response Data":{}}]}`, 0)
+	})
+	c := NewHWRaidCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info, ok := raw.(*models.HWRaidInfo)
+	if !ok || info == nil {
+		t.Fatalf("Collect() = %v, want a non-nil *models.HWRaidInfo (schema-drifted response must not gate off silently)", raw)
+	}
+	if !info.ReadFailed {
+		t.Error("ReadFailed = false, want true when every controller entry had no recognizable data")
+	}
+}
+
 func TestIsHWRaidPresent(t *testing.T) {
 	t.Run("present", func(t *testing.T) {
 		withCombinedFixture(t, map[string][]byte{
@@ -274,7 +302,7 @@ const storcliHealthyJSON = `{
 }`
 
 func TestParseStorcliDegraded(t *testing.T) {
-	ctrls, ok := parseStorcli(storcliDegradedJSON)
+	ctrls, _, ok := parseStorcli(storcliDegradedJSON)
 	if !ok {
 		t.Fatal("well-formed JSON must parse ok=true")
 	}
@@ -312,7 +340,7 @@ func TestParseStorcliDegraded(t *testing.T) {
 }
 
 func TestParseStorcliHealthy(t *testing.T) {
-	ctrls, ok := parseStorcli(storcliHealthyJSON)
+	ctrls, _, ok := parseStorcli(storcliHealthyJSON)
 	if !ok {
 		t.Fatal("well-formed JSON must parse ok=true")
 	}
@@ -465,7 +493,7 @@ func TestNormalizeStorcliPD_AllStates(t *testing.T) {
 // when BBU_Info is absent, and the "neither present" empty case.
 func TestStorcliBBU_CachevaultFallback(t *testing.T) {
 	t.Run("BBU present takes priority", func(t *testing.T) {
-		state, degraded := storcliBBU([]struct {
+		state, degraded, _ := storcliBBU([]struct {
 			State string `json:"State"`
 		}{{State: "Degraded"}}, []struct {
 			State string `json:"State"`
@@ -475,7 +503,7 @@ func TestStorcliBBU_CachevaultFallback(t *testing.T) {
 		}
 	})
 	t.Run("Cachevault fallback when no BBU", func(t *testing.T) {
-		state, degraded := storcliBBU(nil, []struct {
+		state, degraded, _ := storcliBBU(nil, []struct {
 			State string `json:"State"`
 		}{{State: "Optimal"}})
 		if state != "Optimal" || degraded {
@@ -483,11 +511,28 @@ func TestStorcliBBU_CachevaultFallback(t *testing.T) {
 		}
 	})
 	t.Run("neither present", func(t *testing.T) {
-		state, degraded := storcliBBU(nil, nil)
-		if state != "" || degraded {
-			t.Errorf("state=%q degraded=%v, want empty/false", state, degraded)
+		state, degraded, unreadable := storcliBBU(nil, nil)
+		if state != "" || degraded || unreadable {
+			t.Errorf("state=%q degraded=%v unreadable=%v, want empty/false/false", state, degraded, unreadable)
 		}
 	})
+}
+
+// TestStorcliBBU_PresentButStateUnreadable is the regression test for
+// internal-collectors-16-02: a BBU entry present in the JSON but with an
+// empty State field (schema drift — a renamed key) must be distinguished
+// from no BBU/CacheVault entry at all.
+func TestStorcliBBU_PresentButStateUnreadable(t *testing.T) {
+	t.Parallel()
+	state, degraded, unreadable := storcliBBU([]struct {
+		State string `json:"State"`
+	}{{State: ""}}, nil)
+	if state != "" || degraded {
+		t.Errorf("state=%q degraded=%v, want empty/false", state, degraded)
+	}
+	if !unreadable {
+		t.Error("unreadable = false, want true when a BBU entry is present but its State is empty")
+	}
 }
 
 // TestSsacliModel_NoSlotMarker guards the fallback when a line has no
@@ -583,7 +628,7 @@ func TestApplySsacliPDStatus_AllBranches(t *testing.T) {
 }
 
 func TestParseStorcliGarbageIsEmpty(t *testing.T) {
-	ctrls, ok := parseStorcli("not json at all")
+	ctrls, _, ok := parseStorcli("not json at all")
 	if ctrls != nil {
 		t.Errorf("garbage must parse to nil controllers, got %+v", ctrls)
 	}
@@ -612,7 +657,7 @@ func TestParseStorcliUnresponsiveControllerSkipped(t *testing.T) {
   }
 ]
 }`
-	ctrls, ok := parseStorcli(unresponsive)
+	ctrls, _, ok := parseStorcli(unresponsive)
 	if !ok {
 		t.Fatal("well-formed JSON must parse ok=true")
 	}

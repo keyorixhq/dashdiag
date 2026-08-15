@@ -1,7 +1,6 @@
 package drilldown
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"errors"
@@ -276,12 +275,17 @@ func procComm(procRoot string, pid int) string {
 var runCmd = func(ctx context.Context, name string, args ...string) (string, error) {
 	cmd := exec.CommandContext(ctx, source.ResolveTrustedTool(name), args...)
 	cmd.Env = append(os.Environ(), "LC_ALL=C", "LANG=C")
-	var out bytes.Buffer
-	cmd.Stdout = &out
+	// internal-drilldown-01-07: a plain bytes.Buffer has no size limit — any of
+	// the tools this runs (du, chronyc, timedatectl, aa-status, pgrep, sntp)
+	// writing unbounded stdout would otherwise buffer unbounded in memory
+	// before ctx's timeout ever has a chance to matter. Same cap the
+	// collectors package's shared exec path uses.
+	out := source.NewCapWriter(source.MaxCapturedOutput)
+	cmd.Stdout = out
 	if err := cmd.Run(); err != nil {
 		return "", err
 	}
-	return out.String(), nil
+	return string(out.Bytes()), nil
 }
 
 // lookPath is exec.LookPath as a package var for the same test-swap reason as

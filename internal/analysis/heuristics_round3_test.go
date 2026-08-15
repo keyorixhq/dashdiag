@@ -189,3 +189,34 @@ func TestCheckDNS(t *testing.T) {
 		})
 	}
 }
+
+// TestCheckDNS_ProbeSkippedIsUnverifiedNotCRIT is the regression test for
+// internal-collectors-09-01: when the live resolution probe was skipped
+// (DSD_OFFLINE), ExternalResolvesOK/InternalResolvesOK stay at their zero
+// value — checkDNS must disclose that as unverified, not read it as
+// "resolution is failing" and fire a false CRIT (the same shape as the
+// no-nameservers-and-failing branch above).
+func TestCheckDNS_ProbeSkippedIsUnverifiedNotCRIT(t *testing.T) {
+	got := checkDNS(models.DNSResolverInfo{Available: true, ProbeSkipped: true, Manager: "none"})
+	if !hasInsightMsg(got, "INFO", "probe was skipped") {
+		t.Errorf("expected an unverified INFO disclosure, got %+v", got)
+	}
+	for _, ins := range got {
+		if ins.Level == "CRIT" || ins.Level == "WARN" {
+			t.Errorf("ProbeSkipped must never produce a CRIT/WARN resolution-failure insight, got %+v", got)
+		}
+	}
+}
+
+// TestCheckDNS_ProbeSkippedStillReportsConfigIssues confirms probe-independent
+// config-shape checks (TooManyNameservers) still run when the probe was
+// skipped — only the live-probe-dependent checks are suppressed.
+func TestCheckDNS_ProbeSkippedStillReportsConfigIssues(t *testing.T) {
+	got := checkDNS(models.DNSResolverInfo{
+		Available: true, ProbeSkipped: true,
+		TooManyNameservers: true, Nameservers: []string{"1", "2", "3", "4"},
+	})
+	if !hasInsightMsg(got, "WARN", "libc silently ignores") {
+		t.Errorf("expected the too-many-nameservers WARN to still fire, got %+v", got)
+	}
+}

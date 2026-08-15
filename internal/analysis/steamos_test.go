@@ -64,6 +64,29 @@ func TestCheckSteamOSBadInactiveSlotIsWarn(t *testing.T) {
 	}
 }
 
+// TestCheckSteamOSBadInactiveSlot_UnsafeSlotNameWithheld is the regression
+// test for internal-analysis-09-01: RAUCInactiveSlot is parsed verbatim from
+// `rauc status`'s bootname field with no charset restriction. The "to fix:
+// sudo rauc status mark-good <slot>" hint is a copy-pasteable shell command,
+// so a slot name containing shell metacharacters must never be spliced
+// into it.
+func TestCheckSteamOSBadInactiveSlot_UnsafeSlotNameWithheld(t *testing.T) {
+	info := models.SteamOSInfo{
+		Detected: true, RAUCAvailable: true,
+		RAUCBootedSlot: "A", RAUCBootedStatus: "good",
+		RAUCInactiveSlot: "B; rm -rf ~", RAUCInactiveStatus: "bad",
+		ReadonlyKnown: true, ReadonlyEnabled: true,
+	}
+	got := checkSteamOS(info)
+	for _, ins := range got {
+		for _, h := range ins.Hints {
+			if strings.Contains(h, "rm -rf") {
+				t.Errorf("unsafe slot name was spliced into a copy-pasteable hint: %q", h)
+			}
+		}
+	}
+}
+
 func TestCheckSteamOSReadonlyDisabledIsCrit(t *testing.T) {
 	info := models.SteamOSInfo{Detected: true, ReadonlyKnown: true, ReadonlyEnabled: false}
 	if steamLevels(checkSteamOS(info))["CRIT"] == 0 {

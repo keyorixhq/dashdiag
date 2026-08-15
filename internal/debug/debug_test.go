@@ -91,6 +91,40 @@ func TestLogSanitizesControlChars(t *testing.T) {
 	}
 }
 
+// TestLogTruncatesHugeKVValue is the regression test for internal-debug-01-02:
+// a kv value originating from the diagnosed host (e.g. raw command output
+// embedded as an "err" or "output" kv) must be truncated, not written to
+// stderr in full — --debug must not be able to flood the terminal or grow
+// one line unboundedly just because a probe returned something huge.
+func TestLogTruncatesHugeKVValue(t *testing.T) {
+	ctx := debug.With(context.Background(), true)
+	huge := strings.Repeat("x", 100_000)
+
+	out := captureStderr(t, func() {
+		debug.Log(ctx, "Test", "probe failed", "output", huge)
+	})
+	if len(out) >= len(huge) {
+		t.Errorf("Log output was not truncated: got %d bytes for a %d-byte kv value", len(out), len(huge))
+	}
+	if !strings.Contains(out, "truncated") {
+		t.Errorf("expected a truncation marker in the output, got %d bytes with none", len(out))
+	}
+}
+
+// TestLogfTruncatesHugeMessage is Logf's sibling test for the printf-style
+// entry point.
+func TestLogfTruncatesHugeMessage(t *testing.T) {
+	ctx := debug.With(context.Background(), true)
+	huge := strings.Repeat("y", 100_000)
+
+	out := captureStderr(t, func() {
+		debug.Logf(ctx, "Test", "%s", huge)
+	})
+	if len(out) >= len(huge) {
+		t.Errorf("Logf output was not truncated: got %d bytes for a %d-byte message", len(out), len(huge))
+	}
+}
+
 // TestLogfSanitizesControlChars is Log's sibling test for the printf-style
 // Logf entry point.
 func TestLogfSanitizesControlChars(t *testing.T) {

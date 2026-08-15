@@ -80,11 +80,12 @@ func parseSoftLimit(r io.Reader) int {
 // Takes the entries from the caller's single ReadDir to avoid re-reading.
 func deletedFilesFromEntries(pid string, fds []string) (count int, sizeGB float64) {
 	for _, fd := range fds {
-		target, err := readLink("/proc/" + pid + "/fd/" + fd)
+		fdPath := filepath.Join("/proc", pid, "fd", fd)
+		target, err := readLink(fdPath)
 		if err != nil || !strings.HasSuffix(target, "(deleted)") {
 			continue
 		}
-		fi, err := statFile("/proc/" + pid + "/fd/" + fd)
+		fi, err := statFile(fdPath)
 		if err != nil {
 			count++
 			continue

@@ -45,6 +45,16 @@ func (c *ISCSICollector) Collect(ctx context.Context) (interface{}, error) {
 
 	info.Sessions = parseISCSISessions(out)
 	if len(info.Sessions) == 0 {
+		// internal-collectors-17-02: iscsiadm exited 0 but no recognizable
+		// "Current Portal:"/"iSCSI Session State:" line was found — the same
+		// world-readable sysfs cross-check the error path above already uses
+		// distinguishes "genuinely no sessions" from "sessions exist but this
+		// iscsiadm's output didn't match the expected format" (a locale
+		// change inherited from the invoking environment, or a differently
+		// formatted iscsiadm build).
+		if iscsiSessionDirCount() > 0 {
+			return &models.ISCSIInfo{Available: true, SessionsParseFailed: true}, nil
+		}
 		return nil, nil // initiator present but no active sessions — absent
 	}
 	for _, s := range info.Sessions {

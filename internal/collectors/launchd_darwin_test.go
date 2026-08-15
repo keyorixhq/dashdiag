@@ -4,6 +4,8 @@ package collectors
 
 import (
 	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 const launchctlOutput = `PID	Status	Label
@@ -73,4 +75,50 @@ func TestIsLaunchdNoise(t *testing.T) {
 			t.Errorf("isLaunchdNoise(%q) = true, want false", label)
 		}
 	}
+}
+
+// TestParseLaunchctlList_SpoofedAppleFailureNotSuppressed is the regression
+// test for internal-collectors-18-08: a "com.apple." label with no matching
+// plist under the system launchd directories is a spoofed persistence item,
+// not Apple's own on-demand-daemon noise — it must surface as a real failure,
+// not be silently swallowed by the prefix-based suppression.
+func TestParseLaunchctlList_SpoofedAppleFailureNotSuppressed(t *testing.T) {
+	// No PutStat seeded for either system dir → statFile returns
+	// ErrNotRecorded for both candidate paths, same as "no plist there".
+	withDarwinFixtureSource(t, func(b *source.Bundle) {})
+
+	out := "PID\tStatus\tLabel\n" +
+		"-\t1\tcom.apple.zzclaudetest\n"
+	total, running, failed := parseLaunchctlList(out)
+
+	if total != 1 {
+		t.Errorf("total = %d, want 1 (spoofed entry must count)", total)
+	}
+	if running != 0 {
+		t.Errorf("running = %d, want 0", running)
+	}
+	if len(failed) != 1 || failed[0].Label != "com.apple.zzclaudetest" {
+		t.Errorf("failed = %+v, want [com.apple.zzclaudetest]", failed)
+	}
+}
+
+// TestParseLaunchctlList_GenuineAppleFailureStillSuppressed proves the fix
+// does not regress the common case: a "com.apple." failure whose plist is
+// genuinely present under a system launchd directory stays suppressed noise.
+func TestParseLaunchctlList_GenuineAppleFailureStillSuppressed(t *testing.T) {
+	withDarwinFixtureSource(t, func(b *source.Bundle) {
+		b.PutStat("/System/Library/LaunchAgents/com.apple.realdaemon.plist", source.FileMeta{Size: 1234})
+	})
+
+	out := "PID\tStatus\tLabel\n" +
+		"-\t1\tcom.apple.realdaemon\n"
+	total, running, failed := parseLaunchctlList(out)
+
+	if total != 0 {
+		t.Errorf("total = %d, want 0 (genuine Apple failure stays suppressed)", total)
+	}
+	if len(failed) != 0 {
+		t.Errorf("failed = %+v, want none", failed)
+	}
+	_ = running
 }

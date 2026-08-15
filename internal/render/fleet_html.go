@@ -54,9 +54,57 @@ type FleetIssueRow struct {
 	Sample     string
 }
 
+// maxFleetFieldLen bounds how many runes a single remote-fleet-member string
+// field (Hostname, TopIssue, Sample, Where, Check, ...) contributes to the
+// rendered HTML report. internal-render-01-05: these are populated per
+// remote fleet member with no length cap — html/template already escapes
+// them (no injection risk), but an unbounded value (a compromised or
+// misbehaving remote host self-reporting a huge hostname/issue string)
+// could still bloat the report file and break the table layout.
+const maxFleetFieldLen = 500
+
+func truncateFleetField(s string) string {
+	r := []rune(s)
+	if len(r) <= maxFleetFieldLen {
+		return s
+	}
+	return string(r[:maxFleetFieldLen]) + "…"
+}
+
+// truncateFleetReport returns a copy of report with every per-host/per-issue
+// string field capped at maxFleetFieldLen — see truncateFleetField.
+func truncateFleetReport(report FleetReport) FleetReport {
+	hosts := make([]FleetHostRow, len(report.Hosts))
+	for i, h := range report.Hosts {
+		h.Host = truncateFleetField(h.Host)
+		h.Hostname = truncateFleetField(h.Hostname)
+		h.TopIssue = truncateFleetField(h.TopIssue)
+		hosts[i] = h
+	}
+	report.Hosts = hosts
+
+	issues := make([]FleetIssueRow, len(report.Issues))
+	for i, iss := range report.Issues {
+		iss.Check = truncateFleetField(iss.Check)
+		iss.Where = truncateFleetField(iss.Where)
+		iss.Sample = truncateFleetField(iss.Sample)
+		issues[i] = iss
+	}
+	report.Issues = issues
+
+	consequences := make([]string, len(report.Consequences))
+	for i, c := range report.Consequences {
+		consequences[i] = truncateFleetField(c)
+	}
+	report.Consequences = consequences
+
+	return report
+}
+
 // buildFleetHTML renders the fleet report to an HTML string without writing it to disk.
 // Brand state is applied inside (reads the global brandOverride / env vars).
 func buildFleetHTML(report FleetReport) (string, error) {
+	report = truncateFleetReport(report)
 	if report.Year == 0 {
 		report.Year = time.Now().Year()
 	}

@@ -268,11 +268,13 @@ func TestLoadCommandIndexMissing(t *testing.T) {
 	}
 }
 
-// TestLoadCommandBlobsMissingAreIgnored verifies Load's stdout/stderr blob
-// reads for a command entry use the errors-ignored os.ReadFile pattern (a
-// missing blob file yields empty bytes, not a Load failure) — this documents
-// the actual (lenient) behaviour of that code path.
-func TestLoadCommandBlobsMissingAreIgnored(t *testing.T) {
+// TestLoadCommandBlobsMissingIsRejected is the regression test for
+// internal-source-01-03: a missing command stdout/stderr blob file must fail
+// Load() loudly, the same as the file-blob path (TestLoadFileBlobPathTraversalRejected)
+// — silently substituting empty output would replay as if the command
+// genuinely produced no output, a data-integrity failure masquerading as a
+// clean result.
+func TestLoadCommandBlobsMissingIsRejected(t *testing.T) {
 	t.Parallel()
 
 	dir := t.TempDir()
@@ -298,15 +300,8 @@ func TestLoadCommandBlobsMissingAreIgnored(t *testing.T) {
 	}
 
 	b, err := Load(dir)
-	if err != nil {
-		t.Fatalf("Load should tolerate missing command blob files, got: %v", err)
-	}
-	rec, ok := b.getCmd("ghost-tool", nil)
-	if !ok {
-		t.Fatal("command entry should still be present despite missing blobs")
-	}
-	if len(rec.res.Stdout) != 0 || len(rec.res.Stderr) != 0 {
-		t.Fatalf("expected empty stdout/stderr for missing blobs, got %+v", rec.res)
+	if err == nil {
+		t.Fatalf("Load should reject a missing command blob file, got a bundle: %+v", b)
 	}
 }
 
@@ -361,12 +356,12 @@ func TestLoadFileBlobPathTraversalRejected(t *testing.T) {
 	}
 }
 
-// TestLoadCommandBlobPathTraversalIgnored is the command-blob sibling of
-// TestLoadFileBlobPathTraversalRejected. StdoutBlob/StderrBlob reads are
-// lenient-on-missing by design (TestLoadCommandBlobsMissingAreIgnored), so an
-// escaping path must be treated the same as missing — silently empty — never
-// followed to read the outside file's real content.
-func TestLoadCommandBlobPathTraversalIgnored(t *testing.T) {
+// TestLoadCommandBlobPathTraversalRejected is the command-blob sibling of
+// TestLoadFileBlobPathTraversalRejected (internal-source-01-03): an escaping
+// StdoutBlob/StderrBlob path must be rejected outright, the same as a
+// file-blob traversal — never silently treated as empty, and never followed
+// to read the outside file's real content.
+func TestLoadCommandBlobPathTraversalRejected(t *testing.T) {
 	t.Parallel()
 
 	outside := t.TempDir()
@@ -398,18 +393,8 @@ func TestLoadCommandBlobPathTraversalIgnored(t *testing.T) {
 	}
 
 	b, err := Load(dir)
-	if err != nil {
-		t.Fatalf("Load should tolerate an escaping command blob path (same lenience as missing), got: %v", err)
-	}
-	rec, ok := b.getCmd("ghost-tool", nil)
-	if !ok {
-		t.Fatal("command entry should still be present")
-	}
-	if string(rec.res.Stdout) == "attacker should never see this" || string(rec.res.Stderr) == "attacker should never see this" {
-		t.Fatalf("Load read through the path traversal — got stdout=%q stderr=%q", rec.res.Stdout, rec.res.Stderr)
-	}
-	if len(rec.res.Stdout) != 0 || len(rec.res.Stderr) != 0 {
-		t.Fatalf("expected empty stdout/stderr for an escaping blob path, got %+v", rec.res)
+	if err == nil {
+		t.Fatalf("Load should reject a command blob path that escapes the bundle directory, got a bundle: %+v", b)
 	}
 }
 

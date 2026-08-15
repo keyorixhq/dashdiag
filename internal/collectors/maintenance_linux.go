@@ -354,7 +354,7 @@ func mapsHasDeletedLib(maps string) bool {
 	return false
 }
 
-func (c *ServiceRestartCollector) Collect(_ context.Context) (interface{}, error) {
+func (c *ServiceRestartCollector) Collect(ctx context.Context) (interface{}, error) {
 	if !ServiceRestartAvailable() {
 		return &models.ServiceRestartInfo{}, nil
 	}
@@ -376,6 +376,13 @@ func (c *ServiceRestartCollector) Collect(_ context.Context) (interface{}, error
 	}
 	hidepidRestricted := procVisibilityRestricted(procEntries)
 	for _, mapPath := range mapsFiles {
+		// internal-collectors-20-02: mapsFiles can hold up to maxCappedDirEntries
+		// (200k) paths on a busy host — without a ctx check here, this loop runs
+		// to completion regardless of the caller's cancellation or the collector's
+		// own advertised Timeout(), leaking CPU past both.
+		if err := ctx.Err(); err != nil {
+			break
+		}
 		b, err := readFile(mapPath)
 		if err != nil {
 			if strings.Contains(strings.ToLower(err.Error()), "permission") {

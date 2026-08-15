@@ -14,6 +14,16 @@ import (
 
 const maxUntarFileSize int64 = 100 << 20 // 100 MiB per extracted file
 
+// internal-source-02-03: maxUntarFileSize alone bounds each entry but not the
+// bundle as a whole — a crafted archive with many entries just under the
+// per-file cap could still exhaust disk space on extraction. maxUntarEntries
+// and maxUntarTotalBytes bound the count and running total across the whole
+// archive; a real dsd capture bundle is a few thousand small files at most.
+const (
+	maxUntarEntries    = 200_000
+	maxUntarTotalBytes = 2 << 30 // 2 GiB
+)
+
 // SaveTarball writes the bundle as a gzipped tar in the raw-v1 layout. This is
 // the artifact `dsd capture --raw` hands back: one self-contained file.
 func (b *Bundle) SaveTarball(path string) error {
@@ -106,6 +116,14 @@ func tarGzDir(srcDir, dstPath string) error {
 }
 
 func untarGz(srcPath, dstDir string) error {
+	return untarGzWithLimits(srcPath, dstDir, maxUntarEntries, maxUntarTotalBytes)
+}
+
+// untarGzWithLimits is untarGz's testable core — maxEntries/maxTotalBytes are
+// parameterized so a test can exercise the breadth caps with a handful of
+// tiny entries instead of constructing an archive large enough to hit the
+// real (200k entry / 2GiB) production limits.
+func untarGzWithLimits(srcPath, dstDir string, maxEntries int, maxTotalBytes int64) error {
 	f, err := os.Open(srcPath) // #nosec G304 -- operator-supplied bundle path
 	if err != nil {
 		return err
@@ -117,6 +135,8 @@ func untarGz(srcPath, dstDir string) error {
 	}
 	defer func() { _ = gz.Close() }()
 	tr := tar.NewReader(gz)
+	var entries int
+	var totalBytes int64
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
@@ -127,6 +147,10 @@ func untarGz(srcPath, dstDir string) error {
 		}
 		if hdr.Typeflag != tar.TypeReg {
 			continue
+		}
+		entries++
+		if entries > maxEntries {
+			return fmt.Errorf("archive has more than %d entries — refusing to extract further", maxEntries)
 		}
 		// Guard against path traversal in a crafted archive.
 		clean := filepath.Clean(hdr.Name)
@@ -139,6 +163,9 @@ func untarGz(srcPath, dstDir string) error {
 		}
 		if hdr.Size < 0 || hdr.Size > maxUntarFileSize {
 			return fmt.Errorf("tar entry %q exceeds maximum size (%d bytes)", hdr.Name, maxUntarFileSize)
+		}
+		if totalBytes+hdr.Size > maxTotalBytes {
+			return fmt.Errorf("archive's total extracted size exceeds %d bytes — refusing to extract further", maxTotalBytes)
 		}
 		out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600) // #nosec G304 -- dst is under our temp dir
 		if err != nil {
@@ -153,6 +180,7 @@ func untarGz(srcPath, dstDir string) error {
 			_ = out.Close()
 			return fmt.Errorf("tar entry %q exceeds maximum size (%d bytes)", hdr.Name, maxUntarFileSize)
 		}
+		totalBytes += n
 		if err := out.Close(); err != nil {
 			return err
 		}

@@ -240,14 +240,30 @@ func Load(dir string) (*Bundle, error) {
 	}
 	for _, e := range cidx {
 		rec := cmdRec{res: Result{ExitCode: e.Exit}, absent: e.Absent, errText: e.Err}
+		// internal-source-01-03: mirror the file-blob path above — a
+		// path-traversal attempt or a corrupted/missing blob file must fail
+		// Load() loudly, not silently substitute empty Stdout/Stderr. Replay
+		// exists specifically to reproduce captured command output faithfully;
+		// substituting "" for a genuine read failure would replay as if the
+		// command legitimately produced no output, which many collectors
+		// distinguish from "command not run" — a false signal on top of a
+		// data-integrity failure.
 		if e.StdoutBlob != "" {
-			if p, err := safeBlobJoin(dir, e.StdoutBlob); err == nil {
-				rec.res.Stdout, _ = os.ReadFile(p)
+			p, err := safeBlobJoin(dir, e.StdoutBlob)
+			if err != nil {
+				return nil, err
+			}
+			if rec.res.Stdout, err = os.ReadFile(p); err != nil {
+				return nil, err
 			}
 		}
 		if e.StderrBlob != "" {
-			if p, err := safeBlobJoin(dir, e.StderrBlob); err == nil {
-				rec.res.Stderr, _ = os.ReadFile(p)
+			p, err := safeBlobJoin(dir, e.StderrBlob)
+			if err != nil {
+				return nil, err
+			}
+			if rec.res.Stderr, err = os.ReadFile(p); err != nil {
+				return nil, err
 			}
 		}
 		if len(e.Argv) > 0 {

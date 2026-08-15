@@ -144,10 +144,20 @@ func checkSteamOSUpdate(s models.SteamOSInfo) []models.Insight {
 	}
 	// RAUC inactive slot bad — no rollback safety net.
 	if s.RAUCAvailable && strings.EqualFold(s.RAUCInactiveStatus, "bad") {
+		// internal-analysis-09-01: RAUCInactiveSlot is parsed verbatim from
+		// `rauc status`'s bootname field with no charset restriction — a
+		// compromised/crafted response could carry shell metacharacters. This
+		// hint is a copy-pasteable shell command, so validate before
+		// splicing it in (see looksLikeSafeToken); fall back to a generic,
+		// non-pasteable hint otherwise.
+		fixHint := "to fix: re-image to restore the slot (slot name withheld — contains unexpected characters)"
+		if looksLikeSafeToken(s.RAUCInactiveSlot) {
+			fixHint = fmt.Sprintf("to fix: sudo rauc status mark-good %s", s.RAUCInactiveSlot)
+		}
 		out = append(out, insight("WARN", catSteamOS,
 			fmt.Sprintf("inactive RAUC slot %s has boot status 'bad' — no rollback available if the next update fails", s.RAUCInactiveSlot),
 			[]string{
-				fmt.Sprintf("to fix: sudo rauc status mark-good %s", s.RAUCInactiveSlot),
+				fixHint,
 				"or: re-image to restore the slot",
 			},
 		))

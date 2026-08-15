@@ -238,6 +238,36 @@ func TestRunDNSProbeLive_CanceledContext(t *testing.T) {
 	}
 }
 
+// TestRunDNSProbe_DSD_OFFLINE_SkipsLiveLookup is the regression test for
+// internal-collectors-09-01: runDNSProbe used to unconditionally resolve
+// google.com (and the host's own hostname) with no opt-out, unlike every
+// other live network probe in the codebase. With DSD_OFFLINE set, it must
+// set ProbeSkipped and return without ever reaching cachedJSON("dns/resolve-
+// probe", ...) — proven by recording every Cached() key requested rather
+// than by inspecting resolution fields (which would require an actual
+// network lookup on a fix-reverted build).
+func TestRunDNSProbe_DSD_OFFLINE_SkipsLiveLookup(t *testing.T) {
+	t.Setenv("DSD_OFFLINE", "1")
+	var calls []string
+	prev := SetSource(recordingCacheSource{Replay: source.NewReplay(source.NewBundle()), calls: &calls})
+	defer SetSource(prev)
+
+	info := &models.DNSResolverInfo{}
+	runDNSProbe(context.Background(), info)
+
+	if !info.ProbeSkipped {
+		t.Error("expected ProbeSkipped=true when DSD_OFFLINE is set")
+	}
+	if info.ExternalResolvesOK || info.InternalResolvesOK {
+		t.Errorf("expected no resolution result when skipped, got %+v", info)
+	}
+	for _, k := range calls {
+		if k == "dns/resolve-probe" {
+			t.Fatal(`cachedJSON("dns/resolve-probe", ...) was called despite DSD_OFFLINE — the live lookup path was reached`)
+		}
+	}
+}
+
 func TestParseResolvConf(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutFile("/etc/resolv.conf", []byte(

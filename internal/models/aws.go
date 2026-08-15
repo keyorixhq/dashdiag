@@ -25,6 +25,13 @@ type AWSInfo struct {
 	EBSReadAttempted bool       `json:"ebs_read_attempted"`        // an EBS NVMe device was found and we tried to read its stats
 	EBSNeedsRoot     bool       `json:"ebs_needs_root,omitempty"`  // the vendor log-page read failed and we are non-root (couldn't measure)
 	EBSReadFailed    bool       `json:"ebs_read_failed,omitempty"` // read failed as root, or returned a value we won't trust (no magic)
+	// EBSDeltaReadFailed is true when the SECOND (delta) sample's read
+	// failed after a successful first read — distinct from EBSReadFailed
+	// (the first read). internal-collectors-02-01: without this, a failed
+	// second read silently produced a zero-value snapshot, and subSat's
+	// saturating subtraction turned that into a false zero "not currently
+	// throttled" delta instead of an honest "couldn't verify".
+	EBSDeltaReadFailed bool `json:"ebs_delta_read_failed,omitempty"`
 
 	// A second snapshot was taken ~1s after the first (only when a first-pass
 	// counter was non-zero, and never under replay) so a live, *active* throttle can

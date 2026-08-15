@@ -81,10 +81,11 @@ func (c *HWRaidCollector) Collect(ctx context.Context) (interface{}, error) {
 		return info, nil
 	}
 
+	rawCount := -1 // -1 (ssacli family) means "not applicable", never compared below
 	if family {
 		info.Controllers = parseSsacli(out)
 	} else {
-		ctrls, ok := parseStorcli(out)
+		ctrls, n, ok := parseStorcli(out)
 		if !ok {
 			// The command ran and returned data, but it wasn't the JSON shape we
 			// expect (truncated output, unexpected storcli/perccli version schema).
@@ -93,11 +94,20 @@ func (c *HWRaidCollector) Collect(ctx context.Context) (interface{}, error) {
 			return info, nil
 		}
 		info.Controllers = ctrls
+		rawCount = n
 	}
 
 	// Tool installed but no controller responded (e.g. "No Controller found", or the
 	// box has the CLI but no card). Gate off — nothing to report.
 	if len(info.Controllers) == 0 {
+		// internal-collectors-16-03: rawCount > 0 means the JSON DID list
+		// controller entries, just none with data our struct recognized — a
+		// schema-drift read failure, not "genuinely no card installed"
+		// (which is rawCount == 0, the only case that stays silent).
+		if rawCount > 0 {
+			info.Available, info.ReadFailed = true, true
+			return info, nil
+		}
 		return nil, nil
 	}
 	info.Available = true
@@ -142,12 +152,19 @@ type storcliPD struct {
 // The second return is false only when the output couldn't be parsed as the
 // expected JSON shape at all (truncated/garbled/unrecognized schema) — distinct
 // from a well-formed response that legitimately lists zero controllers.
-func parseStorcli(out string) ([]models.HWRaidController, bool) {
+// parseStorcli returns (controllers, rawCount, ok). ok is false only on a
+// JSON unmarshal error. rawCount is len(doc.Controllers) BEFORE filtering out
+// no-data entries — internal-collectors-16-03: rawCount > 0 but len(ctrls)==0
+// means every controller entry existed in the JSON but had no recognizable
+// CommandStatus/VDList/PDList data, the signature of a schema-drifted
+// response (a renamed JSON key this struct doesn't map), not "no controller
+// card installed" (which is rawCount == 0).
+func parseStorcli(out string) (ctrls []models.HWRaidController, rawCount int, ok bool) {
 	var doc storcliOutput
 	if err := json.Unmarshal([]byte(out), &doc); err != nil {
-		return nil, false
+		return nil, 0, false
 	}
-	var ctrls []models.HWRaidController
+	rawCount = len(doc.Controllers)
 	for _, c := range doc.Controllers {
 		// A controller that failed to respond (no card at that index) carries no data.
 		if !strings.EqualFold(c.CommandStatus.Status, "Success") &&
@@ -165,10 +182,10 @@ func parseStorcli(out string) ([]models.HWRaidController, bool) {
 		for _, pd := range c.ResponseData.PDList {
 			ctrl.PhysicalDrives = append(ctrl.PhysicalDrives, normalizeStorcliPD(pd))
 		}
-		ctrl.BBUStatus, ctrl.BBUDegraded = storcliBBU(c.ResponseData.BBUInfo, c.ResponseData.CachevaultInfo)
+		ctrl.BBUStatus, ctrl.BBUDegraded, ctrl.BBUStatusUnreadable = storcliBBU(c.ResponseData.BBUInfo, c.ResponseData.CachevaultInfo)
 		ctrls = append(ctrls, ctrl)
 	}
-	return ctrls, true
+	return ctrls, rawCount, true
 }
 
 // normalizeStorcliVD maps storcli's abbreviated VD states. Optl=Optimal, Dgrd=Degraded,
@@ -213,20 +230,28 @@ func normalizeStorcliPD(pd storcliPD) models.HWRaidPD {
 	return out
 }
 
+// storcliBBU returns (state, degraded, unreadable). unreadable is true only
+// when a BBU/CacheVault entry IS present but its State field came back empty
+// (internal-collectors-16-02: a schema-drifted storcli/perccli JSON, or a
+// truncated response) — distinct from state=="" because no battery/cachevault
+// info array had any entry at all, which is a genuinely healthy "no
+// battery-backed cache fitted" case and stays silent.
 func storcliBBU(bbu, cv []struct {
 	State string `json:"State"`
-}) (string, bool) {
-	state := ""
-	if len(bbu) > 0 {
+}) (state string, degraded, unreadable bool) {
+	switch {
+	case len(bbu) > 0:
 		state = bbu[0].State
-	} else if len(cv) > 0 {
+	case len(cv) > 0:
 		state = cv[0].State
+	default:
+		return "", false, false
 	}
 	if state == "" {
-		return "", false
+		return "", false, true
 	}
 	// hwrStatOptimal is the healthy state for both BBU and CacheVault.
-	return state, !strings.EqualFold(strings.TrimSpace(state), hwrStatOptimal)
+	return state, !strings.EqualFold(strings.TrimSpace(state), hwrStatOptimal), false
 }
 
 // ── ssacli / hpssacli (HPE Smart Array) — structured text ─────────────────────

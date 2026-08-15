@@ -100,6 +100,7 @@ var guardedUnverifiedSignals = map[string]string{
 	// Cloud / virt / other — heuristic folds the unmeasured state to INFO/WARN.
 	"AWSInfo.EBSNeedsRoot":              "analysis/heuristics_aws_test.go (non-root EBS read → INFO)",
 	"AWSInfo.EBSReadFailed":             "analysis/heuristics_aws_test.go (sibling of EBSNeedsRoot)",
+	"AWSInfo.EBSDeltaReadFailed":        "analysis/heuristics_gapfill7_test.go TestCheckAWS_EBSDeltaReadFailed (internal-collectors-02-01: a failed second-sample read must not silently compute a false zero 'not currently throttled' delta)",
 	"KVMInfo.VMsUnreadable":             "collectors/kvm_pve_test.go + analysis/heuristics_round4_test.go",
 	"GPUDevice.Unreadable":              "analysis (gpu all-zero/unreadable → not OK); see memory gpu-allzero-falseok-deferred",
 	"NFSMount.ServerReachable":          "analysis (NFS reachability heuristic, net deep)",
@@ -153,8 +154,9 @@ var guardedUnverifiedSignals = map[string]string{
 		"(unverifiedInsight sites carry Unverified through to the Insight)",
 
 	// Hardware RAID controller CLIs are root-only; unread output must never read healthy.
-	"HWRaidInfo.NeedsRoot":  "analysis/heuristics_hwraid_test.go (TestCheckHWRaidHonestDegradation: controller CLI root-gated → INFO 're-run as root', never a clean OK or WARN/CRIT over unread state)",
-	"HWRaidInfo.ReadFailed": "analysis/heuristics_hwraid_test.go (TestCheckHWRaidHonestDegradation: CLI output unparseable → INFO 'treat as UNVERIFIED, not healthy')",
+	"HWRaidInfo.NeedsRoot":                 "analysis/heuristics_hwraid_test.go (TestCheckHWRaidHonestDegradation: controller CLI root-gated → INFO 're-run as root', never a clean OK or WARN/CRIT over unread state)",
+	"HWRaidInfo.ReadFailed":                "analysis/heuristics_hwraid_test.go (TestCheckHWRaidHonestDegradation: CLI output unparseable → INFO 'treat as UNVERIFIED, not healthy')",
+	"HWRaidController.BBUStatusUnreadable": "analysis/heuristics_hwraid_test.go TestCheckHWRaid_BBUStatusUnreadable (internal-collectors-16-02: a BBU/CacheVault entry present but its state field unreadable (schema drift) → INFO, distinct from no BBU fitted which stays silent)",
 
 	// /proc/<pid>/io is gated to the owning user; a non-root sample can miss the
 	// true top I/O consumer entirely.
@@ -225,6 +227,9 @@ var guardedUnverifiedSignals = map[string]string{
 	"PostBootInfo.PanicChecked":             "analysis/heuristics_postboot.go postBootFindings (FIXED: same fix as OOMChecked, for the panic sub-call)",
 	"OOMInfo.EventsCountUnverified":         "analysis/heuristics_system.go checkOOM (FIXED: a scanner error mid-parse now emits an explicit INFO instead of silently under-counting)",
 	"VMwareInfo.SCSIDisksChecked":           "analysis/heuristics (gated; no sd* disks on an NVMe-only guest is normal)",
+	"VMwareInfo.ToolsRunningVerified":       "analysis/heuristics_vmware_test.go TestCheckVMware_ToolsRunningUnverified (internal-collectors-34-03: ToolsRunning=true from a /proc/*/comm process-name match only, not confirmed via systemd → INFO, spoofable signal disclosed rather than treated as authoritative)",
+	"KVMGuestInfo.NICDriversChecked":        "analysis/checks_never_silent_test.go (checkKVMGuest row) + heuristics_kvmguest_test.go TestCheckKVMGuest_NICDiskEnumerationUnchecked (internal-analysis-05-04: /sys/class/net unreadable → INFO, not folded into the same silence as a fully paravirtual guest)",
+	"KVMGuestInfo.DiskBusesChecked":         "analysis/checks_never_silent_test.go (checkKVMGuest row) + heuristics_kvmguest_test.go TestCheckKVMGuest_NICDiskEnumerationUnchecked (internal-analysis-05-04: /sys/block unreadable → INFO, not folded into the same silence as a fully paravirtual guest)",
 	"SteamOSRemotePlay.ARPChecked":          "internal only (json:\"-\", not part of the --json contract); analysis gates on it before firing the isolation-suspected insight",
 	"SessionsInfo.Checked":                  "analysis/heuristics_system.go checkSessions (FIXED: `w` unavailable now emits an explicit INFO, not a silent skip indistinguishable from 'nobody logged in')",
 	"LaunchdInfo.Checked":                   "analysis/checks_never_silent_test.go (checkLaunchd row) + heuristics_round6_test.go TestCheckLaunchd_NotChecked (FIXED: launchctl list failure now emits an explicit INFO, not a silent 'checked, zero failures')",

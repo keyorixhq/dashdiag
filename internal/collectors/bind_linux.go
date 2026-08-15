@@ -220,11 +220,22 @@ type namedZone struct {
 	file string
 }
 
+// bindMaxIncludeFiles bounds the total number of files bindParseZoneFile will
+// open across an entire named.conf include tree — internal-collectors-03-04:
+// the depth cap (5) only bounds how deep a single include chain can go, not
+// how many sibling `include` directives a single file may list. A file with
+// many include lines pointing at files that themselves have 0 zones (so the
+// len(zones)>=20 early-exit never fires) could otherwise drive an unbounded
+// number of file opens within the depth-5 ceiling.
+const bindMaxIncludeFiles = 100
+
 // bindParseZones reads named.conf and extracts zone name + file pairs.
 // Only parses primary/master zones with explicit file directives.
-// Follows include directives. Capped at 20 zones.
+// Follows include directives. Capped at 20 zones or bindMaxIncludeFiles
+// opened files, whichever comes first.
 func bindParseZones(configFile string) []namedZone {
-	zones := bindParseZoneFile(configFile, 0)
+	opened := 0
+	zones := bindParseZoneFile(configFile, 0, &opened)
 	return zones
 }
 
@@ -289,10 +300,16 @@ func resolveZoneFilePath(path string) string {
 }
 
 // bindParseZoneFile parses a single named config file for zones and includes.
-func bindParseZoneFile(filePath string, depth int) []namedZone {
+// opened is a shared counter (across the whole recursion tree, via the same
+// pointer) bounding total files opened at bindMaxIncludeFiles.
+func bindParseZoneFile(filePath string, depth int, opened *int) []namedZone {
 	if depth > 5 {
 		return nil // guard against circular includes
 	}
+	if *opened >= bindMaxIncludeFiles {
+		return nil
+	}
+	*opened++
 	f, err := openFile(filePath) // #nosec G304
 	if err != nil {
 		return nil
@@ -323,8 +340,8 @@ func bindParseZoneFile(filePath string, depth int) []namedZone {
 		// Follow include directives
 		if strings.HasPrefix(line, "include ") {
 			if inc, ok := extractQuoted(line); ok {
-				zones = append(zones, bindParseZoneFile(inc, depth+1)...)
-				if len(zones) >= 20 {
+				zones = append(zones, bindParseZoneFile(inc, depth+1, opened)...)
+				if len(zones) >= 20 || *opened >= bindMaxIncludeFiles {
 					return zones
 				}
 			}

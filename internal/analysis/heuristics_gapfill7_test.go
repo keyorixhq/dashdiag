@@ -17,6 +17,18 @@ func TestCheckAWS_EBSReadFailed(t *testing.T) {
 	}
 }
 
+// TestCheckAWS_EBSDeltaReadFailed is the regression test for
+// internal-collectors-02-01: a successful first EBS read followed by a
+// failed second (delta) read must disclose that the "currently throttled"
+// verdict is unverified, not silently read as a clean zero delta.
+func TestCheckAWS_EBSDeltaReadFailed(t *testing.T) {
+	t.Parallel()
+	got := checkAWS(models.AWSInfo{IsEC2: true, EBSReadAttempted: true, EBSDeltaReadFailed: true})
+	if !hasInsightMsg(got, "INFO", "follow-up sample failed") {
+		t.Errorf("EBSDeltaReadFailed must produce an explicit INFO, got %+v", got)
+	}
+}
+
 // TestCheckRabbitMQ_BothAlarms covers the `r.MemoryAlarm && r.DiskAlarm`
 // switch case inside checkRabbitMQ — both watermarks breached simultaneously.
 func TestCheckRabbitMQ_BothAlarms(t *testing.T) {

@@ -106,6 +106,10 @@ func awsEBSInsights(a models.AWSInfo) []models.Insight {
 		out = append(out, unverifiedInsight("INFO", "AWS",
 			"could not read EBS performance stats (nvme get-log on an EBS device failed or returned no EBS data) — EBS throttling NOT verified",
 			[]string{"to inspect: nvme get-log /dev/nvme0n1 --log-id=0xd0 --log-len=4096 --raw-binary | xxd | head"}))
+	case a.EBSDeltaReadFailed:
+		out = append(out, unverifiedInsight("INFO", "AWS",
+			"EBS performance stats read once but the follow-up sample failed — whether this device is being throttled RIGHT NOW is NOT verified (historical totals below are still accurate)",
+			[]string{"to inspect: nvme get-log /dev/nvme0n1 --log-id=0xd0 --log-len=4096 --raw-binary | xxd | head"}))
 	}
 	for _, d := range a.EBS {
 		out = append(out, ebsThrottleInsight(d.Device, "volume IOPS",

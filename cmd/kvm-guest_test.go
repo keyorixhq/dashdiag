@@ -112,8 +112,9 @@ func TestPrintKVMGuestReport_Healthy(t *testing.T) {
 	clean := &models.KVMGuestInfo{
 		IsGuest: true, ProductName: "Standard PC (Q35 + ICH9, 2009)",
 		QGAChannelPresent: true, QGAInstalled: true, QGARunning: true,
-		NICDrivers:  map[string]string{"eth0": "virtio_net"},
-		DiskBuses:   map[string]string{"sda": "virtio-scsi"},
+		NICDrivers:        map[string]string{"eth0": "virtio_net"},
+		DiskBuses:         map[string]string{"sda": "virtio-scsi"},
+		NICDriversChecked: true, DiskBusesChecked: true,
 		Clocksource: "kvm-clock", BalloonLoaded: true,
 	}
 	var buf bytes.Buffer

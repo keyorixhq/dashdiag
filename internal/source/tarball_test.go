@@ -3,8 +3,10 @@ package source
 import (
 	"archive/tar"
 	"compress/gzip"
+	"fmt"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -208,6 +210,49 @@ func TestTarGzDirReadFileFailure(t *testing.T) {
 
 // TestUntarGzSkipsNonRegularEntries verifies untarGz skips tar entries that
 // are not regular files (e.g. a directory header written explicitly).
+// TestUntarGzWithLimits_EntryCountCapped is the regression test for
+// internal-source-02-03: maxUntarFileSize alone bounds each entry but not
+// how many entries an archive may contain. A crafted archive with many
+// small entries must still be refused once the entry-count cap is reached.
+func TestUntarGzWithLimits_EntryCountCapped(t *testing.T) {
+	t.Parallel()
+	files := make(map[string]string, 5)
+	for i := range 5 {
+		files[fmt.Sprintf("f%d.txt", i)] = "x"
+	}
+	src := writeTestTarball(t, files)
+
+	if err := untarGzWithLimits(src, t.TempDir(), 3, maxUntarTotalBytes); err == nil {
+		t.Fatal("expected an error when the archive exceeds the entry-count cap")
+	}
+	// Below the cap: same archive succeeds.
+	if err := untarGzWithLimits(src, t.TempDir(), 10, maxUntarTotalBytes); err != nil {
+		t.Errorf("unexpected error under the entry-count cap: %v", err)
+	}
+}
+
+// TestUntarGzWithLimits_TotalBytesCapped is the regression test for
+// internal-source-02-03's total-size half: several entries, each within the
+// per-file cap, whose combined size exceeds the archive-wide total must be
+// refused rather than extracted in full.
+func TestUntarGzWithLimits_TotalBytesCapped(t *testing.T) {
+	t.Parallel()
+	files := map[string]string{
+		"a.txt": strings.Repeat("a", 100),
+		"b.txt": strings.Repeat("b", 100),
+		"c.txt": strings.Repeat("c", 100),
+	}
+	src := writeTestTarball(t, files)
+
+	if err := untarGzWithLimits(src, t.TempDir(), maxUntarEntries, 250); err == nil {
+		t.Fatal("expected an error when the archive exceeds the total-bytes cap")
+	}
+	// Below the cap: same archive succeeds.
+	if err := untarGzWithLimits(src, t.TempDir(), maxUntarEntries, 1000); err != nil {
+		t.Errorf("unexpected error under the total-bytes cap: %v", err)
+	}
+}
+
 func TestUntarGzSkipsNonRegularEntries(t *testing.T) {
 	t.Parallel()
 

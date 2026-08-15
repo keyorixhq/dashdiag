@@ -50,7 +50,17 @@ func PrometheusMetrics(results []runner.Result, insights []models.Insight) strin
 	b.WriteString("# HELP dsd_check_status Per-subsystem health (0=OK, 1=WARN, 2=CRIT).\n")
 	b.WriteString("# TYPE dsd_check_status gauge\n")
 	for _, res := range sortedResults(results) {
-		if !runner.IsAvailable(res.Data) {
+		// internal-runner-01-01: IsAvailable(nil) can't tell "genuinely not
+		// applicable on this host" from "the collector failed/timed out"
+		// (runner.RunAll synthesizes a nil-Data timeout Result on error) —
+		// both leave Data nil. ApplyThresholds already converts every
+		// r.Err != nil into an INFO insight unconditionally, so (matching the
+		// same guard shouldHideRow/BuildSnapshot already use) only treat a
+		// check as absent when there's ALSO no insight for it — a failed
+		// collector must keep its series present (this file's own invariant:
+		// "a check flipping OK→WARN is a value change, not a series
+		// appearing/disappearing" applies just as much to running→failed).
+		if !runner.IsAvailable(res.Data) && insightForResult(res.Name, insights) == nil {
 			continue // absent collector — not "OK", just not present here
 		}
 		fmt.Fprintf(&b, "dsd_check_status{check=%q} %d\n", promLabel(res.Name), worstByCheck[res.Name])

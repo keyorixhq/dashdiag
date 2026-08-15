@@ -725,7 +725,7 @@ func TestIsVMwareGuest_TableCases(t *testing.T) {
 // TestParseStorcli_BadJSON covers line 147 (unmarshal error → nil, false).
 func TestParseStorcli_BadJSON(t *testing.T) {
 	t.Parallel()
-	ctrls, ok := parseStorcli("not json")
+	ctrls, _, ok := parseStorcli("not json")
 	if ok {
 		t.Error("bad JSON must return ok=false")
 	}
@@ -738,7 +738,7 @@ func TestParseStorcli_BadJSON(t *testing.T) {
 func TestParseStorcli_EmptyControllers(t *testing.T) {
 	t.Parallel()
 	const empty = `{"Controllers":[]}`
-	ctrls, ok := parseStorcli(empty)
+	ctrls, _, ok := parseStorcli(empty)
 	if !ok {
 		t.Error("valid empty JSON must return ok=true")
 	}
@@ -812,7 +812,7 @@ func TestNormalizeStorcliVD(t *testing.T) {
 // explicit no-BBU and failed-state cases).
 func TestStorcliBBU_NoBBU(t *testing.T) {
 	t.Parallel()
-	state, degraded := storcliBBU(nil, nil)
+	state, degraded, _ := storcliBBU(nil, nil)
 	if state != "" || degraded {
 		t.Errorf("no BBU: state=%q degraded=%v, want empty/false", state, degraded)
 	}
@@ -824,7 +824,7 @@ func TestStorcliBBU_FailedState(t *testing.T) {
 	// we can't call storcliBBU directly with a typed slice because the parameter
 	// type includes a json tag. Exercise via parseStorcli with a failed BBU entry.
 	const doc = `{"Controllers":[{"Command Status":{"Controller":0,"Status":"Success"},"Response Data":{"Product Name":"MegaRAID SAS 9361","VD LIST":[],"PD LIST":[],"BBU_Info":[{"State":"Failed"}]}}]}`
-	ctrls, ok := parseStorcli(doc)
+	ctrls, _, ok := parseStorcli(doc)
 	if !ok {
 		t.Fatal("parseStorcli must succeed for valid JSON")
 	}
