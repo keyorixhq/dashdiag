@@ -12,7 +12,9 @@ const (
 	inspectVMStat    = "to inspect: vmstat 1 5"
 	inspectIOStat    = "to inspect: iostat -x 1 5"
 	inspectPsMemHead = "to inspect: ps aux --sort=-%mem | head -10"
+	inspectPsCPUHead = "to inspect: ps aux --sort=-%cpu | head -10"
 	inspectIotop     = "to inspect: iotop -ao"
+	catCPULoadRunQ   = "CPU Load/RunQueue"
 )
 
 func checkCPU(cpu models.CPUInfo, thresh Thresholds, ctrCtx platform.ContainerContext) []models.Insight {
@@ -56,7 +58,7 @@ func checkCPU(cpu models.CPUInfo, thresh Thresholds, ctrCtx platform.ContainerCo
 			}
 			out = append(out, insight(l, corrCatCPULoad,
 				msg,
-				[]string{"to inspect: uptime", "to inspect: ps aux --sort=-%cpu | head -10", "to inspect: top -b -n1 | head -25"},
+				[]string{"to inspect: uptime", inspectPsCPUHead, "to inspect: top -b -n1 | head -25"},
 			))
 		default:
 			// internal-analysis-07-02: checkPct crossed a WARN/CRIT threshold
@@ -70,7 +72,7 @@ func checkCPU(cpu models.CPUInfo, thresh Thresholds, ctrCtx platform.ContainerCo
 			// at all.
 			out = append(out, unverifiedInsight("INFO", corrCatCPULoad,
 				fmt.Sprintf("%.0f%% CPU (user+sys) momentarily — could not corroborate against the 1-min load average (may be a transient spike, including dsd's own collectors, or a genuine short burst)", cpu.UsagePct),
-				[]string{"to inspect: uptime", "to inspect: ps aux --sort=-%cpu | head -10"},
+				[]string{"to inspect: uptime", inspectPsCPUHead},
 			))
 		}
 	}
@@ -137,13 +139,13 @@ func checkCPU(cpu models.CPUInfo, thresh Thresholds, ctrCtx platform.ContainerCo
 		cpuLabel := pluralize(cpu.NumCPU, "CPU", "CPUs")
 		switch {
 		case cpu.RunQueue >= 4*cpu.NumCPU && loadPct >= 200:
-			out = append(out, insight("CRIT", "CPU Load/RunQueue",
+			out = append(out, insight("CRIT", catCPULoadRunQ,
 				fmt.Sprintf("%d runnable tasks on %s — run queue is ~%d× saturated, tasks are waiting for CPU",
 					cpu.RunQueue, cpuLabel, cpu.RunQueue/cpu.NumCPU),
 				runQueueHints(cpu),
 			))
 		case cpu.RunQueue >= 2*cpu.NumCPU && loadPct >= 100:
-			out = append(out, insight("WARN", "CPU Load/RunQueue",
+			out = append(out, insight("WARN", catCPULoadRunQ,
 				fmt.Sprintf("%d runnable tasks on %s — more tasks ready to run than cores available",
 					cpu.RunQueue, cpuLabel),
 				runQueueHints(cpu),
@@ -154,7 +156,7 @@ func checkCPU(cpu models.CPUInfo, thresh Thresholds, ctrCtx platform.ContainerCo
 			// matching tier — the same "could be dsd's own parallel
 			// collectors" ambiguity the corroboration gate above exists for.
 			// Disclose rather than silently drop it with no trace.
-			out = append(out, unverifiedInsight("INFO", "CPU Load/RunQueue",
+			out = append(out, unverifiedInsight("INFO", catCPULoadRunQ,
 				fmt.Sprintf("%d runnable tasks on %s momentarily — could not corroborate against the 1-min load average", cpu.RunQueue, cpuLabel),
 				runQueueHints(cpu),
 			))
@@ -373,7 +375,7 @@ func checkHealthDeep(d models.HealthDeepInfo) []models.Insight {
 				hotCore, d.MaxCorePct, d.MinCorePct),
 			[]string{
 				"to inspect: mpstat -P ALL 1 3",
-				"to inspect: ps aux --sort=-%cpu | head -10",
+				inspectPsCPUHead,
 			},
 		))
 	} else if d.MaxCorePct >= 95 && len(d.Cores) > 1 && healthDeepLoadCorroborates(d) {

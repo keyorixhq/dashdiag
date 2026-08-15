@@ -8,10 +8,11 @@ import (
 )
 
 const (
-	pveCatPVE          = "PVE"
-	inspectPVETasks    = "to inspect: pvesh get /nodes/localhost/tasks --typefilter vzdump"
-	inspectPVECMStatus = "to inspect: pvecm status"
-	inspectPVESMStatus = "to inspect: pvesm status"
+	pveCatPVE              = "PVE"
+	inspectPVETasks        = "to inspect: pvesh get /nodes/localhost/tasks --typefilter vzdump"
+	inspectPVECMStatus     = "to inspect: pvecm status"
+	inspectPVESMStatus     = "to inspect: pvesm status"
+	inspectPVESubscription = "to inspect: pvesh get /nodes/localhost/subscription"
 )
 
 // checkPVE surfaces Proxmox VE host health issues.
@@ -107,7 +108,7 @@ func checkPVESubscription(p models.PVEInfo) []models.Insight {
 			"Proxmox VE subscription has EXPIRED — no access to security updates",
 			[]string{
 				"to renew: https://www.proxmox.com/en/proxmox-ve/pricing",
-				"to inspect: pvesh get /nodes/localhost/subscription",
+				inspectPVESubscription,
 			},
 		)}
 	case "unverified":
@@ -116,7 +117,7 @@ func checkPVESubscription(p models.PVEInfo) []models.Insight {
 		return []models.Insight{unverifiedInsight("INFO", pveCatPVE,
 			"Proxmox VE subscription configured but live status could NOT be verified (pvesh failed)",
 			[]string{
-				"to inspect: pvesh get /nodes/localhost/subscription",
+				inspectPVESubscription,
 				"note: an expired subscription leaves the auth file in place, so presence alone is not proof of an active subscription",
 			},
 		)}
@@ -135,7 +136,7 @@ func checkPVESubscription(p models.PVEInfo) []models.Insight {
 	// did — disclose it instead.
 	return []models.Insight{unverifiedInsight("INFO", pveCatPVE,
 		fmt.Sprintf("Proxmox VE subscription status %q not recognized — could not verify subscription health", p.Subscription.Status),
-		[]string{"to inspect: pvesh get /nodes/localhost/subscription"},
+		[]string{inspectPVESubscription},
 	)}
 }
 
