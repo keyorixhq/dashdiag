@@ -89,7 +89,6 @@ func TestParseJournalLine_NoiseAndInvalid(t *testing.T) {
 	// Noisy units/messages and malformed JSON return nil.
 	noise := []string{
 		`{"__REALTIME_TIMESTAMP":"1700000000000000","PRIORITY":"4","_SYSTEMD_UNIT":"sshd.service","MESSAGE":"accepted"}`,
-		`{"__REALTIME_TIMESTAMP":"1700000000000000","PRIORITY":"4","_SYSTEMD_UNIT":"app.service","MESSAGE":"pam_unix(sudo) session opened"}`,
 		`{"__REALTIME_TIMESTAMP":"1700000000000000","PRIORITY":"4","_SYSTEMD_UNIT":"libpod-abc123.scope","MESSAGE":"m"}`,
 		`not valid json`,
 		``,
@@ -98,6 +97,18 @@ func TestParseJournalLine_NoiseAndInvalid(t *testing.T) {
 		if ev := parseJournalLine(line); ev != nil {
 			t.Errorf("parseJournalLine(%q) = %+v, want nil", line, ev)
 		}
+	}
+
+	// internal-collectors-33-04 regression: a genuinely unrelated unit whose
+	// message merely mentions a noisy substring ("pam_unix(sudo") must NOT be
+	// dropped — only unit IDENTITY drives suppression now, never message text.
+	line := `{"__REALTIME_TIMESTAMP":"1700000000000000","PRIORITY":"4","_SYSTEMD_UNIT":"app.service","MESSAGE":"pam_unix(sudo) session opened"}`
+	ev := parseJournalLine(line)
+	if ev == nil {
+		t.Fatalf("parseJournalLine(%q) = nil, want a surfaced event (unit is not noisy, only msg mentions a noisy substring)", line)
+	}
+	if ev.Unit != "app" {
+		t.Errorf("Unit = %q, want %q", ev.Unit, "app")
 	}
 }
 
@@ -409,21 +420,37 @@ func TestStripServiceSuffix(t *testing.T) {
 
 func TestIsNoisyJournalEntry(t *testing.T) {
 	tests := []struct {
+		name string
 		unit string
 		msg  string
 		want bool
 	}{
-		{"sshd.service", "accepted publickey", true},
-		{"app.service", "pam_unix(sudo) opened", true},
-		{"libpod-abc.scope", "container exited", true},
-		{"audit", "type=1400", true},
-		{"nginx.service", "upstream timed out", false},
-		{"k3s.service", "node ready", false},
+		{"sshd unit is noise", "sshd.service", "accepted publickey", true},
+		{"auditd unit is noise", "auditd.service", "type=1400", true},
+		{"bare audit syslog id is noise", "audit", "type=1400", true},
+		{"setroubleshoot unit is noise", "setroubleshootd", "SELinux is preventing", true},
+		{"sudo syslog id is noise", "sudo", "session opened for user root", true},
+		{"libpod scope unit is noise", "libpod-abc.scope", "container exited", true},
+		{"libpod message prefix is noise", "cron.service", "libpod-abc exited", true},
+		{"unrelated unit is not noise", "nginx.service", "upstream timed out", false},
+		{"healthy unit is not noise", "k3s.service", "node ready", false},
+		// internal-collectors-33-04 regression: a genuinely unrelated CRIT/WARN
+		// must never be discarded merely because its free-text message happens
+		// to contain a noisy substring. Before the fix, msg was matched against
+		// the same noisy list as unit, so this entry (unit "app.service") was
+		// silently dropped just because its message mentions "pam_unix(sudo".
+		{"unrelated unit mentioning pam_unix in msg is not noise", "app.service", "pam_unix(sudo) opened", false},
+		{"unrelated unit mentioning sudo in msg is not noise", "app.service", "user ran sudo to escalate", false},
+		{"unrelated unit mentioning audit in msg is not noise", "app.service", "failed audit of config", false},
+		{"unrelated unit mentioning sshd in msg is not noise", "app.service", "sshd restarted unexpectedly", false},
 	}
 	for _, tt := range tests {
-		if got := isNoisyJournalEntry(tt.unit, tt.msg); got != tt.want {
-			t.Errorf("isNoisyJournalEntry(%q, %q) = %v, want %v", tt.unit, tt.msg, got, tt.want)
-		}
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			if got := isNoisyJournalEntry(tt.unit, tt.msg); got != tt.want {
+				t.Errorf("isNoisyJournalEntry(%q, %q) = %v, want %v", tt.unit, tt.msg, got, tt.want)
+			}
+		})
 	}
 }
 
