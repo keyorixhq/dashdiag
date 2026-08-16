@@ -259,6 +259,58 @@ func TestToolDiffNonexistentBundle(t *testing.T) {
 	}
 }
 
+// TestToolDiffRedactsSecretShapedMessage is the regression test for the gap
+// TestEveryMCPToolHandlerRedactsSecrets guards mechanically: toolDiff's
+// response is built from baseline.ComputeDiff([]DiffEntry).Before/After,
+// which is Status+" "+Value, and Value is copied from the worst-ranked
+// matching insight's Message (see BuildSnapshot) — the same free-text field
+// that already gets redacted when it surfaces via insights[].message in
+// dsd_health/dsd_replay. A real-world instance: heuristics_web.go's
+// webConfigVerdict concatenates a web server's raw config-test stderr
+// straight into a CRIT Message with no secret-pattern filtering.
+//
+// Exercises the exact composition toolDiff itself performs on the response
+// — baseline.ComputeDiff -> json.Marshal -> redactMCPJSON — against
+// hand-built Snapshots rather than a second full live-collector bundle pair
+// (this file's TestToolCaptureIdentifiersImpliesSanitize's own comment notes
+// why a second full pipeline run isn't worth the CI time here: toolDiff's
+// own file-loading/replay plumbing is already covered by
+// TestToolDiffNonexistentBundle/TestToolDiffRequiresBothPaths, and
+// controlling exactly which heuristic fires a secret-shaped Message through
+// a real collector run would need its own dedicated fixture anyway). This
+// is the load-bearing question — does a secret-shaped Value actually get
+// redacted by the time it reaches the wire — not the bundle-file plumbing
+// around it.
+func TestToolDiffRedactsSecretShapedMessage(t *testing.T) {
+	t.Parallel()
+	before := &baseline.Snapshot{Checks: []baseline.CheckResult{
+		{Name: "Web", Status: "OK", Value: "config valid"},
+	}}
+	after := &baseline.Snapshot{Checks: []baseline.CheckResult{
+		{Name: "Web", Status: "CRIT", Value: `nginx config INVALID: auth_basic_user_file password=hunter2secretvalue`},
+	}}
+
+	entries := baseline.ComputeDiff(before, after)
+	data, err := json.Marshal(entries)
+	if err != nil {
+		t.Fatalf("marshalling diff: %v", err)
+	}
+	got := redactMCPJSON(data)
+
+	if strings.Contains(string(got), "hunter2secretvalue") {
+		t.Errorf("secret-shaped Value survived redactMCPJSON in a diff entry: %s", got)
+	}
+	if !json.Valid(got) {
+		t.Fatalf("redactMCPJSON produced invalid JSON: %s", got)
+	}
+	if !strings.Contains(string(got), `"Name":"Web"`) {
+		t.Errorf("non-secret field corrupted: %s", got)
+	}
+	if !strings.Contains(string(got), "CRIT") {
+		t.Errorf("status should survive redaction: %s", got)
+	}
+}
+
 // TestMCPPipelineMu_SerializesToolCapture is the regression guard for the
 // collectors.activeSource cross-contamination race: the MCP SDK runs
 // concurrent tool calls (jsonrpc2.Async for every non-initialize request),

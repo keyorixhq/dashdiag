@@ -346,6 +346,13 @@ func toolDiff(_ context.Context, _ *mcp.CallToolRequest, in mcpDiffInput) (
 	if err != nil {
 		return nil, nil, fmt.Errorf("dsd_diff: marshalling diff: %w", err)
 	}
+	// See toolHealth's redactMCPJSON call: each DiffEntry's Before/After is
+	// "Status + Value", and Value is models.Insight.Message — the same
+	// collector-derived free text checks[].raw/insights[].message carry
+	// there, just reached through a different field name. DiffEntry never
+	// carries CheckResult.Raw (ComputeDiff doesn't copy it), but Message was
+	// never the field this floor was scoped to in the first place.
+	data = redactMCPJSON(data)
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: string(data)}},
 	}, nil, nil
