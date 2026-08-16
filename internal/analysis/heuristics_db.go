@@ -7,11 +7,12 @@ import (
 )
 
 const (
-	dbCatPostgres         = "Postgres"
-	dbCatRedis            = "Redis"
-	dbCatMySQL            = "MySQL"
-	dbInspectRedisPrefix  = "to inspect: redis-cli -s "
-	dbInspectMemcachedPfx = "to inspect: echo stats | nc "
+	dbCatPostgres          = "Postgres"
+	dbCatRedis             = "Redis"
+	dbCatMySQL             = "MySQL"
+	dbInspectRedisPrefix   = "to inspect: redis-cli -s "
+	dbInspectMemcachedPfx  = "to inspect: echo stats | nc "
+	dbInspectMysqladminPfx = "to inspect: mysqladmin --socket="
 )
 
 // checkPostgres surfaces health issues for a local PostgreSQL server. Gated on
@@ -137,7 +138,7 @@ func checkMySQL(my models.MySQLInfo) []models.Insight {
 			fmt.Sprintf("%s is reachable; connection/replication metrics were not read", name),
 			[]string{
 				"note: run dsd as root (root@localhost socket auth) for connection-saturation and replica-lag checks",
-				"to inspect: mysqladmin --socket=" + socketPath + " status",
+				dbInspectMysqladminPfx + socketPath + " status",
 			},
 		)}
 	}
@@ -170,7 +171,7 @@ func checkMySQL(my models.MySQLInfo) []models.Insight {
 		// run. Surface that rather than let an unread dimension pass as clean.
 		out = append(out, unverifiedInsight("INFO", dbCatMySQL,
 			fmt.Sprintf("%s metrics were read, but the connection counters were not — connection-saturation was not assessed", name),
-			[]string{"to inspect: mysqladmin --socket=" + socketPath + " status"}))
+			[]string{dbInspectMysqladminPfx + socketPath + " status"}))
 	} else {
 		// internal-analysis-03-02: ConnStatsRead is true but MaxConnections <= 0
 		// — a spoofed/corrupted response (max_connections should never be 0 on a
@@ -178,7 +179,7 @@ func checkMySQL(my models.MySQLInfo) []models.Insight {
 		// silently emitted nothing instead of disclosing the implausible read.
 		out = append(out, unverifiedInsight("INFO", dbCatMySQL,
 			fmt.Sprintf("%s reported max_connections=%d, which is implausible — connection-saturation was not assessed", name, my.MaxConnections),
-			[]string{"to inspect: mysqladmin --socket=" + socketPath + " variables | grep max_connections"}))
+			[]string{dbInspectMysqladminPfx + socketPath + " variables | grep max_connections"}))
 	}
 
 	// Replication stopped — the worst replica state. Seconds_Behind_Master reads
