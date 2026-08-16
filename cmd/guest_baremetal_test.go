@@ -12,7 +12,7 @@ import (
 // hypervisor) is detected — i.e. we're on genuine bare metal.
 // No t.Parallel() — captureStdout swaps the shared os.Stdout.
 func TestRunGuest_BareMetal(t *testing.T) {
-	if _, found := detectGuestView(context.Background()); found {
+	if _, found, err := detectGuestView(context.Background()); found || err != nil {
 		t.Skip("skipping: a guest environment was detected (container, VM, or cloud) — not bare metal")
 	}
 
