@@ -342,8 +342,12 @@ func printDockerSecurity(info *models.DockerInfo, mode output.OutputMode) {
 	// Plaintext secrets
 	for _, c := range info.Containers {
 		if len(c.PlaintextSecrets) > 0 {
+			sanitizedSecrets := make([]string, 0, len(c.PlaintextSecrets))
+			for _, s := range c.PlaintextSecrets {
+				sanitizedSecrets = append(sanitizedSecrets, output.SanitizeControl(s))
+			}
 			fmt.Printf("  %s  %-20s plaintext secrets in env: %s\n",
-				asciiOr("warn", iconWarnSp, mode), c.Name, strings.Join(c.PlaintextSecrets, ", "))
+				asciiOr("warn", iconWarnSp, mode), output.SanitizeControl(c.Name), strings.Join(sanitizedSecrets, ", "))
 		}
 	}
 	if info.ContainersWithSecrets > 0 {
@@ -353,7 +357,7 @@ func printDockerSecurity(info *models.DockerInfo, mode output.OutputMode) {
 	// Docker socket mounted
 	for _, c := range info.Containers {
 		if c.DockerSocketMounted {
-			fmt.Printf("  %s  %-20s docker socket mounted — grants root access to host\n", asciiOr("fail", iconFail, mode), c.Name)
+			fmt.Printf("  %s  %-20s docker socket mounted — grants root access to host\n", asciiOr("fail", iconFail, mode), output.SanitizeControl(c.Name))
 		}
 	}
 	if info.SocketMountedCount > 0 {

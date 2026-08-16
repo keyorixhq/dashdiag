@@ -107,11 +107,14 @@ func printSteamOSReport(info *models.SteamOSInfo, elapsed time.Duration, mode ou
 func printSteamOSSystem(info *models.SteamOSInfo, mode output.OutputMode) {
 	fmt.Println("\n[System]")
 	printSteamOSDevice(info, mode)
-	ver := info.Version
+	// Version/Channel/BuildID come from /etc/os-release and the atomupd
+	// client.conf — untrusted per this review's threat model
+	// (internal-analysis-09-02), same as p.Process in printSteamOSRemotePlay.
+	ver := output.SanitizeControl(info.Version)
 	if ver == "" {
 		ver = "unknown"
 	}
-	channel := info.Channel
+	channel := output.SanitizeControl(info.Channel)
 	if channel == "" {
 		channel = "unknown channel"
 	} else {
@@ -119,7 +122,7 @@ func printSteamOSSystem(info *models.SteamOSInfo, mode output.OutputMode) {
 	}
 	build := ""
 	if info.BuildID != "" {
-		build = fmt.Sprintf("  (BUILD_ID: %s)", info.BuildID)
+		build = fmt.Sprintf("  (BUILD_ID: %s)", output.SanitizeControl(info.BuildID))
 	}
 	fmt.Printf("  %sSteamOS %s  %s%s\n", asciiOr("ok", iconOKSp, mode), ver, channel, build)
 	if info.ChannelConfigMissing {
@@ -141,14 +144,20 @@ func printSteamOSDevice(info *models.SteamOSInfo, mode output.OutputMode) {
 	if info.DeviceProductRaw == "" && info.DeviceName == "" {
 		return
 	}
+	// DeviceName/DeviceProductRaw are DMI/firmware-reported — untrusted per
+	// this review's threat model (internal-analysis-09-02). DeviceProductRaw
+	// in the "unrecognised" branch below is printed via %q, which already
+	// escapes control bytes; the default branch uses %s, so sanitize it too.
+	deviceName := output.SanitizeControl(info.DeviceName)
+	deviceProductRaw := output.SanitizeControl(info.DeviceProductRaw)
 	switch {
 	case info.DeviceName == "":
 		// no DMI read
 	case !info.DeviceRecognised:
 		fmt.Printf("  %sDevice: %s (DMI: %q) — unrecognised; thresholds may not be accurate\n",
-			asciiOr("info", iconInfo2, mode), info.DeviceName, info.DeviceProductRaw)
+			asciiOr("info", iconInfo2, mode), deviceName, info.DeviceProductRaw)
 	default:
-		fmt.Printf("  %sDevice: %s (%s)\n", asciiOr("ok", iconOKSp, mode), info.DeviceName, info.DeviceProductRaw)
+		fmt.Printf("  %sDevice: %s (%s)\n", asciiOr("ok", iconOKSp, mode), deviceName, deviceProductRaw)
 	}
 
 	switch {
@@ -169,18 +178,27 @@ func printSteamOSRAUC(info *models.SteamOSInfo, mode output.OutputMode) {
 		fmt.Println("  " + asciiOr("info", iconInfo2, mode) + "rauc status unavailable")
 		return
 	}
+	// RAUC*Slot/*Status come from `rauc status` — untrusted per this review's
+	// threat model (internal-analysis-09-02). Icon selection and the
+	// EqualFold check below still use the raw values (not printed).
+	bootedSlot := output.SanitizeControl(info.RAUCBootedSlot)
+	bootedStatus := output.SanitizeControl(info.RAUCBootedStatus)
+	inactiveSlot := output.SanitizeControl(info.RAUCInactiveSlot)
+	inactiveStatus := output.SanitizeControl(info.RAUCInactiveStatus)
 	fmt.Printf("  %s Booted slot:   %s  (boot status: %s)\n",
-		raucIcon(info.RAUCBootedStatus, mode), orDash(info.RAUCBootedSlot), orDash(info.RAUCBootedStatus))
+		raucIcon(info.RAUCBootedStatus, mode), orDash(bootedSlot), orDash(bootedStatus))
 	fmt.Printf("  %s Inactive slot: %s  (boot status: %s)\n",
-		raucIcon(info.RAUCInactiveStatus, mode), orDash(info.RAUCInactiveSlot), orDash(info.RAUCInactiveStatus))
+		raucIcon(info.RAUCInactiveStatus, mode), orDash(inactiveSlot), orDash(inactiveStatus))
 	if strings.EqualFold(info.RAUCInactiveStatus, "bad") {
-		fmt.Printf("     → no rollback available; to fix: sudo rauc status mark-good %s\n", info.RAUCInactiveSlot)
+		fmt.Printf("     → no rollback available; to fix: sudo rauc status mark-good %s\n", inactiveSlot)
 	}
 }
 
 func printSteamOSSession(info *models.SteamOSInfo, mode output.OutputMode) {
 	fmt.Println("\n[Session]")
-	sessionMode := info.SessionMode
+	// SessionMode comes from a systemd/env probe of the running session —
+	// untrusted per this review's threat model (internal-analysis-09-02).
+	sessionMode := output.SanitizeControl(info.SessionMode)
 	if sessionMode == "" {
 		sessionMode = "unknown"
 	}
@@ -277,13 +295,18 @@ func printSteamOSDeep(info *models.SteamOSInfo, mode output.OutputMode) {
 		fmt.Printf("  %s Flatpak: %d app(s), %.1f GB\n", icon, info.FlatpakAppCount, info.FlatpakDataGB)
 	}
 	if info.BIOSVersion != "" {
-		fmt.Printf("  BIOS: %s\n", info.BIOSVersion)
+		// BIOSVersion is DMI/firmware-reported — untrusted per this review's
+		// threat model (internal-analysis-09-02), same class as DeviceName
+		// above (sibling gap caught while sweeping this file).
+		fmt.Printf("  BIOS: %s\n", output.SanitizeControl(info.BIOSVersion))
 	}
+	// GamescopeErrors/RAUCLastLog come from journal/log-file scraping —
+	// untrusted per this review's threat model (internal-analysis-09-02).
 	for _, e := range info.GamescopeErrors {
-		fmt.Printf("  gamescope: %s\n", e)
+		fmt.Printf("  gamescope: %s\n", output.SanitizeControl(e))
 	}
 	if info.RAUCLastLog != "" {
-		fmt.Printf("  rauc (last): %s\n", info.RAUCLastLog)
+		fmt.Printf("  rauc (last): %s\n", output.SanitizeControl(info.RAUCLastLog))
 	}
 }
 

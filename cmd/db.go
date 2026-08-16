@@ -152,7 +152,11 @@ func printRedisState(r *models.RedisInfo, mode output.OutputMode) {
 	if !r.Detected {
 		return
 	}
-	fmt.Fprintf(os.Stdout, "\n🟥 Redis %s\n", r.Version)
+	// r.Version comes straight from the Redis INFO reply on the
+	// attacker-reachable service at 127.0.0.1:6379 — no privilege is required
+	// to bind that port before the real redis-server starts (cmd-03-05, same
+	// class as internal-collectors-21-01).
+	fmt.Fprintf(os.Stdout, "\n🟥 Redis %s\n", output.SanitizeControl(r.Version))
 	fmt.Fprintf(os.Stdout, "  %s answered PING\n", asciiOr("ok", iconOK, mode))
 	if r.MetricsRead {
 		if r.MaxMemoryBytes > 0 {
@@ -171,7 +175,11 @@ func printMemcachedState(m *models.MemcachedInfo, mode output.OutputMode) {
 	if !m.Detected {
 		return
 	}
-	fmt.Fprintf(os.Stdout, "\n🧊 Memcached %s\n", m.Version)
+	// m.Version comes straight from the Memcached "version" command reply on
+	// the attacker-reachable service at 127.0.0.1:11211 — no privilege is
+	// required to bind that port before the real memcached starts (cmd-03-05,
+	// same class as internal-collectors-21-01).
+	fmt.Fprintf(os.Stdout, "\n🧊 Memcached %s\n", output.SanitizeControl(m.Version))
 	fmt.Fprintf(os.Stdout, "  %s answering\n", asciiOr("ok", iconOK, mode))
 	if m.MetricsRead {
 		if m.LimitMaxBytes > 0 {
