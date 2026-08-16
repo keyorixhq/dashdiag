@@ -27,6 +27,9 @@ func TestParseEBSLogPage_BadMagicSetsFailedMeta(t *testing.T) {
 // when the cached value is "yes" / "no" / missing.
 // No t.Parallel() — modifies the global activeSource via withCombinedFixture.
 func TestAwsRebalanceCachedYes(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the response, not the gate in front of it).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withCombinedFixture(t, map[string][]byte{
 		"imds-aws-token":      []byte("tok"),
 		"aws-rebalance-probe": []byte("yes"),
@@ -42,6 +45,9 @@ func TestAwsRebalanceCachedYes(t *testing.T) {
 
 // No t.Parallel() — modifies the global activeSource via withCombinedFixture.
 func TestAwsRebalanceCachedNo(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the response, not the gate in front of it).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withCombinedFixture(t, map[string][]byte{
 		"imds-aws-token":      []byte("tok"),
 		"aws-rebalance-probe": []byte("no"),
@@ -105,6 +111,9 @@ func TestEBSComputeDelta_Saturation(t *testing.T) {
 // (Replay.Cached short-circuits without invoking produce, which is what we want
 // to exercise). No t.Parallel() — modifies the global activeSource.
 func TestProbeIMDSOpen_MalformedURL(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the response, not the gate in front of it).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withLiveCachedFixture(t)
 	checked, open := probeIMDSOpen(t.Context(), "test-probe-bad-url", "http://\x7f")
 	if checked {
@@ -118,6 +127,9 @@ func TestProbeIMDSOpen_MalformedURL(t *testing.T) {
 // TestProbeIMDSOpen_CachedOpen covers the happy path through Cached → "open".
 // No t.Parallel() — modifies the global activeSource via withCombinedFixture.
 func TestProbeIMDSOpen_CachedOpen(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the response, not the gate in front of it).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withCombinedFixture(t, map[string][]byte{"my-probe-key": []byte("open")}, nil, nil)
 	checked, open := probeIMDSOpen(t.Context(), "my-probe-key", "http://169.254.169.254/")
 	if !checked {
@@ -131,6 +143,9 @@ func TestProbeIMDSOpen_CachedOpen(t *testing.T) {
 // TestProbeIMDSOpen_CachedBlocked covers the "blocked" cache case.
 // No t.Parallel() — modifies the global activeSource via withCombinedFixture.
 func TestProbeIMDSOpen_CachedBlocked(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the response, not the gate in front of it).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withCombinedFixture(t, map[string][]byte{"probe-blocked": []byte("blocked")}, nil, nil)
 	checked, open := probeIMDSOpen(t.Context(), "probe-blocked", "http://169.254.169.254/")
 	if !checked {

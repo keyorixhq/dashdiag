@@ -54,6 +54,9 @@ func TestOCIGuestAvailable_False(t *testing.T) {
 }
 
 func TestOciInstanceDocRead_Success(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the response, not the gate in front of it).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withOCIFixture(t, map[string][]byte{
 		"imds/http://169.254.169.254/opc/v2/instance/#Authorization=Bearer Oracle": []byte(ociInstanceDocJSON),
 	}, nil, nil)
@@ -83,6 +86,9 @@ func TestOciInstanceDocRead_BadJSON(t *testing.T) {
 }
 
 func TestOciInstanceMeta_Found(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the response, not the gate in front of it).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withOCIFixture(t, map[string][]byte{
 		"imds/http://169.254.169.254/opc/v2/instance/#Authorization=Bearer Oracle": []byte(ociInstanceDocJSON),
 	}, nil, nil)
@@ -109,6 +115,9 @@ func TestOciIMDSv1Open_Unreachable(t *testing.T) {
 }
 
 func TestOciIMDSv1Open_OpenAndBlocked(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the response, not the gate in front of it).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withOCIFixture(t, map[string][]byte{"oci-imdsv1-probe": []byte("open")}, nil, nil)
 	checked, open := ociIMDSv1Open(context.Background())
 	if !checked || !open {
@@ -300,6 +309,9 @@ func TestSortOCIVNICs_EmptyAndSingle(t *testing.T) {
 // instance metadata, IMDSv1 posture, agent state, OCI-time-sync configured AND
 // synced, and one virtio_net VNIC with ring drops.
 func TestOCICollector_Collect_FullHappyPath(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the responses, not the gate in front of them).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withOCIFixture(t,
 		map[string][]byte{
 			"imds/http://169.254.169.254/opc/v2/instance/#Authorization=Bearer Oracle": []byte(ociInstanceDocJSON),

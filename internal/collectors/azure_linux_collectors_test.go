@@ -141,6 +141,9 @@ func TestTempDiskStateFromHost_Absent(t *testing.T) {
 const azureStorageProfileJSON = `{"osDisk":{"name":"osdisk1","caching":"ReadWrite"},"dataDisks":[{"name":"datadisk1","lun":"0","caching":"None"}]}`
 
 func TestAzureDiskCaching_Success(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the response, not the gate in front of it).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withAzureFixture(t, map[string][]byte{
 		"imds/http://169.254.169.254/metadata/instance/compute/storageProfile?api-version=2021-02-01&format=json#Metadata=true": []byte(azureStorageProfileJSON),
 	}, nil)

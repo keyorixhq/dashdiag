@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/platform"
 )
 
 const (
@@ -29,6 +30,12 @@ const (
 // host-caching-hazard check targets. 1MB is far larger than any real IMDS
 // document while still bounding a misbehaving/malicious responder.
 const imdsMaxBodyBytes = 1 << 20
+
+// errIMDSNetworkDisallowed is returned by every IMDS call site in this
+// package when platform.NetworkAllowed() is false — never a fabricated
+// timeout/unreachable error, so a caller logging the error text can tell
+// "declined by policy" apart from a genuine probe failure.
+var errIMDSNetworkDisallowed = fmt.Errorf("imds: network calls disallowed (see platform.NetworkAllowed)")
 
 // newIMDSHTTPClient returns an http.Client for talking to an instance metadata
 // service, with redirect-following disabled. IMDS endpoints never legitimately
@@ -87,6 +94,15 @@ func (c *CloudMetaCollector) Collect(ctx context.Context) (interface{}, error) {
 // the same URL never collide, while identical (url, headers) pairs still hit the same
 // cache entry as before.
 func imdsGet(ctx context.Context, url string, headers map[string]string) (string, error) {
+	// gap B was closed for checkIMDS (platform/cloud.go) but missed every
+	// collector in this file — this is the low-level choke point all of them
+	// route through, so gating it here closes AWS/Azure/GCP/OCI in one place.
+	// sourceIsReplaying short-circuits the gate under `dsd replay`: a bundle
+	// captured before this fix must still replay its recorded IMDS responses,
+	// never fabricate "skipped" over them.
+	if !platform.NetworkAllowed() && !sourceIsReplaying() {
+		return "", errIMDSNetworkDisallowed
+	}
 	data, err := curSource().Cached(imdsCacheKey(url, headers), func() ([]byte, error) {
 		s, e := imdsGetLive(ctx, url, headers)
 		if e != nil {
@@ -214,6 +230,12 @@ type awsSpotStatus struct {
 // by URL — so on replay the recorded token simply lets collectAWS proceed past the
 // gate; its exact value is immaterial.
 func awsIMDSToken(ctx context.Context, client *http.Client) (string, error) {
+	// Own raw PUT, not routed through imdsGet — gate separately or a
+	// network-disallowed run would still leak this one live call before
+	// imdsGet's own gate ever gets a chance to block the follow-up GETs.
+	if !platform.NetworkAllowed() && !sourceIsReplaying() {
+		return "", errIMDSNetworkDisallowed
+	}
 	data, err := curSource().Cached("imds-aws-token", func() ([]byte, error) {
 		req, e := http.NewRequestWithContext(ctx, http.MethodPut,
 			"http://169.254.169.254/latest/api/token", nil)
@@ -241,6 +263,13 @@ func awsIMDSToken(ctx context.Context, client *http.Client) (string, error) {
 // on-demand instances); a request error or any other status = couldn't confirm, so
 // CheckFailed is set rather than silently reporting "no termination".
 func awsSpotTermination(ctx context.Context, client *http.Client, token string) awsSpotStatus {
+	// Own raw GET, called from inside collectAWS's cachedJSON closure — gating
+	// here (not in collectAWS, before the cachedJSON call) keeps this safe
+	// under replay the same way imdsGetLive is: Replay.Cached never invokes
+	// the produce closure, so this check only ever fires on a live run.
+	if !platform.NetworkAllowed() && !sourceIsReplaying() {
+		return awsSpotStatus{CheckFailed: true}
+	}
 	req, err := http.NewRequestWithContext(ctx, http.MethodGet,
 		"http://169.254.169.254/latest/meta-data/spot/termination-time", nil)
 	if err != nil {

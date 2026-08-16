@@ -98,6 +98,9 @@ func TestGCPGuestAvailable_NotGCP(t *testing.T) {
 // ── Collect (integration) ────────────────────────────────────────────────────
 
 func TestGCPCollector_Collect(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the responses, not the gate in front of them).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withCombinedFixture(t, map[string][]byte{
 		"lookpath/google_guest_agent": []byte("/usr/bin/google_guest_agent"),
 		"imds/http://metadata.google.internal/computeMetadata/v1/instance/scheduling/on-host-maintenance#Metadata-Flavor=Google": []byte("MIGRATE"),
@@ -240,6 +243,9 @@ func TestGcpGuestAgentState_ContextCancelled(t *testing.T) {
 // ── gcpMaintenance ────────────────────────────────────────────────────────────
 
 func TestGcpMaintenance_Success(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the responses, not the gate in front of them).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withCombinedFixture(t, map[string][]byte{
 		"imds/http://metadata.google.internal/computeMetadata/v1/instance/scheduling/on-host-maintenance#Metadata-Flavor=Google": []byte("terminate"),
 		"imds/http://metadata.google.internal/computeMetadata/v1/instance/scheduling/preemptible#Metadata-Flavor=Google":         []byte("TRUE"),
@@ -253,6 +259,9 @@ func TestGcpMaintenance_Success(t *testing.T) {
 }
 
 func TestGcpMaintenance_MaintenanceEventNone(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the responses, not the gate in front of them).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withCombinedFixture(t, map[string][]byte{
 		"imds/http://metadata.google.internal/computeMetadata/v1/instance/scheduling/on-host-maintenance#Metadata-Flavor=Google": []byte("MIGRATE"),
 		"imds/http://metadata.google.internal/computeMetadata/v1/instance/maintenance-event#Metadata-Flavor=Google":              []byte("NONE"),
@@ -274,6 +283,9 @@ func TestGcpMaintenance_MetadataUnreachable(t *testing.T) {
 // ── gcpOSLogin ────────────────────────────────────────────────────────────────
 
 func TestGcpOSLogin_InstanceAttribute(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the response, not the gate in front of it).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withCombinedFixture(t, map[string][]byte{
 		"imds/http://metadata.google.internal/computeMetadata/v1/instance/attributes/enable-oslogin#Metadata-Flavor=Google": []byte("TRUE"),
 	}, nil, nil)
@@ -284,6 +296,9 @@ func TestGcpOSLogin_InstanceAttribute(t *testing.T) {
 }
 
 func TestGcpOSLogin_FallsBackToProjectAttribute(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the response, not the gate in front of it).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withCombinedFixture(t, map[string][]byte{
 		"imds/http://metadata.google.internal/computeMetadata/v1/project/attributes/enable-oslogin#Metadata-Flavor=Google": []byte("true"),
 	}, nil, nil)

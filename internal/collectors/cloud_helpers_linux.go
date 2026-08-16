@@ -7,6 +7,8 @@ import (
 	"net/http"
 	"strings"
 	"time"
+
+	"github.com/keyorixhq/dashdiag/internal/platform"
 )
 
 // timeSyncSearchConfigs reads standard chrony/timesyncd config files and reports
@@ -44,6 +46,14 @@ func timeSyncSearchConfigs(keywords []string) (checked, uses bool) {
 // unauthenticated GET — indicating token-less access is still accepted.
 // checked is false when IMDS was unreachable.
 func probeIMDSOpen(ctx context.Context, cacheKey, url string) (checked, open bool) {
+	// Own raw GET, not routed through imdsGet — same gap-B gap as
+	// cloudmeta_linux.go's imdsGet/awsIMDSToken/awsSpotTermination, closed the
+	// same way. sourceIsReplaying short-circuits the gate under `dsd replay`:
+	// Replay.Cached never invokes this closure, so a recorded probe result
+	// still replays correctly.
+	if !platform.NetworkAllowed() && !sourceIsReplaying() {
+		return false, false
+	}
 	data, err := curSource().Cached(cacheKey, func() ([]byte, error) {
 		req, e := http.NewRequestWithContext(ctx, http.MethodGet, url, nil)
 		if e != nil {

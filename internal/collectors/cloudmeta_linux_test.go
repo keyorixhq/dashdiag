@@ -106,6 +106,9 @@ func TestImdsCacheKey_SameURLAndHeadersMatch(t *testing.T) {
 // confirming two calls to the same URL with different headers each get their
 // OWN cached response rather than the first call's.
 func TestImdsGet_DifferentHeadersDoNotCollide(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the response, not the gate in front of it).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	url := "http://169.254.169.254/latest/meta-data/instance-id"
 	withCombinedFixture(t, map[string][]byte{
 		imdsCacheKey(url, map[string]string{"X-aws-ec2-metadata-token": "token-A"}): []byte("response-for-A"),
@@ -349,6 +352,9 @@ func TestImdsGetLive_DoesNotFollowRedirect(t *testing.T) {
 // path) by installing a Cached-that-always-invokes-produce source, which a
 // Replay-backed fixture never reaches (Replay.Cached short-circuits).
 func TestImdsGet_LiveSuccess(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the response, not the gate in front of it).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withLiveCachedFixture(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusOK)
@@ -369,6 +375,9 @@ func TestImdsGet_LiveSuccess(t *testing.T) {
 // response from imdsGetLive), confirming the error propagates and the value
 // is empty rather than a garbage/error-page body.
 func TestImdsGet_LiveError(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the response, not the gate in front of it).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withLiveCachedFixture(t)
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
 		w.WriteHeader(http.StatusForbidden)
@@ -425,6 +434,9 @@ func (r *chunkyReadCloser) Close() error { return nil }
 // fixed pattern), even when the underlying reader trickles bytes out a few
 // at a time.
 func TestAwsIMDSToken_FullBodyReadAcrossMultipleReads(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the response, not the gate in front of it).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withLiveCachedFixture(t)
 
 	longToken := strings.Repeat("A", 300) // longer than the old 256-byte buffer
@@ -460,6 +472,9 @@ func TestNewCloudMetaCollector_NameAndTimeout(t *testing.T) {
 // ── Collect (integration — provider dispatch) ────────────────────────────────
 
 func TestCloudMetaCollector_Collect_AWS(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the responses, not the gate in front of them).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withCombinedFixture(t, map[string][]byte{
 		"imds-aws-token": []byte("tok"),
 		"imds/http://169.254.169.254/latest/meta-data/instance-id#X-aws-ec2-metadata-token=tok":      []byte("i-0123456789abcdef0"),
@@ -502,6 +517,9 @@ func TestCloudMetaCollector_Collect_NoProvider(t *testing.T) {
 // TestCloudMetaCollector_Collect_Azure exercises Collect's second dispatch
 // branch — AWS fails (no token), Azure succeeds.
 func TestCloudMetaCollector_Collect_Azure(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the response, not the gate in front of it).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withCombinedFixture(t, map[string][]byte{
 		"imds/http://169.254.169.254/metadata/instance?api-version=2021-02-01#Metadata=true": []byte(`{"compute":{"azEnvironment":"AzurePublicCloud"}}`),
 	}, nil, nil)
@@ -520,6 +538,9 @@ func TestCloudMetaCollector_Collect_Azure(t *testing.T) {
 // TestCloudMetaCollector_Collect_GCP exercises Collect's third dispatch
 // branch — AWS and Azure both fail, GCP succeeds.
 func TestCloudMetaCollector_Collect_GCP(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the response, not the gate in front of it).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withCombinedFixture(t, map[string][]byte{
 		"imds/http://metadata.google.internal/computeMetadata/v1/instance/id#Metadata-Flavor=Google": []byte("1234567890"),
 	}, nil, nil)
@@ -538,6 +559,9 @@ func TestCloudMetaCollector_Collect_GCP(t *testing.T) {
 // TestCloudMetaCollector_Collect_OCI exercises Collect's fourth dispatch
 // branch — AWS/Azure/GCP all fail, OCI succeeds.
 func TestCloudMetaCollector_Collect_OCI(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the response, not the gate in front of it).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withCombinedFixture(t, map[string][]byte{
 		"imds/http://169.254.169.254/opc/v2/instance/#Authorization=Bearer Oracle": []byte(`{"id":"ocid1.instance.oc1..abc"}`),
 	}, nil, nil)
@@ -556,6 +580,9 @@ func TestCloudMetaCollector_Collect_OCI(t *testing.T) {
 // ── collectAWS ────────────────────────────────────────────────────────────────
 
 func TestCollectAWS_Success(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the responses, not the gate in front of them).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withCombinedFixture(t, map[string][]byte{
 		"imds-aws-token": []byte("tok"),
 		"imds/http://169.254.169.254/latest/meta-data/instance-id#X-aws-ec2-metadata-token=tok":      []byte("i-abc"),
@@ -595,6 +622,9 @@ func TestCollectAWS_TokenButNoInstanceID(t *testing.T) {
 }
 
 func TestCollectAWS_SpotTerminating(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the responses, not the gate in front of them).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withCombinedFixture(t, map[string][]byte{
 		"imds-aws-token": []byte("tok"),
 		"imds/http://169.254.169.254/latest/meta-data/instance-id#X-aws-ec2-metadata-token=tok": []byte("i-abc"),
@@ -613,6 +643,9 @@ func TestCollectAWS_SpotTerminating(t *testing.T) {
 }
 
 func TestCollectAWS_SpotCheckFailed(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the responses, not the gate in front of them).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withCombinedFixture(t, map[string][]byte{
 		"imds-aws-token": []byte("tok"),
 		"imds/http://169.254.169.254/latest/meta-data/instance-id#X-aws-ec2-metadata-token=tok": []byte("i-abc"),
@@ -637,6 +670,9 @@ type roundTripFunc func(*http.Request) (*http.Response, error)
 func (f roundTripFunc) RoundTrip(r *http.Request) (*http.Response, error) { return f(r) }
 
 func TestAwsSpotTermination(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fake RoundTripper mocks the response, not the gate in front of it).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	tests := []struct {
 		name       string
 		rt         roundTripFunc
@@ -685,6 +721,9 @@ func TestAwsSpotTermination(t *testing.T) {
 // ── collectAzure ──────────────────────────────────────────────────────────────
 
 func TestCollectAzure_Success(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the responses, not the gate in front of them).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withCombinedFixture(t, map[string][]byte{
 		"imds/http://169.254.169.254/metadata/instance?api-version=2021-02-01#Metadata=true":        []byte(`{"compute":{"azEnvironment":"AzurePublicCloud"}}`),
 		"imds/http://169.254.169.254/metadata/scheduledevents?api-version=2020-07-01#Metadata=true": []byte(`{"Events":[]}`),
@@ -720,6 +759,9 @@ func TestCollectAzure_NoResponse(t *testing.T) {
 }
 
 func TestCollectAzure_MaintenanceEvent(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the responses, not the gate in front of them).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withCombinedFixture(t, map[string][]byte{
 		"imds/http://169.254.169.254/metadata/instance?api-version=2021-02-01#Metadata=true":        []byte(`{"compute":{"azEnvironment":"AzurePublicCloud"}}`),
 		"imds/http://169.254.169.254/metadata/scheduledevents?api-version=2020-07-01#Metadata=true": []byte(`{"Events":[{"EventType":"Reboot","EventStatus":"Scheduled"}]}`),
@@ -736,6 +778,9 @@ func TestCollectAzure_MaintenanceEvent(t *testing.T) {
 // ── collectGCP ────────────────────────────────────────────────────────────────
 
 func TestCollectGCP_Success(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the responses, not the gate in front of them).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withCombinedFixture(t, map[string][]byte{
 		"imds/http://metadata.google.internal/computeMetadata/v1/instance/id#Metadata-Flavor=Google":           []byte("1234567890"),
 		"imds/http://metadata.google.internal/computeMetadata/v1/instance/machine-type#Metadata-Flavor=Google": []byte("n1-standard-1"),
@@ -763,6 +808,9 @@ func TestCollectGCP_NotAvailable(t *testing.T) {
 }
 
 func TestCollectGCP_Preempted(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the responses, not the gate in front of them).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withCombinedFixture(t, map[string][]byte{
 		"imds/http://metadata.google.internal/computeMetadata/v1/instance/id#Metadata-Flavor=Google":        []byte("1234567890"),
 		"imds/http://metadata.google.internal/computeMetadata/v1/instance/preempted#Metadata-Flavor=Google": []byte("TRUE"),
@@ -782,6 +830,9 @@ func TestCollectGCP_Preempted(t *testing.T) {
 // ── collectOCI ────────────────────────────────────────────────────────────────
 
 func TestCollectOCI_Success(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the response, not the gate in front of it).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withCombinedFixture(t, map[string][]byte{
 		"imds/http://169.254.169.254/opc/v2/instance/#Authorization=Bearer Oracle": []byte(`{"id":"ocid1.instance.oc1..abc","shape":"VM.Standard.E4.Flex","canonicalRegionName":"us-ashburn-1"}`),
 	}, nil, nil)
@@ -805,6 +856,9 @@ func TestCollectOCI_NotAvailable(t *testing.T) {
 // ── IsCloudInstance ───────────────────────────────────────────────────────────
 
 func TestIsCloudInstance_AWS(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the responses, not the gate in front of them).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withCombinedFixture(t, map[string][]byte{
 		"imds-aws-token": []byte("tok"),
 		"imds/http://169.254.169.254/latest/meta-data/instance-id#X-aws-ec2-metadata-token=tok": []byte("i-abc"),
@@ -821,6 +875,9 @@ func TestIsCloudInstance_AWS(t *testing.T) {
 // token exchange plus the instance-id GET, with no fallback, must still
 // detect AWS.
 func TestIsCloudInstance_AWSIMDSv2TokenRequired(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the responses, not the gate in front of them).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withCombinedFixture(t, map[string][]byte{
 		"imds-aws-token": []byte("real-token"),
 		"imds/http://169.254.169.254/latest/meta-data/instance-id#X-aws-ec2-metadata-token=real-token": []byte("i-abc"),
@@ -831,6 +888,9 @@ func TestIsCloudInstance_AWSIMDSv2TokenRequired(t *testing.T) {
 }
 
 func TestIsCloudInstance_GCP(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the response, not the gate in front of it).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withCombinedFixture(t, map[string][]byte{
 		"imds/http://metadata.google.internal/computeMetadata/v1/instance/id#Metadata-Flavor=Google": []byte("1234567890"),
 	}, nil, nil)
@@ -844,6 +904,9 @@ func TestIsCloudInstance_GCP(t *testing.T) {
 // Events maintenance/eviction warnings) was silently never registered on any
 // Azure host.
 func TestIsCloudInstance_Azure(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the response, not the gate in front of it).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withCombinedFixture(t, map[string][]byte{
 		"imds/http://169.254.169.254/metadata/instance?api-version=2021-02-01#Metadata=true": []byte(`{"compute":{"azEnvironment":"AzurePublicCloud"}}`),
 	}, nil, nil)
@@ -855,6 +918,9 @@ func TestIsCloudInstance_Azure(t *testing.T) {
 // TestIsCloudInstance_OCI is a regression guard for internal-collectors-04-01:
 // OCI was never probed at all, for the same reason as Azure above.
 func TestIsCloudInstance_OCI(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the response, not the gate in front of it).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withCombinedFixture(t, map[string][]byte{
 		"imds/http://169.254.169.254/opc/v2/instance/#Authorization=Bearer Oracle": []byte(`{"id":"ocid1.instance.oc1..abc"}`),
 	}, nil, nil)
