@@ -4,6 +4,8 @@ import (
 	"context"
 	"errors"
 	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/platform"
 )
 
 // swapRunCmd replaces the package-level runCmd for the duration of the test.
@@ -25,6 +27,19 @@ func swapLookPath(t *testing.T, fake func(file string) (string, error)) {
 	old := lookPath
 	lookPath = fake
 	t.Cleanup(func() { lookPath = old })
+}
+
+// swapDetectContainerContext replaces the package-level detectContainerContext
+// for the duration of the test. Same non-parallel constraint as swapRunCmd —
+// this keeps memory.go's MEM% tests hermetic even when the test binary itself
+// happens to be running inside a container (e.g. the dashdiag-dev dev
+// container), rather than depending on whatever the host's real
+// /.dockerenv, /proc/self/cgroup, etc. happen to say.
+func swapDetectContainerContext(t *testing.T, fake func() platform.ContainerContext) {
+	t.Helper()
+	old := detectContainerContext
+	detectContainerContext = fake
+	t.Cleanup(func() { detectContainerContext = old })
 }
 
 // errNotFound is a stand-in for the "command not found" error exec.Command

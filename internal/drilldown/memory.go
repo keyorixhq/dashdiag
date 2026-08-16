@@ -13,7 +13,16 @@ import (
 	"sync"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/platform"
 )
+
+// detectContainerContext is a package-level seam over
+// platform.DetectContainerContext, swappable in tests (same pattern as
+// runCmd/lookPath in drilldown.go) so unit tests stay hermetic even when the
+// test binary itself happens to be running inside a container (e.g. the
+// dashdiag-dev dev container) — without the seam, a real container's own
+// memory limit would leak into fixture-driven MEM% assertions.
+var detectContainerContext = platform.DetectContainerContext
 
 // TopProcessesByRSS returns the top n processes sorted by RSS.
 func TopProcessesByRSS(ctx context.Context, n int) (*models.Details, error) {
@@ -45,7 +54,7 @@ func topProcessesByRSSLinuxAt(ctx context.Context, n int, procRoot string) (*mod
 	var procs []procMem
 	partial := false
 
-	totalKB := systemTotalMemKB(procRoot)
+	totalKB := effectiveTotalMemKB(procRoot)
 
 	err := walkProcs(ctx, procRoot, func(pid int) error {
 		path := filepath.Join(procRoot, fmt.Sprintf("%d", pid), "status")
@@ -147,6 +156,23 @@ func topProcessesByRSSMac(ctx context.Context, n int) (*models.Details, error) {
 		Columns: []string{"PID", "MEM%", "RSS", "COMMAND"},
 		Rows:    rows,
 	}, nil
+}
+
+// effectiveTotalMemKB returns the memory total that MEM% should be computed
+// against: the container's effective limit when running inside one (matching
+// the container-aware behaviour internal/collectors/memory.go already applies
+// for the primary Memory check — see MemoryCollector.Collect's
+// "Container memory limit overrides total" block), falling back to raw
+// host-wide /proc/meminfo MemTotal otherwise. Without this, a process's MEM%
+// inside a cgroup-limited container would be computed against the HOST's
+// total RAM rather than the container's ceiling, understating the percentage
+// by however much headroom the host has over the container (internal-drilldown-02-02).
+func effectiveTotalMemKB(procRoot string) int64 {
+	cc := detectContainerContext()
+	if cc.InContainer && cc.MemLimitMB > 0 {
+		return int64(cc.MemLimitMB * 1024)
+	}
+	return systemTotalMemKB(procRoot)
 }
 
 // systemTotalMemKB reads total system memory from procRoot/meminfo.

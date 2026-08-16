@@ -57,41 +57,34 @@ func swapGetuid(t *testing.T, uid int) {
 	t.Cleanup(func() { getuid = old })
 }
 
+// TestIsUbuntu et al. cover subprocess-wrappers-03: isUbuntu previously
+// shelled out via `sh -c "grep -i ubuntu /etc/os-release"` (see the removed
+// TestIsUbuntuPropagatesContext, which guarded that subprocess's ctx
+// propagation for internal-collectors-07-07); it now reads etcOSRelease
+// directly, mirroring isKali immediately below, so the subprocess spawn — and
+// the ctx it needed — no longer exist at all.
 func TestIsUbuntu(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutCmd("sh", []string{"-c", "grep -i ubuntu /etc/os-release"}, "ID=ubuntu\n", 0)
+		b.PutFile("/etc/os-release", []byte("ID=ubuntu\n"))
 	})
-	if !isUbuntu(context.Background()) {
-		t.Error("expected isUbuntu() to report true when grep matches")
+	if !isUbuntu() {
+		t.Error("expected isUbuntu() to report true for ID=ubuntu")
 	}
 }
 
 func TestIsUbuntu_NotUbuntu(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutCmd("sh", []string{"-c", "grep -i ubuntu /etc/os-release"}, "", 1) // grep: no match, exit 1
+		b.PutFile("/etc/os-release", []byte("ID=debian\n"))
 	})
-	if isUbuntu(context.Background()) {
-		t.Error("expected isUbuntu() to report false when grep finds no match")
+	if isUbuntu() {
+		t.Error("expected isUbuntu() to report false for a non-Ubuntu distro")
 	}
 }
 
-// TestIsUbuntuPropagatesContext covers internal-collectors-07-07: isUbuntu
-// must run its `grep /etc/os-release` check through the caller's ctx, not a
-// detached context.Background() — otherwise the subprocess is decoupled from
-// both the CVE collector's Timeout() and the runner's overall deadline, and
-// can't be cancelled or killed if it ever wedges.
-func TestIsUbuntuPropagatesContext(t *testing.T) {
-	spy := &ctxSpyExecSource{stdout: "ID=ubuntu\n"}
-	prev := SetSource(spy)
-	defer SetSource(prev)
-
-	isUbuntu(withCtxMarker(context.Background()))
-
-	if spy.gotCtx == nil {
-		t.Fatal("isUbuntu never called Run — test setup problem")
-	}
-	if !markedCtx(spy.gotCtx) {
-		t.Error("isUbuntu did not propagate the caller's context — it used a detached context.Background() instead")
+func TestIsUbuntu_FileMissing(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {})
+	if isUbuntu() {
+		t.Error("expected isUbuntu() to report false when /etc/os-release is unreadable")
 	}
 }
 
@@ -209,7 +202,7 @@ func TestCheckCVEApt_DebsecanAvailable(t *testing.T) {
 
 func TestCheckCVEApt_NoDebsecan_Ubuntu(t *testing.T) {
 	withLookPathFixture(t, map[string]bool{}, func(b *source.Bundle) {
-		b.PutCmd("sh", []string{"-c", "grep -i ubuntu /etc/os-release"}, "ID=ubuntu\n", 0)
+		b.PutFile("/etc/os-release", []byte("ID=ubuntu\n"))
 	})
 
 	result := checkCVEApt(context.Background(), "CVE-2026-1234")
@@ -223,7 +216,6 @@ func TestCheckCVEApt_NoDebsecan_Ubuntu(t *testing.T) {
 
 func TestCheckCVEApt_NoDebsecan_Kali(t *testing.T) {
 	withLookPathFixture(t, map[string]bool{}, func(b *source.Bundle) {
-		b.PutCmd("sh", []string{"-c", "grep -i ubuntu /etc/os-release"}, "", 1) // not ubuntu
 		b.PutFile("/etc/os-release", []byte("ID=kali\n"))
 	})
 
@@ -238,7 +230,6 @@ func TestCheckCVEApt_NoDebsecan_Kali(t *testing.T) {
 
 func TestCheckCVEApt_NoDebsecan_PlainDebian(t *testing.T) {
 	withLookPathFixture(t, map[string]bool{}, func(b *source.Bundle) {
-		b.PutCmd("sh", []string{"-c", "grep -i ubuntu /etc/os-release"}, "", 1)
 		b.PutFile("/etc/os-release", []byte("ID=debian\n"))
 	})
 
