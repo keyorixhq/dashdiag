@@ -14,6 +14,7 @@ const (
 	inspectPsMemHead = "to inspect: ps aux --sort=-%mem | head -10"
 	inspectPsCPUHead = "to inspect: ps aux --sort=-%cpu | head -10"
 	inspectIotop     = "to inspect: iotop -ao"
+	inspectMpstatAll = "to inspect: mpstat -P ALL 1 3"
 	catCPULoadRunQ   = "CPU Load/RunQueue"
 )
 
@@ -374,7 +375,7 @@ func checkHealthDeep(d models.HealthDeepInfo) []models.Insight {
 			fmt.Sprintf("CPU core imbalance: core%d at %.0f%% while others average %.0f%% — single-threaded bottleneck",
 				hotCore, d.MaxCorePct, d.MinCorePct),
 			[]string{
-				"to inspect: mpstat -P ALL 1 3",
+				inspectMpstatAll,
 				inspectPsCPUHead,
 			},
 		))
@@ -387,7 +388,7 @@ func checkHealthDeep(d models.HealthDeepInfo) []models.Insight {
 		// it produces low imbalance, not a hot single core.)
 		out = append(out, insight("WARN", "CPUDeep",
 			fmt.Sprintf("all CPU cores near saturation (max: %.0f%%, min: %.0f%%)", d.MaxCorePct, d.MinCorePct),
-			[]string{"to inspect: mpstat -P ALL 1 3"},
+			[]string{inspectMpstatAll},
 		))
 	} else if d.MaxCorePct >= 95 && len(d.Cores) > 1 {
 		// internal-analysis-07-02: all cores cleared the pegged threshold via
@@ -397,7 +398,7 @@ func checkHealthDeep(d models.HealthDeepInfo) []models.Insight {
 		// uncorroborated reading instead of silently dropping it with no trace.
 		out = append(out, unverifiedInsight("INFO", "CPUDeep",
 			fmt.Sprintf("all CPU cores near saturation momentarily (max: %.0f%%, min: %.0f%%) — could not corroborate against the 1-min load average (may be a transient spike, including dsd's own collectors, or a genuine short burst)", d.MaxCorePct, d.MinCorePct),
-			[]string{"to inspect: mpstat -P ALL 1 3"},
+			[]string{inspectMpstatAll},
 		))
 	}
 

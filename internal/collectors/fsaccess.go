@@ -183,7 +183,7 @@ func capDirEntries(names []string) []string {
 // probe runs first (statSizeHint); a path reported far beyond any legitimate
 // size (maxSafeReadBytes) is never read at all — see errFileTooLarge.
 func readFile(path string) ([]byte, error) {
-	if sz := statSizeHint(path); sz > maxSafeReadBytes {
+	if statSizeHint(path) > maxSafeReadBytes {
 		return nil, errFileTooLarge
 	}
 	data, err := curSource().ReadFile(path)
@@ -209,7 +209,7 @@ func glob(pattern string) ([]string, error) {
 // Use this as a drop-in for os.Open where the caller passes the result to a
 // parser that expects an io.Reader / io.ReadCloser.
 func openFile(path string) (io.ReadCloser, error) {
-	if sz := statSizeHint(path); sz > maxSafeReadBytes {
+	if statSizeHint(path) > maxSafeReadBytes {
 		return nil, errFileTooLarge
 	}
 	data, err := curSource().ReadFile(path)
