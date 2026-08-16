@@ -650,95 +650,140 @@ func checkBonding(b models.BondingInfo) []models.Insight {
 	}
 	var out []models.Insight
 	for _, bond := range b.Bonds {
-		// Single-slave bond — no redundancy
-		if len(bond.Slaves) < 2 {
-			out = append(out, insight("WARN", netCatBonding,
-				fmt.Sprintf("%s has only 1 slave — no redundancy (second NIC missing or disconnected)", bond.Name),
-				[]string{
-					fmt.Sprintf(netInspectBondingFmt, bond.Name),
-					netInspectIPLink,
-					"note:       bonding provides no benefit with a single slave",
-				},
-			))
+		out = append(out, checkBond(bond)...)
+	}
+	return out
+}
+
+// checkBond covers a single bond interface. Split out of checkBonding to stay
+// under the funlen limit once looksLikeSafeToken guards were added throughout.
+func checkBond(bond models.BondInterface) []models.Insight {
+	var out []models.Insight
+	// bond.Name is spliced unescaped into copy-pasteable "to inspect: cat
+	// /proc/net/bonding/…" hints below; validate before use, same
+	// looksLikeSafeToken guard checkNetwork applies for iface.Name.
+	safeBondName := "<bond-name>"
+	if looksLikeSafeToken(bond.Name) {
+		safeBondName = bond.Name
+	}
+	// Single-slave bond — no redundancy
+	if len(bond.Slaves) < 2 {
+		out = append(out, insight("WARN", netCatBonding,
+			fmt.Sprintf("%s has only 1 slave — no redundancy (second NIC missing or disconnected)", bond.Name),
+			[]string{
+				fmt.Sprintf(netInspectBondingFmt, safeBondName),
+				netInspectIPLink,
+				"note:       bonding provides no benefit with a single slave",
+			},
+		))
+	}
+	// 802.3ad (LACP) bond whose links are MII-up but not actually aggregating. The
+	// MII/DownSlaves checks above read this as healthy — every slave is "up" — yet the
+	// bond carries no traffic because LACP never negotiated (the switch ports aren't in
+	// a matching LACP port-channel, or only some links joined the aggregator). This is
+	// the dangerous false-OK: green link state over a dead bond and zero redundancy.
+	if bond.NotAggregating {
+		reason := "links carry no traffic and there is no redundancy"
+		cause := "the switch ports are not configured in a matching LACP port-channel"
+		if !isZeroMACHeuristic(bond.PartnerMAC) {
+			cause = "some links failed to join the active aggregator"
 		}
-		// 802.3ad (LACP) bond whose links are MII-up but not actually aggregating. The
-		// MII/DownSlaves checks above read this as healthy — every slave is "up" — yet the
-		// bond carries no traffic because LACP never negotiated (the switch ports aren't in
-		// a matching LACP port-channel, or only some links joined the aggregator). This is
-		// the dangerous false-OK: green link state over a dead bond and zero redundancy.
-		if bond.NotAggregating {
-			reason := "links carry no traffic and there is no redundancy"
-			cause := "the switch ports are not configured in a matching LACP port-channel"
-			if !isZeroMACHeuristic(bond.PartnerMAC) {
-				cause = "some links failed to join the active aggregator"
-			}
-			out = append(out, insight("WARN", netCatBonding,
-				fmt.Sprintf("%s: 802.3ad (LACP) bond is link-up but NOT aggregating — %s (%s)",
-					bond.Name, reason, cause),
-				[]string{
-					fmt.Sprintf("to inspect: cat /proc/net/bonding/%s   (check Partner Mac Address + per-slave Aggregator ID)", bond.Name),
-					"to inspect: verify the switch ports are in one LACP (802.3ad) port-channel / bond",
-					"to inspect: confirm lacp_rate and that both ends agree on active/passive LACP",
-				},
-			))
-		}
-		if bond.DownSlaves == 0 {
-			// Healthy — check for USB slaves as a reliability advisory
-			for _, s := range bond.Slaves {
-				if isUSBNetworkInterface(s.Name) {
-					out = append(out, insight("INFO", netCatBonding,
-						fmt.Sprintf("%s: slave %s is a USB NIC — USB adapters are less reliable than PCIe NICs for production bonding (can be unplugged, USB bus is a single point of failure)",
-							bond.Name, s.Name),
-						[]string{
-							"note: consider replacing with a PCIe or onboard NIC for production HA",
-							fmt.Sprintf("to inspect: readlink /sys/class/net/%s/device/subsystem", s.Name),
-						},
-					))
-				}
-			}
+		out = append(out, insight("WARN", netCatBonding,
+			fmt.Sprintf("%s: 802.3ad (LACP) bond is link-up but NOT aggregating — %s (%s)",
+				bond.Name, reason, cause),
+			[]string{
+				fmt.Sprintf("to inspect: cat /proc/net/bonding/%s   (check Partner Mac Address + per-slave Aggregator ID)", safeBondName),
+				"to inspect: verify the switch ports are in one LACP (802.3ad) port-channel / bond",
+				"to inspect: confirm lacp_rate and that both ends agree on active/passive LACP",
+			},
+		))
+	}
+	if bond.DownSlaves == 0 {
+		// Healthy — check for USB slaves as a reliability advisory
+		return append(out, checkBondUSBSlaves(bond)...)
+	}
+	if bond.DownSlaves == len(bond.Slaves) {
+		out = append(out, insight("CRIT", netCatBonding,
+			fmt.Sprintf("%s: all %d slaves down — bond is completely failed", bond.Name, bond.DownSlaves),
+			[]string{
+				fmt.Sprintf(netInspectBondingFmt, safeBondName),
+				netInspectIPLink,
+			},
+		))
+	} else {
+		out = append(out, insight("WARN", netCatBonding,
+			fmt.Sprintf("%s: %d/%d slave(s) down (%s mode) — running degraded",
+				bond.Name, bond.DownSlaves, len(bond.Slaves), bond.ModeShort),
+			[]string{
+				fmt.Sprintf(netInspectBondingFmt, safeBondName),
+				netInspectIPLink,
+				"to inspect: ethtool <slave-interface>",
+			},
+		))
+	}
+	return append(out, checkBondDownSlaves(bond)...)
+}
+
+// checkBondUSBSlaves flags USB-attached slaves on an otherwise-healthy bond as
+// a reliability advisory (USB adapters can be unplugged; a single-point-of-
+// failure USB bus undermines the redundancy bonding is meant to provide).
+func checkBondUSBSlaves(bond models.BondInterface) []models.Insight {
+	var out []models.Insight
+	for _, s := range bond.Slaves {
+		if !isUSBNetworkInterface(s.Name) {
 			continue
 		}
-		if bond.DownSlaves == len(bond.Slaves) {
-			out = append(out, insight("CRIT", netCatBonding,
-				fmt.Sprintf("%s: all %d slaves down — bond is completely failed", bond.Name, bond.DownSlaves),
-				[]string{
-					fmt.Sprintf(netInspectBondingFmt, bond.Name),
-					netInspectIPLink,
-				},
-			))
-		} else {
-			out = append(out, insight("WARN", netCatBonding,
-				fmt.Sprintf("%s: %d/%d slave(s) down (%s mode) — running degraded",
-					bond.Name, bond.DownSlaves, len(bond.Slaves), bond.ModeShort),
-				[]string{
-					fmt.Sprintf(netInspectBondingFmt, bond.Name),
-					netInspectIPLink,
-					"to inspect: ethtool <slave-interface>",
-				},
-			))
+		safeSlaveName := "<slave-name>"
+		if looksLikeSafeToken(s.Name) {
+			safeSlaveName = s.Name
 		}
-		// Surface individual down slaves
-		for _, s := range bond.Slaves {
-			if s.State == "down" {
-				out = append(out, insight("INFO", netCatBonding,
-					fmt.Sprintf("%s: slave %s is down (MII: %s)", bond.Name, s.Name, s.MIIStatus),
-					[]string{
-						fmt.Sprintf("to inspect: ethtool %s", s.Name),
-						fmt.Sprintf("to inspect: ip link show %s", s.Name),
-					},
-				))
-			}
+		out = append(out, insight("INFO", netCatBonding,
+			fmt.Sprintf("%s: slave %s is a USB NIC — USB adapters are less reliable than PCIe NICs for production bonding (can be unplugged, USB bus is a single point of failure)",
+				bond.Name, s.Name),
+			[]string{
+				"note: consider replacing with a PCIe or onboard NIC for production HA",
+				fmt.Sprintf("to inspect: readlink /sys/class/net/%s/device/subsystem", safeSlaveName),
+			},
+		))
+	}
+	return out
+}
+
+// checkBondDownSlaves surfaces individual down slaves and slaves with a high
+// link-failure count on a degraded bond.
+func checkBondDownSlaves(bond models.BondInterface) []models.Insight {
+	var out []models.Insight
+	// Surface individual down slaves
+	for _, s := range bond.Slaves {
+		if s.State != "down" {
+			continue
 		}
-		// High link failures on any slave
-		for _, s := range bond.Slaves {
-			if s.LinkFails > 10 {
-				out = append(out, insight("WARN", netCatBonding,
-					fmt.Sprintf("%s: slave %s has %d link failures — check cable or switch port",
-						bond.Name, s.Name, s.LinkFails),
-					[]string{fmt.Sprintf("to inspect: ethtool %s", s.Name)},
-				))
-			}
+		safeSlaveName := "<slave-name>"
+		if looksLikeSafeToken(s.Name) {
+			safeSlaveName = s.Name
 		}
+		out = append(out, insight("INFO", netCatBonding,
+			fmt.Sprintf("%s: slave %s is down (MII: %s)", bond.Name, s.Name, s.MIIStatus),
+			[]string{
+				fmt.Sprintf("to inspect: ethtool %s", safeSlaveName),
+				fmt.Sprintf("to inspect: ip link show %s", safeSlaveName),
+			},
+		))
+	}
+	// High link failures on any slave
+	for _, s := range bond.Slaves {
+		if s.LinkFails <= 10 {
+			continue
+		}
+		safeSlaveName := "<slave-name>"
+		if looksLikeSafeToken(s.Name) {
+			safeSlaveName = s.Name
+		}
+		out = append(out, insight("WARN", netCatBonding,
+			fmt.Sprintf("%s: slave %s has %d link failures — check cable or switch port",
+				bond.Name, s.Name, s.LinkFails),
+			[]string{fmt.Sprintf("to inspect: ethtool %s", safeSlaveName)},
+		))
 	}
 	return out
 }

@@ -292,9 +292,21 @@ func checkSteamOSDisk(d *models.SteamOSDisk) []models.Insight {
 
 	for _, bm := range d.BindMounts {
 		if !bm.OK {
+			// bm.Path/bm.Target are spliced unescaped into copy-pasteable "to
+			// inspect: mount | grep …"/"ls -la …" hints below; validate before
+			// use, same looksLikeSafeToken guard this file applies for
+			// s.RAUCInactiveSlot above.
+			safePath := "<path withheld — contains unexpected characters>"
+			if looksLikeSafeToken(bm.Path) {
+				safePath = bm.Path
+			}
+			safeTarget := "<target withheld — contains unexpected characters>"
+			if looksLikeSafeToken(bm.Target) {
+				safeTarget = bm.Target
+			}
 			out = append(out, insight("WARN", catSteamOS,
 				fmt.Sprintf("offload bind mount for %s looks broken (expected → %s) — may indicate /home filesystem issues", bm.Path, bm.Target),
-				[]string{fmt.Sprintf("to inspect: mount | grep %s", bm.Path), "to inspect: ls -la " + bm.Target},
+				[]string{fmt.Sprintf("to inspect: mount | grep %s", safePath), "to inspect: ls -la " + safeTarget},
 			))
 		}
 	}
