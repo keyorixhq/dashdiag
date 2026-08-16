@@ -58,7 +58,10 @@ func runGuest(cmd *cobra.Command, _ []string) error {
 	jsonOut, _ := cmd.Flags().GetBool("json")
 	mode := output.DetectMode(plain, false, map[bool]string{true: "json"}[jsonOut])
 
-	view, found := detectGuestView(ctx)
+	view, found, err := detectGuestView(ctx)
+	if err != nil {
+		return err
+	}
 	if !found {
 		if mode == output.ModeJSON {
 			return json.NewEncoder(os.Stdout).Encode(map[string]bool{"in_guest": false})
@@ -153,24 +156,31 @@ func guestReportFilename(hostname string, now time.Time) string {
 // breadcrumb. Then cloud (the most specific VM view — AWS/Azure/GCP, each gated on
 // its own DMI so they don't overlap and KVM-guest already excludes the clouds), then
 // a generic VMware/KVM VM, then bare metal.
-func detectGuestView(ctx context.Context) (guestView, bool) {
+func detectGuestView(ctx context.Context) (guestView, bool, error) {
 	switch {
 	case collectors.ContainerGuestAvailable():
-		return containerGuestView(ctx), true
+		v, err := containerGuestView(ctx)
+		return v, true, err
 	case collectors.AWSGuestAvailable():
-		return awsGuestView(ctx), true
+		v, err := awsGuestView(ctx)
+		return v, true, err
 	case collectors.AzureGuestAvailable():
-		return azureGuestView(ctx), true
+		v, err := azureGuestView(ctx)
+		return v, true, err
 	case collectors.GCPGuestAvailable():
-		return gcpGuestView(ctx), true
+		v, err := gcpGuestView(ctx)
+		return v, true, err
 	case collectors.OCIGuestAvailable():
-		return ociGuestView(ctx), true
+		v, err := ociGuestView(ctx)
+		return v, true, err
 	case collectors.VMwareGuestAvailable():
-		return vmwareGuestView(ctx), true
+		v, err := vmwareGuestView(ctx)
+		return v, true, err
 	case collectors.KVMGuestAvailable():
-		return kvmGuestView(ctx), true
+		v, err := kvmGuestView(ctx)
+		return v, true, err
 	default:
-		return guestView{}, false
+		return guestView{}, false, nil
 	}
 }
 
@@ -185,8 +195,12 @@ func awsInstanceTypeLabel(info *models.AWSInfo) string {
 	return output.SanitizeControl(info.InstanceType)
 }
 
-func awsGuestView(ctx context.Context) guestView {
-	info := runGuestCollector(ctx, collectors.NewAWSCollector()).(*models.AWSInfo)
+func awsGuestView(ctx context.Context) (guestView, error) {
+	data, err := runGuestCollector(ctx, collectors.NewAWSCollector())
+	info, ok := data.(*models.AWSInfo)
+	if !ok || info == nil {
+		return guestView{}, err
+	}
 	itype := awsInstanceTypeLabel(info)
 	return guestView{
 		identity:   "🟧 EC2 guest — " + itype,
@@ -197,7 +211,7 @@ func awsGuestView(ctx context.Context) guestView {
 		guestTitle: "Your instance — you can fix these",
 		hostTitle:  "AWS-imposed limits — evidence to share with AWS support",
 		healthyMsg: "EC2 guest healthy — no guest-side throttling or posture issues found",
-	}
+	}, nil
 }
 
 // azureAcceleratedNetworkingLabel describes the state of Azure Accelerated
@@ -214,8 +228,12 @@ func azureAcceleratedNetworkingLabel(info *models.AzureInfo) string {
 	}
 }
 
-func azureGuestView(ctx context.Context) guestView {
-	info := runGuestCollector(ctx, collectors.NewAzureCollector()).(*models.AzureInfo)
+func azureGuestView(ctx context.Context) (guestView, error) {
+	data, err := runGuestCollector(ctx, collectors.NewAzureCollector())
+	info, ok := data.(*models.AzureInfo)
+	if !ok || info == nil {
+		return guestView{}, err
+	}
 	an := azureAcceleratedNetworkingLabel(info)
 	return guestView{
 		identity:   "🔷 Azure VM   (Accelerated Networking: " + an + ")",
@@ -226,7 +244,7 @@ func azureGuestView(ctx context.Context) guestView {
 		guestTitle: guestSectionVM,
 		hostTitle:  "Accelerated networking — evidence to share with Azure support",
 		healthyMsg: "Azure VM healthy — no guest-side config or datapath issues found",
-	}
+	}, nil
 }
 
 // gcpNetworkingLabel names the GCE guest's NIC driver: gVNIC when active, the
@@ -245,8 +263,12 @@ func gcpNetworkingLabel(info *models.GCPInfo) string {
 	}
 }
 
-func gcpGuestView(ctx context.Context) guestView {
-	info := runGuestCollector(ctx, collectors.NewGCPCollector()).(*models.GCPInfo)
+func gcpGuestView(ctx context.Context) (guestView, error) {
+	data, err := runGuestCollector(ctx, collectors.NewGCPCollector())
+	info, ok := data.(*models.GCPInfo)
+	if !ok || info == nil {
+		return guestView{}, err
+	}
 	net := gcpNetworkingLabel(info)
 	return guestView{
 		identity:   "🟥 GCE VM   (networking: " + net + ")",
@@ -257,7 +279,7 @@ func gcpGuestView(ctx context.Context) guestView {
 		guestTitle: guestSectionVM,
 		hostTitle:  "Host-side — Google Cloud activity to correlate",
 		healthyMsg: "GCE guest healthy — no guest-side config or host-maintenance issues found",
-	}
+	}, nil
 }
 
 // ociShapeLabel returns the reported OCI shape, or a generic fallback when
@@ -279,8 +301,12 @@ func ociShapeLabel(info *models.OCIInfo) string {
 // signal later without a shape change.
 func ociInsightProviderSide(string) bool { return false }
 
-func ociGuestView(ctx context.Context) guestView {
-	info := runGuestCollector(ctx, collectors.NewOCICollector()).(*models.OCIInfo)
+func ociGuestView(ctx context.Context) (guestView, error) {
+	data, err := runGuestCollector(ctx, collectors.NewOCICollector())
+	info, ok := data.(*models.OCIInfo)
+	if !ok || info == nil {
+		return guestView{}, err
+	}
 	shape := ociShapeLabel(info)
 	return guestView{
 		identity:   "🔴 OCI instance — " + shape,
@@ -291,7 +317,7 @@ func ociGuestView(ctx context.Context) guestView {
 		guestTitle: "Your instance — you can fix these",
 		hostTitle:  "Provider-imposed — evidence to share with Oracle support",
 		healthyMsg: "OCI instance healthy — no guest-side posture issues found",
-	}
+	}, nil
 }
 
 // isOCIRecognitionLine matches the all-clean "OCI <shape> — …" INFO that
@@ -311,8 +337,12 @@ func vmwareProductLabel(info *models.VMwareInfo) string {
 	return output.SanitizeControl(info.ProductName)
 }
 
-func vmwareGuestView(ctx context.Context) guestView {
-	info := runGuestCollector(ctx, collectors.NewVMwareCollector()).(*models.VMwareInfo)
+func vmwareGuestView(ctx context.Context) (guestView, error) {
+	data, err := runGuestCollector(ctx, collectors.NewVMwareCollector())
+	info, ok := data.(*models.VMwareInfo)
+	if !ok || info == nil {
+		return guestView{}, err
+	}
 	name := vmwareProductLabel(info)
 	return guestView{
 		identity:   "🟦 VMware guest — " + name,
@@ -323,7 +353,7 @@ func vmwareGuestView(ctx context.Context) guestView {
 		guestTitle: guestSectionVM,
 		hostTitle:  "Host-side — evidence to share with your cloud provider",
 		healthyMsg: "VMware guest healthy — guest tools running, paravirtual drivers in use, no host pressure",
-	}
+	}, nil
 }
 
 // kvmGuestProductLabel returns the reported KVM/QEMU product name, or a
@@ -337,8 +367,12 @@ func kvmGuestProductLabel(info *models.KVMGuestInfo) string {
 	return output.SanitizeControl(info.ProductName)
 }
 
-func kvmGuestView(ctx context.Context) guestView {
-	info := runGuestCollector(ctx, collectors.NewKVMGuestCollector()).(*models.KVMGuestInfo)
+func kvmGuestView(ctx context.Context) (guestView, error) {
+	data, err := runGuestCollector(ctx, collectors.NewKVMGuestCollector())
+	info, ok := data.(*models.KVMGuestInfo)
+	if !ok || info == nil {
+		return guestView{}, err
+	}
 	name := kvmGuestProductLabel(info)
 	return guestView{
 		identity:   "🟦 QEMU/KVM (Proxmox/libvirt) guest — " + name,
@@ -349,7 +383,7 @@ func kvmGuestView(ctx context.Context) guestView {
 		guestTitle: guestSectionVM,
 		hostTitle:  "Host-side — evidence for whoever runs your hypervisor",
 		healthyMsg: "KVM guest healthy — VirtIO NIC+disk, qemu-guest-agent running, no host pressure",
-	}
+	}, nil
 }
 
 // containerGuestIdentity names the container runtime and, when the container
@@ -380,8 +414,12 @@ func containerHealthyMsg(info *models.ContainerGuestInfo) string {
 	return "container healthy — limits set, non-root, no throttling or OOM-kills"
 }
 
-func containerGuestView(ctx context.Context) guestView {
-	info := runGuestCollector(ctx, collectors.NewContainerGuestCollector()).(*models.ContainerGuestInfo)
+func containerGuestView(ctx context.Context) (guestView, error) {
+	data, err := runGuestCollector(ctx, collectors.NewContainerGuestCollector())
+	info, ok := data.(*models.ContainerGuestInfo)
+	if !ok || info == nil {
+		return guestView{}, err
+	}
 	return guestView{
 		identity:   containerGuestIdentity(info),
 		jsonData:   info,
@@ -391,7 +429,7 @@ func containerGuestView(ctx context.Context) guestView {
 		guestTitle: "Your container — you can fix these",
 		hostTitle:  "Resource limits — enforced against you",
 		healthyMsg: containerHealthyMsg(info),
-	}
+	}, nil
 }
 
 // containerInsightHostSide: throttling, OOM-kills, and memory-near-limit are the
@@ -405,12 +443,12 @@ func isContainerRecognitionLine(msg string) bool {
 	return strings.Contains(msg, "limits set, non-root")
 }
 
-func runGuestCollector(ctx context.Context, col runner.Collector) any {
+func runGuestCollector(ctx context.Context, col runner.Collector) (any, error) {
 	var result runner.Result
 	for r := range runner.RunAll(ctx, []runner.Collector{col}) {
 		result = r
 	}
-	return result.Data
+	return result.Data, result.Err
 }
 
 func guestConcerns(view guestView) int {

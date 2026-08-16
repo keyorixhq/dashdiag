@@ -61,7 +61,11 @@ func runVMware(cmd *cobra.Command, _ []string) error {
 	}
 
 	if reportHTML, _ := cmd.Flags().GetBool("report-html"); reportHTML {
-		path, err := writeGuestReportHTML(vmwareGuestView(ctx))
+		view, err := vmwareGuestView(ctx)
+		if err != nil {
+			return err
+		}
+		path, err := writeGuestReportHTML(view)
 		if err != nil {
 			return fmt.Errorf("writing report: %w", err)
 		}
