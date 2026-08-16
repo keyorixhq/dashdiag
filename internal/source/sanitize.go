@@ -37,7 +37,7 @@ type secretRule struct {
 // identifier (MY_SECRET) already matches without an explicit prefix wildcard
 // wherever this pattern is used unanchored, since the alternation has no
 // leading \b anchor.
-const secretKeyPattern = `(?:pass(?:word|wd)?|secret|token|api[_-]?key|access[_-]?key|auth_?token|credentials?)[A-Za-z0-9_-]*`
+const secretKeyPattern = `(?:pass(?:word|wd)?|secret|token|api[_-]?key|access[_-]?key|auth_?token|credentials?)[A-Za-z0-9_-]*` //nolint:gosec // detector pattern for secret-shaped key NAMES, not a credential itself
 
 // secretKeyNameRe matches secretKeyPattern anywhere within a bare identifier
 // (e.g. a JSON object key like "SecretAccessKey" or "db_password") — used by
