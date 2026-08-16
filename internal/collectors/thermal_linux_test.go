@@ -210,6 +210,20 @@ func TestReadSensorLabel(t *testing.T) {
 	}
 }
 
+// TestReadSensorLabel_SanitizesControlChars is the regression test for
+// internal-collectors-32-07: the raw sysfs label is used both as an
+// info.CoreTemps map key and eventual display data, so it must have
+// control/ANSI bytes stripped before being returned.
+func TestReadSensorLabel_SanitizesControlChars(t *testing.T) {
+	esc := string(rune(27))
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/sys/class/hwmon/hwmon0/temp1_label", []byte("Tdie"+esc+"[31m\n"))
+	})
+	if got := readSensorLabel("/sys/class/hwmon/hwmon0/temp1_label"); got != "Tdie[31m" {
+		t.Errorf("readSensorLabel() = %q, want ESC stripped to Tdie[31m", got)
+	}
+}
+
 func TestReadThermalZone_BadValueSkipped(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutGlob("/sys/class/thermal/thermal_zone*/temp", []string{

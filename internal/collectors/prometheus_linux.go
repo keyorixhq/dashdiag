@@ -92,10 +92,16 @@ func (c *PrometheusCollector) Collect(ctx context.Context) (interface{}, error) 
 		if tg.Health == "down" {
 			info.TargetsDown++
 			if info.DownSample == "" {
-				info.DownSample = tg.ScrapeURL
+				sample := tg.ScrapeURL
 				if tg.LastError != "" {
-					info.DownSample += " (" + tg.LastError + ")"
+					sample += " (" + tg.LastError + ")"
 				}
+				// internal-collectors-27-04: DownSample flows through
+				// Insight.Hints (control-char sanitization is already closed
+				// via that render choke point), but a remote scrapeUrl/lastError
+				// pair had no length cap — an adversarial target could grow this
+				// unboundedly. Cap it here at the point of assignment.
+				info.DownSample = truncateRunes(sample, 200)
 			}
 		}
 	}

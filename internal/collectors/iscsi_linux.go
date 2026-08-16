@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 type ISCSICollector struct{}
@@ -98,9 +99,16 @@ func parseISCSISessions(out string) []models.ISCSISession {
 	pending := false
 	// flush records the current portal's session; state "UNKNOWN" when a portal had
 	// no "iSCSI Session State" line (counted as not-logged-in by the caller).
+	// internal-collectors-17-06: target/portal come straight from iscsiadm's
+	// output — sanitize before they land in the model so a crafted/adversarial
+	// target IQN or portal string can't smuggle control/ANSI bytes downstream.
 	flush := func(state string) {
 		if pending {
-			sessions = append(sessions, models.ISCSISession{Target: target, Portal: portal, State: state})
+			sessions = append(sessions, models.ISCSISession{
+				Target: source.SanitizeControl(target),
+				Portal: source.SanitizeControl(portal),
+				State:  state,
+			})
 			pending = false
 		}
 	}
