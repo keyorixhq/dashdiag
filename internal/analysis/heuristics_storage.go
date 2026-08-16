@@ -1262,6 +1262,14 @@ func checkDiskGrowth(fs models.FilesystemInfo) []models.Insight {
 // scrub-correctable); corruption/checksum errors alone are a WARN (often
 // scrub-correctable).
 func checkBtrfsVolume(v models.BtrfsVolume) []models.Insight {
+	// v.MountPoint is spliced unescaped into copy-pasteable "to inspect:
+	// btrfs …"/"to fix: btrfs scrub …" hints throughout this function;
+	// validate before use (see looksLikeSafeToken), same guard checkDisk
+	// applies for fs.Mount.
+	safeMount := v.MountPoint
+	if !looksLikeSafeToken(safeMount) {
+		safeMount = "<mount>"
+	}
 	// internal-collectors-03-01: `btrfs filesystem show` failed entirely (binary
 	// missing, timeout, permission denied, OOM) — every other field on this
 	// struct is a zero-value default, which would otherwise read as a clean
@@ -1271,7 +1279,7 @@ func checkBtrfsVolume(v models.BtrfsVolume) []models.Insight {
 		return []models.Insight{unverifiedInsight("INFO", "Disk",
 			fmt.Sprintf("btrfs %s could not be checked — `btrfs filesystem show` failed (btrfs-progs missing, timeout, or permission denied)", v.MountPoint),
 			[]string{
-				fmt.Sprintf("to inspect: btrfs filesystem show %s", v.MountPoint),
+				fmt.Sprintf("to inspect: btrfs filesystem show %s", safeMount),
 				"note: install btrfs-progs, or re-run as root, then retry",
 			},
 		)}
@@ -1280,8 +1288,8 @@ func checkBtrfsVolume(v models.BtrfsVolume) []models.Insight {
 		return []models.Insight{insight("CRIT", "Disk",
 			fmt.Sprintf("btrfs %s is DEGRADED — %d missing device(s), data at risk", v.MountPoint, v.MissingDevs),
 			[]string{
-				fmt.Sprintf("to inspect: btrfs filesystem show %s", v.MountPoint),
-				fmt.Sprintf(inspectBtrfsStatsFmt, v.MountPoint),
+				fmt.Sprintf("to inspect: btrfs filesystem show %s", safeMount),
+				fmt.Sprintf(inspectBtrfsStatsFmt, safeMount),
 				"to fix:     reattach missing device and run: btrfs device scan",
 			},
 		)}
@@ -1294,8 +1302,8 @@ func checkBtrfsVolume(v models.BtrfsVolume) []models.Insight {
 		return []models.Insight{unverifiedInsight("INFO", "Disk",
 			fmt.Sprintf("btrfs %s device state could not be verified — run as root (devices show unreadable without privilege)", v.MountPoint),
 			[]string{
-				fmt.Sprintf("to inspect: sudo btrfs filesystem show %s", v.MountPoint),
-				fmt.Sprintf("to inspect: sudo btrfs device stats %s", v.MountPoint),
+				fmt.Sprintf("to inspect: sudo btrfs filesystem show %s", safeMount),
+				fmt.Sprintf("to inspect: sudo btrfs device stats %s", safeMount),
 				"note: an unprivileged `btrfs filesystem show` reports present devices as MISSING — not an actual fault",
 			},
 		)}
@@ -1306,7 +1314,7 @@ func checkBtrfsVolume(v models.BtrfsVolume) []models.Insight {
 	if !v.StatsRead {
 		return []models.Insight{unverifiedInsight("INFO", "Disk",
 			fmt.Sprintf("btrfs %s device error counters not read — run as root: btrfs device stats %s", v.MountPoint, v.MountPoint),
-			[]string{fmt.Sprintf(inspectBtrfsStatsFmt, v.MountPoint)},
+			[]string{fmt.Sprintf(inspectBtrfsStatsFmt, safeMount)},
 		)}
 	}
 	if v.Status != "errors" {
@@ -1324,7 +1332,7 @@ func checkBtrfsVolume(v models.BtrfsVolume) []models.Insight {
 		return []models.Insight{insight("CRIT", "Disk",
 			fmt.Sprintf("btrfs %s has %d device I/O error(s) — failing storage or cabling", v.MountPoint, ioErrs),
 			[]string{
-				fmt.Sprintf(inspectBtrfsStatsFmt, v.MountPoint),
+				fmt.Sprintf(inspectBtrfsStatsFmt, safeMount),
 				"to inspect: dmesg | grep -i 'btrfs\\|i/o error'",
 				"note: back up data now — I/O errors are not scrub-correctable",
 			},
@@ -1334,8 +1342,8 @@ func checkBtrfsVolume(v models.BtrfsVolume) []models.Insight {
 	return []models.Insight{insight("WARN", "Disk",
 		fmt.Sprintf("btrfs %s has %d checksum/corruption error(s) — may be scrub-correctable", v.MountPoint, corruptErrs),
 		[]string{
-			fmt.Sprintf(inspectBtrfsStatsFmt, v.MountPoint),
-			fmt.Sprintf("to fix:     btrfs scrub start %s  (check for correctable errors)", v.MountPoint),
+			fmt.Sprintf(inspectBtrfsStatsFmt, safeMount),
+			fmt.Sprintf("to fix:     btrfs scrub start %s  (check for correctable errors)", safeMount),
 		},
 	)}
 }

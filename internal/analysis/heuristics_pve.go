@@ -242,11 +242,19 @@ func checkPVEStorage(p models.PVEInfo) []models.Insight {
 				))
 				continue
 			}
+			// s.Name is a Proxmox storage name (storage.cfg) parsed verbatim
+			// with no charset restriction — same provenance class as
+			// checkPVECluster's node names above; validate before splicing
+			// into the copy-pasteable "to inspect: pvesh …" hint below.
+			storageHint := "to inspect: pvesh get /nodes/localhost/storage/<storage>/status  (storage name withheld — contains unexpected characters)"
+			if looksLikeSafeToken(s.Name) {
+				storageHint = fmt.Sprintf("to inspect: pvesh get /nodes/localhost/storage/%s/status", s.Name)
+			}
 			out = append(out, insight("CRIT", pveCatPVE,
 				fmt.Sprintf("storage %s (%s) is INACTIVE", s.Name, s.Type),
 				[]string{
 					inspectPVESMStatus,
-					fmt.Sprintf("to inspect: pvesh get /nodes/localhost/storage/%s/status", s.Name),
+					storageHint,
 				},
 			))
 			continue

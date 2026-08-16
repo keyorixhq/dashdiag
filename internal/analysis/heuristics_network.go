@@ -26,14 +26,27 @@ const (
 func checkNFS(nfs models.NFSInfo) []models.Insight {
 	var out []models.Insight
 	for _, m := range nfs.Mounts {
+		// m.Mount comes from the mount table and m.Server from an NFS export
+		// hostname in fstab/the mount table — in a shared/multi-tenant
+		// environment, neither is fully trusted (same rationale nfs_linux.go's
+		// DSD_OFFLINE-gated dial uses). Spliced unescaped into copy-pasteable
+		// "to unmount:"/"to inspect:" hints below; validate before use (see
+		// looksLikeSafeToken), same guard checkDisk applies for fs.Mount.
+		safeMount, safeServer := m.Mount, m.Server
+		if !looksLikeSafeToken(safeMount) {
+			safeMount = "<mount>"
+		}
+		if !looksLikeSafeToken(safeServer) {
+			safeServer = "<server>"
+		}
 		if m.Stale {
 			hints := []string{
-				fmt.Sprintf("to unmount (safe): umount -l %s", m.Mount),
-				fmt.Sprintf("to remount after recovery: mount -o remount %s", m.Mount),
+				fmt.Sprintf("to unmount (safe): umount -l %s", safeMount),
+				fmt.Sprintf("to remount after recovery: mount -o remount %s", safeMount),
 			}
 			if !m.ServerReachable && !m.ServerCheckSkipped {
 				hints = append(hints,
-					fmt.Sprintf("server %s unreachable — check network/firewall", m.Server))
+					fmt.Sprintf("server %s unreachable — check network/firewall", safeServer))
 			}
 			out = append(out, insight("CRIT", netCatNFS,
 				fmt.Sprintf("mount %s is STALE — processes accessing it will hang in D-state", m.Mount),
@@ -46,8 +59,8 @@ func checkNFS(nfs models.NFSInfo) []models.Insight {
 			out = append(out, insight("WARN", netCatNFS,
 				fmt.Sprintf("mount %s is not responding normally (statfs error) — check exports/permissions", m.Mount),
 				[]string{
-					fmt.Sprintf("to inspect: stat -f %s", m.Mount),
-					fmt.Sprintf("to inspect: showmount -e %s   (verify the export still grants this client)", m.Server),
+					fmt.Sprintf("to inspect: stat -f %s", safeMount),
+					fmt.Sprintf("to inspect: showmount -e %s   (verify the export still grants this client)", safeServer),
 				}))
 		}
 		for _, warn := range m.OptionsWarnings {
@@ -350,7 +363,10 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyc
 		out = append(out, checkSteamOSWifi(net.SteamOSWifi)...)
 	}
 
-	// WiFi signal quality checks
+	// WiFi signal quality checks. iface.Name is spliced unescaped into a
+	// copy-pasteable "to inspect: nmcli …" hint below; validate before use
+	// (see looksLikeSafeToken), same guard this function already applies for
+	// the NIC-error and PrimaryInterfaceDown cases elsewhere in it.
 	for _, iface := range net.Interfaces {
 		if iface.WiFi == nil || iface.WiFi.SignalDBm == 0 {
 			continue
@@ -360,6 +376,10 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyc
 		if ssid == "" {
 			ssid = iface.Name
 		}
+		safeIfaceName := "<interface>"
+		if looksLikeSafeToken(iface.Name) {
+			safeIfaceName = iface.Name
+		}
 		switch {
 		case dbm < -80:
 			out = append(out, insight("CRIT", catNetwork,
@@ -367,7 +387,7 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyc
 				[]string{
 					"move closer to the access point",
 					"check for interference on this channel",
-					fmt.Sprintf("to inspect: nmcli dev wifi list ifname %s", iface.Name),
+					fmt.Sprintf("to inspect: nmcli dev wifi list ifname %s", safeIfaceName),
 				},
 			))
 		case dbm < -70:
@@ -375,7 +395,7 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyc
 				fmt.Sprintf("WiFi signal weak on %s: %ddBm (ssid: %s) — expect packet loss", iface.Name, dbm, ssid),
 				[]string{
 					"move closer to the access point or switch to 5GHz band",
-					fmt.Sprintf("to inspect: nmcli dev wifi list ifname %s", iface.Name),
+					fmt.Sprintf("to inspect: nmcli dev wifi list ifname %s", safeIfaceName),
 				},
 			))
 		}
@@ -404,13 +424,20 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyc
 
 	// Link speed check — 100Mbps on a server primary interface suggests wrong
 	// cable (Cat5 instead of Cat5e/Cat6) or switch port misconfiguration.
+	// iface.Name is spliced unescaped into copy-pasteable "to inspect:
+	// ethtool …" hints below; validate before use, same guard the WiFi loop
+	// above applies.
 	for _, iface := range net.Interfaces {
+		safeIfaceName := "<interface>"
+		if looksLikeSafeToken(iface.Name) {
+			safeIfaceName = iface.Name
+		}
 		if iface.Name == net.PrimaryInterface && iface.SpeedMbps > 0 && iface.SpeedMbps < 1000 {
 			out = append(out, insight("WARN", catNetwork,
 				fmt.Sprintf("primary interface %s linked at %d Mbps — expected 1000+ Mbps (check cable or switch port)", iface.Name, iface.SpeedMbps),
 				[]string{
-					"to inspect: ethtool " + iface.Name,
-					"to inspect: cat /sys/class/net/" + iface.Name + "/speed",
+					"to inspect: ethtool " + safeIfaceName,
+					"to inspect: cat /sys/class/net/" + safeIfaceName + "/speed",
 				},
 			))
 		}

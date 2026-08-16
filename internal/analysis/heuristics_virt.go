@@ -341,18 +341,31 @@ func checkPodmanQuadlets(d models.DockerInfo) []models.Insight {
 		}
 	}
 
+	// ServiceUnit is a quadlet-generated systemd unit name (operator-chosen
+	// via the quadlet file), spliced unescaped into copy-pasteable "to
+	// inspect: systemctl status …" hints below; validate before use (see
+	// looksLikeSafeToken), same guard failedUnitInsight applies for unit
+	// names in heuristics_system.go.
+	safeFirstFailed, safeFirstInactive := "<unit>", "<unit>"
+	if looksLikeSafeToken(firstFailed) {
+		safeFirstFailed = firstFailed
+	}
+	if looksLikeSafeToken(firstInactive) {
+		safeFirstInactive = firstInactive
+	}
+
 	var out []models.Insight
 	if len(failed) > 0 {
 		out = append(out, insight("WARN", virtCatDocker,
 			fmt.Sprintf("%d Podman quadlet(s) failed: %s", len(failed), strings.Join(firstN(failed, 3), ", ")),
-			[]string{fmt.Sprintf("to inspect: systemctl status %s", firstFailed)},
+			[]string{fmt.Sprintf("to inspect: systemctl status %s", safeFirstFailed)},
 		))
 	}
 	if len(inactive) > 0 {
 		out = append(out, insight("WARN", virtCatDocker,
 			fmt.Sprintf("%d Podman quadlet(s) present but not active: %s", len(inactive), strings.Join(firstN(inactive, 3), ", ")),
 			[]string{
-				fmt.Sprintf("to inspect: systemctl status %s", firstInactive),
+				fmt.Sprintf("to inspect: systemctl status %s", safeFirstInactive),
 				"note: the quadlet file exists but its generated unit is not running (stopped, or a unit-name mismatch)",
 			},
 		))

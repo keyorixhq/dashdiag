@@ -1423,14 +1423,23 @@ func checkCgroupV2(cg models.CgroupV2Info) []models.Insight {
 	// current rate (a slice hammered at boot but idle now still reads high). The
 	// wording reflects that; a high lifetime ratio is still a real "this slice is
 	// chronically cpu-constrained" signal.
+	// s.Name is a cgroup slice name derived from the systemd unit hierarchy
+	// (e.g. "system.slice/nginx.service") — same operator/attacker-
+	// influenceable provenance as failedUnitInsight's unit names. Spliced
+	// unescaped into copy-pasteable "to inspect: cat …"/"to fix: …" hints
+	// below; validate before use (see looksLikeSafeToken).
 	for _, s := range cg.Slices {
+		safeSliceName := "<slice>"
+		if looksLikeSafeToken(s.Name) {
+			safeSliceName = s.Name
+		}
 		if s.ThrottledPct > 20 {
 			out = append(out, insight("CRIT", "Cgroup",
 				fmt.Sprintf("%s CPU throttled %.0f%% of its run time (since boot) — chronically hitting cpu.max",
 					s.Name, s.ThrottledPct),
 				[]string{
-					fmt.Sprintf("to inspect: cat /sys/fs/cgroup/%s/cpu.stat", s.Name),
-					fmt.Sprintf("to fix: increase or remove cpu.max in /sys/fs/cgroup/%s/cpu.max", s.Name),
+					fmt.Sprintf("to inspect: cat /sys/fs/cgroup/%s/cpu.stat", safeSliceName),
+					fmt.Sprintf("to fix: increase or remove cpu.max in /sys/fs/cgroup/%s/cpu.max", safeSliceName),
 					"note: lifetime ratio — throttling causes latency spikes even when overall CPU is idle",
 				},
 			))
@@ -1439,7 +1448,7 @@ func checkCgroupV2(cg models.CgroupV2Info) []models.Insight {
 				fmt.Sprintf("%s CPU throttled %.0f%% of its run time (since boot)",
 					s.Name, s.ThrottledPct),
 				[]string{
-					fmt.Sprintf("to inspect: cat /sys/fs/cgroup/%s/cpu.stat", s.Name),
+					fmt.Sprintf("to inspect: cat /sys/fs/cgroup/%s/cpu.stat", safeSliceName),
 				},
 			))
 		}
@@ -1450,8 +1459,8 @@ func checkCgroupV2(cg models.CgroupV2Info) []models.Insight {
 				fmt.Sprintf("%s memory %.0f%% of limit (%.0f/%.0f MB)",
 					s.Name, s.MemUsedPct, s.MemCurrentMB, s.MemLimitMB),
 				[]string{
-					fmt.Sprintf("to inspect: cat /sys/fs/cgroup/%s/memory.current", s.Name),
-					fmt.Sprintf("to inspect: cat /sys/fs/cgroup/%s/memory.events", s.Name),
+					fmt.Sprintf("to inspect: cat /sys/fs/cgroup/%s/memory.current", safeSliceName),
+					fmt.Sprintf("to inspect: cat /sys/fs/cgroup/%s/memory.events", safeSliceName),
 					"note: at 100% the kernel will OOM-kill processes in this slice",
 				},
 			))
@@ -1460,7 +1469,7 @@ func checkCgroupV2(cg models.CgroupV2Info) []models.Insight {
 				fmt.Sprintf("%s memory at %.0f%% of limit",
 					s.Name, s.MemUsedPct),
 				[]string{
-					fmt.Sprintf("to inspect: cat /sys/fs/cgroup/%s/memory.current", s.Name),
+					fmt.Sprintf("to inspect: cat /sys/fs/cgroup/%s/memory.current", safeSliceName),
 				},
 			))
 		}
@@ -1482,11 +1491,26 @@ func checkCgroupV2(cg models.CgroupV2Info) []models.Insight {
 func checkCgroupUnits(units []models.CgroupUnit) []models.Insight {
 	var out []models.Insight
 	for _, u := range units {
+		// u.Name/u.ParentSlice are unit/container names spliced unescaped
+		// into copy-pasteable "to inspect: …" hints below; validate before
+		// use, same guard checkCgroupV2's slice loop applies above.
 		var hint []string
 		if u.IsContainer {
-			hint = []string{fmt.Sprintf("to inspect: docker stats %s", strings.TrimPrefix(u.Name, "container:"))}
+			containerName := strings.TrimPrefix(u.Name, "container:")
+			safeContainerName := "<container>"
+			if looksLikeSafeToken(containerName) {
+				safeContainerName = containerName
+			}
+			hint = []string{fmt.Sprintf("to inspect: docker stats %s", safeContainerName)}
 		} else {
-			hint = []string{fmt.Sprintf("to inspect: cat /sys/fs/cgroup/%s/%s/cpu.stat", u.ParentSlice, u.Name)}
+			safeParentSlice, safeUnitName := "<slice>", "<unit>"
+			if looksLikeSafeToken(u.ParentSlice) {
+				safeParentSlice = u.ParentSlice
+			}
+			if looksLikeSafeToken(u.Name) {
+				safeUnitName = u.Name
+			}
+			hint = []string{fmt.Sprintf("to inspect: cat /sys/fs/cgroup/%s/%s/cpu.stat", safeParentSlice, safeUnitName)}
 		}
 
 		if u.ThrottledPct > 20 {
