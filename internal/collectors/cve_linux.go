@@ -30,6 +30,7 @@ const (
 	fixDNFSecurity    = "dnf upgrade --security"
 	fixZypperSecurity = "zypper patch --category security"
 	archAuditFailed   = "arch-audit failed: "
+	archLinuxCVEURL   = "https://security.archlinux.org/"
 )
 
 // cveIDStrictPattern validates a caller-supplied CVE identifier end to end
@@ -1120,7 +1121,7 @@ func checkCVEPacman(ctx context.Context, cveID string) *models.CVEResult {
 	if !hasCmd(cmdArchAudit) {
 		result.Status = models.CVEUnknown
 		result.StatusReason = "install arch-audit for CVE scanning: pacman -S arch-audit"
-		result.FallbackURL = "https://security.archlinux.org/" + strings.ToLower(cveID)
+		result.FallbackURL = archLinuxCVEURL + strings.ToLower(cveID)
 		return result
 	}
 
@@ -1133,7 +1134,7 @@ func checkCVEPacman(ctx context.Context, cveID string) *models.CVEResult {
 	if err != nil && len(out) == 0 {
 		result.Status = models.CVEUnknown
 		result.StatusReason = archAuditFailed + err.Error()
-		result.FallbackURL = "https://security.archlinux.org/" + strings.ToLower(cveID)
+		result.FallbackURL = archLinuxCVEURL + strings.ToLower(cveID)
 		return result
 	}
 
@@ -1151,7 +1152,7 @@ func checkCVEPacman(ctx context.Context, cveID string) *models.CVEResult {
 	if err != nil && !strings.Contains(out, "CVE-") {
 		result.Status = models.CVEUnknown
 		result.StatusReason = archAuditFailed + err.Error()
-		result.FallbackURL = "https://security.archlinux.org/" + strings.ToLower(cveID)
+		result.FallbackURL = archLinuxCVEURL + strings.ToLower(cveID)
 		return result
 	}
 
