@@ -429,8 +429,11 @@ jobs:
       # emulated arm64.
       - name: Install via wget-only path (no curl on the box)
         if: needs.changes.outputs.docs_only != 'true' && matrix.platform == 'linux/amd64'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           docker run --rm --platform ${{ matrix.platform }} \
+            -e GITHUB_TOKEN \
             -v "$PWD/install.sh:/tmp/install.sh:ro" debian:13 sh -c '
               set -e
               apt-get update -qq >/dev/null
@@ -446,8 +449,11 @@ jobs:
       # installs. Without this guard the old silent skip-and-continue could regress.
       - name: Install fails closed when it cannot verify (and --no-verify overrides)
         if: needs.changes.outputs.docs_only != 'true' && matrix.platform == 'linux/amd64'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           docker run --rm --platform ${{ matrix.platform }} \
+            -e GITHUB_TOKEN \
             -v "$PWD/install.sh:/tmp/install.sh:ro" debian:13 sh -c '
               set -e
               apt-get update -qq >/dev/null
@@ -467,8 +473,11 @@ jobs:
       # Default behaviour (no flag) must still succeed on the same box.
       - name: Install --require-signature fails closed without minisign
         if: needs.changes.outputs.docs_only != 'true' && matrix.platform == 'linux/amd64'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           docker run --rm --platform ${{ matrix.platform }} \
+            -e GITHUB_TOKEN \
             -v "$PWD/install.sh:/tmp/install.sh:ro" debian:13 sh -c '
               set -e
               apt-get update -qq >/dev/null
@@ -485,8 +494,11 @@ jobs:
       # Guard the documented form so it can't silently regress again.
       - name: Install with documented --prefix flag (custom root)
         if: needs.changes.outputs.docs_only != 'true' && matrix.platform == 'linux/amd64'
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           docker run --rm --platform ${{ matrix.platform }} \
+            -e GITHUB_TOKEN \
             -v "$PWD/install.sh:/tmp/install.sh:ro" debian:13 sh -c '
               set -e
               apt-get update -qq >/dev/null
