@@ -385,8 +385,9 @@ Requires: Linux kernel 4.18+ or macOS 12+. Single binary, no dependencies.
 ## Network access
 
 **Off by default.** A handful of checks (connectivity/DNS probes, cloud-metadata
-detection, the update nudge, CVE enrichment on RHEL, NFS/SteamOS reachability)
-are more accurate with a network call — dsd never makes one unless you ask:
+detection, the update nudge, CVE enrichment on RHEL, NFS/SteamOS reachability,
+`dsd services`' configured port probes) are more accurate with a network call —
+dsd never makes one unless you ask:
 
 ```bash
 dsd health --network          # opt in for this run

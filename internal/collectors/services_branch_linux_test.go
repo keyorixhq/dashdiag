@@ -345,6 +345,9 @@ func TestCheckServiceLive_HTTP_RequestConstructionError(t *testing.T) {
 func TestServicesCollector_Collect_CritRollupViaCachedSource(t *testing.T) {
 	// t.Parallel() omitted: withCombinedFixture mutates the shared activeSource package
 	// global, and t.Setenv (used below for HOME) is incompatible with parallel subtests.
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the response, not the gate in front of it).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	critResult := models.ServiceResult{
 		Name: "db", Host: "127.0.0.1", Port: 5432, Protocol: "tcp",
 		Status: "CRIT", Reachable: true, StatusCode: 503,

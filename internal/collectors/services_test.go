@@ -11,6 +11,7 @@ import (
 	"os"
 	"path/filepath"
 	"strconv"
+	"strings"
 	"testing"
 	"time"
 
@@ -70,6 +71,9 @@ func TestServicesCollector_Collect_MalformedConfigDisclosed(t *testing.T) {
 // configured service is checked via checkService/cachedJSON, replaying a
 // pre-seeded WARN result so the aggregate ServicesInfo.Status becomes WARN.
 func TestServicesCollector_Collect_WithServices(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the response, not the gate in front of it).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	cfgPath := filepath.Join(home, ".dsd.yaml")
@@ -115,6 +119,9 @@ func TestServicesCollector_Collect_WithServices(t *testing.T) {
 // when any result is CRIT, the overall status must be CRIT even if scanned
 // after a WARN result.
 func TestServicesCollector_Collect_CritStatus(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixtures mock the responses, not the gate in front of them).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	home := t.TempDir()
 	t.Setenv("HOME", home)
 	cfgPath := filepath.Join(home, ".dsd.yaml")
@@ -157,6 +164,101 @@ func TestServicesCollector_Collect_CritStatus(t *testing.T) {
 	}
 }
 
+// TestCheckService_NetworkDisallowedByDefault_SkipsDial is a regression guard
+// for the services-network-gate fix: checkService used to unconditionally dial
+// an operator-configured (but never operator-typed-at-invocation) host:port,
+// with no opt-out. With no --network/DSD_ALLOW_NETWORK set — the true default
+// state — it must return before ever calling cachedJSON, the sole entry point
+// to the live probe, proven by recording every Cached() key requested rather
+// than just checking the result (which would look the same, WARN/unreachable,
+// as a genuinely-attempted-but-failed probe — the same trap
+// TestServicesCollector_Collect_WithServices fell into before this fix: it
+// asserted only Status/Reachable, which a gate-produced WARN satisfies just as
+// well as the seeded fixture it was meant to prove got read).
+func TestCheckService_NetworkDisallowedByDefault_SkipsDial(t *testing.T) {
+	var calls []string
+	prev := SetSource(recordingCacheSource{Replay: source.NewReplay(source.NewBundle()), calls: &calls})
+	t.Cleanup(func() { SetSource(prev) })
+
+	svc := config.ServiceConfig{Name: "db", Host: "10.0.0.5", Port: 5432, Protocol: "tcp"}
+	res := checkService(context.Background(), svc)
+
+	if res.Status != "WARN" {
+		t.Errorf("Status = %q, want WARN", res.Status)
+	}
+	if res.Reachable {
+		t.Error("Reachable = true, want false — network is off by default, nothing was actually dialed")
+	}
+	if !strings.Contains(res.Error, "--network") || !strings.Contains(res.Error, "DSD_ALLOW_NETWORK") {
+		t.Errorf("Error = %q, must name both the flag and the env var so the user knows how to fix it", res.Error)
+	}
+	for _, k := range calls {
+		if strings.HasPrefix(k, "service/") {
+			t.Errorf("Cached(%q) was requested despite network being disallowed by default", k)
+		}
+	}
+}
+
+// TestServicesDeep_PortProbesGated_SystemdHealthUnaffected proves the split
+// this fix creates: `dsd services deep` runs ServicesCollector (port probes,
+// now gated) and ServicesDeepCollector (systemd health: failed units,
+// journal, masked units — always local systemctl/journalctl exec, never
+// network) as two independent collectors. A user running `dsd services deep`
+// with no --network must still get real systemd data — verified here by
+// actually running both collectors and checking ServicesDeepCollector's
+// output, not by reading the code and assuming the split holds.
+func TestServicesDeep_PortProbesGated_SystemdHealthUnaffected(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	cfgPath := filepath.Join(home, ".dsd.yaml")
+	if err := os.WriteFile(cfgPath, []byte(
+		"services:\n  - name: db\n    host: 10.0.0.5\n    port: 5432\n    protocol: tcp\n"),
+		0o600); err != nil {
+		t.Fatal(err)
+	}
+
+	withCombinedFixture(t, nil, nil, func(b *source.Bundle) {
+		b.PutCmd("systemctl", []string{"list-units", "--failed", "--plain", "--no-legend", "--no-pager"},
+			"postgresql.service loaded failed failed PostgreSQL Database\n", 0)
+		b.PutCmd("journalctl", []string{"-u", "postgresql.service", "-n", "8", "--no-pager", "--output=short", "--no-hostname"},
+			"May 19 10:00:00 host postgresql[123]: FATAL: could not bind IPv4 socket\n", 0)
+		b.PutCmd("systemctl", []string{"show", "postgresql.service", "--property=ExecMainStatus,ActiveState,SubState"},
+			"ExecMainStatus=1\nActiveState=failed\nSubState=failed\n", 0)
+		b.PutCmd("systemctl", []string{"show", "-p", "TriggeredBy", "--value", "postgresql.service"}, "", 0)
+		b.PutCmd("systemctl", []string{"list-units", "--type=service", "--state=loaded", "--plain", "--no-legend", "--no-pager"}, "", 0)
+		b.PutCmd("systemctl", []string{"list-units", "--type=service", "--state=masked", "--plain", "--no-legend", "--no-pager"}, "", 0)
+		b.PutCmd("systemd-analyze", []string{"blame", "--no-pager"}, "", 0)
+		b.PutCmd("systemctl", []string{"--user", "is-system-running"}, "", 1)
+		b.PutCmd("systemctl", []string{"--user", "list-units", "--failed", "--plain", "--no-legend", "--no-pager"}, "", 0)
+	})
+
+	// No --network / DSD_ALLOW_NETWORK — the true default state.
+	portRaw, err := NewServicesCollector().Collect(context.Background())
+	if err != nil {
+		t.Fatalf("ServicesCollector.Collect() error: %v", err)
+	}
+	portInfo := portRaw.(*models.ServicesInfo)
+	if len(portInfo.Results) != 1 || portInfo.Results[0].Reachable {
+		t.Fatalf("port Results = %+v, want 1 unreachable (gated) result", portInfo.Results)
+	}
+	if !strings.Contains(portInfo.Results[0].Error, "--network") {
+		t.Errorf("port result Error = %q, want it to name --network", portInfo.Results[0].Error)
+	}
+
+	deepRaw, err := NewServicesDeepCollector().Collect(context.Background())
+	if err != nil {
+		t.Fatalf("ServicesDeepCollector.Collect() error: %v", err)
+	}
+	deepInfo := deepRaw.(*models.ServicesDeepInfo)
+	if !deepInfo.FailedUnitsQueried || len(deepInfo.FailedUnits) != 1 {
+		t.Fatalf("systemd health = %+v, want FailedUnitsQueried=true with 1 failed unit — "+
+			"deep's systemd section must be completely unaffected by the network gate", deepInfo)
+	}
+	if deepInfo.FailedUnits[0].Name != "postgresql.service" {
+		t.Errorf("FailedUnits[0].Name = %q, want postgresql.service", deepInfo.FailedUnits[0].Name)
+	}
+}
+
 // TestCheckService_ReplayGap guards the "not recorded in replay bundle" path:
 // a configured service missing from the cache must surface as an explicit
 // WARN, not silently skip or panic.
@@ -175,6 +277,9 @@ func TestCheckService_ReplayGap(t *testing.T) {
 // TestCheckService_CachedHit guards the replay-cache-hit path: a pre-seeded
 // cache entry is decoded and returned directly, without any live probe.
 func TestCheckService_CachedHit(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the response, not the gate in front of it).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	seeded := models.ServiceResult{Name: "db", Host: "10.0.0.5", Port: 5432, Protocol: "tcp", Reachable: true, Status: "OK"}
 	seededJSON, err := json.Marshal(seeded)
 	if err != nil {
@@ -199,6 +304,9 @@ func TestCheckService_CachedHit(t *testing.T) {
 // fixture. This is the branch TestCheckService_ReplayGap/CachedHit (both
 // against a Replay source) never exercise.
 func TestCheckService_LiveComputePath(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (a real, unfixtured Live source with an actual local listener).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	prev := SetSource(source.Live{Exec: nil})
 	defer SetSource(prev)
 
