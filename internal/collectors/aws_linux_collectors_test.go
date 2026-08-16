@@ -403,6 +403,9 @@ func TestEnaExpressState_EthtoolFails(t *testing.T) {
 }
 
 func TestAwsInstanceType(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the response, not the gate in front of it).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withAWSFixture(t, map[string][]byte{
 		"imds-aws-token": []byte("tok123"),
 		"imds/http://169.254.169.254/latest/meta-data/instance-type#X-aws-ec2-metadata-token=tok123": []byte("t4g.small"),
@@ -420,6 +423,9 @@ func TestAwsInstanceType_NoToken(t *testing.T) {
 }
 
 func TestAwsIMDSv1Open_Open(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the response, not the gate in front of it).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withAWSFixture(t, map[string][]byte{"aws-imdsv1-probe": []byte("open")}, nil, nil)
 	checked, open := awsIMDSv1Open(context.Background())
 	if !checked || !open {
@@ -428,6 +434,9 @@ func TestAwsIMDSv1Open_Open(t *testing.T) {
 }
 
 func TestAwsIMDSv1Open_Blocked(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the response, not the gate in front of it).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withAWSFixture(t, map[string][]byte{"aws-imdsv1-probe": []byte("blocked")}, nil, nil)
 	checked, open := awsIMDSv1Open(context.Background())
 	if !checked || open {
@@ -444,6 +453,9 @@ func TestAwsIMDSv1Open_Unreachable(t *testing.T) {
 }
 
 func TestAwsRebalance_Recommended(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the response, not the gate in front of it).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withAWSFixture(t, map[string][]byte{
 		"imds-aws-token":      []byte("tok123"),
 		"aws-rebalance-probe": []byte("yes"),
@@ -531,6 +543,9 @@ func TestSsmState_RunningViaProcComm(t *testing.T) {
 // under any test fixture, so the ~1s delta sleep never runs), IMDS posture,
 // and the local daemon checks.
 func TestAWSCollector_Collect_FullHappyPath(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the responses, not the gate in front of them).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withAWSFixture(t, map[string][]byte{
 		"imds-aws-token": []byte("tok123"),
 		"imds/http://169.254.169.254/latest/meta-data/instance-type#X-aws-ec2-metadata-token=tok123": []byte("m5.large"),
