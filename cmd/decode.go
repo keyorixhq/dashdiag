@@ -76,11 +76,19 @@ func runDecode(cmd *cobra.Command, args []string) error {
 		return fmt.Errorf("decode: report payload is not valid dsd JSON: %w", err)
 	}
 
+	// internal-share-01-02: neither output path below may skip this — a
+	// decoded blob is never verified as having actually come from the host
+	// it claims, and that has to reach --json too, not just the human-
+	// readable default (see WithDecodeDisclosure's doc comment).
+	report = render.WithDecodeDisclosure(report)
+
 	if jsonOut, _ := cmd.Flags().GetBool("json"); jsonOut {
-		_, _ = os.Stdout.Write(reportJSON)
-		if len(reportJSON) > 0 && reportJSON[len(reportJSON)-1] != '\n' {
-			fmt.Println()
+		out, err := json.MarshalIndent(report, "", "  ")
+		if err != nil {
+			return fmt.Errorf("decode: %w", err)
 		}
+		_, _ = os.Stdout.Write(out)
+		fmt.Println()
 		return nil
 	}
 
