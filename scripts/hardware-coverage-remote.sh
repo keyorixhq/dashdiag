@@ -125,14 +125,30 @@ if start_lxc 204 opensuse16-lxc; then
 	pct exec 204 -- rm -rf /tmp/dsd-cov
 fi
 
-# ── alpine-docker: docker.go / health_docker_unix.go real dispatch ──────────
+# ── alpine-docker: docker.go / health_docker_unix.go real dispatch, plus the
+# runContainerd "not-detected" negative branch — Docker's own bundled
+# containerd runs at a Docker-private socket path (/var/run/docker/containerd/
+# ...), NOT the standalone path runContainerd looks for, so this host is a
+# genuine (not simulated) "containerd not installed" case.
 if start_vm 106 192.168.10.38 root alpine-docker; then
 	scp -q -o BatchMode=yes "$BIN" root@192.168.10.38:/tmp/dsd-cov
 	ssh -o BatchMode=yes root@192.168.10.38 chmod +x /tmp/dsd-cov
-	collect_vm 192.168.10.38 root alpine-docker root "docker" "health --deep"
+	collect_vm 192.168.10.38 root alpine-docker root "docker" "health --deep" "containerd" "containerd --json"
 	ssh -o BatchMode=yes root@192.168.10.38 'rm -rf /tmp/dsd-cov /tmp/covdata-root' || true
 else
 	log "  ⏭️  alpine-docker unreachable, skipping"
+fi
+
+# ── debian13-lxc: runContainerd real "available" dispatch (standalone) ──────
+# `containerd` is in Debian's own default `main` repo — no third-party repo
+# needed. Installed fresh each run (unlike the DB engines on almalinux9-lxc,
+# this CT isn't otherwise used, so there's no reason to leave it enabled
+# between runs — but dnf/apt caches make the reinstall cheap either way).
+if start_lxc 201 debian13-lxc; then
+	pct exec 201 -- apt-get update -qq
+	pct exec 201 -- apt-get install -y -qq containerd >/dev/null 2>&1
+	collect_lxc 201 debian13-lxc containerd "containerd" "health --deep"
+	pct exec 201 -- rm -rf /tmp/dsd-cov
 fi
 
 # ── libvirt-kvm-test: runKVMGuest / KVM collectors real dispatch ────────────
@@ -165,7 +181,7 @@ else
 fi
 
 log "=== stopping guests ==="
-for vmid in 213 204; do pct shutdown "$vmid" & done
+for vmid in 213 204 201; do pct shutdown "$vmid" & done
 for vmid in 106 113 212; do qm shutdown "$vmid" & done
 wait
 
