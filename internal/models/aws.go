@@ -19,6 +19,16 @@ type AWSInfo struct {
 	// connection-tracking / link-local allowances; exceeding one means packets are
 	// silently shaped or dropped, visible ONLY in these ethtool counters.
 	ENA []ENAStats `json:"ena,omitempty"`
+	// ENADeltaReadFailed is true when the SECOND (delta) sample's `ethtool -S`
+	// read came back missing/incomplete for at least one ENA interface that had
+	// counters in the first read. internal-collectors-02-01: without this, a
+	// failed second read for an interface simply left it absent from the second
+	// snapshot map, and a naive lookup defaulted to a zero-value map, so
+	// subSat's saturating subtraction turned that into a false zero "no
+	// allowance-exceeded events" delta instead of an honest "couldn't verify".
+	// That interface's Active delta is now skipped rather than fabricated, and
+	// the failure is disclosed here (mirrors EBSDeltaReadFailed below).
+	ENADeltaReadFailed bool `json:"ena_delta_read_failed,omitempty"`
 
 	// --- EBS volume performance throttle (per EBS NVMe device) ---
 	EBS              []EBSStats `json:"ebs,omitempty"`

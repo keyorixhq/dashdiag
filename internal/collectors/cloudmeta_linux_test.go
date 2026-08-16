@@ -35,6 +35,99 @@ func withLiveCachedFixture(t *testing.T) {
 	t.Cleanup(func() { SetSource(prev) })
 }
 
+// ── imdsCacheKey ─────────────────────────────────────────────────────────────
+
+func TestImdsCacheKey_NoHeaders(t *testing.T) {
+	t.Parallel()
+	got := imdsCacheKey("http://169.254.169.254/latest/meta-data/instance-id", nil)
+	want := "imds/http://169.254.169.254/latest/meta-data/instance-id"
+	if got != want {
+		t.Errorf("imdsCacheKey() = %q, want %q", got, want)
+	}
+}
+
+func TestImdsCacheKey_SingleHeader(t *testing.T) {
+	t.Parallel()
+	got := imdsCacheKey("http://169.254.169.254/latest/meta-data/instance-id",
+		map[string]string{"X-aws-ec2-metadata-token": "tok"})
+	want := "imds/http://169.254.169.254/latest/meta-data/instance-id#X-aws-ec2-metadata-token=tok"
+	if got != want {
+		t.Errorf("imdsCacheKey() = %q, want %q", got, want)
+	}
+}
+
+// TestImdsCacheKey_SortedRegardlessOfMapOrder guards determinism: Go map
+// iteration order is randomised, so the key must be built from a header list
+// sorted by name — otherwise the same logical (url, headers) request could
+// hash to a different key on different calls, defeating the cache (a miss)
+// rather than just protecting it from cross-header collisions.
+func TestImdsCacheKey_SortedRegardlessOfMapOrder(t *testing.T) {
+	t.Parallel()
+	headers := map[string]string{"Zeta": "1", "Alpha": "2", "Metadata": "true"}
+	want := "imds/http://x#Alpha=2&Metadata=true&Zeta=1"
+	for i := 0; i < 20; i++ { // repeat: map iteration order varies per run
+		if got := imdsCacheKey("http://x", headers); got != want {
+			t.Fatalf("imdsCacheKey() = %q, want %q (run %d)", got, want, i)
+		}
+	}
+}
+
+// TestImdsCacheKey_DifferentHeadersDoNotCollide is the regression guard for
+// internal-collectors-04-02: keying imdsGet's Cached() call by URL alone meant
+// two calls to the SAME URL with DIFFERENT headers (different auth
+// tokens/contexts) produced the SAME key, so the second call silently got the
+// first's cached response instead of its own. The header content must now be
+// part of the key so differing headers for the same URL never collide.
+func TestImdsCacheKey_DifferentHeadersDoNotCollide(t *testing.T) {
+	t.Parallel()
+	url := "http://169.254.169.254/latest/meta-data/instance-id"
+	keyA := imdsCacheKey(url, map[string]string{"X-aws-ec2-metadata-token": "token-A"})
+	keyB := imdsCacheKey(url, map[string]string{"X-aws-ec2-metadata-token": "token-B"})
+	if keyA == keyB {
+		t.Fatalf("imdsCacheKey() collided for the same URL with different header values: both = %q", keyA)
+	}
+}
+
+// TestImdsCacheKey_SameURLAndHeadersMatch confirms the cache-hit path still
+// works: identical (url, headers) pairs must still resolve to the identical
+// key, or every legitimate cache hit becomes a miss.
+func TestImdsCacheKey_SameURLAndHeadersMatch(t *testing.T) {
+	t.Parallel()
+	url := "http://169.254.169.254/latest/meta-data/instance-id"
+	headers := map[string]string{"X-aws-ec2-metadata-token": "tok"}
+	if imdsCacheKey(url, headers) != imdsCacheKey(url, headers) {
+		t.Fatal("imdsCacheKey() must be deterministic for the same (url, headers) pair")
+	}
+}
+
+// TestImdsGet_DifferentHeadersDoNotCollide drives imdsGet itself (not just the
+// key builder) through a fake Cached source keyed by imdsCacheKey's output,
+// confirming two calls to the same URL with different headers each get their
+// OWN cached response rather than the first call's.
+func TestImdsGet_DifferentHeadersDoNotCollide(t *testing.T) {
+	url := "http://169.254.169.254/latest/meta-data/instance-id"
+	withCombinedFixture(t, map[string][]byte{
+		imdsCacheKey(url, map[string]string{"X-aws-ec2-metadata-token": "token-A"}): []byte("response-for-A"),
+		imdsCacheKey(url, map[string]string{"X-aws-ec2-metadata-token": "token-B"}): []byte("response-for-B"),
+	}, nil, nil)
+
+	gotA, errA := imdsGet(context.Background(), url, map[string]string{"X-aws-ec2-metadata-token": "token-A"})
+	if errA != nil {
+		t.Fatalf("unexpected error for token-A: %v", errA)
+	}
+	if gotA != "response-for-A" {
+		t.Errorf("imdsGet with token-A = %q, want response-for-A", gotA)
+	}
+
+	gotB, errB := imdsGet(context.Background(), url, map[string]string{"X-aws-ec2-metadata-token": "token-B"})
+	if errB != nil {
+		t.Fatalf("unexpected error for token-B: %v", errB)
+	}
+	if gotB != "response-for-B" {
+		t.Errorf("imdsGet with token-B = %q, want response-for-B (must not have gotten token-A's cached response)", gotB)
+	}
+}
+
 func TestParseAzureScheduledEvents(t *testing.T) {
 	// A real /scheduledevents document with a pending reboot.
 	const reboot = `{
@@ -368,9 +461,9 @@ func TestNewCloudMetaCollector_NameAndTimeout(t *testing.T) {
 func TestCloudMetaCollector_Collect_AWS(t *testing.T) {
 	withCombinedFixture(t, map[string][]byte{
 		"imds-aws-token": []byte("tok"),
-		"imds/http://169.254.169.254/latest/meta-data/instance-id":      []byte("i-0123456789abcdef0"),
-		"imds/http://169.254.169.254/latest/meta-data/instance-type":    []byte("t3.micro"),
-		"imds/http://169.254.169.254/latest/meta-data/placement/region": []byte("us-east-1"),
+		"imds/http://169.254.169.254/latest/meta-data/instance-id#X-aws-ec2-metadata-token=tok":      []byte("i-0123456789abcdef0"),
+		"imds/http://169.254.169.254/latest/meta-data/instance-type#X-aws-ec2-metadata-token=tok":    []byte("t3.micro"),
+		"imds/http://169.254.169.254/latest/meta-data/placement/region#X-aws-ec2-metadata-token=tok": []byte("us-east-1"),
 		"imds-aws-termination": []byte(`{}`),
 	}, nil, nil)
 
@@ -409,7 +502,7 @@ func TestCloudMetaCollector_Collect_NoProvider(t *testing.T) {
 // branch — AWS fails (no token), Azure succeeds.
 func TestCloudMetaCollector_Collect_Azure(t *testing.T) {
 	withCombinedFixture(t, map[string][]byte{
-		"imds/http://169.254.169.254/metadata/instance?api-version=2021-02-01": []byte(`{"compute":{"azEnvironment":"AzurePublicCloud"}}`),
+		"imds/http://169.254.169.254/metadata/instance?api-version=2021-02-01#Metadata=true": []byte(`{"compute":{"azEnvironment":"AzurePublicCloud"}}`),
 	}, nil, nil)
 
 	c := NewCloudMetaCollector()
@@ -427,7 +520,7 @@ func TestCloudMetaCollector_Collect_Azure(t *testing.T) {
 // branch — AWS and Azure both fail, GCP succeeds.
 func TestCloudMetaCollector_Collect_GCP(t *testing.T) {
 	withCombinedFixture(t, map[string][]byte{
-		"imds/http://metadata.google.internal/computeMetadata/v1/instance/id": []byte("1234567890"),
+		"imds/http://metadata.google.internal/computeMetadata/v1/instance/id#Metadata-Flavor=Google": []byte("1234567890"),
 	}, nil, nil)
 
 	c := NewCloudMetaCollector()
@@ -445,7 +538,7 @@ func TestCloudMetaCollector_Collect_GCP(t *testing.T) {
 // branch — AWS/Azure/GCP all fail, OCI succeeds.
 func TestCloudMetaCollector_Collect_OCI(t *testing.T) {
 	withCombinedFixture(t, map[string][]byte{
-		"imds/http://169.254.169.254/opc/v2/instance/": []byte(`{"id":"ocid1.instance.oc1..abc"}`),
+		"imds/http://169.254.169.254/opc/v2/instance/#Authorization=Bearer Oracle": []byte(`{"id":"ocid1.instance.oc1..abc"}`),
 	}, nil, nil)
 
 	c := NewCloudMetaCollector()
@@ -464,9 +557,9 @@ func TestCloudMetaCollector_Collect_OCI(t *testing.T) {
 func TestCollectAWS_Success(t *testing.T) {
 	withCombinedFixture(t, map[string][]byte{
 		"imds-aws-token": []byte("tok"),
-		"imds/http://169.254.169.254/latest/meta-data/instance-id":      []byte("i-abc"),
-		"imds/http://169.254.169.254/latest/meta-data/instance-type":    []byte("m5.large"),
-		"imds/http://169.254.169.254/latest/meta-data/placement/region": []byte("eu-west-1"),
+		"imds/http://169.254.169.254/latest/meta-data/instance-id#X-aws-ec2-metadata-token=tok":      []byte("i-abc"),
+		"imds/http://169.254.169.254/latest/meta-data/instance-type#X-aws-ec2-metadata-token=tok":    []byte("m5.large"),
+		"imds/http://169.254.169.254/latest/meta-data/placement/region#X-aws-ec2-metadata-token=tok": []byte("eu-west-1"),
 		"imds-aws-termination": []byte(`{}`),
 	}, nil, nil)
 
@@ -503,7 +596,7 @@ func TestCollectAWS_TokenButNoInstanceID(t *testing.T) {
 func TestCollectAWS_SpotTerminating(t *testing.T) {
 	withCombinedFixture(t, map[string][]byte{
 		"imds-aws-token": []byte("tok"),
-		"imds/http://169.254.169.254/latest/meta-data/instance-id": []byte("i-abc"),
+		"imds/http://169.254.169.254/latest/meta-data/instance-id#X-aws-ec2-metadata-token=tok": []byte("i-abc"),
 		"imds-aws-termination": []byte(`{"terminating":true}`),
 	}, nil, nil)
 	var info models.CloudInfo
@@ -521,7 +614,7 @@ func TestCollectAWS_SpotTerminating(t *testing.T) {
 func TestCollectAWS_SpotCheckFailed(t *testing.T) {
 	withCombinedFixture(t, map[string][]byte{
 		"imds-aws-token": []byte("tok"),
-		"imds/http://169.254.169.254/latest/meta-data/instance-id": []byte("i-abc"),
+		"imds/http://169.254.169.254/latest/meta-data/instance-id#X-aws-ec2-metadata-token=tok": []byte("i-abc"),
 		"imds-aws-termination": []byte(`{"check_failed":true}`),
 	}, nil, nil)
 	var info models.CloudInfo
@@ -592,8 +685,8 @@ func TestAwsSpotTermination(t *testing.T) {
 
 func TestCollectAzure_Success(t *testing.T) {
 	withCombinedFixture(t, map[string][]byte{
-		"imds/http://169.254.169.254/metadata/instance?api-version=2021-02-01":        []byte(`{"compute":{"azEnvironment":"AzurePublicCloud"}}`),
-		"imds/http://169.254.169.254/metadata/scheduledevents?api-version=2020-07-01": []byte(`{"Events":[]}`),
+		"imds/http://169.254.169.254/metadata/instance?api-version=2021-02-01#Metadata=true":        []byte(`{"compute":{"azEnvironment":"AzurePublicCloud"}}`),
+		"imds/http://169.254.169.254/metadata/scheduledevents?api-version=2020-07-01#Metadata=true": []byte(`{"Events":[]}`),
 	}, nil, nil)
 	var info models.CloudInfo
 	if !collectAzure(context.Background(), &info) {
@@ -609,7 +702,7 @@ func TestCollectAzure_Success(t *testing.T) {
 
 func TestCollectAzure_NotAzure(t *testing.T) {
 	withCombinedFixture(t, map[string][]byte{
-		"imds/http://169.254.169.254/metadata/instance?api-version=2021-02-01": []byte(`{"unrelated":"body"}`),
+		"imds/http://169.254.169.254/metadata/instance?api-version=2021-02-01#Metadata=true": []byte(`{"unrelated":"body"}`),
 	}, nil, nil)
 	var info models.CloudInfo
 	if collectAzure(context.Background(), &info) {
@@ -627,8 +720,8 @@ func TestCollectAzure_NoResponse(t *testing.T) {
 
 func TestCollectAzure_MaintenanceEvent(t *testing.T) {
 	withCombinedFixture(t, map[string][]byte{
-		"imds/http://169.254.169.254/metadata/instance?api-version=2021-02-01":        []byte(`{"compute":{"azEnvironment":"AzurePublicCloud"}}`),
-		"imds/http://169.254.169.254/metadata/scheduledevents?api-version=2020-07-01": []byte(`{"Events":[{"EventType":"Reboot","EventStatus":"Scheduled"}]}`),
+		"imds/http://169.254.169.254/metadata/instance?api-version=2021-02-01#Metadata=true":        []byte(`{"compute":{"azEnvironment":"AzurePublicCloud"}}`),
+		"imds/http://169.254.169.254/metadata/scheduledevents?api-version=2020-07-01#Metadata=true": []byte(`{"Events":[{"EventType":"Reboot","EventStatus":"Scheduled"}]}`),
 	}, nil, nil)
 	var info models.CloudInfo
 	if !collectAzure(context.Background(), &info) {
@@ -643,10 +736,10 @@ func TestCollectAzure_MaintenanceEvent(t *testing.T) {
 
 func TestCollectGCP_Success(t *testing.T) {
 	withCombinedFixture(t, map[string][]byte{
-		"imds/http://metadata.google.internal/computeMetadata/v1/instance/id":           []byte("1234567890"),
-		"imds/http://metadata.google.internal/computeMetadata/v1/instance/machine-type": []byte("n1-standard-1"),
-		"imds/http://metadata.google.internal/computeMetadata/v1/instance/zone":         []byte("us-central1-a"),
-		"imds/http://metadata.google.internal/computeMetadata/v1/instance/preempted":    []byte("FALSE"),
+		"imds/http://metadata.google.internal/computeMetadata/v1/instance/id#Metadata-Flavor=Google":           []byte("1234567890"),
+		"imds/http://metadata.google.internal/computeMetadata/v1/instance/machine-type#Metadata-Flavor=Google": []byte("n1-standard-1"),
+		"imds/http://metadata.google.internal/computeMetadata/v1/instance/zone#Metadata-Flavor=Google":         []byte("us-central1-a"),
+		"imds/http://metadata.google.internal/computeMetadata/v1/instance/preempted#Metadata-Flavor=Google":    []byte("FALSE"),
 	}, nil, nil)
 	var info models.CloudInfo
 	if !collectGCP(context.Background(), &info) {
@@ -670,8 +763,8 @@ func TestCollectGCP_NotAvailable(t *testing.T) {
 
 func TestCollectGCP_Preempted(t *testing.T) {
 	withCombinedFixture(t, map[string][]byte{
-		"imds/http://metadata.google.internal/computeMetadata/v1/instance/id":        []byte("1234567890"),
-		"imds/http://metadata.google.internal/computeMetadata/v1/instance/preempted": []byte("TRUE"),
+		"imds/http://metadata.google.internal/computeMetadata/v1/instance/id#Metadata-Flavor=Google":        []byte("1234567890"),
+		"imds/http://metadata.google.internal/computeMetadata/v1/instance/preempted#Metadata-Flavor=Google": []byte("TRUE"),
 	}, nil, nil)
 	var info models.CloudInfo
 	if !collectGCP(context.Background(), &info) {
@@ -689,7 +782,7 @@ func TestCollectGCP_Preempted(t *testing.T) {
 
 func TestCollectOCI_Success(t *testing.T) {
 	withCombinedFixture(t, map[string][]byte{
-		"imds/http://169.254.169.254/opc/v2/instance/": []byte(`{"id":"ocid1.instance.oc1..abc","shape":"VM.Standard.E4.Flex","canonicalRegionName":"us-ashburn-1"}`),
+		"imds/http://169.254.169.254/opc/v2/instance/#Authorization=Bearer Oracle": []byte(`{"id":"ocid1.instance.oc1..abc","shape":"VM.Standard.E4.Flex","canonicalRegionName":"us-ashburn-1"}`),
 	}, nil, nil)
 	var info models.CloudInfo
 	if !collectOCI(context.Background(), &info) {
@@ -713,7 +806,7 @@ func TestCollectOCI_NotAvailable(t *testing.T) {
 func TestIsCloudInstance_AWS(t *testing.T) {
 	withCombinedFixture(t, map[string][]byte{
 		"imds-aws-token": []byte("tok"),
-		"imds/http://169.254.169.254/latest/meta-data/instance-id": []byte("i-abc"),
+		"imds/http://169.254.169.254/latest/meta-data/instance-id#X-aws-ec2-metadata-token=tok": []byte("i-abc"),
 	}, nil, nil)
 	if !IsCloudInstance() {
 		t.Error("expected IsCloudInstance()=true when the AWS instance-id probe succeeds")
@@ -729,7 +822,7 @@ func TestIsCloudInstance_AWS(t *testing.T) {
 func TestIsCloudInstance_AWSIMDSv2TokenRequired(t *testing.T) {
 	withCombinedFixture(t, map[string][]byte{
 		"imds-aws-token": []byte("real-token"),
-		"imds/http://169.254.169.254/latest/meta-data/instance-id": []byte("i-abc"),
+		"imds/http://169.254.169.254/latest/meta-data/instance-id#X-aws-ec2-metadata-token=real-token": []byte("i-abc"),
 	}, nil, nil)
 	if !IsCloudInstance() {
 		t.Error("expected IsCloudInstance()=true when the real IMDSv2 token flow succeeds")
@@ -738,7 +831,7 @@ func TestIsCloudInstance_AWSIMDSv2TokenRequired(t *testing.T) {
 
 func TestIsCloudInstance_GCP(t *testing.T) {
 	withCombinedFixture(t, map[string][]byte{
-		"imds/http://metadata.google.internal/computeMetadata/v1/instance/id": []byte("1234567890"),
+		"imds/http://metadata.google.internal/computeMetadata/v1/instance/id#Metadata-Flavor=Google": []byte("1234567890"),
 	}, nil, nil)
 	if !IsCloudInstance() {
 		t.Error("expected IsCloudInstance()=true when the GCP instance/id probe succeeds")
@@ -751,7 +844,7 @@ func TestIsCloudInstance_GCP(t *testing.T) {
 // Azure host.
 func TestIsCloudInstance_Azure(t *testing.T) {
 	withCombinedFixture(t, map[string][]byte{
-		"imds/http://169.254.169.254/metadata/instance?api-version=2021-02-01": []byte(`{"compute":{"azEnvironment":"AzurePublicCloud"}}`),
+		"imds/http://169.254.169.254/metadata/instance?api-version=2021-02-01#Metadata=true": []byte(`{"compute":{"azEnvironment":"AzurePublicCloud"}}`),
 	}, nil, nil)
 	if !IsCloudInstance() {
 		t.Error("expected IsCloudInstance()=true when the Azure instance-metadata probe succeeds")
@@ -762,7 +855,7 @@ func TestIsCloudInstance_Azure(t *testing.T) {
 // OCI was never probed at all, for the same reason as Azure above.
 func TestIsCloudInstance_OCI(t *testing.T) {
 	withCombinedFixture(t, map[string][]byte{
-		"imds/http://169.254.169.254/opc/v2/instance/": []byte(`{"id":"ocid1.instance.oc1..abc"}`),
+		"imds/http://169.254.169.254/opc/v2/instance/#Authorization=Bearer Oracle": []byte(`{"id":"ocid1.instance.oc1..abc"}`),
 	}, nil, nil)
 	if !IsCloudInstance() {
 		t.Error("expected IsCloudInstance()=true when the OCI instance probe succeeds")

@@ -13,7 +13,8 @@ import (
 
 // withAzureFixture needs the Cached dimension the shared withCombinedFixture
 // (see security_linux_source_test.go) provides — lookPath("waagent") and
-// imdsGet's "imds/<url>" cache key both go through Cached.
+// imdsGet's "imds/<url>#<sorted headers>" cache key (see imdsCacheKey in
+// cloudmeta_linux.go) both go through Cached.
 func withAzureFixture(t *testing.T, cached map[string][]byte, seed func(b *source.Bundle)) {
 	t.Helper()
 	withCombinedFixture(t, cached, nil, seed)
@@ -141,7 +142,7 @@ const azureStorageProfileJSON = `{"osDisk":{"name":"osdisk1","caching":"ReadWrit
 
 func TestAzureDiskCaching_Success(t *testing.T) {
 	withAzureFixture(t, map[string][]byte{
-		"imds/http://169.254.169.254/metadata/instance/compute/storageProfile?api-version=2021-02-01&format=json": []byte(azureStorageProfileJSON),
+		"imds/http://169.254.169.254/metadata/instance/compute/storageProfile?api-version=2021-02-01&format=json#Metadata=true": []byte(azureStorageProfileJSON),
 	}, nil)
 	checked, disks := azureDiskCaching(context.Background())
 	if !checked {

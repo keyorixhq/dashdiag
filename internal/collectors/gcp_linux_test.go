@@ -100,10 +100,10 @@ func TestGCPGuestAvailable_NotGCP(t *testing.T) {
 func TestGCPCollector_Collect(t *testing.T) {
 	withCombinedFixture(t, map[string][]byte{
 		"lookpath/google_guest_agent": []byte("/usr/bin/google_guest_agent"),
-		"imds/http://metadata.google.internal/computeMetadata/v1/instance/scheduling/on-host-maintenance": []byte("MIGRATE"),
-		"imds/http://metadata.google.internal/computeMetadata/v1/instance/scheduling/preemptible":         []byte("false"),
-		"imds/http://metadata.google.internal/computeMetadata/v1/instance/maintenance-event":              []byte("NONE"),
-		"imds/http://metadata.google.internal/computeMetadata/v1/instance/attributes/enable-oslogin":      []byte("TRUE"),
+		"imds/http://metadata.google.internal/computeMetadata/v1/instance/scheduling/on-host-maintenance#Metadata-Flavor=Google": []byte("MIGRATE"),
+		"imds/http://metadata.google.internal/computeMetadata/v1/instance/scheduling/preemptible#Metadata-Flavor=Google":         []byte("false"),
+		"imds/http://metadata.google.internal/computeMetadata/v1/instance/maintenance-event#Metadata-Flavor=Google":              []byte("NONE"),
+		"imds/http://metadata.google.internal/computeMetadata/v1/instance/attributes/enable-oslogin#Metadata-Flavor=Google":      []byte("TRUE"),
 	}, nil, func(b *source.Bundle) {
 		b.PutCmd("systemctl", []string{"is-active", "google-guest-agent"}, "active\n", 0)
 		b.PutFile("/etc/chrony.conf", []byte("server metadata.google.internal iburst\n"))
@@ -241,9 +241,9 @@ func TestGcpGuestAgentState_ContextCancelled(t *testing.T) {
 
 func TestGcpMaintenance_Success(t *testing.T) {
 	withCombinedFixture(t, map[string][]byte{
-		"imds/http://metadata.google.internal/computeMetadata/v1/instance/scheduling/on-host-maintenance": []byte("terminate"),
-		"imds/http://metadata.google.internal/computeMetadata/v1/instance/scheduling/preemptible":         []byte("TRUE"),
-		"imds/http://metadata.google.internal/computeMetadata/v1/instance/maintenance-event":              []byte("host_maintenance_in_progress"),
+		"imds/http://metadata.google.internal/computeMetadata/v1/instance/scheduling/on-host-maintenance#Metadata-Flavor=Google": []byte("terminate"),
+		"imds/http://metadata.google.internal/computeMetadata/v1/instance/scheduling/preemptible#Metadata-Flavor=Google":         []byte("TRUE"),
+		"imds/http://metadata.google.internal/computeMetadata/v1/instance/maintenance-event#Metadata-Flavor=Google":              []byte("host_maintenance_in_progress"),
 	}, nil, nil)
 	checked, policy, active, preemptible := gcpMaintenance(context.Background())
 	if !checked || policy != "TERMINATE" || active != "host_maintenance_in_progress" || !preemptible {
@@ -254,8 +254,8 @@ func TestGcpMaintenance_Success(t *testing.T) {
 
 func TestGcpMaintenance_MaintenanceEventNone(t *testing.T) {
 	withCombinedFixture(t, map[string][]byte{
-		"imds/http://metadata.google.internal/computeMetadata/v1/instance/scheduling/on-host-maintenance": []byte("MIGRATE"),
-		"imds/http://metadata.google.internal/computeMetadata/v1/instance/maintenance-event":              []byte("NONE"),
+		"imds/http://metadata.google.internal/computeMetadata/v1/instance/scheduling/on-host-maintenance#Metadata-Flavor=Google": []byte("MIGRATE"),
+		"imds/http://metadata.google.internal/computeMetadata/v1/instance/maintenance-event#Metadata-Flavor=Google":              []byte("NONE"),
 	}, nil, nil)
 	checked, policy, active, _ := gcpMaintenance(context.Background())
 	if !checked || policy != "MIGRATE" || active != "" {
@@ -275,7 +275,7 @@ func TestGcpMaintenance_MetadataUnreachable(t *testing.T) {
 
 func TestGcpOSLogin_InstanceAttribute(t *testing.T) {
 	withCombinedFixture(t, map[string][]byte{
-		"imds/http://metadata.google.internal/computeMetadata/v1/instance/attributes/enable-oslogin": []byte("TRUE"),
+		"imds/http://metadata.google.internal/computeMetadata/v1/instance/attributes/enable-oslogin#Metadata-Flavor=Google": []byte("TRUE"),
 	}, nil, nil)
 	checked, enabled := gcpOSLogin(context.Background())
 	if !checked || !enabled {
@@ -285,7 +285,7 @@ func TestGcpOSLogin_InstanceAttribute(t *testing.T) {
 
 func TestGcpOSLogin_FallsBackToProjectAttribute(t *testing.T) {
 	withCombinedFixture(t, map[string][]byte{
-		"imds/http://metadata.google.internal/computeMetadata/v1/project/attributes/enable-oslogin": []byte("true"),
+		"imds/http://metadata.google.internal/computeMetadata/v1/project/attributes/enable-oslogin#Metadata-Flavor=Google": []byte("true"),
 	}, nil, nil)
 	checked, enabled := gcpOSLogin(context.Background())
 	if !checked || !enabled {

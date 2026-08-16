@@ -4,11 +4,23 @@ package collectors
 
 import (
 	"context"
+	"sort"
 	"strings"
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
+
+// maxContainerdNamespaces caps how many containerd namespaces the collector
+// will fan a per-namespace `ctr -n <ns> containers list -q` subprocess out to.
+// internal-collectors-05-04: `containerdNamespaces` used to spawn one
+// subprocess per namespace line with no upper bound — a container/namespace-
+// bombing scenario (or just a very large multi-tenant host) could fan out an
+// unbounded number of subprocesses. Beyond the cap, TotalContainers is a
+// floor (first maxContainerdNamespaces namespaces, sorted, only) rather than
+// a full count — ContainerdInfo.NamespacesTruncated discloses that rather
+// than silently under-reporting as if it were the complete picture.
+const maxContainerdNamespaces = 100
 
 // ctrBinaries are the known names/paths for the containerd CLI tool.
 // openSUSE ships it as containerd-ctr; Debian/Ubuntu/k3s use ctr.
@@ -115,7 +127,7 @@ func (c *ContainerdCollector) Collect(ctx context.Context) (interface{}, error) 
 	info.CtrBinaryFound = ctrBin != ""
 	if ctrBin != "" {
 		info.Version = containerdVersion(ctx, ctrBin)
-		info.Namespaces = containerdNamespaces(ctx, ctrBin)
+		info.Namespaces, info.NamespacesTruncated = containerdNamespaces(ctx, ctrBin)
 		for _, ns := range info.Namespaces {
 			info.TotalContainers += ns.ContainerCount
 		}
@@ -169,25 +181,40 @@ func containerdVersion(ctx context.Context, ctrBin string) string {
 }
 
 // containerdNamespaces lists containerd namespaces and container counts.
-func containerdNamespaces(ctx context.Context, ctrBin string) []models.ContainerdNamespace {
+// truncated is true when more than maxContainerdNamespaces namespaces were
+// reported — only the first maxContainerdNamespaces (sorted, for a
+// deterministic and reproducible subset) are actually enumerated, capping the
+// number of `ctr -n <ns> containers list -q` subprocesses fanned out
+// (internal-collectors-05-04: an unbounded fan-out is a namespace-bombing
+// subprocess-exhaustion vector).
+func containerdNamespaces(ctx context.Context, ctrBin string) (result []models.ContainerdNamespace, truncated bool) {
 	nsCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	out, err := runCmd(nsCtx, ctrBin, "namespaces", "list", "-q")
 	if err != nil || out == "" {
-		return nil
+		return nil, false
 	}
-	var result []models.ContainerdNamespace
+	var names []string
 	for _, ns := range strings.Split(strings.TrimSpace(out), "\n") {
 		ns = strings.TrimSpace(ns)
 		if ns == "" {
 			continue
 		}
+		names = append(names, ns)
+	}
+	sort.Strings(names)
+	if len(names) > maxContainerdNamespaces {
+		truncated = true
+		names = names[:maxContainerdNamespaces]
+	}
+	result = make([]models.ContainerdNamespace, 0, len(names))
+	for _, ns := range names {
 		result = append(result, models.ContainerdNamespace{
 			Name:           ns,
 			ContainerCount: containerdContainerCount(ctx, ctrBin, ns),
 		})
 	}
-	return result
+	return result, truncated
 }
 
 // containerdContainerCount counts containers in one containerd namespace.

@@ -55,7 +55,7 @@ func TestOCIGuestAvailable_False(t *testing.T) {
 
 func TestOciInstanceDocRead_Success(t *testing.T) {
 	withOCIFixture(t, map[string][]byte{
-		"imds/http://169.254.169.254/opc/v2/instance/": []byte(ociInstanceDocJSON),
+		"imds/http://169.254.169.254/opc/v2/instance/#Authorization=Bearer Oracle": []byte(ociInstanceDocJSON),
 	}, nil, nil)
 	doc := ociInstanceDocRead(context.Background())
 	if doc == nil {
@@ -75,7 +75,7 @@ func TestOciInstanceDocRead_Unreachable(t *testing.T) {
 
 func TestOciInstanceDocRead_BadJSON(t *testing.T) {
 	withOCIFixture(t, map[string][]byte{
-		"imds/http://169.254.169.254/opc/v2/instance/": []byte("not json"),
+		"imds/http://169.254.169.254/opc/v2/instance/#Authorization=Bearer Oracle": []byte("not json"),
 	}, nil, nil)
 	if doc := ociInstanceDocRead(context.Background()); doc != nil {
 		t.Errorf("ociInstanceDocRead() = %+v, want nil on unparseable body", doc)
@@ -84,7 +84,7 @@ func TestOciInstanceDocRead_BadJSON(t *testing.T) {
 
 func TestOciInstanceMeta_Found(t *testing.T) {
 	withOCIFixture(t, map[string][]byte{
-		"imds/http://169.254.169.254/opc/v2/instance/": []byte(ociInstanceDocJSON),
+		"imds/http://169.254.169.254/opc/v2/instance/#Authorization=Bearer Oracle": []byte(ociInstanceDocJSON),
 	}, nil, nil)
 	shape, region, ad := ociInstanceMeta(context.Background())
 	if shape != "VM.Standard.A1.Flex" || region != "us-phoenix-1" || ad != "Bdcu:PHX-AD-1" {
@@ -302,7 +302,7 @@ func TestSortOCIVNICs_EmptyAndSingle(t *testing.T) {
 func TestOCICollector_Collect_FullHappyPath(t *testing.T) {
 	withOCIFixture(t,
 		map[string][]byte{
-			"imds/http://169.254.169.254/opc/v2/instance/": []byte(ociInstanceDocJSON),
+			"imds/http://169.254.169.254/opc/v2/instance/#Authorization=Bearer Oracle": []byte(ociInstanceDocJSON),
 			"oci-imdsv1-probe": []byte("blocked"),
 		},
 		map[string]string{

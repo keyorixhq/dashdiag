@@ -30,6 +30,16 @@ type ContainerdInfo struct {
 	// namespaces. Callers must not treat that zero-value pair as "verified
 	// clean" when this is false.
 	CtrBinaryFound bool `json:"ctr_binary_found,omitempty"`
+	// NamespacesTruncated is true when `ctr namespaces list` reported more
+	// namespaces than the collector will fan a per-namespace `ctr containers
+	// list` subprocess out to (maxContainerdNamespaces in
+	// containerd_linux.go). internal-collectors-05-04: enumerating every
+	// reported namespace with no cap let a namespace-bombing scenario spawn an
+	// unbounded number of subprocesses. Namespaces/TotalContainers still cover
+	// the first maxContainerdNamespaces (sorted) when this is true — this flag
+	// says the count is a floor, not the full picture, so a caller must not
+	// treat it as "verified — this is every namespace on the host".
+	NamespacesTruncated bool `json:"namespaces_truncated,omitempty"`
 }
 
 // ContainerdNamespace holds container counts for one containerd namespace.
