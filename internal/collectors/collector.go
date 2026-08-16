@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"os/exec"
 	"sync/atomic"
 	"time"
@@ -33,15 +32,13 @@ func truncateRunes(s string, max int) string {
 
 // runCmd runs an external command with LC_ALL=C and LANG=C so numeric output
 // always uses dot as the decimal separator regardless of the user's locale.
-// localeSafeEnv returns the process environment forced to the C locale, so any
-// external command whose OUTPUT we parse emits stable English/ASCII (month and
-// day names, decimal separators, status words) regardless of the host's locale.
-// Every external command we parse must use this. runCmd applies it for you;
+// localeSafeEnv is source.HardenedEnv under this package's established name —
+// every external command we parse must use this. runCmd applies it for you;
 // raw exec.Command/CommandContext .Output() sites must set cmd.Env =
 // localeSafeEnv() — otherwise parsing silently breaks on non-English hosts (e.g.
 // `dmesg -T` prints "dom jun" on es_ES, which an English layout cannot parse).
 func localeSafeEnv() []string {
-	return append(os.Environ(), "LC_ALL=C", "LANG=C")
+	return source.HardenedEnv()
 }
 
 // localeSafeCmd is exec.CommandContext with the C locale forced. Use it for any
@@ -122,7 +119,7 @@ func ActiveSource() source.Source { return curSource() }
 func localeSafeExec(ctx context.Context, name string, args ...string) (source.Result, error) {
 	cmd := exec.CommandContext(ctx, source.ResolveTrustedTool(name), args...)
 	cmd.Env = localeSafeEnv()
-	cmd.WaitDelay = 100 * time.Millisecond // force-kill after context cancel
+	cmd.WaitDelay = source.ExecWaitDelay // force-kill after context cancel
 	so, se := source.NewCapWriter(source.MaxCapturedOutput), source.NewCapWriter(source.MaxCapturedOutput)
 	cmd.Stdout, cmd.Stderr = so, se
 	// cmd.Run() calls Wait() internally on every path, so the child is always

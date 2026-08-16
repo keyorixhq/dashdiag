@@ -8,6 +8,8 @@ import (
 	"runtime"
 	"strings"
 	"time"
+
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 // psTimeout bounds the `ps aux` call in darwinProcessNames. RunWizard has no
@@ -17,6 +19,24 @@ import (
 // at odds with dsd's "completes in under 35s, never hangs" contract. A var
 // (not const) so tests can shrink it rather than waiting out the real value.
 var psTimeout = 5 * time.Second
+
+// newPSCmd builds the hardened `ps aux` command darwinProcessNames runs:
+// source.ResolveTrustedTool (PATH-trust), source.HardenedEnv (locale), and
+// source.ExecWaitDelay (force-kill on context cancel) — the same three
+// primitives collectors/baseline/drilldown use.
+//
+// A package-level var, not an inline call, for the same reason drilldown's
+// runCmd is one (see drilldown.go): it gives tests a seam to inject a fake
+// "ps" binary. ResolveTrustedTool deliberately ignores the inherited $PATH
+// (that's the whole point — see its doc comment), so a test fixture that
+// used to work by manipulating $PATH (t.Setenv("PATH", tempDir)) no longer
+// reaches a substitute binary that way; it must swap this var instead.
+var newPSCmd = func(ctx context.Context) *exec.Cmd {
+	cmd := exec.CommandContext(ctx, source.ResolveTrustedTool("ps"), "aux") // NOSONAR — hardcoded binary
+	cmd.Env = source.HardenedEnv()
+	cmd.WaitDelay = source.ExecWaitDelay // force-kill after context cancel
+	return cmd
+}
 
 // DetectServerProfile returns the best-guess server profile and whether the
 // process list itself was actually readable. ok=false means the process
@@ -80,9 +100,11 @@ func linuxProcessNamesFrom(procDir string) ([]string, bool) {
 func darwinProcessNames() ([]string, bool) {
 	ctx, cancel := context.WithTimeout(context.Background(), psTimeout)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, "ps", "aux") // NOSONAR — hardcoded binary
-	cmd.WaitDelay = 100 * time.Millisecond       // force-kill after context cancel (matches localeSafeExec)
-	out, err := cmd.Output()
+	// internal-init-01-04: PATH-trust "ps" (dsd routinely runs as root — an
+	// untrusted $PATH entry ahead of the real binary is a hijack vector) and
+	// force the C locale, same as collectors/baseline/drilldown's hardened
+	// exec. WaitDelay was already correct here.
+	out, err := newPSCmd(ctx).Output()
 	if err != nil {
 		return nil, false
 	}

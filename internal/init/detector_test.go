@@ -1,7 +1,9 @@
 package init_pkg
 
 import (
+	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"runtime"
 	"testing"
@@ -94,16 +96,25 @@ func TestDarwinProcessNames_Smoke(t *testing.T) {
 	}
 }
 
-// With PATH cleared, exec.Command("ps", "aux") cannot find the "ps" binary,
-// so darwinProcessNames() takes its error branch and returns (nil, false) —
-// exercises that path without needing a real macOS host. t.Setenv forbids
-// t.Parallel() per Go's testing package (same constraint as firstrun_test.go).
+// With newPSCmd pointed at a nonexistent binary, darwinProcessNames() takes
+// its error branch and returns (nil, false) — exercises that path without
+// needing a real macOS host. Swaps newPSCmd rather than $PATH: since
+// internal-init-01-04, "ps" resolves via source.ResolveTrustedTool, which
+// deliberately ignores $PATH (see its doc comment), so clearing $PATH no
+// longer has any effect on which binary this runs. Not t.Parallel(): the var
+// swap is only race-free because Go's test runner finishes all serial tests
+// before starting the parallel batch (same constraint as the drilldown
+// package's swapRunCmd tests).
 func TestDarwinProcessNames_PsNotFound(t *testing.T) {
-	t.Setenv("PATH", "")
+	old := newPSCmd
+	newPSCmd = func(ctx context.Context) *exec.Cmd {
+		return exec.CommandContext(ctx, filepath.Join(t.TempDir(), "definitely-not-a-real-binary"), "aux")
+	}
+	defer func() { newPSCmd = old }()
 
 	names, ok := darwinProcessNames()
 	if names != nil {
-		t.Errorf("darwinProcessNames() names = %v, want nil when `ps` is not on PATH", names)
+		t.Errorf("darwinProcessNames() names = %v, want nil when `ps` cannot be found/run", names)
 	}
 	if ok {
 		t.Error("darwinProcessNames() ok = true, want false — the scan itself failed, must not read as a genuine empty result")
@@ -113,26 +124,34 @@ func TestDarwinProcessNames_PsNotFound(t *testing.T) {
 // TestDarwinProcessNamesBoundsHungPs covers subprocess-wrappers-07: a bare
 // exec.Command("ps", "aux") has no deadline at all, so a wedged `ps` (a stuck
 // kernel table lock, a pathological process count) would hang
-// darwinProcessNames — and therefore `dsd init` — forever. Point PATH at a
+// darwinProcessNames — and therefore `dsd init` — forever. Swap newPSCmd to a
 // fake "ps" that sleeps far longer than psTimeout and confirm the call
 // returns promptly instead of blocking for the sleep's full duration.
+//
+// Swaps newPSCmd rather than $PATH (see TestDarwinProcessNames_PsNotFound's
+// comment for why $PATH no longer reaches a substitute binary here).
 func TestDarwinProcessNamesBoundsHungPs(t *testing.T) {
 	dir := t.TempDir()
 	fakePS := filepath.Join(dir, "ps")
-	// Use /bin/sleep by absolute path, not a bare "sleep" — the script inherits
-	// the test's PATH below (set to just dir), so a bare "sleep" would fail to
-	// resolve and the script would fall straight through to the echo, defeating
-	// the whole point of this fixture (it must actually block). `exec` replaces
-	// the shell with sleep in the same process rather than forking a child, so
-	// killing the "ps" process actually kills the sleep — a forked (non-exec'd)
-	// grandchild would keep the output pipe open after the shell itself dies,
-	// masking a working cancellation as a hang.
+	// Use /bin/sleep by absolute path, not a bare "sleep" — the script would
+	// otherwise need $PATH to resolve it, and this fixture deliberately does
+	// NOT rely on $PATH (see above). `exec` replaces the shell with sleep in
+	// the same process rather than forking a child, so killing the "ps"
+	// process actually kills the sleep — a forked (non-exec'd) grandchild
+	// would keep the output pipe open after the shell itself dies, masking a
+	// working cancellation as a hang.
 	script := "#!/bin/sh\nexec /bin/sleep 5\n"
 	if err := os.WriteFile(fakePS, []byte(script), 0o755); err != nil { //nolint:gosec // test fixture, needs +x
 		t.Fatalf("writing fake ps: %v", err)
 	}
 
-	t.Setenv("PATH", dir)
+	oldNewPSCmd := newPSCmd
+	newPSCmd = func(ctx context.Context) *exec.Cmd {
+		cmd := exec.CommandContext(ctx, fakePS, "aux")
+		cmd.WaitDelay = 100 * time.Millisecond // matches source.ExecWaitDelay
+		return cmd
+	}
+	defer func() { newPSCmd = oldNewPSCmd }()
 	oldTimeout := psTimeout
 	psTimeout = 300 * time.Millisecond
 	defer func() { psTimeout = oldTimeout }()
