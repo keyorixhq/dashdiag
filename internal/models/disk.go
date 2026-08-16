@@ -31,11 +31,53 @@ type SMARTInfo struct {
 // the standalone `dsd disk` view should mirror `dsd health`, which already flags
 // this case (NVMeNoRealData). A genuine drive always reports a temperature and a
 // non-zero spare, so this never matches a real (even brand-new) disk.
+//
+// internal-models-03-01: this used to require ALL SEVEN fields to be exactly
+// the sentinel value — a single stray non-zero field (a parser quirk, or a
+// virtual device that happens to pass through one real counter, e.g. a
+// power-cycle count) defeated the detector entirely and produced a confident
+// "PASSED" for a drive that reported almost nothing real. Instead, tolerate at
+// most ONE non-zero field (6-of-7 sentinel) before still calling it
+// no-real-telemetry: a lone stray field is far more consistent with a
+// virtual/passthrough quirk than with a genuine drive, while two or more
+// non-zero fields is a strong signal of actual on-device telemetry.
+//
+// internal-models-03-01 layering note: this is a method with real
+// classification logic on a models-layer struct, which conflicts with this
+// package's "dumb structs only, no methods, no logic" contract (see
+// CLAUDE.md's Models layer contract). It predates this fix and is left in
+// place here — see the fix report for why relocating it to internal/analysis
+// (as its NVMeDevice sibling NVMeNoRealData already does) is out of scope for
+// this change.
 func (s SMARTInfo) NoRealTelemetry() bool {
-	return s.Healthy &&
-		s.Temperature <= 0 && s.AvailableSpare == 0 && s.PercentUsed == 0 &&
-		s.MediaErrors == 0 && s.PowerOnHours == 0 && s.PowerCycles == 0 &&
-		s.UnsafeShutdowns == 0
+	if !s.Healthy {
+		return false
+	}
+	const totalFields = 7
+	zero := 0
+	if s.Temperature <= 0 {
+		zero++
+	}
+	if s.AvailableSpare == 0 {
+		zero++
+	}
+	if s.PercentUsed == 0 {
+		zero++
+	}
+	if s.MediaErrors == 0 {
+		zero++
+	}
+	if s.PowerOnHours == 0 {
+		zero++
+	}
+	if s.PowerCycles == 0 {
+		zero++
+	}
+	if s.UnsafeShutdowns == 0 {
+		zero++
+	}
+	// Allow at most one non-zero (sentinel) field.
+	return zero >= totalFields-1
 }
 
 // PhysicalDrive is a block device detected on the system.

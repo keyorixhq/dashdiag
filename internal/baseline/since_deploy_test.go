@@ -179,6 +179,31 @@ func TestGetBootTime(t *testing.T) {
 	}
 }
 
+// procStartSignal guards internal-baseline-01-05: the raw /proc comm name fed
+// into the deploy-signal string is attacker-controlled (any process can set
+// its own comm via prctl(PR_SET_NAME) or argv[0]), and this string is printed
+// verbatim by RunSinceDeployDiff with no other sanitization choke point on
+// the way. Control/escape bytes must be stripped; ordinary names must pass
+// through unchanged.
+func TestProcStartSignal_SanitizesControlChars(t *testing.T) {
+	t.Parallel()
+	got := procStartSignal("evil\x1b]0;pwned\x07proc")
+	if strings.ContainsAny(got, "\x1b\x07") {
+		t.Errorf("procStartSignal did not strip control bytes: %q", got)
+	}
+	if !strings.HasSuffix(got, " process started") {
+		t.Errorf("procStartSignal missing suffix: %q", got)
+	}
+}
+
+func TestProcStartSignal_PassesCleanNamesThrough(t *testing.T) {
+	t.Parallel()
+	got := procStartSignal("nginx")
+	if want := "nginx process started"; got != want {
+		t.Errorf("procStartSignal(%q) = %q, want %q", "nginx", got, want)
+	}
+}
+
 // newestProcStart must be self-consistent: it either returns a process started
 // within maxAge, or an error — never a zero time with nil error.
 func TestNewestProcStart(t *testing.T) {

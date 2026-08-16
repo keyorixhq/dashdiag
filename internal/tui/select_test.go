@@ -492,6 +492,24 @@ func TestRunSingleSelect_TextFallback_EmptyStdin(t *testing.T) {
 	}
 }
 
+// TestRunSingleSelect_TextFallback_ScanError guards internal-tui-01-02: a
+// genuine stdin read error must propagate as an error, distinct from a clean
+// EOF/cancelled selection (which returns "", nil — see
+// TestRunSingleSelect_TextFallback_EmptyStdin). A line longer than bufio's
+// default max token size (64KB) with no newline forces a real, non-EOF
+// scanner.Err() (bufio.ErrTooLong) without needing to fake os.Stdin's type.
+func TestRunSingleSelect_TextFallback_ScanError(t *testing.T) {
+	withStdin(t, strings.Repeat("9", 100000))
+
+	got, err := RunSingleSelect("Choose", []string{"a", "b"})
+	if err == nil {
+		t.Fatal("RunSingleSelect: expected a scan error for an oversized line, got nil")
+	}
+	if got != "" {
+		t.Errorf("RunSingleSelect() = %q, want empty string on scan error", got)
+	}
+}
+
 func TestRunMultiSelect_TextFallback(t *testing.T) {
 	withStdin(t, "1,3\n")
 
@@ -549,6 +567,21 @@ func TestRunMultiSelect_TextFallback_NoneValid(t *testing.T) {
 	}
 	if got != nil {
 		t.Errorf("RunMultiSelect() = %v, want nil when nothing valid was selected", got)
+	}
+}
+
+// TestRunMultiSelect_TextFallback_ScanError is the MultiSelectModel
+// counterpart of TestRunSingleSelect_TextFallback_ScanError — see its comment
+// for internal-tui-01-02 context.
+func TestRunMultiSelect_TextFallback_ScanError(t *testing.T) {
+	withStdin(t, strings.Repeat("9", 100000))
+
+	got, err := RunMultiSelect("Choose some", []string{"a", "b"})
+	if err == nil {
+		t.Fatal("RunMultiSelect: expected a scan error for an oversized line, got nil")
+	}
+	if got != nil {
+		t.Errorf("RunMultiSelect() = %v, want nil on scan error", got)
 	}
 }
 

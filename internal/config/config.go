@@ -109,7 +109,22 @@ func Load(cfgFile string) (*Config, error) {
 	if cfgFile != "" {
 		v.SetConfigFile(cfgFile)
 	} else {
-		home, _ := os.UserHomeDir()
+		home, homeErr := os.UserHomeDir()
+		if homeErr != nil {
+			// internal-config-01-04: os.UserHomeDir() can fail when $HOME is
+			// stripped or unset (cron/systemd/container invocation, `sudo -n`
+			// without -E, etc). Silently falling through to a CWD-relative
+			// ".dsd.yaml" would pick up an attacker-writable config from
+			// whatever directory dsd happens to be run from — worse, it does
+			// so with zero indication anything went wrong. There is no other
+			// config-path source to fall back to here (implicit lookup only
+			// ever tries $HOME/.dsd.yaml), so skip the lookup entirely and use
+			// defaults, disclosing the degraded state via the returned error —
+			// the same convention already used a few lines down for a config
+			// file that exists but can't be read/parsed.
+			cfg := defaults
+			return &cfg, fmt.Errorf("resolving home directory for config lookup: %w", homeErr)
+		}
 		cfgFile = filepath.Join(home, ".dsd.yaml")
 		v.SetConfigFile(cfgFile)
 	}
@@ -261,6 +276,19 @@ func (s ServiceConfig) validate() error {
 	}
 	if s.Port < 1 || s.Port > 65535 {
 		return fmt.Errorf("port %d out of range 1-65535 (service %q)", s.Port, s.Name)
+	}
+	switch s.Protocol {
+	case "tcp", "http", "https":
+	default:
+		// internal-config-01-03: Protocol previously had no validation at all —
+		// internal/collectors/services.go's checkServiceLive switches on this
+		// exact string ("http"/"https" get an HTTP probe; everything else,
+		// including a typo or an unsupported value like "udp", silently falls
+		// into the `default: // tcp` branch and gets probed as if it were TCP).
+		// Reject anything outside the set the collector actually understands so
+		// a misconfigured protocol fails loudly at config-load time instead of
+		// silently mis-probing the service.
+		return fmt.Errorf("protocol %q invalid, must be one of tcp/http/https (service %q)", s.Protocol, s.Name)
 	}
 	return nil
 }

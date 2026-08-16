@@ -47,7 +47,7 @@ func DetectLastDeployTime() (time.Time, string, error) {
 	}
 
 	if t, name, err := newestProcStart(2 * time.Hour); err == nil {
-		return t, name + " process started", nil
+		return t, procStartSignal(name), nil
 	}
 
 	if t, err := gitLastCommitTime("."); err == nil {
@@ -55,6 +55,19 @@ func DetectLastDeployTime() (time.Time, string, error) {
 	}
 
 	return time.Time{}, "", fmt.Errorf("no deploy signal found")
+}
+
+// procStartSignal formats the "<name> process started" deploy signal.
+//
+// internal-baseline-01-05: name is the raw /proc/<pid>/stat comm field (field
+// 2), fully attacker-controlled — any process can set its own comm to
+// arbitrary bytes via prctl(PR_SET_NAME) or argv[0]. This "deploy signal"
+// string is printed verbatim by RunSinceDeployDiff below and doesn't flow
+// through the models.Insight choke point that sanitizes output elsewhere, so
+// strip control/escape bytes here, at the source, before a crafted comm name
+// can inject terminal escape sequences into the printed report.
+func procStartSignal(name string) string {
+	return output.SanitizeControl(name) + " process started"
 }
 
 // gitLastCommitTime reads the last commit's timestamp directly from .git's

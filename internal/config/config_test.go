@@ -85,6 +85,27 @@ func TestLoad_NoFile(t *testing.T) {
 	}
 }
 
+// TestLoad_HomeDirUnresolvable guards internal-config-01-04: when
+// os.UserHomeDir() fails (stripped/empty $HOME — cron/systemd/container
+// invocation), Load must not silently fall back to a CWD-relative
+// ".dsd.yaml" (which could pick up an attacker-writable file from whatever
+// directory dsd happens to run from). It must return defaults plus a
+// disclosed error instead.
+func TestLoad_HomeDirUnresolvable(t *testing.T) {
+	t.Setenv("HOME", "") // os.UserHomeDir() on Unix errors when $HOME is empty
+
+	cfg, err := Load("")
+	if err == nil {
+		t.Fatal("Load() with unresolvable $HOME = nil error, want a disclosed error")
+	}
+	if cfg == nil {
+		t.Fatal("Load() with unresolvable $HOME = nil config, want defaults")
+	}
+	if cfg.Thresholds.DiskWarnPct != defaults.Thresholds.DiskWarnPct {
+		t.Errorf("expected defaults on unresolvable $HOME, got %+v", cfg.Thresholds)
+	}
+}
+
 func TestLoad_CustomFile_FullOverride(t *testing.T) {
 	dir := t.TempDir()
 	yaml := `
@@ -451,10 +472,38 @@ func TestConfigValidate_ServicePortBoundaries(t *testing.T) {
 	}
 	for _, c := range cases {
 		cfg := defaults
-		cfg.Services = []ServiceConfig{{Name: "svc", Host: "localhost", Port: c.port}}
+		cfg.Services = []ServiceConfig{{Name: "svc", Host: "localhost", Port: c.port, Protocol: "tcp"}}
 		err := cfg.Validate()
 		if (err != nil) != c.wantErr {
 			t.Errorf("port=%d: err=%v, wantErr=%v", c.port, err, c.wantErr)
+		}
+	}
+}
+
+// TestConfigValidate_ServiceProtocol guards internal-config-01-03: Protocol
+// previously had no validation at all, so a typo (or an unsupported value
+// like "udp") silently fell into services.go's checkServiceLive `default: //
+// tcp` branch and got probed as if it were TCP. Only the values the collector
+// actually understands ("tcp", "http", "https") must validate.
+func TestConfigValidate_ServiceProtocol(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		protocol string
+		wantErr  bool
+	}{
+		{"tcp", false},
+		{"http", false},
+		{"https", false},
+		{"", true},
+		{"udp", true},
+		{"HTTP", true}, // case-sensitive: must match the collector's switch exactly
+	}
+	for _, c := range cases {
+		cfg := defaults
+		cfg.Services = []ServiceConfig{{Name: "svc", Host: "localhost", Port: 80, Protocol: c.protocol}}
+		err := cfg.Validate()
+		if (err != nil) != c.wantErr {
+			t.Errorf("protocol=%q: err=%v, wantErr=%v", c.protocol, err, c.wantErr)
 		}
 	}
 }
