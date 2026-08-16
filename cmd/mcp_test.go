@@ -76,6 +76,44 @@ func TestToolCaptureIdentifiersImpliesSanitize(t *testing.T) {
 	if hostErr == nil && realHost != "" && result.Host == realHost {
 		t.Errorf("toolCapture response disclosed the real hostname %q despite Identifiers:true", realHost)
 	}
+	// sanitize-bundle-03: the MCP response must disclose sanitize state
+	// structurally, the same way dsd capture --raw's stderr warning does —
+	// not just write an unlabeled bundle_path.
+	if !result.Sanitized {
+		t.Errorf("Sanitized should be true when Identifiers implies Sanitize, got false")
+	}
+	if !strings.Contains(result.Note, "Sanitized (best-effort)") {
+		t.Errorf("Note should disclose the sanitize state, got: %q", result.Note)
+	}
+	if !strings.Contains(result.Note, "Identifiers redacted") {
+		t.Errorf("Note should mention identifier redaction when Identifiers:true, got: %q", result.Note)
+	}
+}
+
+// TestToolCaptureUnsanitizedDisclosesNote guards sanitize-bundle-03's other
+// branch: a caller that leaves Sanitize/Identifiers both false (the tool's
+// documented default) must get an explicit "this is unredacted" signal in
+// the response, the same as dsd capture --raw's stderr warning gives a
+// human — not a bundle_path with no indication the contents are raw.
+func TestToolCaptureUnsanitizedDisclosesNote(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	out := filepath.Join(dir, "out.tar.gz")
+
+	_, result, err := toolCapture(context.Background(), &mcp.CallToolRequest{},
+		mcpCaptureInput{OutPath: out})
+	if err != nil {
+		t.Fatalf("toolCapture: %v", err)
+	}
+	if result.Sanitized {
+		t.Error("Sanitized should be false when the caller didn't set Sanitize/Identifiers")
+	}
+	if !strings.Contains(result.Note, "unredacted") {
+		t.Errorf("Note should disclose the bundle is unredacted, got: %q", result.Note)
+	}
+	if !strings.Contains(result.Note, "--sanitize") {
+		t.Errorf("Note should point the caller at --sanitize, got: %q", result.Note)
+	}
 }
 
 // TestRedactMCPJSON guards sanitize-bundle-01: toolHealth/toolReplay returned
