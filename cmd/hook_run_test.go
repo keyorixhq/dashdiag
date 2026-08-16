@@ -376,6 +376,33 @@ func TestGitHubWorkflow_InstallStepIsHardened(t *testing.T) {
 	}
 }
 
+// TestGitHubWorkflow_RequiresSignature is the regression test for BUG-100:
+// install.sh's signature check is best-effort by default (most boxes lack
+// minisign), but a CI runner is an environment we fully control the package
+// manager for, so the generated workflow must install minisign and pass
+// --require-signature, holding the CI-triggered install to the same
+// fail-closed standard `dsd update` always enforces.
+func TestGitHubWorkflow_RequiresSignature(t *testing.T) {
+	if !strings.Contains(githubWorkflow, "--require-signature") {
+		t.Error("githubWorkflow install step must pass --require-signature")
+	}
+	if !strings.Contains(githubWorkflow, "install -y minisign") {
+		t.Error("githubWorkflow must install minisign before requiring a verified signature")
+	}
+	// --require-signature only makes sense following the piped install.sh
+	// invocation ("| sh -s -- --require-signature"), not as a stray line.
+	installLine := ""
+	for _, line := range strings.Split(githubWorkflow, "\n") {
+		if strings.Contains(line, "install.sh") {
+			installLine = line
+			break
+		}
+	}
+	if !strings.Contains(installLine, "| sh -s -- --require-signature") {
+		t.Errorf("--require-signature must be passed as an install.sh argument via `sh -s --`, got install line: %q", installLine)
+	}
+}
+
 // TestInstallGitHookMkdirError exercises installGitHook's MkdirAll-error
 // branch: ".git" exists but is a plain file, so ".git/hooks" can't be created
 // under it, and os.Stat(".git") alone doesn't distinguish that from a real repo.

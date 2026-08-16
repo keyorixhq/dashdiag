@@ -79,6 +79,16 @@ StandardError=journal
 // shebang, not an assumed `bash`). Once running, install.sh fails closed on an
 // unverified binary checksum by default — this only hardens the outer fetch of
 // install.sh itself, the same way every curl call inside install.sh already is.
+//
+// BUG-100: install.sh's signature check (authenticity, on top of the
+// always-enforced checksum) is best-effort by default, since most boxes lack
+// `minisign`, and failing closed there would break the default curl|sh
+// experience for the overwhelming majority of installs. A CI runner is
+// different — it's an environment we fully control the package manager for —
+// so this generated workflow installs minisign first and passes
+// --require-signature, holding the CI-triggered install to the same
+// fail-closed standard `dsd update` always enforces, without touching the
+// default (non-CI) install path's tradeoff at all.
 const githubWorkflow = `name: DashDiag Health Check
 on:
   push:
@@ -91,7 +101,9 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - name: Install DashDiag
-        run: curl -fsSL --proto '=https' --proto-redir '=https' https://raw.githubusercontent.com/keyorixhq/dashdiag/main/install.sh | sh
+        run: |
+          sudo apt-get -qq update && sudo apt-get -qq install -y minisign
+          curl -fsSL --proto '=https' --proto-redir '=https' https://raw.githubusercontent.com/keyorixhq/dashdiag/main/install.sh | sh -s -- --require-signature
       - name: System health check
         run: dsd health
 `
