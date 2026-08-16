@@ -58,6 +58,19 @@ func TestCheckSecurityFull(t *testing.T) {
 			level: "WARN", msg: "unexpected port",
 		},
 		{
+			// internal-analysis-08-02: a name/path substring match alone is
+			// spoofable — an unprivileged local attacker fully controls their own
+			// binary's name and location (cp mybackdoor ~/postgres && ~/postgres),
+			// so /proc/pid/exe resolving under $HOME (not a real system binary
+			// directory) must also stay WARN, even though both Process and
+			// ExePath contain "postgres".
+			name: "known-service NAME with exe path outside system dirs stays WARN",
+			mutate: func(s *models.SecurityInfo) {
+				s.ListeningPorts = []models.PortEntry{{Port: 5432, Protocol: "tcp", Process: "postgres", ExePath: "/home/attacker/postgres"}}
+			},
+			level: "WARN", msg: "unexpected port",
+		},
+		{
 			name: "cockpit port is INFO",
 			mutate: func(s *models.SecurityInfo) {
 				s.ListeningPorts = []models.PortEntry{{Port: 9090, Protocol: "tcp", Expected: true}}

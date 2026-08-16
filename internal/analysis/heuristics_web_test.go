@@ -1,6 +1,7 @@
 package analysis
 
 import (
+	"strings"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -33,6 +34,25 @@ func TestCheckNginx(t *testing.T) {
 	untested := checkNginx(models.NginxInfo{Detected: true, MasterRunning: true, ConfigTested: false})
 	if !insightWithMsg(untested, "INFO", "not validated") {
 		t.Errorf("untested config should be INFO, got %+v", untested)
+	}
+}
+
+// TestWebConfigVerdictCapsConfigError - internal-analysis-13-04: configError is
+// unbounded tool stderr; the message must cap it (matching bind_linux.go's
+// ConfigError truncateRunes(..., 200) sibling pattern) rather than splicing an
+// arbitrarily large string into the insight.
+func TestWebConfigVerdictCapsConfigError(t *testing.T) {
+	huge := strings.Repeat("x", 5000)
+	got := webConfigVerdict("Nginx", true, false, huge)
+	if len(got) != 1 {
+		t.Fatalf("expected exactly one insight, got %d", len(got))
+	}
+	msg := got[0].Message
+	if len(msg) >= len(huge) {
+		t.Errorf("expected configError to be truncated, message length %d not shorter than input %d", len(msg), len(huge))
+	}
+	if !strings.Contains(msg, "…") {
+		t.Errorf("expected truncation ellipsis in message, got %q", msg)
 	}
 }
 

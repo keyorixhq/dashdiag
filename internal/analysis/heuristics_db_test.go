@@ -110,6 +110,16 @@ func TestCheckMySQL(t *testing.T) {
 		t.Errorf("unread connection counters should INFO, got %+v", noConn)
 	}
 
+	// internal-analysis-03-02: connection counters WERE read, but max_connections
+	// came back 0 — a real MySQL server never reports that, so it's a
+	// spoofed/corrupted read, not proof of zero saturation risk. Neither the
+	// ConnStatsRead-and-MaxConnections>0 branch nor the !ConnStatsRead branch
+	// covers this; must not silently skip the saturation check.
+	zeroMaxConns := checkMySQL(models.MySQLInfo{Detected: true, MetricsRead: true, ConnStatsRead: true, MaxConnections: 0, ThreadsConnected: 5})
+	if !insightWithMsg(zeroMaxConns, "INFO", "connection-saturation was not assessed") {
+		t.Errorf("max_connections==0 should be an unassessed INFO, not silence, got %+v", zeroMaxConns)
+	}
+
 	// Saturation tiers.
 	warn := checkMySQL(models.MySQLInfo{Detected: true, MetricsRead: true, ConnStatsRead: true, MaxConnections: 100, ThreadsConnected: 82})
 	if !insightWithMsg(warn, "WARN", "approaching the limit") {
