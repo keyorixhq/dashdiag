@@ -124,11 +124,21 @@ func checkKVMVMs(kvm models.KVMInfo) []models.Insight {
 func checkKVMVMsXMLDeep(kvm models.KVMInfo) []models.Insight {
 	var out []models.Insight
 	for _, vm := range kvm.VMs {
+		// internal-analysis-12-02: vm.Name comes from the libvirt domain
+		// definition and is spliced unescaped into copy-pasteable "to
+		// inspect: virsh …" hints below; validate before use, same guard
+		// checkKVMVMs applies above. The insight message itself still shows
+		// the raw name — that's display text, already sanitized at the
+		// render choke point (PR #991), not a shell hint.
+		safeName := vm.Name
+		if !looksLikeSafeToken(safeName) {
+			safeName = "<vm-name>"
+		}
 		if vm.MissingDiskPath != "" {
 			out = append(out, insight("CRIT", virtCatKVM,
 				fmt.Sprintf("VM %s's disk image is missing: %s — the VM cannot start", vm.Name, vm.MissingDiskPath),
 				[]string{
-					fmt.Sprintf("to inspect: virsh domblklist %s", vm.Name),
+					fmt.Sprintf("to inspect: virsh domblklist %s", safeName),
 					"note: the backing file was moved, deleted, or is on an unmounted volume",
 				},
 			))
@@ -137,7 +147,7 @@ func checkKVMVMsXMLDeep(kvm models.KVMInfo) []models.Insight {
 			out = append(out, insight("WARN", virtCatKVM,
 				fmt.Sprintf("VM %s: NIC(s) on an emulated driver (%s) — switch to VirtIO (virtio-net) for higher throughput at lower host CPU",
 					vm.Name, strings.Join(vm.EmulatedNICs, ", ")),
-				[]string{fmt.Sprintf("to inspect: virsh dumpxml %s | grep -A2 '<interface'", vm.Name)},
+				[]string{fmt.Sprintf("to inspect: virsh dumpxml %s | grep -A2 '<interface'", safeName)},
 			))
 		}
 		if len(vm.EmulatedDisks) > 0 {
@@ -145,7 +155,7 @@ func checkKVMVMsXMLDeep(kvm models.KVMInfo) []models.Insight {
 				fmt.Sprintf("VM %s: disk(s) on an emulated bus (%s) — switch to VirtIO Block/SCSI; emulated IDE/SATA is a common cause of slow guest I/O",
 					vm.Name, strings.Join(vm.EmulatedDisks, ", ")),
 				[]string{
-					fmt.Sprintf("to inspect: virsh dumpxml %s | grep -A2 '<disk'", vm.Name),
+					fmt.Sprintf("to inspect: virsh dumpxml %s | grep -A2 '<disk'", safeName),
 					"note: changing the boot disk's bus may need the guest's bootloader/initramfs to include virtio_blk/virtio_scsi",
 				},
 			))
@@ -368,21 +378,35 @@ func checkPodmanQuadlets(d models.DockerInfo) []models.Insight {
 
 func checkDockerContainers(d models.DockerInfo) []models.Insight {
 	var out []models.Insight
+	// internal-analysis-12-03: container names are spliced unescaped into
+	// copy-pasteable "to inspect: docker …" hints below; validate before use,
+	// same looksLikeSafeToken guard checkKVMVMs applies for VM names one
+	// function away in this file. The insight message itself still shows the
+	// raw name — that's display text, already sanitized at the render choke
+	// point (PR #991), not a shell hint.
 	for _, name := range d.CrashLooping {
+		safeName := name
+		if !looksLikeSafeToken(safeName) {
+			safeName = "<container-name>"
+		}
 		out = append(out, insight("CRIT", virtCatDocker,
 			fmt.Sprintf("container %q is crash looping (restarted >5 times)", name),
 			[]string{
-				fmt.Sprintf("to inspect: docker logs %s --tail 50", name),
-				fmt.Sprintf("to inspect: docker inspect %s | grep -A5 RestartCount", name),
+				fmt.Sprintf("to inspect: docker logs %s --tail 50", safeName),
+				fmt.Sprintf("to inspect: docker inspect %s | grep -A5 RestartCount", safeName),
 			},
 		))
 	}
 	for _, name := range d.Unhealthy {
+		safeName := name
+		if !looksLikeSafeToken(safeName) {
+			safeName = "<container-name>"
+		}
 		out = append(out, insight("WARN", virtCatDocker,
 			fmt.Sprintf("container %q health check failing", name),
 			[]string{
-				fmt.Sprintf("to inspect: docker inspect %s | grep -A10 Health", name),
-				fmt.Sprintf("to inspect: docker logs %s --tail 20", name),
+				fmt.Sprintf("to inspect: docker inspect %s | grep -A10 Health", safeName),
+				fmt.Sprintf("to inspect: docker logs %s --tail 20", safeName),
 			},
 		))
 	}

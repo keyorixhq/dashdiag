@@ -403,6 +403,21 @@ func TestKVMCollectNetworks_CmdFails_VMEnumAlreadyFailedKeepsReason(t *testing.T
 	}
 }
 
+// TestKVMCollectPools_CmdFails_VMEnumAlreadyFailedKeepsReason is the sibling
+// of TestKVMCollectNetworks_CmdFails_VMEnumAlreadyFailedKeepsReason: an
+// earlier, more severe enumeration failure's reason must survive a
+// subsequent pool-enumeration failure.
+func TestKVMCollectPools_CmdFails_VMEnumAlreadyFailedKeepsReason(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmdNotFound("virsh", []string{"pool-list", "--all"})
+	})
+	info := &models.KVMInfo{Status: "enum-failed", StatusReason: "libvirt is up but `virsh list` failed — VM states could not be read"}
+	kvmCollectPools(context.Background(), info)
+	if info.StatusReason != "libvirt is up but `virsh list` failed — VM states could not be read" {
+		t.Errorf("StatusReason = %q, want the original VM-enum failure reason preserved", info.StatusReason)
+	}
+}
+
 func TestKVMParseBridge(t *testing.T) {
 	t.Parallel()
 	out := "Name:           default\nUUID:           abc\nActive:         yes\nBridge:         virbr0\n"
@@ -445,6 +460,12 @@ func TestKVMCollectPools(t *testing.T) {
 	}
 }
 
+// internal-collectors-18-05: the sibling of TestKVMCollectNetworks_CmdFails —
+// kvmCollectNetworks got the enum-failed Status/StatusReason guard when
+// `virsh net-list` fails, but kvmCollectPools silently returned on a
+// `virsh pool-list` failure, leaving StoragePools empty and
+// PoolsInactive/PoolsNearFull at 0 — indistinguishable from a host with no
+// pools defined at all.
 func TestKVMCollectPools_CmdFails(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmdNotFound("virsh", []string{"pool-list", "--all"})
@@ -453,6 +474,12 @@ func TestKVMCollectPools_CmdFails(t *testing.T) {
 	kvmCollectPools(context.Background(), info)
 	if len(info.StoragePools) != 0 {
 		t.Errorf("StoragePools = %+v, want empty", info.StoragePools)
+	}
+	if info.Status != "enum-failed" {
+		t.Errorf("Status = %q, want enum-failed", info.Status)
+	}
+	if info.StatusReason == "" {
+		t.Error("StatusReason is empty, want an explanation of the virsh pool-list failure")
 	}
 }
 

@@ -947,6 +947,24 @@ func TestCheckCVEPacman_VulnerableNonZeroExit(t *testing.T) {
 	}
 }
 
+// TestCheckCVEPacman_NonZeroExitWithUnmatchedOutput is the sibling of
+// TestScanAllPacman_NonZeroExitWithUnmatchedOutput (internal-collectors-07-05):
+// scanAllPacman and checkCVEZypper both got a guard so a non-zero exit with
+// SOME non-empty, non-matching stdout (a repo/lock/permission warning
+// arch-audit printed before failing) can't fall through to a confident
+// clean verdict — checkCVEPacman, one function above scanAllPacman in this
+// file, had no equivalent guard and would report CVENotAffected from a
+// failed, non-matching arch-audit run.
+func TestCheckCVEPacman_NonZeroExitWithUnmatchedOutput(t *testing.T) {
+	withLookPathFixture(t, map[string]bool{"arch-audit": true}, func(b *source.Bundle) {
+		b.PutCmd("arch-audit", []string{"--format", "%n %c %s"}, "error: database lock file exists\n", 1)
+	})
+	res := checkCVEPacman(context.Background(), "CVE-2024-1234")
+	if res.Status != models.CVEUnknown {
+		t.Fatalf("expected CVEUnknown for a non-zero exit with no real finding line, got %v (%s)", res.Status, res.StatusReason)
+	}
+}
+
 func TestScanAllPacman_NotInstalled(t *testing.T) {
 	withLookPathFixture(t, map[string]bool{}, func(b *source.Bundle) {})
 	res := scanAllPacman(context.Background())

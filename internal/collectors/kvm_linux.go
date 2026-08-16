@@ -391,6 +391,16 @@ func kvmParseBridge(out string) string {
 func kvmCollectPools(ctx context.Context, info *models.KVMInfo) {
 	out, err := runCmd(ctx, "virsh", "pool-list", "--all")
 	if err != nil {
+		// internal-collectors-18-05: mirrors kvmCollectNetworks' enum-failed
+		// guard above — returning silently left StoragePools empty and
+		// PoolsInactive/PoolsNearFull at 0, indistinguishable from a host
+		// with no storage pools defined at all. Guarded on Status=="" so a
+		// VM/network enumeration failure (checked first, more severe) keeps
+		// its own reason rather than being silently overwritten by this one.
+		if info.Status == "" {
+			info.Status = "enum-failed"
+			info.StatusReason = "libvirt is up but `virsh pool-list` failed — storage pool states could not be read"
+		}
 		return
 	}
 	for _, line := range strings.Split(out, "\n") {
