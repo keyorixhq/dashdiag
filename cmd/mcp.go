@@ -86,6 +86,19 @@ type mcpCaptureOutput struct {
 	Host       string `json:"host"`
 	CapturedAt string `json:"captured_at"`
 	Bytes      int64  `json:"bytes"`
+	// Sanitized and Note are additive (sanitize-bundle-03): dsd capture --raw
+	// prints a prominent stderr warning when a bundle is unredacted, but an
+	// MCP caller has no stderr a human would see — without these fields it
+	// got a bundle_path back with zero signal the contents are raw. Note
+	// carries the identical wording the CLI's own warning uses (see
+	// sanitizeDisclosureNote in capture_raw.go), so the two entry points can
+	// never drift out of sync on what they disclose. mcpCaptureOutput is not
+	// render.JSONOutput and carries no schema/dsd-output.json stability
+	// promise (see docs/MCP_DESIGN.md's own tool table, which documents
+	// dsd_capture's output as this separate ad-hoc shape) — adding fields
+	// here is not a breaking change to that frozen contract.
+	Sanitized bool   `json:"sanitized"`
+	Note      string `json:"note"`
 }
 
 type mcpReplayInput struct {
@@ -241,8 +254,9 @@ func toolCapture(ctx context.Context, _ *mcp.CallToolRequest, in mcpCaptureInput
 		b.PutFile("/__dsd__/health.json", data)
 	}
 
+	var sanReport source.SanitizeReport
 	if in.Sanitize {
-		b.Sanitize(source.SanitizeOptions{Identifiers: in.Identifiers})
+		sanReport = b.Sanitize(source.SanitizeOptions{Identifiers: in.Identifiers})
 	}
 	if err := b.SaveTarball(outPath); err != nil {
 		return nil, mcpCaptureOutput{}, fmt.Errorf("dsd_capture: writing bundle: %w", err)
@@ -266,6 +280,8 @@ func toolCapture(ctx context.Context, _ *mcp.CallToolRequest, in mcpCaptureInput
 		Host:       respHost,
 		CapturedAt: b.Manifest.Created,
 		Bytes:      sz,
+		Sanitized:  in.Sanitize,
+		Note:       sanitizeDisclosureNote(in.Sanitize, in.Identifiers, sanReport),
 	}, nil
 }
 
@@ -330,6 +346,13 @@ func toolDiff(_ context.Context, _ *mcp.CallToolRequest, in mcpDiffInput) (
 	if err != nil {
 		return nil, nil, fmt.Errorf("dsd_diff: marshalling diff: %w", err)
 	}
+	// See toolHealth's redactMCPJSON call: each DiffEntry's Before/After is
+	// "Status + Value", and Value is models.Insight.Message — the same
+	// collector-derived free text checks[].raw/insights[].message carry
+	// there, just reached through a different field name. DiffEntry never
+	// carries CheckResult.Raw (ComputeDiff doesn't copy it), but Message was
+	// never the field this floor was scoped to in the first place.
+	data = redactMCPJSON(data)
 	return &mcp.CallToolResult{
 		Content: []mcp.Content{&mcp.TextContent{Text: string(data)}},
 	}, nil, nil

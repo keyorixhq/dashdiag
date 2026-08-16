@@ -42,6 +42,11 @@ func TestRunDecode_FromFileHuman(t *testing.T) {
 	if !strings.Contains(out, "web01") {
 		t.Errorf("decoded report should mention the hostname, got:\n%s", out)
 	}
+	// internal-share-01-02: the default human-rendered path must disclose
+	// that the report's authenticity was never verified.
+	if !strings.Contains(out, "authenticity is not verified") {
+		t.Errorf("decoded report should disclose unverified authenticity, got:\n%s", out)
+	}
 }
 
 func TestRunDecode_FromFileJSON(t *testing.T) {
@@ -58,8 +63,37 @@ func TestRunDecode_FromFileJSON(t *testing.T) {
 			t.Fatalf("runDecode --json: %v", err)
 		}
 	})
-	if !strings.Contains(out, `"hostname":"web01"`) {
-		t.Errorf("--json should print the raw decoded JSON, got: %q", out)
+	// --json re-marshals the decoded report (rather than echoing the raw
+	// decoded bytes verbatim) so WithDecodeDisclosure's synthetic insight —
+	// added after unmarshalling, see internal-share-01-02 below — reaches
+	// this path too, not just the human-rendered default. Indentation
+	// therefore matches dsd health --json's own MarshalIndent convention
+	// (space after ':'), not the fixture's compact literal.
+	if !strings.Contains(out, `"hostname": "web01"`) {
+		t.Errorf("--json should print the decoded report, got: %q", out)
+	}
+}
+
+// TestRunDecode_JSONDisclosesUnverifiedAuthenticity guards internal-share-01-02:
+// dsd decode --json used to echo share.Decode's raw bytes verbatim, so a
+// consumer scripting against `dsd decode --json | jq` never saw any signal
+// that the report's authenticity is unverified — only the human-rendered
+// default path disclosed it. Both paths must carry the same insight now.
+func TestRunDecode_JSONDisclosesUnverifiedAuthenticity(t *testing.T) {
+	blob := share.Encode([]byte(decodeReportJSON))
+	withHookStdin(t, blob)
+	cmd := newBareDecodeCmd()
+	_ = cmd.Flags().Set("json", "true")
+	out := captureStdout(t, func() {
+		if err := runDecode(cmd, nil); err != nil {
+			t.Fatalf("runDecode --json: %v", err)
+		}
+	})
+	if !strings.Contains(out, `"level": "INFO"`) || !strings.Contains(out, "authenticity is not verified") {
+		t.Errorf("--json output should disclose unverified authenticity as an INFO insight, got: %q", out)
+	}
+	if !strings.Contains(out, `"info": 1`) {
+		t.Errorf("--json output's counts.info should include the disclosure insight, got: %q", out)
 	}
 }
 
