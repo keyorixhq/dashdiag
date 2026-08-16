@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 // nvmeUnreadReason classifies why `nvme smart-log` failed, so the heuristic can
@@ -61,9 +62,12 @@ func (c *NVMeCollector) Collect(ctx context.Context) (interface{}, error) {
 			continue
 		}
 
+		// internal-collectors-24-02: dev.Model bypasses Insight.Message entirely
+		// (only dev.Name flows there), so this is the only sanitization choke
+		// point protecting a drive-reported model string from control/ANSI bytes.
 		dev := &models.NVMeDevice{
 			Name:  "/dev/" + base,
-			Model: strings.TrimSpace(readFileStr(filepath.Join(ctrl, "model"))),
+			Model: source.SanitizeControl(strings.TrimSpace(readFileStr(filepath.Join(ctrl, "model")))),
 			State: strings.TrimSpace(readFileStr(filepath.Join(ctrl, "state"))),
 		}
 
@@ -328,7 +332,9 @@ func collectSATADrives(ctx context.Context, info *models.NVMeInfo) {
 		// and a non-root read mis-classified as a generic "error". A permission
 		// failure → needs_root ("re-run as root"); any other open error → error.
 		if d.OpenError != "" {
-			dev.Error = "smartctl: " + d.OpenError
+			// internal-collectors-24-02: dev.Error bypasses Insight.Message
+			// entirely, so sanitize smartctl's open_error before it lands here.
+			dev.Error = "smartctl: " + source.SanitizeControl(d.OpenError)
 			if strings.Contains(strings.ToLower(d.OpenError), "permission denied") {
 				dev.SmartUnreadReason = "needs_root"
 			} else {
@@ -387,7 +393,9 @@ func applySATASmartJSON(out string, dev *models.SATADevice) {
 	if err := jsonUnmarshal([]byte(out), &smart); err != nil {
 		return // not JSON / garbled — SmartRead stays false, no false verdict
 	}
-	dev.Model = smart.ModelName
+	// internal-collectors-24-02: dev.Model bypasses Insight.Message entirely —
+	// sanitize smartctl's model_name before it lands in the model struct.
+	dev.Model = source.SanitizeControl(smart.ModelName)
 	dev.TempC = smart.Temperature.Current
 	dev.PowerOnHours = smart.PowerOnTime.Hours
 	if smart.SmartStatus != nil {

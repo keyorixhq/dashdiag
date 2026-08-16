@@ -11,6 +11,7 @@ import (
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 // ThermalCollector reads CPU temperature directly from sysfs hwmon.
@@ -111,12 +112,15 @@ func readHwmonTemps(ctx context.Context, hwmon string, info *models.ThermalInfo)
 	}
 }
 
+// readSensorLabel reads a hwmon temp*_label file. internal-collectors-32-07:
+// the raw label is used both as an info.CoreTemps map key and eventual display
+// data, so it's sanitized here rather than at either call site.
 func readSensorLabel(path string) string {
 	data, err := readFile(path)
 	if err != nil {
 		return ""
 	}
-	return strings.TrimSpace(string(data))
+	return source.SanitizeControl(strings.TrimSpace(string(data)))
 }
 
 // readThermalZone reads from /sys/class/thermal/thermal_zone* as fallback.

@@ -158,6 +158,118 @@ func TestAuditCollector_Collect_NotRunning(t *testing.T) {
 	}
 }
 
+// TestAuditCollector_Collect_SpoofedCommNotTrusted is the regression test for
+// internal-collectors-01-04: a process that renamed itself "auditd" via
+// prctl(PR_SET_NAME) (matched by comm alone, the pre-fix behaviour) but whose
+// real /proc/<pid>/exe resolves OUTSIDE any genuine system-binary directory
+// must NOT suppress the "auditd not running" compliance signal.
+func TestAuditCollector_Collect_SpoofedCommNotTrusted(t *testing.T) {
+	withCombinedFixture(t, map[string][]byte{
+		"lookpath/auditctl": []byte("/sbin/auditctl"),
+	}, map[string]string{
+		"/proc/42/exe": "/home/attacker/auditd", // spoofed: comm claims auditd, exe does not
+	}, func(b *source.Bundle) {
+		b.PutCmd("systemctl", []string{"is-active", "auditd"}, "", 1) // fails (no systemd)
+		b.PutDir("/proc", []string{"1", "42"})
+		b.PutFile("/proc/1/comm", []byte("init\n"))
+		b.PutFile("/proc/42/comm", []byte("auditd\n")) // spoofed comm
+		b.PutCmd("auditctl", []string{"-l"}, "", 1)
+		b.PutCmd("ausearch", []string{"-ts", "1hour ago", "--raw"}, "", 1)
+	})
+
+	c := NewAuditCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.AuditInfo)
+	if info.Running {
+		t.Error("expected Running=false — a spoofed comm name whose real exe is outside a system dir must not suppress the compliance WARN")
+	}
+}
+
+// TestVerifiedAuditdRunning covers the standalone helper directly, including
+// the exe-unreadable fallback (the collector's pre-fix posture: still trust
+// a comm-only match when verification is genuinely impossible).
+func TestVerifiedAuditdRunning(t *testing.T) {
+	t.Run("verified via system-dir exe", func(t *testing.T) {
+		withCombinedFixture(t, nil, map[string]string{
+			"/proc/42/exe": "/sbin/auditd",
+		}, func(b *source.Bundle) {
+			b.PutDir("/proc", []string{"1", "42"})
+			b.PutFile("/proc/1/comm", []byte("init\n"))
+			b.PutFile("/proc/42/comm", []byte("auditd\n"))
+		})
+		if !verifiedAuditdRunning("/proc") {
+			t.Error("expected true — comm and exe both match a genuine auditd")
+		}
+	})
+
+	t.Run("spoofed comm with real exe outside system dir", func(t *testing.T) {
+		withCombinedFixture(t, nil, map[string]string{
+			"/proc/42/exe": "/tmp/evil-payload",
+		}, func(b *source.Bundle) {
+			b.PutDir("/proc", []string{"42"})
+			b.PutFile("/proc/42/comm", []byte("auditd\n"))
+		})
+		if verifiedAuditdRunning("/proc") {
+			t.Error("expected false — exe resolved and is not under a system-binary dir")
+		}
+	})
+
+	t.Run("exe unreadable falls back to comm-only trust", func(t *testing.T) {
+		withCombinedFixture(t, nil, nil, func(b *source.Bundle) {
+			b.PutDir("/proc", []string{"42"})
+			b.PutFile("/proc/42/comm", []byte("auditd\n"))
+			// /proc/42/exe deliberately not seeded -> Readlink returns an error.
+		})
+		if !verifiedAuditdRunning("/proc") {
+			t.Error("expected true — an unresolvable exe path must not make the pre-fix comm-only posture worse")
+		}
+	})
+
+	t.Run("no matching comm", func(t *testing.T) {
+		withCombinedFixture(t, nil, nil, func(b *source.Bundle) {
+			b.PutDir("/proc", []string{"1"})
+			b.PutFile("/proc/1/comm", []byte("init\n"))
+		})
+		if verifiedAuditdRunning("/proc") {
+			t.Error("expected false — no process named auditd")
+		}
+	})
+
+	t.Run("unreadable proc dir", func(t *testing.T) {
+		withCombinedFixture(t, nil, nil, func(b *source.Bundle) {})
+		if verifiedAuditdRunning("/proc") {
+			t.Error("expected false when /proc itself can't be read")
+		}
+	})
+}
+
+// TestExePathUnderSystemDir covers the allowlist helper directly.
+func TestExePathUnderSystemDir(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		path string
+		want bool
+	}{
+		{"/sbin/auditd", true},
+		{"/usr/sbin/auditd", true},
+		{"/usr/lib/auditd/auditd", true},
+		{"/bin/auditd", true},
+		{"/opt/vendor/auditd", true},
+		{"/snap/core/current/auditd", true},
+		{"/tmp/evil-payload", false},
+		{"/home/attacker/auditd", false},
+		{"", false},
+	}
+	for _, tc := range cases {
+		if got := exePathUnderSystemDir(tc.path); got != tc.want {
+			t.Errorf("exePathUnderSystemDir(%q) = %v, want %v", tc.path, got, tc.want)
+		}
+	}
+}
+
 // TestIsAuditdPresent guards the standalone gate helper.
 func TestIsAuditdPresent(t *testing.T) {
 	t.Run("present", func(t *testing.T) {

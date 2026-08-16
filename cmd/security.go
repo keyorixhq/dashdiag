@@ -349,7 +349,10 @@ func printSudoSection(info *models.SecurityInfo, mode output.OutputMode) {
 	if len(info.SudoNopasswd) > 0 {
 		fmt.Println("\nSudo NOPASSWD entries:")
 		for _, entry := range info.SudoNopasswd {
-			fmt.Printf(secRowFmt, asciiOr(secLvlWarn, secIconWarn, mode), entry) // codeql[go/clear-text-logging] -- intentional: dsd security prints audit findings to the terminal
+			// entry is a sudoers rule line read from /etc/sudoers(.d) — treated
+			// as untrusted per this review's threat model (internal-analysis-08-01,
+			// sibling of the SUID binaries handling below).
+			fmt.Printf(secRowFmt, asciiOr(secLvlWarn, secIconWarn, mode), output.SanitizeControl(entry)) // codeql[go/clear-text-logging] -- intentional: dsd security prints audit findings to the terminal
 		}
 	} else if info.NeedsRoot {
 		fmt.Println("\nSudo NOPASSWD entries: unknown (needs root)")
@@ -663,7 +666,10 @@ func printSUIDBinariesSection(info *models.SecurityInfo, mode output.OutputMode)
 	if len(info.SUIDBinaries) > 0 {
 		fmt.Printf("\nUnexpected SUID binaries (%d):\n", len(info.SUIDBinaries))
 		for _, b := range info.SUIDBinaries {
-			fmt.Printf(secRowFmt, asciiOr(secLvlWarn, secIconWarn, mode), b)
+			// b is a filesystem path discovered by walking for the SUID bit —
+			// attacker-chosen filename, untrusted per this review's threat
+			// model (internal-analysis-08-01).
+			fmt.Printf(secRowFmt, asciiOr(secLvlWarn, secIconWarn, mode), output.SanitizeControl(b))
 		}
 	}
 }

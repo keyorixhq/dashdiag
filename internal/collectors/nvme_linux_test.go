@@ -4,6 +4,7 @@ package collectors
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -99,6 +100,86 @@ func TestNVMeMountPoints(t *testing.T) {
 			t.Errorf("got mounts=%v hasLinux=%v, want nil/false", mounts, hasLinux)
 		}
 	})
+}
+
+// TestNVMeCollector_Collect_ModelSanitizesControlChars is the regression test
+// for internal-collectors-24-02: dev.Model bypasses Insight.Message entirely
+// (only dev.Name flows there), so collector-layer sanitization is the only
+// thing protecting a crafted sysfs model string from control/ANSI bytes.
+func TestNVMeCollector_Collect_ModelSanitizesControlChars(t *testing.T) {
+	esc := string(rune(27))
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutGlob("/sys/class/nvme/nvme*", []string{"/sys/class/nvme/nvme0"})
+		b.PutFile("/sys/class/nvme/nvme0/model", []byte("Evil"+esc+"[31mDrive\n"))
+		b.PutFile("/sys/class/nvme/nvme0/state", []byte("live\n"))
+		b.PutCmd("nvme", []string{"smart-log", "/dev/nvme0", "--output-format=normal"}, "", 1)
+		b.PutCmdNotFound("smartctl", []string{"--scan-open", "--json=c"})
+	})
+	c := NewNVMeCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.NVMeInfo)
+	if len(info.Devices) != 1 {
+		t.Fatalf("Devices = %+v, want exactly 1", info.Devices)
+	}
+	if info.Devices[0].Model != "Evil[31mDrive" {
+		t.Errorf("Model = %q, want ESC stripped to Evil[31mDrive", info.Devices[0].Model)
+	}
+}
+
+// TestCollectSATADrives_OpenErrorSanitizesControlChars is the regression test
+// for internal-collectors-24-02: dev.Error ("smartctl: " + open_error)
+// bypasses Insight.Message entirely, so the open_error component must be
+// sanitized before concatenation.
+func TestCollectSATADrives_OpenErrorSanitizesControlChars(t *testing.T) {
+	esc := string(rune(27))
+	type scanDevice struct {
+		Name      string `json:"name"`
+		Protocol  string `json:"protocol"`
+		OpenError string `json:"open_error"`
+	}
+	payload := struct {
+		Devices []scanDevice `json:"devices"`
+	}{
+		Devices: []scanDevice{{Name: "/dev/sda", Protocol: "ATA", OpenError: "No such device" + esc + "[0m"}},
+	}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("smartctl", []string{"--scan-open", "--json=c"}, string(raw), 0)
+	})
+	info := &models.NVMeInfo{}
+	collectSATADrives(context.Background(), info)
+	if len(info.SATADevices) != 1 {
+		t.Fatalf("SATADevices = %+v, want exactly 1", info.SATADevices)
+	}
+	if info.SATADevices[0].Error != "smartctl: No such device[0m" {
+		t.Errorf("Error = %q, want ESC stripped", info.SATADevices[0].Error)
+	}
+}
+
+// TestApplySATASmartJSON_ModelSanitizesControlChars is the regression test
+// for internal-collectors-24-02: applySATASmartJSON's dev.Model bypasses
+// Insight.Message entirely, so it must be sanitized at assignment.
+func TestApplySATASmartJSON_ModelSanitizesControlChars(t *testing.T) {
+	t.Parallel()
+	esc := string(rune(27))
+	payload := struct {
+		ModelName string `json:"model_name"`
+	}{ModelName: "Evil" + esc + "[31mDrive"}
+	raw, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	var d models.SATADevice
+	applySATASmartJSON(string(raw), &d)
+	if d.Model != "Evil[31mDrive" {
+		t.Errorf("Model = %q, want ESC stripped to Evil[31mDrive", d.Model)
+	}
 }
 
 // TestNVMeCollect_SkipsNamespaceEntry covers nvme_linux.go:60.30,61.12 — the

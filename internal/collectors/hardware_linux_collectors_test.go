@@ -119,14 +119,26 @@ func TestCollectSMARTDrives_SmartctlNotInstalled(t *testing.T) {
 	}
 }
 
+// TestCollectSMARTDrives_NoDevicesFound is the regression test for
+// internal-collectors-14-02: a successful scan (clean exit, valid JSON) that
+// reports zero devices used to return silently — indistinguishable from a
+// host that was never checked at all. It must now be disclosed via a
+// distinct sentinel entry (Device="(scan)", ZeroDevicesReported=true),
+// deliberately different from both the "smartctl not installed" sentinel
+// (SmartctlAvailable=false) and the "unparseable JSON" sentinel
+// (SmartctlAvailable=true, ZeroDevicesReported=false, Error set) above.
 func TestCollectSMARTDrives_NoDevicesFound(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("smartctl", []string{"--scan-open", "--json=c"}, `{"devices":[]}`, 0)
 	})
 	info := &models.HardwareInfo{}
 	collectSMARTDrives(context.Background(), info)
-	if len(info.Drives) != 0 {
-		t.Errorf("Drives = %+v, want none when scan reports no devices", info.Drives)
+	if len(info.Drives) != 1 {
+		t.Fatalf("Drives = %+v, want one disclosure entry when scan reports no devices", info.Drives)
+	}
+	d := info.Drives[0]
+	if d.Device != "(scan)" || !d.SmartctlAvailable || !d.ZeroDevicesReported || d.Error == "" {
+		t.Errorf("Drives[0] = %+v, want Device=(scan) SmartctlAvailable=true ZeroDevicesReported=true with a non-empty Error", d)
 	}
 }
 

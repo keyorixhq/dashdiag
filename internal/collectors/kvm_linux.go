@@ -32,6 +32,10 @@ func (c *KVMCollector) Timeout() time.Duration { return 15 * time.Second }
 // Proxmox manages QEMU directly (no libvirt), so virsh sees nothing.
 const pveQEMUDir = "/var/run/qemu-server"
 
+// kvmStatusEnumFailed marks a section where libvirtd was reachable but the
+// specific virsh enumeration command failed — distinct from "libvirt absent".
+const kvmStatusEnumFailed = "enum-failed"
+
 func (c *KVMCollector) Collect(ctx context.Context) (interface{}, error) {
 	info := &models.KVMInfo{}
 
@@ -85,7 +89,7 @@ func kvmCollectVMs(ctx context.Context, info *models.KVMInfo, deep bool) {
 		// failed. Returning silently left VMs empty, which reads as "no VMs / healthy"
 		// — so a crashed VM on a host whose `virsh list` is failing went unreported.
 		// Record the failure so the verdict surfaces it instead of a green OK.
-		info.Status = "enum-failed"
+		info.Status = kvmStatusEnumFailed
 		info.StatusReason = "libvirt is up but `virsh list` failed — VM states could not be read"
 		return
 	}
@@ -347,7 +351,7 @@ func kvmCollectNetworks(ctx context.Context, info *models.KVMInfo) {
 		// the more severe of the two) keeps its own reason rather than being
 		// silently overwritten by this one.
 		if info.Status == "" {
-			info.Status = "enum-failed"
+			info.Status = kvmStatusEnumFailed
 			info.StatusReason = "libvirt is up but `virsh net-list` failed — network states could not be read"
 		}
 		return
@@ -405,7 +409,7 @@ func kvmCollectPools(ctx context.Context, info *models.KVMInfo) {
 		// VM/network enumeration failure (checked first, more severe) keeps
 		// its own reason rather than being silently overwritten by this one.
 		if info.Status == "" {
-			info.Status = "enum-failed"
+			info.Status = kvmStatusEnumFailed
 			info.StatusReason = "libvirt is up but `virsh pool-list` failed — storage pool states could not be read"
 		}
 		return

@@ -47,6 +47,24 @@ func TestCollectDrivesDarwinText_EmptyOutput_SetsUnreadable(t *testing.T) {
 	}
 }
 
+// TestDriveInfoDarwin_ModelSanitizesControlChars is the regression test for
+// internal-collectors-24-02: dev.Model bypasses Insight.Message entirely, so
+// collector-layer sanitization is the only thing protecting a crafted
+// diskutil model string from control/ANSI bytes.
+func TestDriveInfoDarwin_ModelSanitizesControlChars(t *testing.T) {
+	esc := string(rune(27))
+	b := source.NewBundle()
+	b.PutCmd("diskutil", []string{"info", "disk0"},
+		"   Device / Media Name:      Evil"+esc+"[31mDrive\n", 0)
+	prev := SetSource(source.NewReplay(b))
+	t.Cleanup(func() { SetSource(prev) })
+
+	dev := driveInfoDarwin(context.Background(), "disk0")
+	if dev.Model != "Evil[31mDrive" {
+		t.Errorf("Model = %q, want ESC stripped to Evil[31mDrive", dev.Model)
+	}
+}
+
 // TestCollectDrivesDarwinText_Success_NotUnreadable is the control: a
 // successful diskutil list with no physical disks found must NOT set
 // DrivesListUnreadable — that's the genuine "nothing to report" case.

@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 // traefikOverview is the shape of /api/overview — it conveniently carries the
@@ -88,7 +89,9 @@ func (c *TraefikCollector) Collect(ctx context.Context) (interface{}, error) {
 			Version string `json:"Version"`
 		}
 		if json.Unmarshal(body, &v) == nil {
-			info.Version = v.Version
+			// internal-collectors-33-06: Version never reaches Insight.Message,
+			// so sanitize AND cap its length here at the point of assignment.
+			info.Version = truncateRunes(source.SanitizeControl(v.Version), 200)
 		}
 	}
 	return info, nil

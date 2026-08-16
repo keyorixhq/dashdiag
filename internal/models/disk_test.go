@@ -2,11 +2,12 @@ package models
 
 import "testing"
 
-// TestSMARTInfo_NoRealTelemetry exercises every && branch in NoRealTelemetry
-// (disk.go:34): the all-sentinel-zero "virtual disk" true case, plus one false
-// case per condition — each field flipped to a real (non-sentinel) value in
-// turn, and Healthy=false — per the table-driven boundary-test rule in
-// CLAUDE.md.
+// TestSMARTInfo_NoRealTelemetry exercises the 6-of-7 sentinel threshold in
+// NoRealTelemetry (disk.go): the all-sentinel-zero "virtual disk" true case,
+// one true case per single field flipped to a real (non-sentinel) value in
+// turn (a lone stray field must NOT defeat the detector — internal-models-03-01),
+// a false case for two-or-more non-zero fields (genuine telemetry), and
+// Healthy=false — per the table-driven boundary-test rule in CLAUDE.md.
 func TestSMARTInfo_NoRealTelemetry(t *testing.T) {
 	t.Parallel()
 
@@ -42,13 +43,17 @@ func TestSMARTInfo_NoRealTelemetry(t *testing.T) {
 			want: false,
 		},
 		{
-			name: "real temperature reported",
+			// A single stray non-zero field (parser quirk, or a virtual device
+			// that happens to pass through one real counter) must not defeat
+			// the detector — internal-models-03-01. 6 of 7 fields still
+			// sentinel-zero clears the threshold.
+			name: "lone real temperature does not defeat the detector (6-of-7 sentinel)",
 			in: func() SMARTInfo {
 				s := allSentinel
 				s.Temperature = 35
 				return s
 			}(),
-			want: false,
+			want: true,
 		},
 		{
 			name: "negative temperature still counts as reported (not <= 0 sentinel path skipped)",
@@ -57,58 +62,70 @@ func TestSMARTInfo_NoRealTelemetry(t *testing.T) {
 				s.Temperature = -5
 				return s
 			}(),
-			want: true, // Temperature <= 0 is true for negative too, so this stays a match
+			want: true, // Temperature <= 0 is true for negative too, so this stays a sentinel match
 		},
 		{
-			name: "non-zero available spare",
+			name: "lone non-zero available spare does not defeat the detector",
 			in: func() SMARTInfo {
 				s := allSentinel
 				s.AvailableSpare = 100
 				return s
 			}(),
-			want: false,
+			want: true,
 		},
 		{
-			name: "non-zero percent used",
+			name: "lone non-zero percent used does not defeat the detector",
 			in: func() SMARTInfo {
 				s := allSentinel
 				s.PercentUsed = 3
 				return s
 			}(),
-			want: false,
+			want: true,
 		},
 		{
-			name: "non-zero media errors",
+			name: "lone non-zero media errors does not defeat the detector",
 			in: func() SMARTInfo {
 				s := allSentinel
 				s.MediaErrors = 1
 				return s
 			}(),
-			want: false,
+			want: true,
 		},
 		{
-			name: "non-zero power on hours",
+			name: "lone non-zero power on hours does not defeat the detector",
 			in: func() SMARTInfo {
 				s := allSentinel
 				s.PowerOnHours = 500
 				return s
 			}(),
-			want: false,
+			want: true,
 		},
 		{
-			name: "non-zero power cycles",
+			name: "lone non-zero power cycles does not defeat the detector",
 			in: func() SMARTInfo {
 				s := allSentinel
 				s.PowerCycles = 10
 				return s
 			}(),
-			want: false,
+			want: true,
 		},
 		{
-			name: "non-zero unsafe shutdowns",
+			name: "lone non-zero unsafe shutdowns does not defeat the detector",
 			in: func() SMARTInfo {
 				s := allSentinel
 				s.UnsafeShutdowns = 2
+				return s
+			}(),
+			want: true,
+		},
+		{
+			// Two non-zero fields crosses the 6-of-7 threshold (only 5 remain
+			// sentinel-zero) — this is real telemetry, not a lone stray field.
+			name: "two non-zero fields cross the threshold (real telemetry, not a stray)",
+			in: func() SMARTInfo {
+				s := allSentinel
+				s.PowerOnHours = 500
+				s.PowerCycles = 10
 				return s
 			}(),
 			want: false,

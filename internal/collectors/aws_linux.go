@@ -81,7 +81,7 @@ func (c *AWSCollector) Collect(ctx context.Context) (interface{}, error) {
 		if sleepCtx(ctx, time.Second) {
 			ena2 := enaRead(ctx)
 			ebs2, ebsMeta2 := ebsRead(ctx)
-			enaDelta = enaComputeDelta(ena1, ena2)
+			enaDelta, info.ENADeltaReadFailed = enaComputeDelta(ena1, ena2)
 			// internal-collectors-02-01: a failed second read returns a
 			// zero-value map, and subSat's saturating subtraction would
 			// otherwise turn that into a false zero "not currently
@@ -275,17 +275,37 @@ func enaAnyNonzero(m map[string]map[string]uint64) bool {
 
 // enaComputeDelta returns, per interface, the increase from the first to the second
 // snapshot (saturating at 0) — the allowance-exceeded events during the sample window.
-func enaComputeDelta(first, second map[string]map[string]uint64) map[string]map[string]uint64 {
-	delta := map[string]map[string]uint64{}
+// deltaFailed is true when the second read was missing/incomplete for an interface (or
+// counter) present in the first read. internal-collectors-02-01: second[iface] simply
+// being absent (the second ethtool -S call for that interface failed) used to look
+// identical to "iface exists with all-zero counters" — c2 defaulted to a nil map, and
+// subSat(0, before) saturated to a false zero delta, silently reporting "no
+// allowance-exceeded events" when the truth was "couldn't measure". That interface's
+// (or counter's) delta is now skipped entirely rather than fabricated as zero, and the
+// caller must disclose deltaFailed instead of trusting Active silently.
+func enaComputeDelta(first, second map[string]map[string]uint64) (delta map[string]map[string]uint64, deltaFailed bool) {
+	delta = map[string]map[string]uint64{}
 	for iface, c1 := range first {
-		c2 := second[iface]
-		d := map[string]uint64{}
+		c2, ok := second[iface]
+		if !ok {
+			deltaFailed = true
+			continue
+		}
+		d := make(map[string]uint64, len(c1))
 		for k, before := range c1 {
-			d[k] = subSat(c2[k], before)
+			after, ok := c2[k]
+			if !ok {
+				// Same interface read but this particular counter vanished
+				// between samples (garbled/partial output) — don't
+				// fabricate a zero delta for it either.
+				deltaFailed = true
+				continue
+			}
+			d[k] = subSat(after, before)
 		}
 		delta[iface] = d
 	}
-	return delta
+	return delta, deltaFailed
 }
 
 func enaAssemble(totals, delta map[string]map[string]uint64) []models.ENAStats {

@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 // detectGrafana finds a local Grafana on 3000 via /api/health (an unauthenticated,
@@ -39,9 +40,16 @@ func detectGrafana(ctx context.Context) (base string, info *models.GrafanaInfo) 
 		// Grafana" — any unprivileged local process can bind :3000 first and
 		// serve a crafted /api/health. Cross-check the listener's own cmdline
 		// before trusting it at full confidence.
+		//
+		// internal-collectors-13-02: h.Version/h.Database come straight from
+		// the remote HTTP response body — sanitize before they land in the
+		// model so a crafted /api/health response can't smuggle control/ANSI
+		// bytes into a future renderer.
+		version := source.SanitizeControl(h.Version)
+		database := source.SanitizeControl(h.Database)
 		return b, &models.GrafanaInfo{
-			Detected: true, HealthRead: true, Version: h.Version,
-			DatabaseStatus: h.Database, DatabaseOK: h.Database == "ok",
+			Detected: true, HealthRead: true, Version: version,
+			DatabaseStatus: database, DatabaseOK: database == "ok",
 			IdentityUnverified: !tcpPortIdentityVerified(ctx, "3000", "grafana"),
 		}
 	}

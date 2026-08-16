@@ -427,14 +427,23 @@ func ruleCPUStealUnderLoad(idx map[string]indexEntry) (Correlation, bool) {
 //
 // Required signals:
 //   - CPU/RunQueue WARN or CRIT (runnable tasks ≥ 2× cores)
-//   - CPU/IOWait NOT firing (rules out I/O-driven load)
-//   - CPU/Steal NOT firing (rules out hypervisor steal)
+//   - CPU/IOWait confirmed NOT elevated (measured and below WARN — not
+//     merely unmeasured; rules out I/O-driven load)
+//   - CPU/Steal confirmed NOT elevated (measured and below WARN — not
+//     merely unmeasured; rules out hypervisor steal)
 func ruleRunQueueSaturation(idx map[string]indexEntry) (Correlation, bool) {
 	rqSaturated := atLeast(idx, "CPU Load/RunQueue", "WARN")
-	iowaitElevated := atLeast(idx, corrCatCPUIOwait, "WARN")
-	stealElevated := atLeast(idx, corrCatCPUSteal, "WARN")
+	// internal-analysis-01-03: !atLeast(idx, key, "WARN") reads true both when
+	// the signal was measured and confirmed low AND when it was never measured
+	// at all (absent from idx) — that let this rule assert "genuinely
+	// CPU-bound" on an unmeasured signal. confirmedNot requires presence, so
+	// it must be checked against both non-OK tiers (WARN and CRIT) to rule out
+	// "elevated" in either direction — confirmedNot(..., "WARN") alone would
+	// still treat a CRIT reading as "not elevated".
+	iowaitConfirmedLow := confirmedNot(idx, corrCatCPUIOwait, "WARN") && confirmedNot(idx, corrCatCPUIOwait, "CRIT")
+	stealConfirmedLow := confirmedNot(idx, corrCatCPUSteal, "WARN") && confirmedNot(idx, corrCatCPUSteal, "CRIT")
 
-	if !rqSaturated || iowaitElevated || stealElevated {
+	if !rqSaturated || !iowaitConfirmedLow || !stealConfirmedLow {
 		return Correlation{}, false
 	}
 

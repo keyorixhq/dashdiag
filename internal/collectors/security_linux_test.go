@@ -429,3 +429,25 @@ func TestParseSSHFile_PermissionError(t *testing.T) {
 		t.Error("SSHConfigUnreadable must be set to true when the config is present but not readable")
 	}
 }
+
+// TestParseSSHFile_TooLarge covers the errFileTooLarge branch fsaccess.go's
+// before-read size probe can now return (internal-collectors-18-02/19-03): a
+// config reported far beyond any legitimate size must be treated the same as
+// a permission-denied read — "present but couldn't be audited"
+// (SSHConfigUnreadable), never silently treated as absent (which would let
+// the compiled-in secure defaults stand in as real verdicts).
+func TestParseSSHFile_TooLarge(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutStat("/etc/ssh/sshd_config", source.FileMeta{Size: maxSafeReadBytes + 1})
+		b.PutFile("/etc/ssh/sshd_config", []byte("PermitRootLogin yes\n"))
+	})
+
+	info := &models.SecurityInfo{}
+	ok := parseSSHFile("/etc/ssh/sshd_config", info)
+	if ok {
+		t.Error("parseSSHFile must return false when the file is reported too large to read")
+	}
+	if !info.SSHConfigUnreadable {
+		t.Error("SSHConfigUnreadable must be set to true for a too-large config, not silently treated as absent")
+	}
+}

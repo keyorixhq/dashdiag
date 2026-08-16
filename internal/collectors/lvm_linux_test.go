@@ -93,6 +93,34 @@ func TestLVMPresenceCheck_ContextCancelled(t *testing.T) {
 	_ = absent
 }
 
+// TestIsLVMPresent_BoundedTimeout guards the other half of subprocess-wrappers-02:
+// IsLVMPresent previously called lvmPresenceCheck(context.Background()) with
+// no bound at all — a hung `lvs --version` would stall collector-list
+// construction (buildHealthCollectors) forever, before any per-collector
+// runner deadline exists to rescue it. Inject a mock Exec that never resolves
+// on its own (only via ctx.Done() or a 30s fallback, far past the gate's
+// bound) and confirm IsLVMPresent still returns within lvmPresenceGateTimeout
+// instead of hanging — the pre-fix code would have ridden out the full 30s.
+func TestIsLVMPresent_BoundedTimeout(t *testing.T) {
+	prev := SetSource(source.Live{Exec: func(ctx context.Context, _ string, _ ...string) (source.Result, error) {
+		select {
+		case <-ctx.Done():
+			return source.Result{}, ctx.Err()
+		case <-time.After(30 * time.Second):
+			return source.Result{Stdout: []byte("  LVM version:     2.03.11(2)\n")}, nil
+		}
+	}})
+	defer SetSource(prev)
+
+	start := time.Now()
+	IsLVMPresent()
+	elapsed := time.Since(start)
+
+	if elapsed > lvmPresenceGateTimeout+1*time.Second {
+		t.Errorf("IsLVMPresent took %v — want it bounded near lvmPresenceGateTimeout (%v), not riding out the mock's 30s window (context.Background() with no timeout)", elapsed, lvmPresenceGateTimeout)
+	}
+}
+
 // TestLVMCollector_Collect_NotDetected guards the gate-off path: when lvm2 is
 // not installed, Collect must return an empty LVMInfo{} without running any
 // further vgs/pvs/lvs commands.

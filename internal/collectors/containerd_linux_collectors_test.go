@@ -4,6 +4,8 @@ package collectors
 
 import (
 	"context"
+	"fmt"
+	"strings"
 	"testing"
 	"time"
 
@@ -218,7 +220,10 @@ func TestContainerdNamespaces_Multiple(t *testing.T) {
 		b.PutCmd("ctr", []string{"-n", "default", "containers", "list", "-q"}, "c1\nc2\n", 0)
 		b.PutCmd("ctr", []string{"-n", "k8s.io", "containers", "list", "-q"}, "", 0)
 	})
-	ns := containerdNamespaces(context.Background(), "ctr")
+	ns, truncated := containerdNamespaces(context.Background(), "ctr")
+	if truncated {
+		t.Error("truncated = true, want false — only 2 namespaces, well under the cap")
+	}
 	if len(ns) != 2 {
 		t.Fatalf("namespaces = %+v, want 2", ns)
 	}
@@ -239,7 +244,10 @@ func TestContainerdNamespaces_SkipsBlankLines(t *testing.T) {
 		b.PutCmd("ctr", []string{"-n", "default", "containers", "list", "-q"}, "", 0)
 		b.PutCmd("ctr", []string{"-n", "k8s.io", "containers", "list", "-q"}, "", 0)
 	})
-	ns := containerdNamespaces(context.Background(), "ctr")
+	ns, truncated := containerdNamespaces(context.Background(), "ctr")
+	if truncated {
+		t.Error("truncated = true, want false — only 2 namespaces, well under the cap")
+	}
 	if len(ns) != 2 {
 		t.Fatalf("namespaces = %+v, want 2 (blank line skipped, not a 3rd empty entry)", ns)
 	}
@@ -254,8 +262,81 @@ func TestContainerdNamespaces_CommandFails(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmdNotFound("ctr", []string{"namespaces", "list", "-q"})
 	})
-	if ns := containerdNamespaces(context.Background(), "ctr"); ns != nil {
-		t.Errorf("containerdNamespaces() = %+v, want nil", ns)
+	if ns, truncated := containerdNamespaces(context.Background(), "ctr"); ns != nil || truncated {
+		t.Errorf("containerdNamespaces() = (%+v,%v), want (nil,false)", ns, truncated)
+	}
+}
+
+// TestContainerdNamespaces_CapsAtMax is the regression guard for
+// internal-collectors-05-04: containerdNamespaces used to fan out ONE `ctr -n
+// <ns> containers list -q` subprocess per reported namespace with no upper
+// bound — a namespace-bombing host could exhaust the process table. With more
+// than maxContainerdNamespaces namespaces reported, only the first
+// maxContainerdNamespaces (sorted, for reproducibility) must actually be
+// enumerated, and truncated must be true so the caller can't mistake the
+// partial count for the complete namespace list.
+func TestContainerdNamespaces_CapsAtMax(t *testing.T) {
+	total := maxContainerdNamespaces + 5
+	names := make([]string, total)
+	for i := range names {
+		names[i] = fmt.Sprintf("ns%03d", i) // zero-padded so lexical sort == numeric order
+	}
+	nsListOutput := strings.Join(names, "\n") + "\n"
+
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("ctr", []string{"namespaces", "list", "-q"}, nsListOutput, 0)
+		// Seed a container for each namespace that must actually be
+		// enumerated (the first maxContainerdNamespaces, sorted) so a bug
+		// that enumerates the WRONG subset — rather than merely too many —
+		// is also caught.
+		for i := range maxContainerdNamespaces {
+			b.PutCmd("ctr", []string{"-n", names[i], "containers", "list", "-q"}, "c1\n", 0)
+		}
+	})
+
+	ns, truncated := containerdNamespaces(context.Background(), "ctr")
+	if !truncated {
+		t.Fatal("truncated = false, want true when more namespaces were reported than the cap")
+	}
+	if len(ns) != maxContainerdNamespaces {
+		t.Fatalf("len(ns) = %d, want %d (capped)", len(ns), maxContainerdNamespaces)
+	}
+	if ns[0].Name != "ns000" || ns[0].ContainerCount != 1 {
+		t.Errorf("ns[0] = %+v, want ns000/1", ns[0])
+	}
+	if last := ns[len(ns)-1]; last.Name != fmt.Sprintf("ns%03d", maxContainerdNamespaces-1) {
+		t.Errorf("last enumerated namespace = %q, want the (maxContainerdNamespaces-1)th sorted name — got the wrong subset, not just the wrong count", last.Name)
+	}
+}
+
+// TestContainerdCollector_Collect_NamespacesTruncated drives the cap through
+// the full Collect() pipeline, confirming ContainerdInfo.NamespacesTruncated
+// is wired from containerdNamespaces' second return value.
+func TestContainerdCollector_Collect_NamespacesTruncated(t *testing.T) {
+	total := maxContainerdNamespaces + 1
+	names := make([]string, total)
+	for i := range names {
+		names[i] = fmt.Sprintf("ns%03d", i)
+	}
+	nsListOutput := strings.Join(names, "\n") + "\n"
+
+	withContainerdFixture(t, map[string]byte{containerdSocketCandidates[0]: '1'}, func(b *source.Bundle) {
+		b.PutCmd("systemctl", []string{"show", "containerd", "--property=ActiveState"}, "ActiveState=active\n", 0)
+		b.PutCmd("ctr", []string{"version"}, ctrVersionOutput, 0)
+		b.PutCmd("ctr", []string{"namespaces", "list", "-q"}, nsListOutput, 0)
+	})
+
+	c := NewContainerdCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.ContainerdInfo)
+	if !info.NamespacesTruncated {
+		t.Error("NamespacesTruncated = false, want true when more namespaces were reported than the cap")
+	}
+	if len(info.Namespaces) != maxContainerdNamespaces {
+		t.Errorf("len(Namespaces) = %d, want %d (capped)", len(info.Namespaces), maxContainerdNamespaces)
 	}
 }
 

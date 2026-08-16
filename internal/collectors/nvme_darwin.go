@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 // NVMeCollector reads drive identity and SMART status on macOS via diskutil.
@@ -72,7 +73,9 @@ func driveInfoDarwin(ctx context.Context, disk string) models.SATADevice {
 	for line := range strings.SplitSeq(out, "\n") {
 		line = strings.TrimSpace(line)
 		if after, ok := strings.CutPrefix(line, "Device / Media Name:"); ok {
-			dev.Model = strings.TrimSpace(after)
+			// internal-collectors-24-02: dev.Model bypasses Insight.Message
+			// entirely — sanitize diskutil's model string before it lands here.
+			dev.Model = source.SanitizeControl(strings.TrimSpace(after))
 		}
 		if after, ok := strings.CutPrefix(line, "SMART Status:"); ok {
 			status := strings.TrimSpace(after)

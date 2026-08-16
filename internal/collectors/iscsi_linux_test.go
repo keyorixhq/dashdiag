@@ -230,3 +230,25 @@ func TestParseISCSISessions_Empty(t *testing.T) {
 		t.Errorf("got %d sessions, want 0 for empty input", len(s))
 	}
 }
+
+// TestParseISCSISessions_SanitizesControlChars is the regression test for
+// internal-collectors-17-06: Target/Portal come straight from iscsiadm's
+// output and must have control/ANSI bytes stripped before landing in the
+// model.
+func TestParseISCSISessions_SanitizesControlChars(t *testing.T) {
+	t.Parallel()
+	esc := string(rune(27))
+	out := "Target: iqn.2026-06.test.dsd:evil" + esc + "[31m (non-flash)\n" +
+		"    Current Portal: 10.0.0.9:3260" + esc + "[0m,1\n" +
+		"        iSCSI Session State: LOGGED_IN\n"
+	s := parseISCSISessions(out)
+	if len(s) != 1 {
+		t.Fatalf("got %d sessions, want 1", len(s))
+	}
+	if s[0].Target != "iqn.2026-06.test.dsd:evil[31m" {
+		t.Errorf("Target = %q, want ESC stripped", s[0].Target)
+	}
+	if s[0].Portal != "10.0.0.9:3260[0m" {
+		t.Errorf("Portal = %q, want ESC stripped", s[0].Portal)
+	}
+}

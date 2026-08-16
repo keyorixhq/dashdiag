@@ -150,6 +150,79 @@ func TestIsEBSModel(t *testing.T) {
 	}
 }
 
+// TestEnaComputeDelta_Normal covers the ordinary case: both samples have the
+// same interface with the same counters, second >= first.
+func TestEnaComputeDelta_Normal(t *testing.T) {
+	t.Parallel()
+	first := map[string]map[string]uint64{"eth0": {"bw_in": 10, "pps": 5}}
+	second := map[string]map[string]uint64{"eth0": {"bw_in": 15, "pps": 5}}
+	delta, failed := enaComputeDelta(first, second)
+	if failed {
+		t.Fatal("failed = true, want false for a clean second read")
+	}
+	if delta["eth0"]["bw_in"] != 5 || delta["eth0"]["pps"] != 0 {
+		t.Errorf("delta = %+v, want bw_in=5 pps=0", delta["eth0"])
+	}
+}
+
+// TestEnaComputeDelta_InterfaceMissingFromSecond is the regression guard for
+// internal-collectors-02-01: when the second ethtool -S read for an interface
+// fails entirely, that interface is simply absent from `second`. Before the
+// fix, the lookup silently defaulted to a zero-value map and subSat(0, before)
+// saturated to a false "zero events" delta. Now the interface must be skipped
+// (absent from delta) and deltaFailed must be true.
+func TestEnaComputeDelta_InterfaceMissingFromSecond(t *testing.T) {
+	t.Parallel()
+	first := map[string]map[string]uint64{
+		"eth0": {"bw_in": 10},
+		"eth1": {"bw_in": 20},
+	}
+	second := map[string]map[string]uint64{
+		"eth1": {"bw_in": 25}, // eth0's second read failed — absent here
+	}
+	delta, failed := enaComputeDelta(first, second)
+	if !failed {
+		t.Fatal("failed = false, want true when an interface present in first is missing from second")
+	}
+	if _, ok := delta["eth0"]; ok {
+		t.Errorf("delta[eth0] = %+v, want absent (not a fabricated zero) when the second read failed", delta["eth0"])
+	}
+	if delta["eth1"]["bw_in"] != 5 {
+		t.Errorf("delta[eth1][bw_in] = %d, want 5 (the interface that DID have a second read must still compute correctly)", delta["eth1"]["bw_in"])
+	}
+}
+
+// TestEnaComputeDelta_CounterMissingFromSecond covers the finer-grained case:
+// the interface's second read succeeded but a specific counter key vanished
+// (garbled/partial ethtool output) — must not silently zero that counter.
+func TestEnaComputeDelta_CounterMissingFromSecond(t *testing.T) {
+	t.Parallel()
+	first := map[string]map[string]uint64{"eth0": {"bw_in": 10, "pps": 3}}
+	second := map[string]map[string]uint64{"eth0": {"bw_in": 12}} // pps missing
+	delta, failed := enaComputeDelta(first, second)
+	if !failed {
+		t.Fatal("failed = false, want true when a counter present in the first read is missing from the second")
+	}
+	if _, ok := delta["eth0"]["pps"]; ok {
+		t.Errorf("delta[eth0][pps] = %d, want absent, not a fabricated zero", delta["eth0"]["pps"])
+	}
+	if delta["eth0"]["bw_in"] != 2 {
+		t.Errorf("delta[eth0][bw_in] = %d, want 2", delta["eth0"]["bw_in"])
+	}
+}
+
+// TestEnaComputeDelta_Empty guards the trivial nil/empty-input case.
+func TestEnaComputeDelta_Empty(t *testing.T) {
+	t.Parallel()
+	delta, failed := enaComputeDelta(nil, nil)
+	if failed {
+		t.Error("failed = true, want false for empty input (nothing to fail)")
+	}
+	if len(delta) != 0 {
+		t.Errorf("delta = %+v, want empty", delta)
+	}
+}
+
 func TestSubSat(t *testing.T) {
 	if subSat(10, 4) != 6 {
 		t.Error("10-4 should be 6")

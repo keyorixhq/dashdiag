@@ -2,6 +2,7 @@ package analysis
 
 import (
 	"fmt"
+	"path/filepath"
 	"slices"
 	"strconv"
 	"strings"
@@ -343,6 +344,42 @@ func checkFailedLoginAttempts(sec models.SecurityInfo) []models.Insight {
 // checkNetworkExposure covers what's reachable from outside: unexpected
 // listening ports, the Cockpit management UI, and a firewall that would lock
 // out SSH — all "is this host reachable in ways it shouldn't be" conditions.
+// systemBinDirPrefixes lists root-owned system directories under which a
+// service's actual executable (/proc/<pid>/exe) must live for
+// checkNetworkExposure to trust a known-service name/path match enough to
+// downgrade an unexpected-listener WARN to INFO. internal-analysis-08-02:
+// deliberately broader than internal/source's trustedToolDirs (a short exact
+// list crafted for dsd's OWN subprocess-tool resolution — ss, smartctl, and
+// the like). Reusing that list verbatim here would reject legitimate,
+// distro-packaged service installs whose binaries live outside /usr/bin —
+// e.g. Debian/Ubuntu's postgres at /usr/lib/postgresql/16/bin/postgres. The
+// security property both lists share is what matters for this check: an
+// unprivileged local user cannot write into any of these paths without
+// already having root, so a backdoor copied to $HOME (or /tmp, or any other
+// user-writable location) can never satisfy this prefix check no matter what
+// it names itself.
+var systemBinDirPrefixes = []string{
+	"/usr/", "/bin/", "/sbin/", "/opt/", "/snap/",
+}
+
+// exePathUnderSystemDir reports whether path is a real, non-empty path that
+// falls under one of systemBinDirPrefixes. An empty path (ExePath unreadable
+// — non-root run, or the process already exited) cannot be corroborated, so
+// this returns false — the caller must fail closed toward WARN, not treat an
+// unverifiable exe path as license to downgrade.
+func exePathUnderSystemDir(path string) bool {
+	if path == "" {
+		return false
+	}
+	cleaned := filepath.Clean(path)
+	for _, prefix := range systemBinDirPrefixes {
+		if strings.HasPrefix(cleaned, prefix) {
+			return true
+		}
+	}
+	return false
+}
+
 func checkNetworkExposure(sec models.SecurityInfo) []models.Insight { //nolint:funlen // flat list of independent network-exposure conditions; splitting would harm readability
 	var out []models.Insight
 
@@ -402,10 +439,21 @@ func checkNetworkExposure(sec models.SecurityInfo) []models.Insight { //nolint:f
 		// executed binary, which the process cannot rename without replacing the
 		// binary on disk). An empty/non-matching ExePath (unreadable — non-root
 		// run, or process exited) fails closed and stays WARN below.
+		//
+		// A name/path substring match alone is STILL spoofable: an unprivileged
+		// local attacker fully controls their own binary's name and location
+		// (cp mybackdoor ~/nginx && ~/nginx — the resolved /proc/pid/exe then
+		// also contains "nginx"). Additionally require that ExePath resolves to
+		// a path under a real system binary directory (see
+		// exePathUnderSystemDir) — writing into those requires privileges
+		// $HOME does not grant. An empty ExePath (permission denied reading
+		// /proc/pid/exe, or process exited) cannot be checked, so it fails
+		// closed and stays WARN, same as before.
 		serviceName := ""
 		for proc, svc := range knownServiceProcesses {
 			if strings.Contains(strings.ToLower(p.Process), proc) &&
-				strings.Contains(strings.ToLower(p.ExePath), proc) {
+				strings.Contains(strings.ToLower(p.ExePath), proc) &&
+				exePathUnderSystemDir(p.ExePath) {
 				serviceName = svc
 				break
 			}

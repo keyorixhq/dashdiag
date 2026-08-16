@@ -97,7 +97,15 @@ func buildMarkdown(snap *baseline.Snapshot, insights []models.Insight, elapsed t
 				// client-facing report.
 				fmt.Fprintf(&b, "**Remediation:**\n\n```\n")
 				for _, h := range ins.Hints {
-					fmt.Fprintf(&b, "%s\n", output.SanitizeControl(h))
+					// output.SanitizeControl strips control/ANSI bytes but does
+					// nothing about literal backticks — a Hint containing a run
+					// of 3+ backticks could otherwise close this fence early and
+					// inject arbitrary markdown/HTML into the rest of the
+					// generated report (internal-render-03-05). Neutralize
+					// backticks with the same helper postmortem.go's inline
+					// `%s` spans use, since both are "text this codebase didn't
+					// author reaching a backtick-delimited markdown construct".
+					fmt.Fprintf(&b, "%s\n", escapeMarkdownBackticks(output.SanitizeControl(h)))
 				}
 				fmt.Fprintf(&b, "```\n\n")
 			}
@@ -240,4 +248,22 @@ func countLevel(insights []models.Insight, level string) int {
 		}
 	}
 	return n
+}
+
+// escapeMarkdownBackticks neutralizes literal backtick characters in
+// attacker-influenced text (an Insight's Message/Hints, a check's
+// Name/Value) before it is embedded inside a markdown backtick-delimited
+// construct. Two distinct backtick-delimited constructs are affected across
+// this package: a fenced ``` code block (report.go's Remediation block) can
+// be closed early by a run of 3+ backticks in the content
+// (internal-render-03-05), and a single-backtick inline code span
+// (postmortem.go's `%s` remediation steps) is closed by even ONE embedded
+// backtick (internal-render-03-06). Rather than tracking run-lengths per
+// call site, replace every backtick unconditionally with a visually similar
+// substitute (U+02CB MODIFIER LETTER GRAVE ACCENT) — this satisfies both
+// constructs at once (zero backticks reach either sink) and keeps the text
+// legible, unlike dropping the character outright. Shared by report.go and
+// postmortem.go rather than duplicated — same package, no import needed.
+func escapeMarkdownBackticks(s string) string {
+	return strings.ReplaceAll(s, "`", "ˋ")
 }

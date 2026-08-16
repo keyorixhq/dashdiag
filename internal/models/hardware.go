@@ -28,6 +28,20 @@ type HardwareDrive struct {
 	BadSectorsRead    bool   `json:"bad_sectors_read"`
 	SmartctlAvailable bool   `json:"smartctl_available"`
 	Error             string `json:"error,omitempty"`
+	// ZeroDevicesReported is true on the synthetic Device:"(scan)" sentinel
+	// entry when `smartctl --scan-open` exited cleanly and produced valid
+	// JSON, but its devices array was empty. internal-collectors-14-02:
+	// distinct from "smartctl not installed" (SmartctlAvailable false) and
+	// from unparseable scan JSON (Error set, no magic here) — this is a
+	// SUCCESSFUL scan that affirmatively reported zero devices. That is the
+	// expected reading on a genuinely diskless host (e.g. a cloud VM with no
+	// local SMART-capable drives), but --scan-open can also silently report
+	// zero devices when it fails to OPEN any of them (a permissions
+	// problem) — smartctl gives no further signal in that case (clean exit,
+	// valid empty JSON), so the two are indistinguishable with the data
+	// available here. Disclosed as a lower-confidence "zero devices
+	// reported" signal rather than trusted as "genuinely diskless verified".
+	ZeroDevicesReported bool `json:"zero_devices_reported,omitempty"`
 }
 
 // HardwareThermal holds a single hwmon temperature reading.

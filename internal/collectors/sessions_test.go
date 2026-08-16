@@ -257,6 +257,48 @@ func TestIsTTYName(t *testing.T) {
 // looksLikeHost is already covered by TestLooksLikeHost in
 // parser_hardening_test.go — not duplicated here.
 
+// TestLooksLikeHost_NarrowedDayDateExclusion is the regression test for the
+// internal-collectors-30-02 residual: wDayLogin/wDateLogin used to be
+// case-insensitive / any-3-letters, so a real (if unusual) short hostname
+// exactly shaped like a `w` LOGIN@ day-name or date-stamp string was
+// misclassified as "not a host" — silently losing RemoteCount/RootSSH
+// attribution. Since dsd forces LC_ALL=C/LANG=C on every subprocess
+// (source.HardenedEnv), `w`'s real LOGIN@ output is always exact C-locale
+// title case ("Mon", "Jun") — never lowercase/uppercase, and never an
+// arbitrary 3-letter sequence — so anchoring the patterns to that exact
+// shape is real corroboration, not a guess.
+func TestLooksLikeHost_NarrowedDayDateExclusion(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		// A lowercase or uppercase day-name-shaped hostname is no longer
+		// swallowed by the (now case-sensitive) day-name exclusion.
+		{"sun", true},
+		{"mon", true},
+		{"MON", true},
+		// The genuine `w` LOGIN@ shape (exact C-locale title case) is still
+		// excluded — the narrowing must not regress the original fix.
+		{"Mon", false},
+		{"Tue08", false},
+		// A dotless string shaped like "NN<3 letters>NN" that is NOT a real
+		// month abbreviation is no longer swallowed by the old
+		// any-3-letters date pattern.
+		{"23xyz24", true},
+		{"77abc11", true},
+		// The genuine `w` LOGIN@ date shape (real month abbreviation, exact
+		// C-locale title case) is still excluded.
+		{"23Jun24", false},
+		{"01Dec99", false},
+	}
+	for _, tc := range cases {
+		if got := looksLikeHost(tc.in); got != tc.want {
+			t.Errorf("looksLikeHost(%q) = %v, want %v", tc.in, got, tc.want)
+		}
+	}
+}
+
 func TestParseIdleSec(t *testing.T) {
 	t.Parallel()
 	tests := []struct {

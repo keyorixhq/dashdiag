@@ -267,6 +267,12 @@ func TestProcessesCollector_CollectDarwin(t *testing.T) {
 		" " + shellPIDStr + " " + launchdStr + " Ss bash\n"
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("ps", []string{"axo", "pid,ppid,stat,comm"}, out, 0)
+		// internal-collectors-27-02: the shell-parent skip now requires
+		// lsof-verified corroboration (macOS has no /proc/<pid>/exe). This
+		// shellPID is a GENUINE bash parent, so its txt segment resolves to
+		// a real shell binary.
+		b.PutCmd("lsof", []string{"-p", shellPIDStr, "-a", "-d", "txt", "-Fn"},
+			"p"+shellPIDStr+"\nftxt\nn/bin/bash\nftxt\nn/usr/lib/dyld\n", 0)
 	})
 
 	c := NewProcessesCollector()
@@ -282,6 +288,59 @@ func TestProcessesCollector_CollectDarwin(t *testing.T) {
 	}
 	if info.HungCount != 1 || info.HungProcs[0].PID != 200 {
 		t.Errorf("HungProcs = %+v, want one entry PID=200", info.HungProcs)
+	}
+}
+
+// TestProcessesCollector_CollectDarwin_SpoofedShellParentNotExempted is the
+// darwin regression test for internal-collectors-27-02: a parent process
+// whose ps comm self-reports as "bash" but whose actual mapped executable
+// (verified via lsof's txt file descriptors, since macOS has no
+// /proc/<pid>/exe) is NOT a shell must not exempt its zombie child —
+// otherwise any process can hide a real zombie leak by simply renaming
+// itself.
+func TestProcessesCollector_CollectDarwin_SpoofedShellParentNotExempted(t *testing.T) {
+	selfPID := os.Getpid()
+	fakeParent := selfPID + 300000
+	fakeParentStr := strconv.Itoa(fakeParent)
+	out := " " + fakeParentStr + " 1 Ss bash\n" + // comm claims "bash"
+		" 500 " + fakeParentStr + " Z zombiechild\n"
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("ps", []string{"axo", "pid,ppid,stat,comm"}, out, 0)
+		// The parent's real mapped executable is NOT a shell.
+		b.PutCmd("lsof", []string{"-p", fakeParentStr, "-a", "-d", "txt", "-Fn"},
+			"p"+fakeParentStr+"\nftxt\nn/usr/bin/evil-payload\n", 0)
+	})
+	c := NewProcessesCollector()
+	info, err := c.collectDarwin(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if info.ZombieCount != 1 {
+		t.Errorf("ZombieCount = %d, want 1 — a spoofed comm name must not exempt the zombie, got %+v", info.ZombieCount, info.ZombieProcs)
+	}
+}
+
+// TestProcessesCollector_CollectDarwin_LsofUnavailableNotExempted guards the
+// fail-closed posture when lsof itself can't be run (unavailable, or ppid
+// already exited): a comm-only "bash" claim must not be trusted without
+// corroboration.
+func TestProcessesCollector_CollectDarwin_LsofUnavailableNotExempted(t *testing.T) {
+	selfPID := os.Getpid()
+	fakeParent := selfPID + 400000
+	fakeParentStr := strconv.Itoa(fakeParent)
+	out := " " + fakeParentStr + " 1 Ss bash\n" +
+		" 600 " + fakeParentStr + " Z zombiechild\n"
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("ps", []string{"axo", "pid,ppid,stat,comm"}, out, 0)
+		// lsof deliberately NOT seeded — Replay.Run returns ErrNotRecorded.
+	})
+	c := NewProcessesCollector()
+	info, err := c.collectDarwin(context.Background())
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if info.ZombieCount != 1 {
+		t.Errorf("ZombieCount = %d, want 1 — an unverifiable shell-parent claim must not exempt the zombie, got %+v", info.ZombieCount, info.ZombieProcs)
 	}
 }
 

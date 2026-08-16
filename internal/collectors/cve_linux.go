@@ -30,6 +30,7 @@ const (
 	fixDNFSecurity    = "dnf upgrade --security"
 	fixZypperSecurity = "zypper patch --category security"
 	archAuditFailed   = "arch-audit failed: "
+	archLinuxCVEURL   = "https://security.archlinux.org/"
 )
 
 // cveIDStrictPattern validates a caller-supplied CVE identifier end to end
@@ -370,7 +371,7 @@ func checkCVEApt(ctx context.Context, cveID string) *models.CVEResult {
 	result.StatusReason = "apt does not support direct CVE queries — install 'debsecan' for Debian, or check tracker"
 
 	// Detect distro for appropriate tracker URL
-	if isUbuntu(ctx) {
+	if isUbuntu() {
 		result.FallbackURL = "https://ubuntu.com/security/CVE/" + strings.ToLower(cveID)
 	} else if isKali() {
 		result.FallbackURL = "https://security-tracker.debian.org/tracker/" + cveID
@@ -421,11 +422,16 @@ func checkCVEDebsecan(ctx context.Context, cveID string, result *models.CVEResul
 	return result
 }
 
-// isUbuntu checks /etc/os-release for Ubuntu.
-func isUbuntu(ctx context.Context) bool {
-	out, _ := runCmd(ctx, "sh", "-c",
-		"grep -i ubuntu /etc/os-release")
-	return strings.Contains(strings.ToLower(out), "ubuntu")
+// isUbuntu checks etcOSRelease for Ubuntu. Reads the file directly instead of
+// shelling out to `sh -c "grep -i ubuntu /etc/os-release"` — matches isKali's
+// pattern below; an unconditional subprocess spawn for a check this cheap was
+// unnecessary (subprocess-wrappers-03).
+func isUbuntu() bool {
+	data, err := readFile(etcOSRelease) // #nosec G304
+	if err != nil {
+		return false
+	}
+	return strings.Contains(strings.ToLower(string(data)), "ubuntu")
 }
 
 // isKali checks etcOSRelease for Kali Linux.
@@ -1115,7 +1121,7 @@ func checkCVEPacman(ctx context.Context, cveID string) *models.CVEResult {
 	if !hasCmd(cmdArchAudit) {
 		result.Status = models.CVEUnknown
 		result.StatusReason = "install arch-audit for CVE scanning: pacman -S arch-audit"
-		result.FallbackURL = "https://security.archlinux.org/" + strings.ToLower(cveID)
+		result.FallbackURL = archLinuxCVEURL + strings.ToLower(cveID)
 		return result
 	}
 
@@ -1128,7 +1134,7 @@ func checkCVEPacman(ctx context.Context, cveID string) *models.CVEResult {
 	if err != nil && len(out) == 0 {
 		result.Status = models.CVEUnknown
 		result.StatusReason = archAuditFailed + err.Error()
-		result.FallbackURL = "https://security.archlinux.org/" + strings.ToLower(cveID)
+		result.FallbackURL = archLinuxCVEURL + strings.ToLower(cveID)
 		return result
 	}
 
@@ -1146,7 +1152,7 @@ func checkCVEPacman(ctx context.Context, cveID string) *models.CVEResult {
 	if err != nil && !strings.Contains(out, "CVE-") {
 		result.Status = models.CVEUnknown
 		result.StatusReason = archAuditFailed + err.Error()
-		result.FallbackURL = "https://security.archlinux.org/" + strings.ToLower(cveID)
+		result.FallbackURL = archLinuxCVEURL + strings.ToLower(cveID)
 		return result
 	}
 

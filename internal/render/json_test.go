@@ -72,7 +72,10 @@ func TestRenderJSON_VerdictField(t *testing.T) {
 // only an INFO-level "couldn't measure" insight, which never raises
 // Verdict/Crit/Warn on its own — Counts.Errored must still surface that a
 // check didn't run at all, so a machine consumer branching on
-// Verdict/Counts alone (not iterating checks[]) can see it.
+// Verdict/Counts alone (not iterating checks[]) can see it. Verdict itself
+// must also stop reading "OK" in this situation: an INFO insight alone
+// doesn't raise it, but Counts.Errored > 0 now forces it to WARN so a
+// consumer reading .verdict alone doesn't conclude the run was clean.
 func TestRenderJSON_ErroredCountsField(t *testing.T) {
 	results := []runner.Result{
 		{Name: "Disk", Data: models.DiskInfo{}},
@@ -89,11 +92,53 @@ func TestRenderJSON_ErroredCountsField(t *testing.T) {
 	if err := json.Unmarshal(data, &out); err != nil {
 		t.Fatalf("output is not valid JSON: %v", err)
 	}
-	if out.Verdict != "OK" {
-		t.Errorf("verdict = %q, want OK (an INFO insight alone must not raise verdict)", out.Verdict)
+	if out.Verdict != "WARN" {
+		t.Errorf("verdict = %q, want WARN (an errored check must not report OK, even though the INFO insight alone wouldn't raise it)", out.Verdict)
 	}
 	if out.Counts.Errored != 1 {
 		t.Errorf("Counts.Errored = %d, want 1", out.Counts.Errored)
+	}
+}
+
+// TestRenderJSON_ErroredDoesNotOverrideRealVerdict is the boundary
+// counterpart to TestRenderJSON_ErroredCountsField: the errored->WARN
+// downgrade in buildOutput must only fire when the insight-only verdict
+// would otherwise be OK. A genuine CRIT/WARN insight already explains the
+// situation and must not be masked (weakened to WARN) or left alone
+// (already correct) by the errored-check logic — table-driven over all three
+// verdict states.
+func TestRenderJSON_ErroredDoesNotOverrideRealVerdict(t *testing.T) {
+	cases := []struct {
+		name        string
+		insights    []models.Insight
+		wantVerdict string
+	}{
+		{"errored + no insight -> WARN", nil, "WARN"},
+		{"errored + WARN insight -> stays WARN", []models.Insight{
+			{Check: "Disk", Level: "WARN", Message: "filling up"},
+		}, "WARN"},
+		{"errored + CRIT insight -> stays CRIT, not downgraded", []models.Insight{
+			{Check: "Disk", Level: "CRIT", Message: "full"},
+		}, "CRIT"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			results := []runner.Result{
+				{Name: "Kafka", Err: errors.New("collector timed out")},
+			}
+			data, err := RenderJSON(results, tc.insights)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var out JSONOutput
+			if err := json.Unmarshal(data, &out); err != nil {
+				t.Fatalf("output is not valid JSON: %v", err)
+			}
+			if out.Verdict != tc.wantVerdict {
+				t.Errorf("verdict = %q, want %q", out.Verdict, tc.wantVerdict)
+			}
+		})
 	}
 }
 

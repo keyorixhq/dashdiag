@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 const vaultAddr = "127.0.0.1:8200"
@@ -97,7 +98,9 @@ func vaultFetchHealth(ctx context.Context, base string, info *models.VaultInfo) 
 	info.StatusRead = true
 	info.Initialized = h.Initialized
 	info.Sealed = h.Sealed
-	info.Version = h.Version
+	// internal-collectors-33-06: Version never reaches Insight.Message, so
+	// sanitize AND cap its length here at the point of assignment.
+	info.Version = truncateRunes(source.SanitizeControl(h.Version), 200)
 }
 
 func vaultFetchSealStatus(ctx context.Context, base string, info *models.VaultInfo) {
@@ -111,6 +114,10 @@ func vaultFetchSealStatus(ctx context.Context, base string, info *models.VaultIn
 	if json.Unmarshal(body, &s) != nil {
 		return
 	}
-	info.StorageType = s.StorageType
-	info.DevMode = s.StorageType == "inmem"
+	// internal-collectors-33-06: StorageType never reaches Insight.Message, so
+	// sanitize AND cap its length here at the point of assignment. DevMode
+	// compares against the sanitized value so the two stay consistent.
+	storageType := truncateRunes(source.SanitizeControl(s.StorageType), 200)
+	info.StorageType = storageType
+	info.DevMode = storageType == "inmem"
 }

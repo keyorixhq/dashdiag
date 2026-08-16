@@ -314,6 +314,52 @@ func TestDownloadToTemp_Errors(t *testing.T) {
 	})
 }
 
+// TestDownloadToTemp_SizeCapped is the regression test for read-bounding-09:
+// downloadToTemp's binary-download copy previously had no size limit before
+// writing to disk and computing the sha256 — the sha256 check only runs
+// AFTER the full body is already on disk, so it doesn't guard against disk
+// exhaustion from a runaway/malicious response. Mirrors
+// TestFetchBytes_SizeCapped's pattern; maxDownloadBytes is shrunk for the
+// duration of the test so this doesn't actually transfer hundreds of MB.
+func TestDownloadToTemp_SizeCapped(t *testing.T) {
+	origMax := maxDownloadBytes
+	maxDownloadBytes = 64 * 1024 // 64KiB, for a fast test
+	defer func() { maxDownloadBytes = origMax }()
+
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		chunk := make([]byte, 8*1024)
+		for written := int64(0); written < maxDownloadBytes+int64(len(chunk)); written += int64(len(chunk)) {
+			if _, err := w.Write(chunk); err != nil {
+				return
+			}
+		}
+	}))
+	defer srv.Close()
+
+	dir := t.TempDir()
+	path, _, err := downloadToTemp(context.Background(), srv.URL, dir)
+	if err == nil {
+		t.Fatal("expected downloadToTemp to refuse an oversized download")
+	}
+	if !strings.Contains(err.Error(), "exceeds maximum size") {
+		t.Errorf("expected a size-cap error, got: %v", err)
+	}
+	if path != "" {
+		t.Errorf("expected no temp path returned on size-cap failure, got %q", path)
+	}
+
+	// No partial temp file should be left behind in dir.
+	entries, rerr := os.ReadDir(dir)
+	if rerr != nil {
+		t.Fatalf("ReadDir(%s): %v", dir, rerr)
+	}
+	for _, e := range entries {
+		if strings.HasPrefix(e.Name(), ".dsd-update-") {
+			t.Errorf("oversized download left a partial temp file behind: %s", e.Name())
+		}
+	}
+}
+
 // TestApply_ErrorPaths covers the early-return error branches in Apply that
 // TestApply_EndToEnd / TestApply_ChecksumMismatch don't exercise.
 func TestApply_ErrorPaths(t *testing.T) {

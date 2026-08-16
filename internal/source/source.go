@@ -100,13 +100,47 @@ type Source interface {
 // recording is a gap to fix, not a system fact to trust.
 var ErrNotRecorded = errors.New("source: input not present in replay bundle (recording gap)")
 
-// cleanPath canonicalises a file or dir key so record and replay agree.
-func cleanPath(p string) string { return filepath.Clean(p) }
+// cacheKeyPrefix is the NUL-delimited sentinel cacheKey() prepends to a
+// Cached() key, so it can never collide with a recorded file path (see
+// cacheKey). cleanPath special-cases it — see there for why.
+const cacheKeyPrefix = "\x00cached\x00"
+
+// cleanPath canonicalises a file or dir key so record and replay agree. Every
+// call site (bundle.go) uses it purely to key an in-memory map for the
+// Recorder/Replay bundle — it is never used for confinement: Live (live.go)
+// reads paths straight via os.ReadFile/os.Readlink/etc without going through
+// this function at all, and every path reaching it is code-supplied (a
+// collector's own /proc, /sys, or known config path — see the Source
+// interface doc), never attacker/user-controlled. So there is no "expected
+// root" for a Rel-based confinement check to make sense against.
+//
+// The one defensive gap worth closing: filepath.Clean does not treat a NUL
+// byte specially, and cacheKey deliberately namespaces Cached() entries with
+// a leading cacheKeyPrefix on the assumption a NUL "can never appear in a
+// real filesystem path" — so a path string that happened to CONTAIN that
+// exact byte sequence (not as its own prefix, e.g. embedded mid-path) could
+// otherwise collide with the Cached() namespace in the same map. Guard that
+// without disturbing the legitimate case: a string that already IS a
+// cacheKey-produced key (starts with cacheKeyPrefix) is passed through
+// as-is — those NUL bytes are the deliberate sentinel, not something to
+// strip — while any OTHER NUL byte (which cannot legitimately appear in a
+// real path on any supported OS; every path syscall treats it as a
+// terminator/invalid argument) is stripped before the map key is built, so
+// it can never be (mis)used to construct that same prefix out-of-band.
+func cleanPath(p string) string {
+	if strings.HasPrefix(p, cacheKeyPrefix) {
+		return p
+	}
+	if strings.ContainsRune(p, 0) {
+		p = strings.ReplaceAll(p, "\x00", "")
+	}
+	return filepath.Clean(p)
+}
 
 // cacheKey namespaces a Cached() key into the file store. The NUL prefix can
 // never appear in a real filesystem path, so a cached computed value never
 // collides with a recorded file read.
-func cacheKey(k string) string { return "\x00cached\x00" + k }
+func cacheKey(k string) string { return cacheKeyPrefix + k }
 
 // cmdKey canonicalises an argv into a single map key.
 func cmdKey(name string, args []string) string {

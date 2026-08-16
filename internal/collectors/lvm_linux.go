@@ -11,6 +11,13 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
+// lvmPresenceGateTimeout bounds the pre-run `lvs --version` presence probe
+// (IsLVMPresent). Matches the 2s bound KVMAvailable uses for its own
+// registration-time `virsh version --daemon` gate check (kvm_linux.go) — the
+// same "cheap binary presence check called before any collector timeout
+// exists" shape, so the two gates should share the same bound.
+const lvmPresenceGateTimeout = 2 * time.Second
+
 const (
 	lvmNoHeadings = "--noheadings"
 	lvmNoSuffix   = "--nosuffix"
@@ -28,8 +35,13 @@ func IsLVMPresent() bool {
 	// cmd/ while building the collector list, before the runner ever assigns
 	// a per-collector deadline. context.Background() here is a genuine root,
 	// not a re-created one (see lvmPresenceCheck's ctx-threaded call from
-	// Collect for the actual per-collector-deadline path).
-	present, absent := lvmPresenceCheck(context.Background())
+	// Collect for the actual per-collector-deadline path) — but a bare root
+	// context is still unbounded, so a hung `lvs --version` would stall
+	// collector-list construction indefinitely (internal-subprocess-wrappers-02).
+	// Bound it the same way KVMAvailable bounds its own registration-time gate.
+	ctx, cancel := context.WithTimeout(context.Background(), lvmPresenceGateTimeout)
+	defer cancel()
+	present, absent := lvmPresenceCheck(ctx)
 	return present || !absent
 }
 

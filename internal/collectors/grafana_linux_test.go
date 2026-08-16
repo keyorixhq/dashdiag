@@ -4,6 +4,7 @@ package collectors
 
 import (
 	"context"
+	"encoding/json"
 	"testing"
 	"time"
 
@@ -145,6 +146,48 @@ func TestDetectGrafana_IdentityUnverified_NoSS(t *testing.T) {
 	}
 	if !info.IdentityUnverified {
 		t.Error("IdentityUnverified = false, want true when ss is unavailable")
+	}
+}
+
+// TestGrafanaCollector_Collect_SanitizesControlChars is the regression test
+// for internal-collectors-13-02: Version/DatabaseStatus come straight from
+// the remote HTTP response body and must have control/ANSI bytes stripped
+// before landing in the model. The response body is built with json.Marshal
+// (rather than a hand-typed literal) so the NUL/ESC runes below round-trip
+// through valid JSON escaping exactly the way a real Grafana response would.
+func TestGrafanaCollector_Collect_SanitizesControlChars(t *testing.T) {
+	nulRune := string(rune(0))
+	escRune := string(rune(27))
+	payload := struct {
+		Database string `json:"database"`
+		Version  string `json:"version"`
+	}{
+		Database: "ok" + nulRune,
+		Version:  "11.1.0" + escRune + "[0m",
+	}
+	rawBody, err := json.Marshal(payload)
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+
+	withCombinedFixture(t, map[string][]byte{
+		"dial/tcp/127.0.0.1:3000":               {'1'},
+		"http/http://127.0.0.1:3000/api/health": promHTTPResult(t, string(rawBody), 200),
+	}, nil, nil)
+	c := NewGrafanaCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.GrafanaInfo)
+	if info.Version != "11.1.0[0m" {
+		t.Errorf("Version = %q, want ESC stripped to 11.1.0[0m", info.Version)
+	}
+	if info.DatabaseStatus != "ok" {
+		t.Errorf("DatabaseStatus = %q, want trailing NUL stripped to ok", info.DatabaseStatus)
+	}
+	if !info.DatabaseOK {
+		t.Error("DatabaseOK = false, want true — the \"ok\" comparison must run against the sanitized value")
 	}
 }
 

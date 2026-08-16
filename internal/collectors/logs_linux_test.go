@@ -678,3 +678,22 @@ func TestCollectVarLogErrorsFrom_ReadFileError(t *testing.T) {
 		t.Errorf("LogSource = %q, want empty: readFile error must cause early return", info.LogSource)
 	}
 }
+
+// TestCollectVarLogErrorsFrom_TooLarge guards internal-collectors-18-02/19-03
+// through this specific caller: when the candidate's Stat reports a size far
+// beyond any legitimate size (maxSafeReadBytes), readFile must refuse the
+// full read and this caller must treat that exactly like any other readFile
+// error (see TestCollectVarLogErrorsFrom_ReadFileError above) — an early
+// return, never materializing the payload.
+func TestCollectVarLogErrorsFrom_TooLarge(t *testing.T) {
+	// No t.Parallel(): withFixtureSource swaps the package-global source.
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutStat("/var/log/syslog", source.FileMeta{Size: maxSafeReadBytes + 1})
+		b.PutFile("/var/log/syslog", []byte("this payload must never be returned"))
+	})
+	info := &models.LogsInfo{}
+	collectVarLogErrorsFrom(info, []string{"/var/log/syslog"})
+	if info.LogSource != "" {
+		t.Errorf("LogSource = %q, want empty: too-large read must cause early return", info.LogSource)
+	}
+}

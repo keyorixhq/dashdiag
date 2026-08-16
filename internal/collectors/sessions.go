@@ -13,9 +13,19 @@ import (
 // w LOGIN@ shapes that must never be mistaken for a FROM host:
 //   - a day-of-week, optionally with a time/hour suffix: "Mon", "Tue08", "Wed14"
 //   - a "DDmonYY" date stamp: "23Jun24"
+//
+// Both patterns are deliberately narrow, not (?i)/any-3-letters, per
+// internal-collectors-30-02: dsd forces LC_ALL=C/LANG=C on every subprocess
+// it runs (source.HardenedEnv), so `w`'s weekday/month abbreviations always
+// come out in the fixed C-locale title case ("Mon", "Jun", never "mon" or
+// "MON") — anchoring to that exact, guaranteed shape is real corroboration,
+// not a guess, and it stops a real (if unusual) short hostname like "sun" or
+// "mon" — or a hostname that happens to be shaped like "23xyz24" under the
+// old any-3-letters date pattern — from being misclassified as a LOGIN@
+// artifact and silently losing its RemoteCount/RootSSH attribution.
 var (
-	wDayLogin  = regexp.MustCompile(`^(?i)(mon|tue|wed|thu|fri|sat|sun)\d*$`)
-	wDateLogin = regexp.MustCompile(`^\d{1,2}[A-Za-z]{3}\d{2}$`)
+	wDayLogin  = regexp.MustCompile(`^(Mon|Tue|Wed|Thu|Fri|Sat|Sun)\d*$`)
+	wDateLogin = regexp.MustCompile(`^\d{1,2}(Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)\d{2}$`)
 	// wAmPmLogin matches a 12-hour LOGIN@ time stamp ("9am", "9:00am",
 	// "12:30PM") — never a host, since it requires the WHOLE string to start
 	// with digits and end in exactly "am"/"pm". Deliberately narrower than a
