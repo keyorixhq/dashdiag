@@ -3,11 +3,11 @@ package drilldown
 import (
 	"context"
 	"errors"
-	"os"
 	"runtime"
 	"strings"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/platform"
 )
 
 // ClockTracking returns detailed NTP synchronisation status.
@@ -87,9 +87,10 @@ func clockTrackingMac(ctx context.Context) (*models.Details, error) {
 
 	// sntp query (available without root on macOS) — a real outbound UDP query
 	// to Apple's time servers, unlike chronyc/timedatectl above (which only
-	// read local daemon state). Skip it under DSD_OFFLINE so a Clock
-	// WARN/CRIT drill-down never phones out on an offline/air-gapped run.
-	if os.Getenv("DSD_OFFLINE") == "" {
+	// read local daemon state). Gated by platform.NetworkAllowed (off by
+	// default) so a Clock WARN/CRIT drill-down never phones out unless the
+	// operator explicitly opted in.
+	if platform.NetworkAllowed() {
 		sntpOut, err2 := runCmd(ctx, "sntp", "-t", "1", "time.apple.com")
 		if err2 == nil {
 			for line := range strings.SplitSeq(sntpOut, "\n") {

@@ -20,6 +20,7 @@ import (
 
 	"github.com/keyorixhq/dashdiag/internal/debug"
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/platform"
 )
 
 const (
@@ -162,10 +163,13 @@ type connectivityProbe struct {
 func probeConnectivity(ctx context.Context, gatewayIP, srcIP string, result *models.NetworkInfo) {
 	// This is the one outbound-to-the-internet call in default `dsd health`
 	// (ping 8.8.8.8, resolve github.com) — every other check reads local
-	// files/sockets. Skip it under DSD_OFFLINE rather than reporting a
-	// misleading "unreachable"/"DNS failed" result: ConnectivityProbeDisabled
-	// tells the heuristic this is unmeasured, not a real finding.
-	if os.Getenv("DSD_OFFLINE") != "" {
+	// files/sockets. Skip it unless network is allowed (see platform.
+	// NetworkAllowed — off by default) rather than reporting a misleading
+	// "unreachable"/"DNS failed" result: ConnectivityProbeDisabled tells the
+	// heuristic this is unmeasured, not a real finding. sourceIsReplaying
+	// short-circuits the gate under `dsd replay` — a replay must serve the
+	// recorded probe from the bundle, never fabricate "skipped" over it.
+	if !platform.NetworkAllowed() && !sourceIsReplaying() {
 		result.ConnectivityProbeDisabled = true
 		result.Bonds = collectBonds()
 		return

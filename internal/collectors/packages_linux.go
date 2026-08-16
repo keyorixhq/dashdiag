@@ -1009,7 +1009,17 @@ func pkgIntegrityDNF(ctx context.Context, pi *models.PackageIntegrity) {
 	// `dnf check` EXITS NON-ZERO when it finds broken deps (writing them to stdout),
 	// so capture stdout regardless of exit — runCmd would discard the findings and
 	// the check would read clean (false-OK).
-	out, _ := runCmdOutput(dnfCtx, "dnf", "check", flagQuiet)
+	out, dnfErr := runCmdOutput(dnfCtx, "dnf", "check", flagQuiet)
+	// Mechanical-sweep finding (gap C, idiom 3): dnfErr is only ever non-nil
+	// for a genuine spawn failure (dnf absent, ctx cancelled) — never for a
+	// non-zero exit, which is exactly the signal `dnf check` uses to report
+	// findings (see the comment above). Empty stdout on that failure looked
+	// identical to "ran clean", the same false-OK class checkCVEPacman was
+	// missing a guard for (internal-collectors-07-05). Sibling: pkgIntegrityZypper
+	// already discloses its own "couldn't verify" case via VerifyLocked.
+	if dnfErr != nil && strings.TrimSpace(out) == "" {
+		pi.CheckFailed = true
+	}
 	if strings.TrimSpace(out) != "" {
 		for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
 			if line = strings.TrimSpace(line); line != "" &&
@@ -1029,9 +1039,15 @@ func pkgIntegrityDNF(ctx context.Context, pi *models.PackageIntegrity) {
 	rpmCtx, rpmCancel := context.WithTimeout(ctx, 5*time.Second)
 	defer rpmCancel()
 	canary := []string{"bash", "coreutils", "systemd", "glibc", "openssl-libs"}
-	rpmOut, _ := runCmdOutput(rpmCtx, "rpm", append([]string{"--verify"}, canary...)...)
+	rpmOut, rpmErr := runCmdOutput(rpmCtx, "rpm", append([]string{"--verify"}, canary...)...)
 	if rpmCtx.Err() != nil {
 		pi.VerifyTimedOut = true
+		// Same gap as the dnf check guard above: rpmErr is only ever non-nil
+		// for a genuine spawn failure, never a non-zero exit (rpm -V's own
+		// findings signal). Empty stdout on that failure read identically to
+		// "no RPM verify anomalies."
+	} else if rpmErr != nil && strings.TrimSpace(rpmOut) == "" {
+		pi.CheckFailed = true
 	} else if strings.TrimSpace(rpmOut) != "" {
 		for _, line := range strings.Split(strings.TrimSpace(rpmOut), "\n") {
 			line = strings.TrimSpace(line)
@@ -1052,7 +1068,14 @@ func pkgIntegrityAPT(ctx context.Context, pi *models.PackageIntegrity) {
 	// regardless of exit code (capture-regardless-of-exit, mirroring DNF).
 	aptCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
-	out, _ := runCmdOutput(aptCtx, "dpkg", "--audit")
+	out, dpkgErr := runCmdOutput(aptCtx, "dpkg", "--audit")
+	// Mechanical-sweep finding (gap C, idiom 3): same gap as pkgIntegrityDNF —
+	// dpkgErr is only ever non-nil for a genuine spawn failure, never a
+	// non-zero exit. Empty stdout on that failure read identically to "no
+	// broken packages."
+	if dpkgErr != nil && strings.TrimSpace(out) == "" {
+		pi.CheckFailed = true
+	}
 	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
 		if line = strings.TrimSpace(line); line != "" {
 			pi.BrokenPackages = append(pi.BrokenPackages, line)
@@ -1065,7 +1088,10 @@ func pkgIntegrityAPT(ctx context.Context, pi *models.PackageIntegrity) {
 	// for). runCmdCombined keeps stdout+stderr regardless of exit.
 	checkCtx, checkCancel := context.WithTimeout(ctx, 5*time.Second)
 	defer checkCancel()
-	checkOut, _ := runCmdCombined(checkCtx, pkgCmdAptGet, "check")
+	checkOut, aptGetErr := runCmdCombined(checkCtx, pkgCmdAptGet, "check")
+	if aptGetErr != nil && strings.TrimSpace(checkOut) == "" {
+		pi.CheckFailed = true
+	}
 	for _, line := range strings.Split(checkOut, "\n") {
 		lower := strings.ToLower(line)
 		if strings.Contains(lower, "unmet dep") || strings.Contains(lower, "broken package") {

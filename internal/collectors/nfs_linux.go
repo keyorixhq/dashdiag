@@ -6,12 +6,12 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"os"
 	"strings"
 	"syscall"
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/platform"
 )
 
 // NFSCollector checks NFS mount health without hanging.
@@ -141,11 +141,16 @@ func nfsCheckServer(m *models.NFSMount) {
 	// A non-loopback server dial leaves the machine, to a host taken from the
 	// mount table — not fully trusted (e.g. a container/namespace's mount
 	// table can be set up by whoever configured that namespace). Skip that
-	// dial under DSD_OFFLINE rather than reporting a fabricated
-	// "unreachable" — ServerCheckSkipped tells the heuristic this is
-	// unmeasured, not a real finding. The loopback case never leaves the
-	// machine, so it is unaffected.
-	if !isLoopback && os.Getenv("DSD_OFFLINE") != "" {
+	// dial unless network is allowed (platform.NetworkAllowed — off by
+	// default) rather than reporting a fabricated "unreachable" —
+	// ServerCheckSkipped tells the heuristic this is unmeasured, not a real
+	// finding. The loopback case never leaves the machine, so it is unaffected.
+	// sourceIsReplaying short-circuits the gate under `dsd replay`: nfsPingServer/
+	// nfsCheckPort route through dialReachable's source-cached dial, which on
+	// replay serves the recorded reachability and never dials live — gating
+	// the call site itself would fabricate "skipped" over a real recording
+	// (see TestNFSReachabilityReplaysFromBundle).
+	if !isLoopback && !platform.NetworkAllowed() && !sourceIsReplaying() {
 		m.ServerCheckSkipped = true
 		return
 	}

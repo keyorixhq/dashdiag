@@ -190,7 +190,9 @@ func (r *Renderer) PrintAllMock(results []runner.Result, insights []models.Insig
 
 		icon := output.StatusIcon(levelToStatusKey(level), r.mode)
 		name := fmt.Sprintf("%-12s", res.Name)
-		fmt.Fprintln(os.Stdout, r.formatStatusLine(name, icon, level, msg))
+		// msg is an Insight.Message (untrusted collector text) when the fixture
+		// carries a WARN/CRIT insight — same sanitization choke point as printRow.
+		fmt.Fprintln(os.Stdout, r.formatStatusLine(name, icon, level, output.SanitizeControl(msg)))
 
 		if ins != nil && ins.Details != nil {
 			r.renderDetails(ins.Details)

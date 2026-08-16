@@ -20,6 +20,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/keyorixhq/dashdiag/internal/platform"
 	"github.com/spf13/cobra"
 )
 
@@ -31,7 +32,56 @@ func newBareRootPreRunCmd() *cobra.Command {
 	f.String("out", "", "")
 	f.String("brand", "", "")
 	f.String("logo", "", "")
+	f.Bool("network", false, "")
 	return c
+}
+
+func TestApplyNetworkPolicy_NetworkFlagOptsIn(t *testing.T) {
+	t.Setenv("DSD_OFFLINE", "")
+	t.Setenv("DSD_ALLOW_NETWORK", "")
+	c := newBareRootPreRunCmd()
+	_ = c.Flags().Set("network", "true")
+
+	applyNetworkPolicy(c)
+
+	if !platform.NetworkAllowed() {
+		t.Error("--network should opt in to network calls via DSD_ALLOW_NETWORK")
+	}
+}
+
+func TestApplyNetworkPolicy_NoFlagStaysOffByDefault(t *testing.T) {
+	t.Setenv("DSD_OFFLINE", "")
+	t.Setenv("DSD_ALLOW_NETWORK", "")
+	c := newBareRootPreRunCmd()
+
+	applyNetworkPolicy(c)
+
+	if platform.NetworkAllowed() {
+		t.Error("network must stay off by default when --network is not passed")
+	}
+}
+
+// TestApplyNetworkPolicy_DSDOfflineOverridesEverything is the security-relevant
+// invariant the census's gap-B fix hinges on: DSD_OFFLINE must win even when
+// BOTH the --network flag AND a pre-existing DSD_ALLOW_NETWORK=1 (e.g. from a
+// shared CI image's environment) say "allow network." A conflicting pair of
+// opt-in signals must never override an explicit request to go offline — this
+// exercises the full wiring (the real rootCmd.PersistentPreRun, which calls
+// applyNetworkPolicy, feeding into the real platform.NetworkAllowed()), not
+// just the policy function in isolation (see also
+// internal/platform/network_policy_test.go for the narrower unit test).
+func TestApplyNetworkPolicy_DSDOfflineOverridesEverything(t *testing.T) {
+	t.Setenv("DSD_OFFLINE", "1")
+	t.Setenv("DSD_ALLOW_NETWORK", "1") // simulates an already-exported CI env var
+	c := newBareRootPreRunCmd()
+	_ = c.Flags().Set("network", "true") // simulates the operator also passing --network
+	_ = c.Flags().Set("json", "true")    // suppress the banner side-effect
+
+	rootCmd.PersistentPreRun(c, nil)
+
+	if platform.NetworkAllowed() {
+		t.Fatal("DSD_OFFLINE=1 must force offline even with --network AND DSD_ALLOW_NETWORK=1 both set — zero network calls must result")
+	}
 }
 
 func TestApplyBrand_NoPanic(t *testing.T) {
