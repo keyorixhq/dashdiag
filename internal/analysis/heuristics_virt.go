@@ -103,6 +103,17 @@ func checkKVMVMs(kvm models.KVMInfo) []models.Insight {
 			},
 		))
 	}
+	out = append(out, checkKVMVMsDiskErrors(kvm)...)
+	out = append(out, checkKVMVMsXMLDeep(kvm)...)
+	return out
+}
+
+// checkKVMVMsDiskErrors covers disk I/O error reporting (and the sibling
+// "couldn't verify" disclosure when the check itself failed). Split out of
+// checkKVMVMs to keep it under the funlen limit, same reason
+// checkKVMVMsXMLDeep was split out below.
+func checkKVMVMsDiskErrors(kvm models.KVMInfo) []models.Insight {
+	var out []models.Insight
 	// Disk I/O errors — CRIT
 	if kvm.DiskIOErrors > 0 {
 		out = append(out, insight("CRIT", virtCatKVM,
@@ -117,7 +128,7 @@ func checkKVMVMs(kvm models.KVMInfo) []models.Insight {
 	// Mechanical-sweep finding (gap C, idiom 2): `virsh domblkerror` failing
 	// leaves DiskIOError false, the same zero value a genuinely error-free VM
 	// has — disclose it as unverified rather than letting it silently pass
-	// as "no I/O errors", same treatment VMsUnreadable gets above.
+	// as "no I/O errors", same treatment VMsUnreadable gets in checkKVMVMs.
 	if kvm.DiskErrorChecksFailed > 0 {
 		out = append(out, unverifiedInsight("WARN", virtCatKVM,
 			fmt.Sprintf("%d VM(s) had an unreadable disk-error check (virsh domblkerror failed) — I/O error status unknown for them", kvm.DiskErrorChecksFailed),
@@ -127,7 +138,6 @@ func checkKVMVMs(kvm models.KVMInfo) []models.Insight {
 			},
 		))
 	}
-	out = append(out, checkKVMVMsXMLDeep(kvm)...)
 	return out
 }
 
