@@ -173,6 +173,7 @@ The full list, opted into with `--network`/`DSD_ALLOW_NETWORK`:
 | NFS reachability | the NFS server from your mount table | default NFS collector, non-loopback mounts |
 | SteamOS CDN/update checks | `steamdeck-images.steamos.cloud`, `steamdeck-atomupd.steamos.cloud` | SteamOS only |
 | macOS clock drill-down | `time.apple.com` (sntp) | `dsd drilldown clock` on macOS only |
+| Configured service probes | the host:port entries under `services:` in `~/.dsd.yaml` | `dsd services`, `dsd services deep` |
 
 Package-manager reads remain local-cache-only regardless of the network
 setting — they were never gated by this policy because they were never a

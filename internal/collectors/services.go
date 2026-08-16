@@ -11,6 +11,7 @@ import (
 
 	"github.com/keyorixhq/dashdiag/internal/config"
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/platform"
 )
 
 type ServicesCollector struct{}
@@ -62,7 +63,26 @@ func (c *ServicesCollector) Collect(ctx context.Context) (any, error) {
 // re-probing the replaying machine. Keyed by protocol+name+addr (one probe per
 // configured service). A recording gap (service not in the bundle) surfaces as an
 // explicit unreachable WARN rather than a misleading zero-value OK.
+//
+// svc.Host is operator-configured, but not operator-supplied AT THIS
+// INVOCATION: it comes from an implicit config.Load("") lookup ($HOME/.dsd.yaml),
+// never a CLI flag — dsd services has no --host/--config flag for a target to be
+// typed on the command line. That makes it indistinguishable, at the point this
+// runs, from any other implicitly-discovered value this project already gates
+// (see platform.NetworkAllowed's doc comment) — an arbitrary, non-loopback
+// host:port dialed with no per-run opt-in. Gated here, before the Cached() call,
+// same placement as nfs_linux.go's reachability gate and network_quick.go's
+// probeConnectivity: sourceIsReplaying short-circuits under `dsd replay` so a
+// bundle recorded before this fix still replays its captured probe result
+// instead of the gate fabricating a "skipped" over it.
 func checkService(ctx context.Context, svc config.ServiceConfig) models.ServiceResult {
+	if !platform.NetworkAllowed() && !sourceIsReplaying() {
+		return models.ServiceResult{
+			Name: svc.Name, Host: svc.Host, Port: svc.Port, Protocol: svc.Protocol,
+			Status: "WARN",
+			Error:  "port probe skipped — network is off by default; pass --network or set DSD_ALLOW_NETWORK=1",
+		}
+	}
 	key := "service/" + svc.Protocol + "/" + svc.Name + "/" + net.JoinHostPort(svc.Host, strconv.Itoa(svc.Port))
 	var res models.ServiceResult
 	if err := cachedJSON(key, func() (any, error) {

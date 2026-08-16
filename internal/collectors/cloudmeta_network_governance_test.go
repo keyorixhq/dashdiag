@@ -11,42 +11,47 @@ import (
 	"testing"
 )
 
-// TestCloudMetadataHTTPCallsGatedByNetworkAllowed is a completeness tripwire
-// for the exact bug class this file's sibling commit fixed: gap B (network
-// calls off by default) landed at platform/cloud.go's checkIMDS but missed
-// every raw HTTP call in the cloud-metadata collector subsystem — imdsGet,
-// awsIMDSToken, awsSpotTermination, and probeIMDSOpen all fired unconditional
-// live requests to 169.254.169.254 regardless of --network/DSD_ALLOW_NETWORK.
-// One site was fixed; four siblings in the same subsystem were not — the
-// same "fixed here, missed there" shape this project's own review history
-// (VERIFICATION-2026-08.md) has hit eight separate times.
+// TestOutboundNetworkCallsGatedByNetworkAllowed is a completeness tripwire for
+// the exact bug class two sibling commits fixed:
 //
-// Scope is deliberately the cloud-metadata subsystem (the files below), not
-// all of internal/collectors: docker.go and netaccess_linux.go also call
-// http.NewRequestWithContext, but both are enforced-loopback (Docker's local
-// socket, requireLoopbackURL) — a different, already-audited class, not a
-// network-off-by-default promise. Widening this test to the whole package
-// would either false-flag those or require inventing an exemption for them
-// that says nothing true about THIS bug class. See also: internal/collectors/
-// services.go probes operator-configured (not necessarily loopback) targets
-// and is NOT gated by NetworkAllowed() — a real, separate, PRE-EXISTING gap,
-// intentionally left alone here (out of the gate-B-in-cloud-metadata scope
-// this test polices) rather than silently exempted; do not read this test's
-// silence on services.go as a claim that it's safe.
+//   - gap B (network calls off by default) landed at platform/cloud.go's
+//     checkIMDS but missed every raw HTTP call in the cloud-metadata collector
+//     subsystem — imdsGet, awsIMDSToken, awsSpotTermination, and probeIMDSOpen
+//     all fired unconditional live requests to 169.254.169.254 regardless of
+//     --network/DSD_ALLOW_NETWORK. One site was fixed; four siblings in the
+//     same subsystem were not.
+//   - the services-network-gate fix closed the same class in
+//     internal/collectors/services.go: checkServiceLive dials an
+//     operator-configured (but never operator-typed-AT-THIS-INVOCATION)
+//     host:port with no opt-out — the target comes from an implicit
+//     config.Load("") lookup ($HOME/.dsd.yaml), never a CLI flag.
+//
+// Both are the same "fixed here, missed there" shape this project's own
+// review history (VERIFICATION-2026-08.md) has hit nine separate times, so
+// this test covers both subsystems rather than existing as two near-identical
+// guards. Scope is still deliberately narrower than all of internal/collectors:
+// docker.go and netaccess_linux.go also call http.NewRequestWithContext, but
+// both are enforced-loopback (Docker's local socket, requireLoopbackURL) — a
+// different, already-audited class, not a network-off-by-default promise.
+// Widening this test to the whole package would either false-flag those or
+// require inventing an exemption for them that says nothing true about this
+// bug class.
 //
 // Why call-graph aware, not a flat per-function check: this codebase's own
 // established gate convention (network_quick.go's probeConnectivity, nfs_linux.go's
 // nfsCollectServerReachability) places the gate in the WRAPPER function, one
 // level above the function that actually builds the raw request — imdsGet
-// gates, imdsGetLive makes the http.NewRequestWithContext call. A flat
-// "does this exact function contain the gate" check would false-flag
-// imdsGetLive forever. Instead: a function's raw call is considered gated if
-// the function itself contains the check, OR every one of its callers
-// (within this file set) is transitively gated — computed to a fixed point,
-// which is sound for this codebase's shallow (1-2 level) wrapper/produce
-// call shape and catches a genuinely-unprotected new site (no gated caller
-// anywhere in the chain) exactly as reliably as a same-function check would.
-func TestCloudMetadataHTTPCallsGatedByNetworkAllowed(t *testing.T) {
+// gates, imdsGetLive makes the http.NewRequestWithContext call; checkService
+// gates, checkServiceLive makes the HTTP/TCP call. A flat "does this exact
+// function contain the gate" check would false-flag imdsGetLive/
+// checkServiceLive forever. Instead: a function's raw call is considered
+// gated if the function itself contains the check, OR every one of its
+// callers (within this file set) is transitively gated — computed to a fixed
+// point, which is sound for this codebase's shallow (1-2 level) wrapper/
+// produce call shape and catches a genuinely-unprotected new site (no gated
+// caller anywhere in the chain) exactly as reliably as a same-function check
+// would.
+func TestOutboundNetworkCallsGatedByNetworkAllowed(t *testing.T) {
 	root := repoRootForGovernanceTest(t)
 	dir := filepath.Join(root, "internal", "collectors")
 
@@ -57,13 +62,14 @@ func TestCloudMetadataHTTPCallsGatedByNetworkAllowed(t *testing.T) {
 		"gcp_linux.go",
 		"oci_linux.go",
 		"cloud_helpers_linux.go",
+		"services.go",
 	}
 
 	fset := token.NewFileSet()
 	funcs := map[string]*ast.FuncDecl{} // name -> decl
 	fileOf := map[string]string{}       // name -> relative file
 	callees := map[string][]string{}    // name -> package-local functions it calls
-	rawCallLine := map[string]int{}     // name -> line of its own http.NewRequestWithContext, if any
+	rawCallLine := map[string]int{}     // name -> line of its own raw network call, if any
 	directlyGated := map[string]bool{}  // name -> contains platform.NetworkAllowed() itself
 
 	for _, name := range files {
@@ -104,6 +110,20 @@ func TestCloudMetadataHTTPCallsGatedByNetworkAllowed(t *testing.T) {
 				}
 				switch f := call.Fun.(type) {
 				case *ast.SelectorExpr:
+					// DialContext is checked on the method name alone, not a
+					// package-qualified name: services.go's TCP dial is
+					// `d.DialContext(...)` on a local `*net.Dialer` variable,
+					// not a package-level identifier — go/parser has no type
+					// info to confirm the receiver is really a net.Dialer.
+					// Matching the bare method name is a deliberate,
+					// good-enough heuristic for this fixed, small file set:
+					// no other DialContext-named method exists in it.
+					if f.Sel.Name == "DialContext" {
+						if rawCallLine[fn.Name.Name] == 0 {
+							rawCallLine[fn.Name.Name] = fset.Position(call.Pos()).Line
+						}
+						return true
+					}
 					pkgIdent, ok := f.X.(*ast.Ident)
 					if !ok {
 						return true
@@ -189,15 +209,16 @@ func TestCloudMetadataHTTPCallsGatedByNetworkAllowed(t *testing.T) {
 			continue
 		}
 		site := fmt.Sprintf("%s:%d", fileOf[name], line)
-		violations = append(violations, fmt.Sprintf("%s | http.NewRequestWithContext in %s, "+
-			"not gated by platform.NetworkAllowed() and no fully-gated caller found", site, name))
+		violations = append(violations, fmt.Sprintf("%s | raw network call (http.NewRequestWithContext "+
+			"or a Dialer.DialContext) in %s, not gated by platform.NetworkAllowed() and no fully-gated "+
+			"caller found", site, name))
 	}
 
 	var real []string
 	for _, v := range violations {
 		site, _, found := strings.Cut(v, " | ")
 		if found {
-			if reason, exempted := cloudMetadataGateExemptions[site]; exempted {
+			if reason, exempted := outboundNetworkGateExemptions[site]; exempted {
 				t.Logf("exempted %s: %s", site, reason)
 				continue
 			}
@@ -207,22 +228,22 @@ func TestCloudMetadataHTTPCallsGatedByNetworkAllowed(t *testing.T) {
 	sort.Strings(real)
 
 	if len(real) > 0 {
-		t.Errorf("%d outbound HTTP call(s) in the cloud-metadata collector subsystem not gated by "+
-			"platform.NetworkAllowed():\n  %s\n\n"+
-			"Every http.NewRequestWithContext call to an IMDS endpoint in this subsystem must be "+
+		t.Errorf("%d outbound network call(s) not gated by platform.NetworkAllowed():\n  %s\n\n"+
+			"Every http.NewRequestWithContext or Dialer.DialContext call in this file set must be "+
 			"preceded — in the same function, or in every path that can call it — by an "+
 			"`if !platform.NetworkAllowed() && !sourceIsReplaying()` check that returns before "+
-			"building the request. Match imdsGet/awsIMDSToken/awsSpotTermination/probeIMDSOpen's "+
-			"existing shape, do not invent a new one. If a call is genuinely not network-off-by-"+
-			"default's concern (e.g. proven loopback-only), add a cloudMetadataGateExemptions entry "+
-			"in this file with a stated, verified reason — this is not a suppression list.",
+			"building the request/dial. Match imdsGet/awsIMDSToken/awsSpotTermination/probeIMDSOpen/"+
+			"checkService's existing shape, do not invent a new one. If a call is genuinely not "+
+			"network-off-by-default's concern (e.g. proven loopback-only), add an "+
+			"outboundNetworkGateExemptions entry in this file with a stated, verified reason — this "+
+			"is not a suppression list.",
 			len(real), strings.Join(real, "\n  "))
 	}
 }
 
-// cloudMetadataGateExemptions lists "file.go:LINE" sites explicitly allowed
-// to call http.NewRequestWithContext without a NetworkAllowed() check
-// (directly or via every caller) in this subsystem, each with the reason
-// it's safe. Empty today — every site found in this subsystem was gated,
+// outboundNetworkGateExemptions lists "file.go:LINE" sites explicitly allowed
+// to call http.NewRequestWithContext or Dialer.DialContext without a
+// NetworkAllowed() check (directly or via every caller) in this file set,
+// each with the reason it's safe. Empty today — every site found was gated,
 // not exempted.
-var cloudMetadataGateExemptions = map[string]string{}
+var outboundNetworkGateExemptions = map[string]string{}
