@@ -4,7 +4,27 @@ import (
 	"os"
 	"path/filepath"
 	"strings"
+	"time"
 )
+
+// ExecWaitDelay bounds how long a subprocess gets to exit gracefully after its
+// context is cancelled before *exec.Cmd force-kills it. Every hardened exec
+// site in dsd uses this same value, so a wedged external tool (smartctl on a
+// failing drive, ps on a stuck kernel table) can't outlive its caller's
+// timeout — see internal/collectors' original localeSafeExec, which is where
+// this value and the WaitDelay technique were first established.
+const ExecWaitDelay = 100 * time.Millisecond
+
+// HardenedEnv returns the process environment with the locale forced to C
+// (LC_ALL=C, LANG=C), so any external command whose output is parsed emits
+// stable English/ASCII (month/day names, decimal separators, status words)
+// regardless of the host's locale — e.g. `dmesg -T` prints "dom jun" on
+// es_ES, which an English-assuming parser cannot read (see dsd's own #82).
+// Every external command whose stdout/stderr is later parsed should set
+// cmd.Env = source.HardenedEnv().
+func HardenedEnv() []string {
+	return append(os.Environ(), "LC_ALL=C", "LANG=C")
+}
 
 // trustedToolDirs lists the directories dsd trusts when resolving an external
 // tool invoked by bare name — deliberately NOT the process's inherited $PATH.

@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/output"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 func DetectLastDeployTime() (time.Time, string, error) {
@@ -23,8 +24,17 @@ func DetectLastDeployTime() (time.Time, string, error) {
 		"redis", "redis-server", "docker", "containerd", "node", "gunicorn",
 	} {
 		ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
-		out, err := exec.CommandContext(ctx, "systemctl", "show", svc, //nolint:gosec // G204: hardcoded binary // NOSONAR
-			"--property=ActiveEnterTimestamp", "--value").Output()
+		// subprocess-wrappers-05: locale-force the output before parsing it below
+		// (ActiveEnterTimestamp's day/month name is locale-dependent — "Mon" on a
+		// non-English host silently fails the time.Parse a few lines down),
+		// PATH-trust "systemctl" (dsd routinely runs as root; an untrusted $PATH
+		// entry ahead of the real binary is a hijack vector), and force-kill on
+		// context cancel — the same three primitives collectors/drilldown use.
+		cmd := exec.CommandContext(ctx, source.ResolveTrustedTool("systemctl"), "show", svc, //nolint:gosec // G204: hardcoded binary // NOSONAR
+			"--property=ActiveEnterTimestamp", "--value")
+		cmd.Env = source.HardenedEnv()
+		cmd.WaitDelay = source.ExecWaitDelay
+		out, err := cmd.Output()
 		cancel()
 		if err != nil || strings.TrimSpace(string(out)) == "" {
 			continue

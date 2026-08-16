@@ -115,6 +115,9 @@ func TestNFSCollector_Collect_NoMounts(t *testing.T) {
 // not-recorded Statfs error — that's fine, this test asserts the
 // aggregate/parse fields, not mount liveness.
 func TestNFSCollector_Collect_HappyPath(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks the dial outcome, not the gate in front of it).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withCombinedFixture(t,
 		map[string][]byte{
 			"dial/tcp/nfs.example.com:111":  {'1'},
@@ -291,6 +294,9 @@ func TestNfsCheckServer(t *testing.T) {
 	})
 
 	t.Run("remote server dialed via rpcbind/nfs ports", func(t *testing.T) {
+		// Network is off by default — opt in so this subtest exercises the
+		// live-probe path (the fixture mocks the dial outcome, not the gate).
+		t.Setenv("DSD_ALLOW_NETWORK", "1")
 		withCombinedFixture(t, map[string][]byte{
 			"dial/tcp/10.1.1.1:111":  {'0'},
 			"dial/tcp/10.1.1.1:2049": {'1'},

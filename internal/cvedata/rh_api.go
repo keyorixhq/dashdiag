@@ -15,6 +15,7 @@ import (
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/platform"
 )
 
 // rhSecurityAPI is the Red Hat Security Data API base URL.
@@ -54,10 +55,11 @@ type rhCVEResponse struct {
 // Only enriches when running on a RHEL-family distro (detected via /etc/os-release).
 // Fails silently — enrichment is best-effort and never blocks the primary result.
 // This is a real outbound HTTPS call disclosing the CVE ID being investigated
-// to access.redhat.com; honor DSD_OFFLINE so `dsd cve` can run against an
-// air-gapped or egress-monitored host without it.
+// to access.redhat.com; gated by platform.NetworkAllowed (off by default) so
+// `dsd cve` never phones out unless the operator explicitly opts in, and
+// still runs cleanly against an air-gapped or egress-monitored host.
 func EnrichFromRHAPI(ctx context.Context, cveID string, result *models.CVEResult) {
-	if os.Getenv("DSD_OFFLINE") != "" {
+	if !platform.NetworkAllowed() {
 		return
 	}
 	// Validate the shape before it ever reaches the URL builder — the sole

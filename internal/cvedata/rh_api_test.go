@@ -324,6 +324,9 @@ func TestEnrichFromRHAPI_InvalidCVEIDSkipsNetworkCall(t *testing.T) {
 }
 
 func TestEnrichFromRHAPI_PopulatesFromResponse(t *testing.T) {
+	// Network is off by default (see internal/platform/network_policy.go) —
+	// opt in so this test actually exercises the live-enrichment path.
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withOSRelease(t, "ID=rhel\nVERSION_ID=\"9.4\"\n")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")
@@ -351,6 +354,7 @@ func TestEnrichFromRHAPI_PopulatesFromResponse(t *testing.T) {
 }
 
 func TestEnrichFromRHAPI_FallsBackToFirstPackageStateEntry(t *testing.T) {
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withOSRelease(t, "ID=rhel\nVERSION_ID=\"9.4\"\n")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{
@@ -399,6 +403,7 @@ func TestEnrichFromRHAPI_FallbackNotAffectedDoesNotClaimConfirmed(t *testing.T) 
 }
 
 func TestEnrichFromRHAPI_NotAffectedClarifiesReason(t *testing.T) {
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withOSRelease(t, "ID=rhel\nVERSION_ID=\"9.4\"\n")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{

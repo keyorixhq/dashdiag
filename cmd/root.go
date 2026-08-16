@@ -23,6 +23,7 @@ var rootCmd = &cobra.Command{
 		"◆ Team: dashdiag.sh/teams  |  ◆ Free account: dashdiag.sh/signup",
 	PersistentPreRun: func(cmd *cobra.Command, args []string) {
 		applyBrand(cmd)
+		applyNetworkPolicy(cmd)
 		plain, _ := cmd.Flags().GetBool("plain")
 		jsonOut, _ := cmd.Flags().GetBool("json")
 		outPath, _ := cmd.Flags().GetString("out")
@@ -89,6 +90,22 @@ func applyBrand(cmd *cobra.Command) {
 	}
 }
 
+// applyNetworkPolicy reads the --network persistent flag and, if passed, sets
+// DSD_ALLOW_NETWORK so every outbound-call site (they each just check
+// platform.NetworkAllowed(), a pure env-var read — see internal/platform/
+// network_policy.go for why: those call sites span packages, e.g. cvedata
+// and drilldown, that a cobra/pflag dependency would be architecturally out
+// of place in) sees the same opt-in a script exporting DSD_ALLOW_NETWORK
+// directly would produce. DSD_OFFLINE, if already set, is left untouched —
+// NetworkAllowed() checks it first and it always wins, by design (see that
+// file's doc comment on the override precedence).
+func applyNetworkPolicy(cmd *cobra.Command) {
+	allow, _ := cmd.Flags().GetBool("network")
+	if allow {
+		_ = os.Setenv("DSD_ALLOW_NETWORK", "1")
+	}
+}
+
 func init() {
 	rootCmd.CompletionOptions.HiddenDefaultCmd = true
 	// Help = the command's description (Long, else Short) followed by usage.
@@ -116,6 +133,12 @@ func init() {
 	// DSD_BRAND_COMPANY / DSD_BRAND_LOGO env vars.
 	f.String("brand", "", "company name to white-label HTML reports with (or set DSD_BRAND_COMPANY)")
 	f.String("logo", "", "path to a logo image embedded in HTML reports (or set DSD_BRAND_LOGO)")
+	// Network calls are off by default (PRIVACY.md's "no network calls, ever"
+	// promise) — opt in per-run with --network, or persistently with
+	// DSD_ALLOW_NETWORK=1 for scripted/CI use. DSD_OFFLINE=1 always forces
+	// offline and overrides both, even together — see
+	// internal/platform/network_policy.go.
+	f.Bool("network", false, "allow outbound network calls (also: DSD_ALLOW_NETWORK=1). DSD_OFFLINE=1 always overrides both and forces offline")
 	f.Bool("watch", false, "watch mode — refresh periodically")
 	f.Bool("share", false, "share report via URL")
 	f.Bool("qr", false, "display share URL as QR code")

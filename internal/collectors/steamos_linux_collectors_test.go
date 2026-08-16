@@ -292,6 +292,9 @@ func (f *fakeStatfsMultiSource) Statfs(path string) (source.StatfsInfo, error) {
 }
 
 func TestCollectNetwork(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks cachedJSON's data, not the gate in front of it).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	prev := SetSource(&fakeCombinedSource{
 		Replay: source.NewReplay(source.NewBundle()),
 		cached: map[string][]byte{"steamos/update-server": []byte(`{"ok":true,"ms":42}`)},

@@ -10,7 +10,9 @@
 
 dsd reads your system. It tells you what it found. Nothing leaves your machine.
 
-No telemetry. No cloud. No account. No network calls. Ever.
+No telemetry. No cloud. No account. **Network calls are off by default and
+require explicit opt-in** — see "Network calls" below for the full list and
+how to enable them.
 
 ---
 
@@ -143,23 +145,44 @@ bump and changelog notice.
 
 ---
 
-## Air-gapped and regulated environments
+## Network calls
 
-dsd is designed to work identically in air-gapped environments:
+**Off by default.** Every outbound network call dsd can make is gated behind
+one policy, `platform.NetworkAllowed()`, which defaults to false. Opt in
+per-run with `dsd health --network`, or persistently with `DSD_ALLOW_NETWORK=1`
+(e.g. for a cron job). `DSD_OFFLINE=1` is a hard override in the other
+direction: it forces offline even if `--network`/`DSD_ALLOW_NETWORK` are also
+set — an explicit request to go offline always wins over a request to allow
+network, so a script that already sets `DSD_OFFLINE=1` cannot be made to
+phone out by an environment that also happens to export `DSD_ALLOW_NETWORK=1`
+(e.g. a shared CI image).
 
-- No DNS lookups
-- No package manager network calls during diagnostics
-- No certificate validation or OCSP checks
-- No update checks
+With the default left alone, dsd behaves exactly as this document has always
+promised: no telemetry, no DNS lookups, no update checks, no outbound call of
+any kind. Every call site below degrades to an explicit "not measured" signal
+(never a fabricated pass/fail) when network is disallowed.
 
-The only network-adjacent operations are:
+The full list, opted into with `--network`/`DSD_ALLOW_NETWORK`:
+
+| Call | Contacts | When |
+|---|---|---|
+| Connectivity/DNS probe | `8.8.8.8` (ping), `github.com` (resolve) | default `dsd health` network section |
+| Cloud-metadata detection | link-local instance metadata service | every dsd command (picks accurate cloud IO thresholds) |
+| Update nudge | `api.github.com` | interactive runs, at most once per 24h |
+| CVE enrichment | `access.redhat.com` (discloses the CVE ID) | `dsd cve` on RHEL-family distros only |
+| NFS reachability | the NFS server from your mount table | default NFS collector, non-loopback mounts |
+| SteamOS CDN/update checks | `steamdeck-images.steamos.cloud`, `steamdeck-atomupd.steamos.cloud` | SteamOS only |
+| macOS clock drill-down | `time.apple.com` (sntp) | `dsd drilldown clock` on macOS only |
+
+Package-manager reads remain local-cache-only regardless of the network
+setting — they were never gated by this policy because they were never a
+network call to begin with:
 - `apt-get -s upgrade` (simulated, reads local cache only — no network)
 - `dnf updateinfo` (reads local metadata cache — no network if cache is current)
 - `pro security-status` (reads local Ubuntu Pro state — no network if not attached)
 
-If your environment blocks all outbound traffic, dsd will still work
-correctly. Failed network-adjacent calls degrade gracefully to "no data"
-rather than errors.
+If your environment blocks all outbound traffic, dsd works correctly with the
+default left alone — nothing above runs unless you opt in.
 
 ---
 

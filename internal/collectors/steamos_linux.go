@@ -195,11 +195,13 @@ func collectSteamOSWifi(ctx context.Context) *models.SteamOSWifi {
 	// Steam CDN DNS resolve time (slow DNS is the usual "slow downloads" cause).
 	// Cached so the live DNS lookup replays from the bundle. This is a real
 	// outbound DNS query to an external host (steamdeck-images.steamos.cloud),
-	// not a local read — skip it under DSD_OFFLINE (internal-collectors egress
-	// gate, same rationale as collectNetwork's update-server check below).
-	// CDNDNSKnown stays false, which the heuristic already treats as "the
-	// probe never ran" (never a false WARN/OK).
-	if os.Getenv("DSD_OFFLINE") == "" {
+	// not a local read — gated by platform.NetworkAllowed (off by default,
+	// same as collectNetwork's update-server check below). CDNDNSKnown stays
+	// false, which the heuristic already treats as "the probe never ran"
+	// (never a false WARN/OK). sourceIsReplaying short-circuits the gate
+	// under `dsd replay` — a replay must serve the recorded probe from the
+	// bundle, never fabricate "never ran" over it.
+	if platform.NetworkAllowed() || sourceIsReplaying() {
 		var cdn steamProbeResult
 		_ = cachedJSON("steamos/cdn-dns", func() (any, error) {
 			dnsCtx, cancel := context.WithTimeout(ctx, 2*time.Second)
@@ -359,10 +361,12 @@ func (c *SteamOSCollector) collectNetwork(_ context.Context, info *models.SteamO
 	// which is SteamOS-specific and distinct from net's download-CDN DNS check.
 	//
 	// This is a real outbound dial to an external host (steamdeck-atomupd.
-	// steamos.cloud), not a local read — skip it under DSD_OFFLINE.
-	// UpdateServerKnown stays false, which the heuristic already treats as
-	// "the reachability test never ran" (never a false WARN/OK).
-	if os.Getenv("DSD_OFFLINE") != "" {
+	// steamos.cloud), not a local read — gated by platform.NetworkAllowed
+	// (off by default). UpdateServerKnown stays false, which the heuristic
+	// already treats as "the reachability test never ran" (never a false
+	// WARN/OK). sourceIsReplaying short-circuits the gate under `dsd
+	// replay` — see the CDN-DNS check above for why.
+	if !platform.NetworkAllowed() && !sourceIsReplaying() {
 		return
 	}
 	info.UpdateServerKnown = true

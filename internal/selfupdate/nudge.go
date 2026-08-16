@@ -9,6 +9,8 @@ import (
 	"path/filepath"
 	"syscall"
 	"time"
+
+	"github.com/keyorixhq/dashdiag/internal/platform"
 )
 
 // nudgeTTL is how long a cached check is trusted before a refresh is attempted.
@@ -104,17 +106,21 @@ func RefreshCache(ctx context.Context) (string, error) {
 // (RefreshCache -> LatestRelease, a GET to api.github.com) bounded by
 // nudgeTimeout so the next run is accurate. That refresh is the one outbound
 // network call anywhere in dsd's default interactive path, so it honours the
-// shared DSD_OFFLINE opt-out (see internal/platform's "no network calls by
-// default" contract) in addition to the nudge-specific DSD_NO_UPDATE_CHECK.
+// shared platform.NetworkAllowed policy (off by default — see
+// internal/platform/network_policy.go) in addition to the nudge-specific
+// DSD_NO_UPDATE_CHECK. Only the REFRESH is gated, not the whole function: a
+// fresh (already-cached) result still nudges with network disallowed — that
+// path makes no network call, so gating it too would suppress information
+// dsd already has on disk for no privacy benefit.
 func MaybeNudge(current string) string {
-	if os.Getenv("DSD_NO_UPDATE_CHECK") != "" || os.Getenv("DSD_OFFLINE") != "" {
+	if os.Getenv("DSD_NO_UPDATE_CHECK") != "" {
 		return ""
 	}
 	if !isCleanRelease(current) { // dev/describe build — never nag
 		return ""
 	}
 	c := loadCache()
-	if c == nil || time.Since(c.CheckedAt) > nudgeTTL {
+	if (c == nil || time.Since(c.CheckedAt) > nudgeTTL) && platform.NetworkAllowed() {
 		ctx, cancel := context.WithTimeout(context.Background(), nudgeTimeout)
 		_, _ = RefreshCache(ctx)
 		cancel()

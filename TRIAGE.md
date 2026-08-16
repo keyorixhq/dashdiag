@@ -1169,6 +1169,21 @@ tdnf, #567/#570/#577/#581 boot/storage guards, the root-vs-non-root invariant.
 
 ## Housekeeping
 
+- **Open question: the architecture's import-layering rules (the
+  "Permitted imports" table) live only in the local-only, gitignored
+  `CLAUDE.md`, not in any repo-tracked file.** No linter or test enforces
+  it either — confirmed 2026-08-16 while investigating gap D of
+  `VERIFICATION-2026-08.md` (dashdiag-private). Consequence: the table has
+  drifted from actual imports at least twice (found two stale/missing rows
+  in the same session, one of which had already silently exceeded its own
+  documented import list with no objection). A documentation-only,
+  gitignored contract can't be enforced in CI, can't be reviewed in a PR
+  (nobody sees the diff), and isn't visible on a fresh clone — which is
+  exactly why it drifted unnoticed. **Open question: should the
+  permitted-imports table (or an equivalent machine-checkable layering
+  rule) move into a repo-tracked file** (e.g. `docs/ARCHITECTURE.md`, or a
+  generated/linted config), so it can actually be enforced and reviewed?
+  Not resolved here — needs a decision, not a fix.
 - **VMware Cloud Director T1 node** — 2026-06-18: first VMware-hypervisor guest
   (vcd-msk-3 tenant, Ubuntu 22.04, 192.168.30.10 behind Edge DNAT 5.35.120.132:2222).
   Six controller families exercised in one run via hot-added 1 GB disks:

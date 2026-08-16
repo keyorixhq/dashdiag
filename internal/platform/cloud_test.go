@@ -209,6 +209,9 @@ func TestDetectCloud_IMDSTimeout(t *testing.T) {
 }
 
 func TestDetectCloud_IMDS_Reachable(t *testing.T) {
+	// Network is off by default (see network_policy.go) — opt in so this test
+	// exercises the live IMDS-reachable path it's named for.
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	dir, dmiDir := makeDMIDir(t, "", "")
 	blockDir := filepath.Join(dir, "block")
 	_ = os.MkdirAll(blockDir, 0755)
