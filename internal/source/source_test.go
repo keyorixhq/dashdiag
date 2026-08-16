@@ -383,6 +383,62 @@ func TestGlobKeyNormalization(t *testing.T) {
 	}
 }
 
+// TestCleanPathStripsNULByte guards path-safety-03: cleanPath is a bare
+// filepath.Clean with no traversal/symlink defense, which is fine because
+// every call site (bundle.go's putFile/getFile/putGlob/etc.) uses it purely
+// to key an in-memory map, never for filesystem confinement — Live (live.go)
+// calls os.ReadFile/os.Readlink/etc directly and never goes through
+// cleanPath at all, and every path reaching it is code-supplied (a
+// collector's own /proc, /sys, or config path), never user-controlled. The
+// one gap worth closing is narrower: filepath.Clean does not treat a NUL
+// byte specially, and cacheKey namespaces Cached() keys with a literal
+// cacheKeyPrefix ("\x00cached\x00") on the assumption NUL can never appear
+// in a real path — so a path containing that exact byte sequence
+// mid-string (not as its own prefix) could otherwise collide with (shadow)
+// an unrelated Cached() entry in the same map. cleanPath must strip a NUL
+// found anywhere else while leaving an ACTUAL cacheKey()-produced string
+// (and its deliberate sentinel NUL bytes) untouched — see TestBundleSanitizeSensitiveCacheKey /
+// TestBundleSanitizeSensitiveEnvCacheKey for the regression this passthrough
+// guards: naively stripping every NUL unconditionally breaks the
+// isSensitiveCacheKey/isSensitiveEnvCacheKey force-redaction lookup, which
+// compares a stored map key against a freshly computed cacheKey(...) string.
+func TestCleanPathStripsNULByte(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name        string
+		in          string
+		want        string
+		wantNULFree bool
+	}{
+		{"no NUL is untouched", "/proc/cpuinfo", "/proc/cpuinfo", true},
+		{"NUL stripped before Clean", "/proc/cpu\x00info", "/proc/cpuinfo", true},
+		{
+			"NUL embedded mid-path forming the cache prefix is defused, not passed through",
+			"/proc/\x00cached\x00imds-aws-token",
+			filepath.Clean("/proc/cachedimds-aws-token"),
+			true,
+		},
+		{
+			"a genuine cacheKey() string is passed through unchanged, sentinel NULs intact",
+			cacheKey("imds-aws-token"),
+			cacheKey("imds-aws-token"),
+			false,
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			got := cleanPath(c.in)
+			if got != c.want {
+				t.Errorf("cleanPath(%q) = %q, want %q", c.in, got, c.want)
+			}
+			if c.wantNULFree && strings.ContainsRune(got, 0) {
+				t.Errorf("cleanPath(%q) still contains a NUL byte: %q", c.in, got)
+			}
+		})
+	}
+}
+
 func TestPutCmdAndPutCmdNotFound(t *testing.T) {
 	b := NewBundle()
 	b.PutCmd("btrfs", []string{"filesystem", "show"}, "Label: none  uuid: abc-123\n", 0)

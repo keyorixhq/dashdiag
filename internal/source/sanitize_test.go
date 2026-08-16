@@ -89,6 +89,27 @@ func TestRedactSecrets(t *testing.T) {
 			mustKeep:   []string{"SECRET_KEY_BASE=", "DJANGO_SECRET_KEY:", "DB_HOST=db.local"},
 			wantN:      2,
 		},
+		{
+			// sanitize-bundle-05: the unquoted-value alternative previously used a
+			// greedy \S+ that stopped at the first whitespace, so only "hunter" was
+			// redacted and "two words" leaked into the sanitized output.
+			name:       "unquoted value spanning multiple words redacted in full",
+			in:         "password = hunter two words\nnext_line=untouched",
+			mustRedact: []string{"hunter two words", "hunter", "two words"},
+			mustKeep:   []string{"password =", "next_line=untouched"},
+			wantN:      1,
+		},
+		{
+			// The end-of-line value match must stay line-scoped: it must not
+			// swallow a following line's content into the (dropped) value group,
+			// which would otherwise delete "next_line=untouched" instead of
+			// leaving it as a separate, unredacted match.
+			name:       "unquoted multi-word value does not swallow the next line",
+			in:         "password = hunter two words\nsecret = another value here",
+			mustRedact: []string{"hunter two words", "another value here"},
+			mustKeep:   []string{"password =", "secret ="},
+			wantN:      2,
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -511,6 +532,129 @@ func TestRedactJSONSecrets(t *testing.T) {
 	raw, _ := checks[0].(map[string]any)["raw"].(map[string]any)
 	if raw["port"] != float64(8080) {
 		t.Errorf("non-secret nested field corrupted: %+v", raw)
+	}
+}
+
+// TestRedactSecretsMissesJSONQuotedKey documents internal-source-02-01's exact
+// failure mode: secretRules[1] requires a bare key literal immediately
+// followed (mod whitespace) by "="/":" with no intervening quote, so a
+// JSON-quoted key like "password":"hunter2" is invisible to it — the closing
+// quote after the key breaks the pattern. This is why redaction of JSON
+// content is NOT handled by extending this regex (see redactSecretsAndJSON's
+// doc), but by the structural JSON pass in RedactJSONSecrets/redactJSONValue.
+func TestRedactSecretsMissesJSONQuotedKey(t *testing.T) {
+	t.Parallel()
+	for _, in := range []string{
+		`"password":"hunter2"`,
+		`"SecretAccessKey" : "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY"`,
+	} {
+		out, n := redactSecrets([]byte(in))
+		if n != 0 || string(out) != in {
+			t.Errorf("redactSecrets(%q) = %q (n=%d); expected the JSON-quoted-key line scan to NOT catch this (that's redactSecretsAndJSON's job)", in, out, n)
+		}
+	}
+}
+
+// TestRedactSecretsAndJSON covers internal-source-02-01: a JSON-formatted
+// capture file (or command output, e.g. `docker inspect`/`kubectl -o json`)
+// with a quoted key immediately followed by its value — "password":"hunter2"
+// — must be redacted even though secretRules[1]'s line-scan regex can't see
+// it (TestRedactSecretsMissesJSONQuotedKey). redactSecretsAndJSON is what
+// Bundle.Sanitize's redact closure now calls instead of bare redactSecrets.
+func TestRedactSecretsAndJSON(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		name       string
+		in         string
+		mustRedact []string
+		mustKeep   []string
+	}{
+		{
+			name:       "compact JSON quoted key:value",
+			in:         `{"password":"hunter2","port":8080}`,
+			mustRedact: []string{"hunter2"},
+			mustKeep:   []string{`"password"`, `"port":8080`},
+		},
+		{
+			name:       "spaced JSON quoted key : value (AWS-shaped key)",
+			in:         `{"SecretAccessKey" : "wJalrXUtnFEMI/K7MDENG/bPxRfiCYEXAMPLEKEY", "Region":"us-east-1"}`,
+			mustRedact: []string{"wJalrXUtnFEMI"},
+			mustKeep:   []string{`"SecretAccessKey"`, `"Region":"us-east-1"`},
+		},
+		{
+			name:       "nested object: only the secret-named leaf is redacted",
+			in:         `{"credentials":{"user":"alice","token":"abc123xyz"},"ok":true}`,
+			mustRedact: []string{"abc123xyz"},
+			mustKeep:   []string{`"user":"alice"`, `"ok":true`},
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			out, n := redactSecretsAndJSON([]byte(c.in))
+			if n == 0 {
+				t.Errorf("expected ≥1 redaction, got 0 (out: %q)", out)
+			}
+			if !json.Valid(out) {
+				t.Errorf("redactSecretsAndJSON produced invalid JSON: %s", out)
+			}
+			got := string(out)
+			for _, s := range c.mustRedact {
+				if strings.Contains(got, s) {
+					t.Errorf("secret %q still present after redaction: %q", s, got)
+				}
+			}
+			for _, s := range c.mustKeep {
+				if !strings.Contains(got, s) {
+					t.Errorf("expected %q to remain, got: %q", s, got)
+				}
+			}
+		})
+	}
+
+	// Non-JSON content (the common case) must still go through the plain
+	// regex path unchanged.
+	out, n := redactSecretsAndJSON([]byte("password=hunter2"))
+	if n != 1 || strings.Contains(string(out), "hunter2") {
+		t.Errorf("plain key=value text should still be redacted by the regex path, got %q (n=%d)", out, n)
+	}
+
+	// Something that merely starts with '{' but isn't valid JSON (e.g. a shell
+	// snippet) must fall back to the regex-only result rather than erroring.
+	notJSON := "{ not json, password=hunter2 }"
+	out, n = redactSecretsAndJSON([]byte(notJSON))
+	if strings.Contains(string(out), "hunter2") {
+		t.Errorf("non-JSON content starting with '{' should still get the regex pass: %q (n=%d)", out, n)
+	}
+}
+
+// TestBundleSanitizeJSONFile is the end-to-end path for internal-source-02-01:
+// a captured JSON file (e.g. a recorded `docker inspect`/API response) with a
+// JSON-quoted secret key must come out redacted AND still be valid JSON after
+// Bundle.Sanitize, since sanitized capture bundles are replayed and
+// JSON-formatted captures get json.Unmarshal'd back by collectors.
+func TestBundleSanitizeJSONFile(t *testing.T) {
+	b := NewBundle()
+	b.PutFile("/var/lib/docker/containers/x/config.json",
+		[]byte(`{"Env":["PATH=/usr/bin"],"password":"hunter2","SecretAccessKey":"wJalrXUtnFEMIK7MDENGbPxRfiCYEXAMPLEKEY"}`))
+
+	rep := b.Sanitize(SanitizeOptions{})
+	if rep.FilesRedacted != 1 {
+		t.Fatalf("report = %+v, want files=1", rep)
+	}
+
+	fr, _ := b.getFile("/var/lib/docker/containers/x/config.json")
+	if !json.Valid(fr.data) {
+		t.Fatalf("sanitized JSON file is no longer valid JSON: %s", fr.data)
+	}
+	got := string(fr.data)
+	for _, s := range []string{"hunter2", "wJalrXUtnFEMIK7MDENGbPxRfiCYEXAMPLEKEY"} {
+		if strings.Contains(got, s) {
+			t.Errorf("secret survived Bundle.Sanitize on a JSON file: %q", got)
+		}
+	}
+	if !strings.Contains(got, `"PATH=/usr/bin"`) {
+		t.Errorf("non-secret content dropped: %q", got)
 	}
 }
 

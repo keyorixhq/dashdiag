@@ -1,6 +1,7 @@
 package source
 
 import (
+	"bytes"
 	"encoding/json"
 	"fmt"
 	"hash/fnv"
@@ -26,18 +27,47 @@ type secretRule struct {
 	repl string
 }
 
+// secretKeyPattern is the bare (no separator, no anchors) alternation of
+// credential-shaped identifier names, shared by secretRules[1] (line-scan
+// "key=value"/"key: value" text) and secretKeyNameRe (JSON object-key
+// matching in redactJSONValue) so the two stay in lockstep — one list of
+// "what counts as a secret key name" for the whole package. The trailing
+// [A-Za-z0-9_-]* allows a SUFFIXED identifier — SECRET_KEY_BASE,
+// DJANGO_SECRET_KEY, STRIPE_API_KEY — not just the bare keyword; a PREFIXED
+// identifier (MY_SECRET) already matches without an explicit prefix wildcard
+// wherever this pattern is used unanchored, since the alternation has no
+// leading \b anchor.
+const secretKeyPattern = `(?:pass(?:word|wd)?|secret|token|api[_-]?key|access[_-]?key|auth_?token|credentials?)[A-Za-z0-9_-]*`
+
+// secretKeyNameRe matches secretKeyPattern anywhere within a bare identifier
+// (e.g. a JSON object key like "SecretAccessKey" or "db_password") — used by
+// redactJSONValue to force-redact a string value whose key looks like a
+// credential, independent of the value's own content (see the JSON-vs-regex
+// discussion on RedactJSONSecrets).
+var secretKeyNameRe = regexp.MustCompile(`(?i)` + secretKeyPattern)
+
 var secretRules = []secretRule{
 	// PEM private key blocks (SSH/TLS). (?s) so . spans newlines.
 	{regexp.MustCompile(`(?s)-----BEGIN [A-Z0-9 ]*PRIVATE KEY-----.*?-----END [A-Z0-9 ]*PRIVATE KEY-----`),
 		"[REDACTED PRIVATE KEY]"},
 	// key = value / key: value secret assignments — keep the key, redact the value.
-	// Group 1 is the key + separator; group 2 (the value) is dropped. The
-	// [A-Za-z0-9_-]* after the keyword allows a SUFFIXED identifier —
-	// SECRET_KEY_BASE=, DJANGO_SECRET_KEY=, STRIPE_API_KEY= — not just the bare
-	// keyword immediately before the operator; a PREFIXED identifier
-	// (MY_SECRET=) already matched without this, since the keyword alternation
-	// has no leading \b anchor.
-	{regexp.MustCompile(`(?i)((?:pass(?:word|wd)?|secret|token|api[_-]?key|access[_-]?key|auth_?token|credentials?)[A-Za-z0-9_-]*\s*[=:]\s*)("[^"]*"|'[^']*'|\S+)`),
+	// Group 1 is the key + separator; group 2 (the value) is dropped.
+	// Deliberately requires the separator to follow the key directly (mod
+	// whitespace only, NOT an intervening quote): a JSON-quoted key like
+	// `"password":"hunter2"` is intentionally left unmatched by this rule —
+	// see TestRedactSecretsMissesJSONQuotedKey — because redacting it here
+	// would mean dropping group 2's quoting to splice in the bare
+	// [REDACTED] marker, corrupting the document into invalid JSON. JSON
+	// content is instead handled structurally, by redactSecretsAndJSON
+	// calling into redactJSONValue/RedactJSONSecrets, which decode-rewrite-
+	// remarshal so the result is always valid JSON. The unquoted-value
+	// alternative matches through end-of-line ([^\r\n]*, not \S+) so a value
+	// containing spaces (e.g. `password = hunter two words` in a plain
+	// config/log line) is redacted in full rather than stopping at the first
+	// word; data here is a whole file/command-output blob (no per-line
+	// splitting upstream), so [^\r\n]* — not a bare greedy `.*` — is required
+	// to stay line-scoped and not swallow subsequent lines.
+	{regexp.MustCompile(`(?i)(` + secretKeyPattern + `\s*[=:]\s*)("[^"]*"|'[^']*'|[^\r\n]*)`),
 		"${1}" + redactedMark},
 	// AWS access key IDs. AKIA = long-lived IAM user key; ASIA = temporary/STS
 	// credentials (AssumeRole, EC2 instance profiles, EKS IRSA, Lambda execution
@@ -138,6 +168,47 @@ func redactSecrets(data []byte) ([]byte, int) {
 	return out, n
 }
 
+// looksLikeJSON cheaply sniffs whether data appears to be a JSON document (an
+// object or array), by checking the first non-whitespace byte — a full parse
+// happens only if this passes (see redactSecretsAndJSON), so a false positive
+// here just costs one wasted json.Unmarshal, and a false negative just skips
+// the JSON-structural pass (the byte-level secretRules scan still ran).
+func looksLikeJSON(data []byte) bool {
+	t := bytes.TrimSpace(data)
+	return len(t) > 0 && (t[0] == '{' || t[0] == '[')
+}
+
+// redactSecretsAndJSON is redactSecrets extended with a JSON-structural pass
+// for content that looks like a JSON document. It exists because
+// secretRules[1] (the "key=value"/"key: value" line-scan rule) cannot see a
+// JSON-quoted key: in `"password":"hunter2"`, the closing quote after the key
+// sits between the keyword and the `:` separator, so the key/value
+// RELATIONSHIP is invisible to a text pattern once the key is quoted — only a
+// structural walk of the decoded document sees it. Extending the regex to
+// also swallow a trailing quote on the KEY side is possible (and secretRules[1]
+// does that much, for keys directly followed by the separator with no
+// intervening space), but redacting the VALUE side would require dropping its
+// surrounding quotes to insert the bare [REDACTED] marker, corrupting the
+// document into invalid JSON — a real problem here, since sanitized capture
+// bundles are replayed and JSON-formatted captures/command output get
+// json.Unmarshal'd back by collectors. RedactJSONSecrets/redactJSONValue
+// decode-rewrite-remarshal instead, so the result is always valid JSON and
+// generalizes correctly to nested objects/arrays, unlike a regex.
+func redactSecretsAndJSON(data []byte) ([]byte, int) {
+	out, n := redactSecrets(data)
+	if !looksLikeJSON(out) {
+		return out, n
+	}
+	red, k, err := redactJSONSecretsCounted(out)
+	if err != nil {
+		// Sniffed as JSON-shaped but didn't actually parse (e.g. a shell
+		// script or log line that happens to start with '{') — the regex
+		// pass above already ran, nothing more to do.
+		return out, n
+	}
+	return red, n + k
+}
+
 // SanitizeReport summarises what a Sanitize pass redacted.
 type SanitizeReport struct {
 	FilesRedacted    int // recorded files that had ≥1 redaction
@@ -166,7 +237,7 @@ func (b *Bundle) Sanitize(opts SanitizeOptions) SanitizeReport {
 
 	host := b.Manifest.Host
 	redact := func(data []byte) ([]byte, int) {
-		out, n := redactSecrets(data)
+		out, n := redactSecretsAndJSON(data)
 		if opts.Identifiers {
 			out, k := redactIdentifiers(out, host)
 			return out, n + k
@@ -448,32 +519,56 @@ func redactCmdArgvKey(key string) (string, int) {
 // into a cloud LLM's context. Returns data unchanged (with a non-nil error) if
 // it isn't valid JSON.
 func RedactJSONSecrets(data []byte) ([]byte, error) {
-	var v any
-	if err := json.Unmarshal(data, &v); err != nil {
-		return data, fmt.Errorf("source: redacting JSON: %w", err)
-	}
-	out, err := json.Marshal(redactJSONValue(v))
-	if err != nil {
-		return data, fmt.Errorf("source: re-marshalling redacted JSON: %w", err)
-	}
-	return out, nil
+	out, _, err := redactJSONSecretsCounted(data)
+	return out, err
 }
 
-// redactJSONValue recursively rewrites every string leaf of a decoded JSON
-// value (as produced by json.Unmarshal into `any`) through redactSecrets.
-func redactJSONValue(v any) any {
+// redactJSONSecretsCounted is the shared implementation behind
+// RedactJSONSecrets; it additionally reports how many redactions were made,
+// for SanitizeReport (RedactJSONSecrets keeps its existing 2-return public
+// signature since it's already used across an MCP-facing call site).
+func redactJSONSecretsCounted(data []byte) ([]byte, int, error) {
+	var v any
+	if err := json.Unmarshal(data, &v); err != nil {
+		return data, 0, fmt.Errorf("source: redacting JSON: %w", err)
+	}
+	n := 0
+	out, err := json.Marshal(redactJSONValue("", v, &n))
+	if err != nil {
+		return data, 0, fmt.Errorf("source: re-marshalling redacted JSON: %w", err)
+	}
+	return out, n, nil
+}
+
+// redactJSONValue recursively rewrites a decoded JSON value (as produced by
+// json.Unmarshal into `any`): every string leaf is run through redactSecrets
+// (catching content-pattern secrets — AWS keys, JWTs, PEM blocks — regardless
+// of key name), and additionally, a string leaf whose OWN object key looks
+// like a credential name (secretKeyNameRe — "password", "SecretAccessKey",
+// "db_token", ...) is force-redacted outright, the same "redact by key, not
+// content" rationale sensitiveCacheKeys/sensitiveEnvNamePatterns use — a bare
+// value like "hunter2" carries no lexical marker for redactSecrets to key on
+// once the key/value relationship only exists as JSON structure. key is the
+// object key val was reached under ("" for array elements/the document
+// root); n accumulates the total redaction count.
+func redactJSONValue(key string, v any, n *int) any {
 	switch t := v.(type) {
 	case string:
-		red, _ := redactSecrets([]byte(t))
+		if key != "" && t != "" && secretKeyNameRe.MatchString(key) {
+			*n++
+			return redactedMark
+		}
+		red, k := redactSecrets([]byte(t))
+		*n += k
 		return string(red)
 	case map[string]any:
 		for k, val := range t {
-			t[k] = redactJSONValue(val)
+			t[k] = redactJSONValue(k, val, n)
 		}
 		return t
 	case []any:
 		for i, val := range t {
-			t[i] = redactJSONValue(val)
+			t[i] = redactJSONValue("", val, n)
 		}
 		return t
 	default:

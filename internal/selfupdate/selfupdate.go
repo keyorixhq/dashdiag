@@ -38,10 +38,23 @@ const Repo = "keyorixhq/dashdiag"
 // unbounded memory allocation before any signature/checksum check ever runs.
 // Mirrors the same LimitReader-with-slack pattern used by
 // share.maxDecodedReportBytes and cvedata.boundDecompressed elsewhere in
-// this codebase. The actual platform binary (downloadToTemp) is exempt: it
-// streams straight to a temp file on disk, not into memory, and its size is
-// validated by the sha256 checksum regardless.
+// this codebase. The actual platform binary (downloadToTemp) streams
+// straight to a temp file on disk rather than into memory, so it uses its
+// own larger cap (maxDownloadBytes) instead of this one — disk exhaustion is
+// still a real concern there even though nothing is buffered in memory, and
+// the sha256 checksum alone doesn't help: that check only runs AFTER the
+// full body has already been written to disk.
 const maxAPIResponseBytes = 4 << 20 // 4MiB
+
+// maxDownloadBytes bounds the platform binary download in downloadToTemp.
+// Released dsd binaries are tens of MB at most; this is generous headroom
+// that will never truncate a legitimate release while still aborting a
+// runaway or adversarial response before it can exhaust disk space — the
+// sha256 checksum check that follows only runs once the full body is
+// already on disk, so it can't substitute for a size cap on this path. A
+// var (not const), like apiBase/dlClient above, so a test can shrink it
+// rather than actually transferring 512MiB over an httptest server.
+var maxDownloadBytes int64 = 512 << 20 // 512MiB
 
 // limitedBody wraps r with a cap of maxAPIResponseBytes+1 so a response
 // exceeding the limit is distinguishable (via limitCheck) from one that
@@ -354,10 +367,21 @@ func downloadToTemp(ctx context.Context, url, dir string) (string, string, error
 		return "", "", fmt.Errorf("cannot stage update in %s: %w", dir, err)
 	}
 	h := sha256.New()
-	if _, err := io.Copy(f, io.TeeReader(body, h)); err != nil {
+	// io.LimitReader(..., maxDownloadBytes+1) rather than a bare
+	// maxDownloadBytes cap so a response landing exactly at the boundary is
+	// distinguishable from one that was truncated by the limit (mirrors
+	// limitedBody/limitExceeded above).
+	limited := io.LimitReader(body, maxDownloadBytes+1)
+	written, err := io.Copy(f, io.TeeReader(limited, h))
+	if err != nil {
 		_ = f.Close()
 		_ = os.Remove(f.Name())
 		return "", "", err
+	}
+	if written > maxDownloadBytes {
+		_ = f.Close()
+		_ = os.Remove(f.Name())
+		return "", "", fmt.Errorf("download from %s exceeds maximum size (%d bytes) — refusing to continue", url, maxDownloadBytes)
 	}
 	if err := closeFile(f); err != nil {
 		_ = os.Remove(f.Name())
