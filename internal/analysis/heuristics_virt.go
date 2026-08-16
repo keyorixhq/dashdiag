@@ -782,10 +782,17 @@ func checkK8sNodes(k models.K8sInfo) []models.Insight {
 			if status != "True" || !nodeProblemConditions[cond] {
 				continue
 			}
+			// node.Name is spliced unescaped into a copy-pasteable "to inspect:
+			// kubectl describe node …" hint below; validate before use, same
+			// looksLikeSafeToken guard checkPodmanQuadlets applies for unit names.
+			safeNodeName := "<node-name>"
+			if looksLikeSafeToken(node.Name) {
+				safeNodeName = node.Name
+			}
 			out = append(out, insight("CRIT", virtCatK8s,
 				fmt.Sprintf("node %s: %s condition True — workloads may be evicted", node.Name, cond),
 				[]string{
-					fmt.Sprintf("to inspect: kubectl describe node %s | grep -A5 Conditions", node.Name),
+					fmt.Sprintf("to inspect: kubectl describe node %s | grep -A5 Conditions", safeNodeName),
 				},
 			))
 		}

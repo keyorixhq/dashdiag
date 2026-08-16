@@ -129,10 +129,19 @@ func checkSystemd(sys models.SystemdInfo) []models.Insight {
 	// dsd surfaces the slow units with the next diagnostic step.
 	for _, u := range sys.SlowUnits {
 		if u.Duration >= 10 {
+			// u.Name is spliced unescaped into copy-pasteable "to inspect:
+			// systemctl status …"/"journalctl -u …" hints below; validate before
+			// use, same looksLikeSafeToken guard failedUnitInsight applies for
+			// FailedUnits — SlowUnits (systemd-analyze blame) is the same
+			// unit-name provenance class.
+			safeUnit := u.Name
+			if !looksLikeSafeToken(safeUnit) {
+				safeUnit = "<unit-name>"
+			}
 			hints := make([]string, 0, 6)
 			hints = append(hints,
-				fmt.Sprintf("to inspect: systemctl status %s", u.Name),
-				fmt.Sprintf("to inspect: journalctl -u %s -b", u.Name),
+				fmt.Sprintf("to inspect: systemctl status %s", safeUnit),
+				fmt.Sprintf("to inspect: journalctl -u %s -b", safeUnit),
 				"to analyse:  systemd-analyze blame",
 				"to plot:     systemd-analyze plot > boot.svg",
 			)
@@ -1046,11 +1055,23 @@ func checkServices(s models.ServicesInfo) []models.Insight {
 	var out []models.Insight
 	for _, r := range s.Results {
 		addr := fmt.Sprintf("%s:%d", r.Host, r.Port)
+		// r.Host/r.Protocol are operator-configured (dsd config service checks)
+		// and spliced unescaped into copy-pasteable "to inspect: curl …"/"nc
+		// …" hints below; validate before use, same looksLikeSafeToken guard
+		// checkNFS applies for m.Server.
+		safeHost := "<host>"
+		if looksLikeSafeToken(r.Host) {
+			safeHost = r.Host
+		}
+		safeProtocol := "<protocol>"
+		if looksLikeSafeToken(r.Protocol) {
+			safeProtocol = r.Protocol
+		}
 		switch {
 		case r.Status == "CRIT":
 			out = append(out, insight("CRIT", "Services",
 				fmt.Sprintf("%s (%s) returned HTTP %d", r.Name, addr, r.StatusCode),
-				[]string{fmt.Sprintf("to inspect: curl -v %s://%s", r.Protocol, addr)},
+				[]string{fmt.Sprintf("to inspect: curl -v %s://%s:%d", safeProtocol, safeHost, r.Port)},
 			))
 		case !r.Reachable:
 			msg := fmt.Sprintf("%s (%s) unreachable", r.Name, addr)
@@ -1058,7 +1079,7 @@ func checkServices(s models.ServicesInfo) []models.Insight {
 				msg += ": " + r.Error
 			}
 			out = append(out, insight("WARN", "Services", msg,
-				[]string{fmt.Sprintf("to inspect: nc -zv %s %d", r.Host, r.Port)},
+				[]string{fmt.Sprintf("to inspect: nc -zv %s %d", safeHost, r.Port)},
 			))
 		}
 	}

@@ -1114,6 +1114,15 @@ func checkRAID(r models.RAIDInfo) []models.Insight {
 			[]string{inspectMdstat}))
 	}
 	for _, arr := range r.Arrays {
+		// arr.Name is spliced unescaped into copy-pasteable "to inspect: mdadm
+		// --detail /dev/…" hints below; validate before use, same
+		// looksLikeSafeToken guard checkZFSPool applies for pool.Name. mdadm
+		// array names are usually kernel/udev-assigned but a custom `--name=`
+		// at creation is operator-chosen.
+		safeArrName := "<array-name>"
+		if looksLikeSafeToken(arr.Name) {
+			safeArrName = arr.Name
+		}
 		switch arr.State {
 		case "degraded":
 			// A drive that's failed in place still shows as "(F)" in /proc/mdstat
@@ -1133,7 +1142,7 @@ func checkRAID(r models.RAIDInfo) []models.Insight {
 					arr.Name, arr.Level, arr.Active, arr.Total, detail),
 				[]string{
 					inspectMdstat,
-					fmt.Sprintf("to inspect: mdadm --detail /dev/%s", arr.Name),
+					fmt.Sprintf("to inspect: mdadm --detail /dev/%s", safeArrName),
 					"note: replace the failed drive and run: mdadm --add /dev/<array> /dev/<new-drive>",
 					"note: data is at risk until redundancy is restored",
 				},
@@ -1152,7 +1161,7 @@ func checkRAID(r models.RAIDInfo) []models.Insight {
 			out = append(out, insight("CRIT", "RAID",
 				fmt.Sprintf("%s is FAILED — array is not operational", arr.Name),
 				[]string{
-					fmt.Sprintf("to inspect: mdadm --detail /dev/%s", arr.Name),
+					fmt.Sprintf("to inspect: mdadm --detail /dev/%s", safeArrName),
 					"to inspect: dmesg | grep -i mdadm",
 					"note: data may be lost — check individual drive health with smartctl",
 				},
@@ -1167,7 +1176,7 @@ func checkRAID(r models.RAIDInfo) []models.Insight {
 			// through an unrecognized state and reading as healthy by omission.
 			out = append(out, unverifiedInsight("INFO", "RAID",
 				fmt.Sprintf("%s state %q is not a recognized value — array health could not be confirmed", arr.Name, arr.State),
-				[]string{fmt.Sprintf("to inspect: mdadm --detail /dev/%s", arr.Name)},
+				[]string{fmt.Sprintf("to inspect: mdadm --detail /dev/%s", safeArrName)},
 			))
 		}
 	}
@@ -1562,6 +1571,14 @@ func checkMultipath(m models.MultipathInfo) []models.Insight {
 			continue
 		}
 		label := mpathLabel(dev)
+		// dev.DM is spliced unescaped into a copy-pasteable "to inspect: cat
+		// /sys/block/…/dm/state" hint below; validate before use, same
+		// looksLikeSafeToken guard checkRAID applies for arr.Name. multipath
+		// device-mapper aliases are configurable in /etc/multipath.conf.
+		safeDM := "<dm-name>"
+		if looksLikeSafeToken(dev.DM) {
+			safeDM = dev.DM
+		}
 		if dev.ActivePaths == 0 {
 			out = append(out, insight("CRIT", "Multipath",
 				fmt.Sprintf("%s: all paths failed — device unavailable", label),
@@ -1578,7 +1595,7 @@ func checkMultipath(m models.MultipathInfo) []models.Insight {
 				[]string{
 					inspectMultipath,
 					"to inspect: multipath -l",
-					fmt.Sprintf("to inspect: cat /sys/block/%s/dm/state", dev.DM),
+					fmt.Sprintf("to inspect: cat /sys/block/%s/dm/state", safeDM),
 					"note: replace failed path before removing redundant one",
 				},
 			))
