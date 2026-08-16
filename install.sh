@@ -99,14 +99,27 @@ fetch_latest_version() {
     unset _url
 
     [ -n "$VERSION" ] || die "Could not determine latest version from GitHub"
+    # Same shape check main() applies to a user-supplied vX.Y.Z argument
+    # (case "$1" in v[0-9]*) -- the value here comes from a JSON field
+    # extracted with grep/sed rather than a shell case match, so validate
+    # it explicitly before it's spliced into download URLs below.
+    case "$VERSION" in
+        v[0-9]*) ;;
+        *) die "Unexpected version format from GitHub API: '$VERSION'" ;;
+    esac
 }
 
 # ── download ─────────────────────────────────────────────────────────────────
 download() {
     FILENAME="${BINARY}-${PLATFORM}"
     URL="https://github.com/${REPO}/releases/download/${VERSION}/${FILENAME}"
-    TMPDIR="$(mktemp -d)"
-    TMPFILE="${TMPDIR}/${BINARY}"
+    # Note: intentionally NOT named TMPDIR -- that name would shadow the
+    # environment TMPDIR that mktemp itself (and any child process spawned
+    # after this point) reads, causing every subsequent temp-file operation
+    # in this shell to silently resolve against our just-created directory
+    # instead of the real environment setting.
+    WORK_DIR="$(mktemp -d)"
+    TMPFILE="${WORK_DIR}/${BINARY}"
 
     info "Downloading dsd ${VERSION} (${PLATFORM})..."
 
@@ -139,7 +152,7 @@ unverified() {
 verify_checksum() {
     TMPFILE="$1"
     SUMS_URL="https://github.com/${REPO}/releases/download/${VERSION}/checksums.txt"
-    SUMS_FILE="${TMPDIR}/checksums.txt"
+    SUMS_FILE="${WORK_DIR}/checksums.txt"
 
     if command -v curl >/dev/null 2>&1; then
         curl -fsSL --retry 3 --retry-delay 5 --proto '=https' --proto-redir '=https' "$SUMS_URL" -o "$SUMS_FILE" 2>/dev/null || { unverified "Could not fetch checksums.txt from the release"; return; }
@@ -263,8 +276,12 @@ install_binary() {
 
 # ── verify install ────────────────────────────────────────────────────────────
 verify_install() {
-    if command -v dsd >/dev/null 2>&1; then
-        DSD_VER="$(dsd version 2>/dev/null | head -1 || true)"
+    # Exec the exact path install_binary just wrote to (DEST), not a
+    # PATH-resolved `dsd` -- an earlier or attacker-planted `dsd` earlier on
+    # $PATH than ${INSTALL_DIR} would otherwise get reported as proof the
+    # install succeeded, even though it's not the binary this script placed.
+    if [ -x "$DEST" ]; then
+        DSD_VER="$("$DEST" version 2>/dev/null | head -1 || true)"
         success "dsd is ready${DSD_VER:+: $DSD_VER}"
         printf '\n  Quick start:\n'
         printf '    dsd health          # instant server health snapshot\n'
@@ -314,10 +331,10 @@ main() {
     info "Version: ${VERSION}  Platform: ${PLATFORM}  Prefix: ${PREFIX}"
 
     TMPFILE="$(download)"
-    # TMPDIR is set by download(); register cleanup now so any subsequent die()
+    # WORK_DIR is set by download(); register cleanup now so any subsequent die()
     # or set -e exit removes the temp directory, not leaving a partial/unverified
     # binary behind.
-    trap 'rm -rf "$TMPDIR"' EXIT
+    trap 'rm -rf "$WORK_DIR"' EXIT
     verify_checksum "$TMPFILE"
     verify_signature
     # Make executable only after checksum (and optional signature) are verified —
