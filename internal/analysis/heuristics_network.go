@@ -22,6 +22,7 @@ const (
 	netKwRetransFail        = "retrans_fail"
 	netKwListenOverflow     = "listen_overflow"
 	netSafeIfacePlaceholder = "<interface>"
+	netSafeSlavePlaceholder = "<slave-name>"
 )
 
 func checkNFS(nfs models.NFSInfo) []models.Insight {
@@ -733,7 +734,7 @@ func checkBondUSBSlaves(bond models.BondInterface) []models.Insight {
 		if !isUSBNetworkInterface(s.Name) {
 			continue
 		}
-		safeSlaveName := "<slave-name>"
+		safeSlaveName := netSafeSlavePlaceholder
 		if looksLikeSafeToken(s.Name) {
 			safeSlaveName = s.Name
 		}
@@ -758,7 +759,7 @@ func checkBondDownSlaves(bond models.BondInterface) []models.Insight {
 		if s.State != "down" {
 			continue
 		}
-		safeSlaveName := "<slave-name>"
+		safeSlaveName := netSafeSlavePlaceholder
 		if looksLikeSafeToken(s.Name) {
 			safeSlaveName = s.Name
 		}
@@ -775,7 +776,7 @@ func checkBondDownSlaves(bond models.BondInterface) []models.Insight {
 		if s.LinkFails <= 10 {
 			continue
 		}
-		safeSlaveName := "<slave-name>"
+		safeSlaveName := netSafeSlavePlaceholder
 		if looksLikeSafeToken(s.Name) {
 			safeSlaveName = s.Name
 		}
