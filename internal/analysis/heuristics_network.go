@@ -12,15 +12,16 @@ import (
 const catNetwork = "Network"
 
 const (
-	netCatBonding        = "Bonding"
-	netCatBIND           = "BIND"
-	netCatNFS            = "NFS"
-	netInspectIPLink     = "to inspect: ip link show"
-	netInspectIPRoute    = "to inspect: ip route"
-	netInspectBondingFmt = "to inspect: cat /proc/net/bonding/%s"
-	netKwSynRetrans      = "syn_retrans"
-	netKwRetransFail     = "retrans_fail"
-	netKwListenOverflow  = "listen_overflow"
+	netCatBonding           = "Bonding"
+	netCatBIND              = "BIND"
+	netCatNFS               = "NFS"
+	netInspectIPLink        = "to inspect: ip link show"
+	netInspectIPRoute       = "to inspect: ip route"
+	netInspectBondingFmt    = "to inspect: cat /proc/net/bonding/%s"
+	netKwSynRetrans         = "syn_retrans"
+	netKwRetransFail        = "retrans_fail"
+	netKwListenOverflow     = "listen_overflow"
+	netSafeIfacePlaceholder = "<interface>"
 )
 
 func checkNFS(nfs models.NFSInfo) []models.Insight {
@@ -376,7 +377,7 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyc
 		if ssid == "" {
 			ssid = iface.Name
 		}
-		safeIfaceName := "<interface>"
+		safeIfaceName := netSafeIfacePlaceholder
 		if looksLikeSafeToken(iface.Name) {
 			safeIfaceName = iface.Name
 		}
@@ -428,7 +429,7 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyc
 	// ethtool …" hints below; validate before use, same guard the WiFi loop
 	// above applies.
 	for _, iface := range net.Interfaces {
-		safeIfaceName := "<interface>"
+		safeIfaceName := netSafeIfacePlaceholder
 		if looksLikeSafeToken(iface.Name) {
 			safeIfaceName = iface.Name
 		}
@@ -471,7 +472,7 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyc
 			// same pattern: iface.Name spliced unescaped into copy-pasteable
 			// shell hints, one function above the guarded PrimaryInterfaceDown
 			// case below.
-			safeIfaceName := "<interface>"
+			safeIfaceName := netSafeIfacePlaceholder
 			if looksLikeSafeToken(iface.Name) {
 				safeIfaceName = iface.Name
 			}

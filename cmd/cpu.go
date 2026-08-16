@@ -17,6 +17,11 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/runner"
 )
 
+const (
+	cpuLoadCollectorName    = "CPU Load"
+	cpuThermalCollectorName = "CPU Thermal"
+)
+
 func init() {
 	rootCmd.AddCommand(cpuCmd)
 }
@@ -53,15 +58,15 @@ func runCPU(cmd *cobra.Command, _ []string) error {
 	}
 	elapsed := time.Since(start)
 
-	cpuRaw, cpuErr := resultByName["CPU Load"].Data, resultByName["CPU Load"].Err
+	cpuRaw, cpuErr := resultByName[cpuLoadCollectorName].Data, resultByName[cpuLoadCollectorName].Err
 	freqRaw, freqErr := resultByName["CPUFreq"].Data, resultByName["CPUFreq"].Err
-	thermalRaw, thermalErr := resultByName["CPU Thermal"].Data, resultByName["CPU Thermal"].Err
+	thermalRaw, thermalErr := resultByName[cpuThermalCollectorName].Data, resultByName[cpuThermalCollectorName].Err
 	hwRaw, hwErr := resultByName["Hardware"].Data, resultByName["Hardware"].Err
 
 	results := []runner.Result{
-		{Name: "CPU Load", Data: cpuRaw, Err: cpuErr},
+		{Name: cpuLoadCollectorName, Data: cpuRaw, Err: cpuErr},
 		{Name: "CPUFreq", Data: freqRaw, Err: freqErr},
-		{Name: "CPU Thermal", Data: thermalRaw, Err: thermalErr},
+		{Name: cpuThermalCollectorName, Data: thermalRaw, Err: thermalErr},
 		{Name: "Hardware", Data: hwRaw, Err: hwErr},
 	}
 
