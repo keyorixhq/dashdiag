@@ -5,6 +5,7 @@ package collectors
 import (
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -39,6 +40,31 @@ func TestParseSSHFileReadSignal(t *testing.T) {
 	}
 	if info2.SSHConfigUnreadable {
 		t.Error("missing file wrongly flagged unreadable (would false-fire on hosts without sshd)")
+	}
+}
+
+// TestParseSSHFile_CapsOversizedRealFile guards read-bounding-10 end-to-end
+// via a REAL file on disk (the fixture-Replay side of the shared fsaccess.go
+// cap is already covered in fsaccess_cap_test.go): an sshd_config far larger
+// than maxCappedFileBytes must still be read and parsed without unbounded
+// growth in parseSSHFile's own accumulation loop. openFile's underlying cap
+// is tail-preserving, so a directive placed at the very end of the file must
+// still be picked up.
+func TestParseSSHFile_CapsOversizedRealFile(t *testing.T) {
+	dir := t.TempDir()
+	p := filepath.Join(dir, "sshd_config")
+	const paddingLine = "# padding line to bulk up the file\n"
+	repeats := (maxCappedFileBytes*2)/len(paddingLine) + 1
+	content := strings.Repeat(paddingLine, repeats) + "Port 2222\n"
+	if err := os.WriteFile(p, []byte(content), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	var info models.SecurityInfo
+	if !parseSSHFile(p, &info) {
+		t.Fatal("parseSSHFile returned false for a large-but-readable file")
+	}
+	if info.SSHPort != 2222 {
+		t.Errorf("SSHPort = %d, want 2222 (the tail-preserved directive)", info.SSHPort)
 	}
 }
 

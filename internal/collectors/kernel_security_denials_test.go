@@ -101,6 +101,28 @@ func TestCountAVCsFromAuditLog_FallsBackToAusearch(t *testing.T) {
 	}
 }
 
+// TestCountAVCsFromAuditLog_TooLargeFallsBackToAusearch guards
+// internal-collectors-18-02/19-03 through this specific caller: an audit.log
+// whose Stat reports a size far beyond any legitimate size must be treated
+// exactly like "unreadable" (falls through to the ausearch fallback above),
+// never fully materialized into memory just to be discarded.
+func TestCountAVCsFromAuditLog_TooLargeFallsBackToAusearch(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutStat(ksAuditLog, source.FileMeta{Size: maxSafeReadBytes + 1})
+		b.PutFile(ksAuditLog, []byte("this payload must never be returned"))
+		b.PutCmd("ausearch", []string{"-m", "avc", "-ts", "recent", "--raw"},
+			auditLine(-time.Minute, false, `{ read } for pid=201 comm="toolarge"`)+"\n", 0)
+	})
+
+	n, ok := countAVCsFromAuditLog(5 * time.Minute)
+	if !ok {
+		t.Fatal("expected ok=true via the ausearch fallback")
+	}
+	if n != 1 {
+		t.Errorf("expected 1 denial from the ausearch fallback, got %d", n)
+	}
+}
+
 func TestCountAVCsViaAusearch_NoMatches(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("ausearch", []string{"-m", "avc", "-ts", "recent", "--raw"}, "<no matches>\n", 1)

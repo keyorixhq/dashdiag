@@ -166,3 +166,34 @@ func TestParseFailedLogins_NoSourceUnreadable(t *testing.T) {
 		t.Errorf("expected zero counters when unreadable, got %d / %+v", info.FailedLogins, info.FailedLoginIPs)
 	}
 }
+
+// TestAuthLogSourceLines_CapsLineCount guards internal-collectors-29-02: the
+// flat-file fallback (used when journalctl is unavailable) had no per-line
+// limit — only the journalctl branch was bounded, by an unrelated global
+// stream-byte cap. This exercises the fallback directly with more lines than
+// varLogTailLines (matching the convention logs_linux.go's syslog/messages
+// fallback already uses) and asserts the result is capped AND tail-preserving
+// (the most recent lines are what a failed-login/PAM scan cares about).
+func TestAuthLogSourceLines_CapsLineCount(t *testing.T) {
+	total := varLogTailLines + 50
+	lines := make([]string, total)
+	for i := range lines {
+		lines[i] = fmt.Sprintf("line-%04d", i)
+	}
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmdNotFound("journalctl", []string{"_COMM=sshd", "--since=1 hour ago", "--no-pager", "-q"})
+		b.PutFile("/var/log/auth.log", []byte(strings.Join(lines, "\n")+"\n"))
+		b.PutStat("/var/log/auth.log", source.FileMeta{Mode: 0o644})
+	})
+
+	got, unreadable := authLogSourceLines(context.Background(), "_COMM=sshd", "--since=1 hour ago", "--no-pager", "-q")
+	if unreadable {
+		t.Fatal("expected unreadable=false with a readable auth.log")
+	}
+	if len(got) != varLogTailLines {
+		t.Fatalf("len(got) = %d, want exactly the cap %d", len(got), varLogTailLines)
+	}
+	if got[0] != lines[total-varLogTailLines] || got[len(got)-1] != lines[total-1] {
+		t.Errorf("expected the TAIL %d lines preserved, got first=%q last=%q", varLogTailLines, got[0], got[len(got)-1])
+	}
+}

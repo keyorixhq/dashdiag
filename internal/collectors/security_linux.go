@@ -6,6 +6,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -161,19 +162,35 @@ func parseSSHConfig(ctx context.Context, info *models.SecurityInfo) {
 func parseSSHFile(path string, info *models.SecurityInfo) bool {
 	f, err := openFile(path) // #nosec G304 -- only reads well-known config paths
 	if err != nil {
-		if os.IsPermission(err) {
+		// A permission-denied or too-large read is "present but couldn't be
+		// audited" — must not fall through to the caller treating this as
+		// silently absent (which would report the compiled-in secure defaults
+		// as real verdicts).
+		if os.IsPermission(err) || errors.Is(err, errFileTooLarge) {
 			info.SSHConfigUnreadable = true
 		}
 		return false
 	}
 	defer f.Close() //nolint:errcheck
 
+	// Total-size cap on the accumulation loop itself (read-bounding-10),
+	// defence-in-depth alongside openFile's own maxCappedFileBytes cap on the
+	// reader it hands back — a config this large is never legitimate.
 	content := new(strings.Builder)
 	buf := make([]byte, 64*1024)
+	total := 0
 	for {
 		n, readErr := f.Read(buf)
 		if n > 0 {
-			content.Write(buf[:n])
+			remaining := maxCappedFileBytes - total
+			if remaining > 0 {
+				take := n
+				if take > remaining {
+					take = remaining
+				}
+				content.Write(buf[:take])
+				total += take
+			}
 		}
 		if readErr != nil {
 			break
@@ -430,6 +447,14 @@ func authLogSourceLines(ctx context.Context, journalArgs ...string) (lines []str
 	scanner := bufio.NewScanner(f)
 	for scanner.Scan() {
 		out = append(out, scanner.Text())
+	}
+	// Line-count cap (internal-collectors-29-02) matching the varLogTailLines
+	// convention logs_linux.go's syslog/messages fallback already uses — the
+	// journalctl branch above is bounded by the global stream cap, but this
+	// flat-file fallback had no per-line limit. Tail-preserving: the most
+	// recent lines are what a failed-login/PAM scan cares about.
+	if len(out) > varLogTailLines {
+		out = out[len(out)-varLogTailLines:]
 	}
 	if err := scanner.Err(); err != nil {
 		return out, false

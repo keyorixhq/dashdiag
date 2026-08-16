@@ -3,6 +3,7 @@ package collectors
 import (
 	"bufio"
 	"context"
+	"errors"
 	"os"
 	"runtime"
 	"strconv"
@@ -242,7 +243,7 @@ func apparmorMode() string {
 func apparmorModeFromPath(path string) string {
 	data, err := readFile(path) // #nosec G304
 	if err != nil {
-		if os.IsPermission(err) {
+		if os.IsPermission(err) || errors.Is(err, errFileTooLarge) {
 			return ksStatusUnknown
 		}
 		return ksStatusDisabled
@@ -277,7 +278,7 @@ func parseApparmorProfiles(data string) string {
 func apparmorDetail() (total, enforce, complain int) {
 	data, err := readFile("/sys/kernel/security/apparmor/profiles") // #nosec G304
 	if err != nil {
-		if os.IsPermission(err) {
+		if os.IsPermission(err) || errors.Is(err, errFileTooLarge) {
 			return -1, -1, -1
 		}
 		return 0, 0, 0
