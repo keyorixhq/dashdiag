@@ -37,11 +37,26 @@ func runCPU(cmd *cobra.Command, _ []string) error {
 	ctrCtx := platform.DetectContainerContext()
 	start := time.Now()
 
-	cpuRaw, cpuErr := collectors.NewCPUCollector(ctrCtx).Collect(ctx)
-	freqRaw, freqErr := collectors.NewCPUFreqCollector().Collect(ctx)
-	thermalRaw, thermalErr := collectors.NewThermalCollector().Collect(ctx)
-	hwRaw, hwErr := collectors.NewHardwareCollector().Collect(ctx)
+	// Run through runner.RunAll rather than calling Collect(ctx) directly —
+	// the runner owns concurrency and bounds each collector with its own
+	// per-collector timeout (cmd-02-02); a hung collector can no longer hang
+	// `dsd cpu` on a bare context.Background() with no deadline.
+	cols := []runner.Collector{
+		collectors.NewCPUCollector(ctrCtx),
+		collectors.NewCPUFreqCollector(),
+		collectors.NewThermalCollector(),
+		collectors.NewHardwareCollector(),
+	}
+	resultByName := make(map[string]runner.Result, len(cols))
+	for r := range runner.RunAll(ctx, cols) {
+		resultByName[r.Name] = r
+	}
 	elapsed := time.Since(start)
+
+	cpuRaw, cpuErr := resultByName["CPU Load"].Data, resultByName["CPU Load"].Err
+	freqRaw, freqErr := resultByName["CPUFreq"].Data, resultByName["CPUFreq"].Err
+	thermalRaw, thermalErr := resultByName["CPU Thermal"].Data, resultByName["CPU Thermal"].Err
+	hwRaw, hwErr := resultByName["Hardware"].Data, resultByName["Hardware"].Err
 
 	results := []runner.Result{
 		{Name: "CPU Load", Data: cpuRaw, Err: cpuErr},
