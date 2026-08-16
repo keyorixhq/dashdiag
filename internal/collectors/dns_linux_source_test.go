@@ -180,6 +180,11 @@ func TestAnalyzeDNSQuality_NdotsOverflowDoesNotWrapNegative(t *testing.T) {
 // touching the network (runDNSProbeLive is never invoked because the
 // "dns/resolve-probe" cache key is pre-seeded).
 func TestDNSCollector_Collect_FullHappyPath(t *testing.T) {
+	// Network is off by default (see internal/platform/network_policy.go) —
+	// opt in so this test actually exercises the live-probe path it's named
+	// for (the fixture below mocks cachedJSON's underlying data, not the
+	// network-allowed gate in front of it).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	probe := dnsProbeResult{ExternalLatencyMs: 12, ExternalResolvesOK: true, InternalResolvesOK: true}
 	probeJSON, err := json.Marshal(probe)
 	if err != nil {

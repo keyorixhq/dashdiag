@@ -382,6 +382,23 @@ Requires: Linux kernel 4.18+ or macOS 12+. Single binary, no dependencies.
 
 ---
 
+## Network access
+
+**Off by default.** A handful of checks (connectivity/DNS probes, cloud-metadata
+detection, the update nudge, CVE enrichment on RHEL, NFS/SteamOS reachability)
+are more accurate with a network call — dsd never makes one unless you ask:
+
+```bash
+dsd health --network          # opt in for this run
+DSD_ALLOW_NETWORK=1 dsd health  # opt in via env, e.g. for a cron job
+```
+
+`DSD_OFFLINE=1` always forces offline — it overrides `--network` and
+`DSD_ALLOW_NETWORK` even if both are also set. See `PRIVACY.md` for the full
+list of network-adjacent call sites and what each one is for.
+
+---
+
 ## Built by
 
 [Keyorix SL](https://keyorix.io) — Valencia, Spain.

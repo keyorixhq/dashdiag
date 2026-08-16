@@ -95,6 +95,9 @@ func TestNetworkDeepCollector_Collect_NoGatewayPing(t *testing.T) {
 // through cachedJSON("net/jitter", ...), so seeding that Cached key directly
 // exercises the full Collect() path without a real ping.
 func TestNetworkDeepCollector_Collect_JitterFullPath(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks cachedJSON's data, not the gate in front of it).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	ifaces := gopsutilnet.InterfaceStatList{
 		{Name: "eth0", Flags: []string{"up"}, Addrs: gopsutilnet.InterfaceAddrList{{Addr: "10.0.0.5/24"}}},
 	}

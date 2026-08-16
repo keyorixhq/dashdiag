@@ -78,6 +78,24 @@ func init() {
 // curSource returns the current input backend with an atomic load.
 func curSource() source.Source { return *activeSource.Load() }
 
+// sourceIsReplaying reports whether the active source is a source.Replay —
+// i.e. Cached()/Run() never touch the live system, they only ever serve
+// bytes already in the bundle (source.Source's doc comment: "Replay ...
+// NEVER invokes produce"). Network-gated collectors (NFS/DNS/connectivity/
+// SteamOS reachability probes) must check this BEFORE applying
+// platform.NetworkAllowed()'s off-by-default policy: that policy governs
+// whether THIS PROCESS makes a live network call, and replay never does
+// regardless, so gating the call site itself (rather than letting Cached's
+// own produce-vs-replay branching decide) would incorrectly turn a captured
+// "unreachable"/"resolves fine" result into a fabricated "skipped" one on
+// replay — the exact cross-env replay-fidelity bug TRIAGE §H exists to
+// prevent (see replay_optin_linux_test.go). Only Live/Recorder sources are
+// subject to the network gate; Replay always proceeds into Cached().
+func sourceIsReplaying() bool {
+	_, ok := curSource().(*source.Replay)
+	return ok
+}
+
 // SetSource swaps the active input backend and returns the previous one so the
 // caller can restore it (defer collectors.SetSource(prev)).
 func SetSource(s source.Source) source.Source {

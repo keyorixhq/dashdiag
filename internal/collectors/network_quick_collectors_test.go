@@ -788,6 +788,9 @@ func TestRunConnectivityProbes_DNSLookupFails(t *testing.T) {
 }
 
 func TestProbeConnectivity(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks cachedJSON's data, not the gate in front of it).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	probe := connectivityProbe{GatewayMs: 1.5, GatewayLoss: 0, InternetMs: 20.3, InternetLoss: 0, DNSMs: 5.0}
 	probeJSON, err := json.Marshal(probe)
 	if err != nil {
@@ -808,6 +811,9 @@ func TestProbeConnectivity(t *testing.T) {
 }
 
 func TestNetworkCollector_Collect(t *testing.T) {
+	// Network is off by default — opt in so this test exercises the live-probe
+	// path (the fixture mocks cachedJSON's data, not the gate in front of it).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	ifaces := gopsutilnet.InterfaceStatList{
 		{Name: "eth0", Flags: []string{"up"}, Addrs: gopsutilnet.InterfaceAddrList{{Addr: "10.0.0.5/24"}}},
 		{Name: "lo", Flags: []string{"up"}, Addrs: gopsutilnet.InterfaceAddrList{{Addr: "127.0.0.1/8"}}},
