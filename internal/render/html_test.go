@@ -137,6 +137,36 @@ func TestBuildHTML_FailedCollectorRendersAsInfo(t *testing.T) {
 	}
 }
 
+// TestBuildHTML_SanitizesControlChars guards Finding internal-analysis-11-02:
+// buildHTML relied solely on html/template's auto-escaping ("&'\"<>+), which
+// does not strip control/ANSI bytes (e.g. ESC 0x1B) embedded in
+// attacker-influenced text (a process name, a replayed capture bundle).
+// Those bytes would survive into the generated .html file and fire if it's
+// later `cat`'d to a terminal. output.SanitizeControl must run on
+// ins.Message/Hints in addition to (not instead of) the template's own HTML
+// escaping — mirrors TestBuildMarkdown_SanitizesControlChars in report_test.go.
+func TestBuildHTML_SanitizesControlChars(t *testing.T) {
+	t.Parallel()
+	evil := "process evil\x1b[2Jname (PID 1234) has too many FDs open"
+	snap := sampleSnap("WARN")
+	insights := []models.Insight{
+		{Check: "X", Level: "WARN", Message: evil, Hints: []string{"lsof -p 1234\x1b[2J"}},
+	}
+	html, err := buildHTML(snap, insights, time.Second, nil)
+	if err != nil {
+		t.Fatalf("buildHTML: %v", err)
+	}
+	if strings.ContainsRune(html, 0x1b) {
+		t.Errorf("buildHTML output still contains a raw ESC byte:\n%s", html)
+	}
+	// SanitizeControl removes only the ESC byte, not the printable "[2J" text
+	// that followed it — assert the printable payload around the stripped
+	// byte survived.
+	if !strings.Contains(html, "evil[2Jname") {
+		t.Errorf("expected printable payload to survive sanitization, got:\n%s", html)
+	}
+}
+
 func TestGenerateHTMLReport_NilSnap(t *testing.T) {
 	t.Parallel()
 	if _, err := GenerateHTMLReport(nil, nil, 0, nil); err == nil {

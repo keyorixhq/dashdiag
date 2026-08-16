@@ -64,18 +64,30 @@ func RenderPostMortem(title string, snap *baseline.Snapshot, insights []models.I
 		}
 	}
 
+	// Message/Check/Hints below aren't wrapped in any existing backtick
+	// delimiter — but attacker-influenced text containing its own run of 3+
+	// backticks (e.g. embedded on its own line) can still OPEN an unintended
+	// fence mid-document that swallows everything after it until a matching
+	// close (or end of document), injecting arbitrary markdown/HTML into a
+	// postmortem meant to be pasted into incident channels/tickets
+	// (internal-render-03-06). output.SanitizeControl only strips
+	// control/ANSI bytes, not backticks — escape those too.
 	if len(crits)+len(warns) > 0 {
 		sb.WriteString("\n#### Issues Detected\n")
 		for _, ins := range crits {
-			fmt.Fprintf(&sb, "- ❌ CRIT %s: %s\n", output.SanitizeControl(ins.Check), output.SanitizeControl(ins.Message))
+			fmt.Fprintf(&sb, "- ❌ CRIT %s: %s\n",
+				escapeMarkdownBackticks(output.SanitizeControl(ins.Check)),
+				escapeMarkdownBackticks(output.SanitizeControl(ins.Message)))
 			for _, h := range ins.Hints {
-				fmt.Fprintf(&sb, "  → %s\n", output.SanitizeControl(h))
+				fmt.Fprintf(&sb, "  → %s\n", escapeMarkdownBackticks(output.SanitizeControl(h)))
 			}
 		}
 		for _, ins := range warns {
-			fmt.Fprintf(&sb, "- ⚠️ WARN %s: %s\n", output.SanitizeControl(ins.Check), output.SanitizeControl(ins.Message))
+			fmt.Fprintf(&sb, "- ⚠️ WARN %s: %s\n",
+				escapeMarkdownBackticks(output.SanitizeControl(ins.Check)),
+				escapeMarkdownBackticks(output.SanitizeControl(ins.Message)))
 			for _, h := range ins.Hints {
-				fmt.Fprintf(&sb, "  → %s\n", output.SanitizeControl(h))
+				fmt.Fprintf(&sb, "  → %s\n", escapeMarkdownBackticks(output.SanitizeControl(h)))
 			}
 		}
 	}
@@ -93,7 +105,12 @@ func RenderPostMortem(title string, snap *baseline.Snapshot, insights []models.I
 	if len(hints) > 0 {
 		sb.WriteString("\n#### Recommended Investigation Steps\n")
 		for i, h := range hints {
-			fmt.Fprintf(&sb, "%d. `%s`\n", i+1, output.SanitizeControl(h))
+			// h is wrapped in a single-backtick inline code span here — even
+			// ONE embedded backtick in h would close that span early
+			// (internal-render-03-06), unlike the fenced block in report.go
+			// which needs a run of 3+. escapeMarkdownBackticks neutralizes
+			// every backtick unconditionally, which covers both cases.
+			fmt.Fprintf(&sb, "%d. `%s`\n", i+1, escapeMarkdownBackticks(output.SanitizeControl(h)))
 		}
 	}
 

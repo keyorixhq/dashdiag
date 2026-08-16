@@ -119,12 +119,59 @@ func TestRenderPostMortem_EscapesPipeInTableCells(t *testing.T) {
 	// The row must contain exactly the 5 unescaped pipes that delimit the 4
 	// markdown table columns ("| a | b | c | d |") — any additional bare '|'
 	// would mean an escape was missed and the row structure is broken.
-	for _, line := range strings.Split(got, "\n") {
+	for line := range strings.SplitSeq(got, "\n") {
 		if strings.Contains(line, "Weird") {
 			if n := strings.Count(line, "|") - strings.Count(line, "\\|"); n != 5 {
 				t.Errorf("table row has unexpected unescaped pipe count %d, line: %q", n, line)
 			}
 		}
+	}
+}
+
+// TestRenderPostMortem_EscapesBackticks guards Finding internal-render-03-06:
+// output.SanitizeControl strips control/ANSI bytes but does nothing about
+// literal backticks. The Recommended Investigation Steps section wraps each
+// hint in a single-backtick inline code span (“ `%s` “) — even ONE
+// embedded backtick in the hint would close that span early. The Issues
+// Detected section has no surrounding delimiter at all, but a hint whose
+// content is its own run of 3+ backticks could still open an unintended
+// fenced block mid-document. escapeMarkdownBackticks must neutralize every
+// backtick in Check/Message/Hints before either section renders it.
+func TestRenderPostMortem_EscapesBackticks(t *testing.T) {
+	t.Parallel()
+	snap := &baseline.Snapshot{
+		Hostname:  "host1",
+		Timestamp: time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC),
+		Checks:    []baseline.CheckResult{{Name: "Weird`Check", Status: "CRIT", Value: "bad"}},
+	}
+	insights := []models.Insight{
+		{Check: "Weird`Check", Level: "CRIT", Message: "msg`with`backtick", Hints: []string{"cmd `with` backtick"}},
+	}
+	got := RenderPostMortem("incident", snap, insights, output.ModeHuman)
+
+	// Scope this to the Issues Detected / Recommended Investigation Steps
+	// sections onward — the System State table (above them) renders
+	// check.Name/Value straight from the snapshot with only pipe-escaping
+	// (a separate, already-covered fix; out of scope for this finding) and
+	// legitimately still contains the raw "Weird`Check"/"bad" cell content.
+	afterIssues := got[strings.Index(got, "#### Issues Detected"):]
+	if strings.Contains(afterIssues, "`with`") || strings.Contains(afterIssues, "Weird`Check") || strings.Contains(afterIssues, "msg`with`backtick") {
+		t.Errorf("expected embedded backticks in Check/Message/Hints to be escaped, got:\n%s", afterIssues)
+	}
+	// The single-backtick inline span around the numbered Recommended
+	// Investigation Step must still have exactly its own two delimiting
+	// backticks — not extra ones from the unescaped hint content.
+	for line := range strings.SplitSeq(got, "\n") {
+		if strings.HasPrefix(line, "1. `") {
+			if n := strings.Count(line, "`"); n != 2 {
+				t.Errorf("expected exactly 2 delimiting backticks on the numbered step, got %d: %q", n, line)
+			}
+		}
+	}
+	// The escaped substitute must still be present (proves the content
+	// itself was rendered, not silently dropped).
+	if !strings.Contains(got, "ˋ") {
+		t.Errorf("expected the escaped backtick substitute in output, got:\n%s", got)
 	}
 }
 

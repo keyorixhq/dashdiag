@@ -16,14 +16,23 @@ import (
 
 // JSONOutput is the stable public JSON contract for dsd health --json.
 type JSONOutput struct {
-	Hostname  string        `json:"hostname"`
-	OS        string        `json:"os"`
-	Timestamp time.Time     `json:"timestamp"`
-	Version   string        `json:"version"`
-	Verdict   string        `json:"verdict"` // worst insight level: "CRIT" | "WARN" | "OK"
-	Counts    JSONCounts    `json:"counts"`  // insight tallies by level
-	Checks    []JSONCheck   `json:"checks"`
-	Insights  []JSONInsight `json:"insights"`
+	Hostname  string    `json:"hostname"`
+	OS        string    `json:"os"`
+	Timestamp time.Time `json:"timestamp"`
+	Version   string    `json:"version"`
+	// Verdict is the worst insight level ("CRIT" | "WARN" | "OK"), EXCEPT: if at
+	// least one checks[] entry errored (Counts.Errored > 0) and the insight-only
+	// verdict would otherwise read "OK", Verdict is forced to "WARN" instead —
+	// see buildOutput. A collector that failed outright typically produces only
+	// an INFO "couldn't measure" insight (which never raises verdict on its
+	// own), so without this a run where every collector errored still reported
+	// "OK" to a consumer branching on `jq -r .verdict` alone
+	// (internal-render-03-04). A genuine CRIT/WARN insight already explains
+	// itself and is left untouched.
+	Verdict  string        `json:"verdict"`
+	Counts   JSONCounts    `json:"counts"` // insight tallies by level
+	Checks   []JSONCheck   `json:"checks"`
+	Insights []JSONInsight `json:"insights"`
 }
 
 // JSONCounts tallies insights by level so a consumer can branch without
@@ -159,6 +168,14 @@ func buildOutput(results []runner.Result, insights []models.Insight) JSONOutput 
 		if c.Status == "ERROR" {
 			counts.Errored++
 		}
+	}
+	// internal-render-03-04: at least one collector errored outright and
+	// there's no WARN/CRIT insight to already explain it — don't let the
+	// verdict read "OK". WARN is the closed enum's (schema/dsd-output.json)
+	// best fit for "not confirmed healthy" without overstating severity; a
+	// real CRIT/WARN insight is left as-is (it already outranks this).
+	if counts.Errored > 0 && verdict == "OK" {
+		verdict = "WARN"
 	}
 
 	return JSONOutput{

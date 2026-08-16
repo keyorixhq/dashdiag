@@ -165,13 +165,6 @@ var sanitizeGovernanceExemptions = map[string]string{
 	// the --json contract, which promises the raw collector text.
 	"json.go:buildOutput": "encoding/json.Marshal escapes control characters as \\u00XX by construction",
 
-	// buildHTML copies ins.Message/.Hints into htmlIssue struct fields that are
-	// only ever consumed by html/template's Execute (see html.go's
-	// `{{.Message}}` / `{{range .Hints}}` directives) — html/template
-	// contextually auto-escapes on execution, which is the HTML-sink
-	// equivalent of output.SanitizeControl for the terminal sink.
-	"html.go:buildHTML": "html/template auto-escapes on Execute; see htmlReportTmpl in html.go",
-
 	// insightSignature builds a tick-to-tick dedup map KEY (Check + a
 	// digit-normalized Message) for InsightChanges — the return value is only
 	// ever compared/looked up, never printed to any sink. There is nothing to
