@@ -76,6 +76,44 @@ func TestToolCaptureIdentifiersImpliesSanitize(t *testing.T) {
 	if hostErr == nil && realHost != "" && result.Host == realHost {
 		t.Errorf("toolCapture response disclosed the real hostname %q despite Identifiers:true", realHost)
 	}
+	// sanitize-bundle-03: the MCP response must disclose sanitize state
+	// structurally, the same way dsd capture --raw's stderr warning does —
+	// not just write an unlabeled bundle_path.
+	if !result.Sanitized {
+		t.Errorf("Sanitized should be true when Identifiers implies Sanitize, got false")
+	}
+	if !strings.Contains(result.Note, "Sanitized (best-effort)") {
+		t.Errorf("Note should disclose the sanitize state, got: %q", result.Note)
+	}
+	if !strings.Contains(result.Note, "Identifiers redacted") {
+		t.Errorf("Note should mention identifier redaction when Identifiers:true, got: %q", result.Note)
+	}
+}
+
+// TestToolCaptureUnsanitizedDisclosesNote guards sanitize-bundle-03's other
+// branch: a caller that leaves Sanitize/Identifiers both false (the tool's
+// documented default) must get an explicit "this is unredacted" signal in
+// the response, the same as dsd capture --raw's stderr warning gives a
+// human — not a bundle_path with no indication the contents are raw.
+func TestToolCaptureUnsanitizedDisclosesNote(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	out := filepath.Join(dir, "out.tar.gz")
+
+	_, result, err := toolCapture(context.Background(), &mcp.CallToolRequest{},
+		mcpCaptureInput{OutPath: out})
+	if err != nil {
+		t.Fatalf("toolCapture: %v", err)
+	}
+	if result.Sanitized {
+		t.Error("Sanitized should be false when the caller didn't set Sanitize/Identifiers")
+	}
+	if !strings.Contains(result.Note, "unredacted") {
+		t.Errorf("Note should disclose the bundle is unredacted, got: %q", result.Note)
+	}
+	if !strings.Contains(result.Note, "--sanitize") {
+		t.Errorf("Note should point the caller at --sanitize, got: %q", result.Note)
+	}
 }
 
 // TestRedactMCPJSON guards sanitize-bundle-01: toolHealth/toolReplay returned
@@ -218,6 +256,58 @@ func TestToolDiffNonexistentBundle(t *testing.T) {
 	})
 	if err == nil {
 		t.Fatal("expected error for nonexistent bundles, got nil")
+	}
+}
+
+// TestToolDiffRedactsSecretShapedMessage is the regression test for the gap
+// TestEveryMCPToolHandlerRedactsSecrets guards mechanically: toolDiff's
+// response is built from baseline.ComputeDiff([]DiffEntry).Before/After,
+// which is Status+" "+Value, and Value is copied from the worst-ranked
+// matching insight's Message (see BuildSnapshot) — the same free-text field
+// that already gets redacted when it surfaces via insights[].message in
+// dsd_health/dsd_replay. A real-world instance: heuristics_web.go's
+// webConfigVerdict concatenates a web server's raw config-test stderr
+// straight into a CRIT Message with no secret-pattern filtering.
+//
+// Exercises the exact composition toolDiff itself performs on the response
+// — baseline.ComputeDiff -> json.Marshal -> redactMCPJSON — against
+// hand-built Snapshots rather than a second full live-collector bundle pair
+// (this file's TestToolCaptureIdentifiersImpliesSanitize's own comment notes
+// why a second full pipeline run isn't worth the CI time here: toolDiff's
+// own file-loading/replay plumbing is already covered by
+// TestToolDiffNonexistentBundle/TestToolDiffRequiresBothPaths, and
+// controlling exactly which heuristic fires a secret-shaped Message through
+// a real collector run would need its own dedicated fixture anyway). This
+// is the load-bearing question — does a secret-shaped Value actually get
+// redacted by the time it reaches the wire — not the bundle-file plumbing
+// around it.
+func TestToolDiffRedactsSecretShapedMessage(t *testing.T) {
+	t.Parallel()
+	before := &baseline.Snapshot{Checks: []baseline.CheckResult{
+		{Name: "Web", Status: "OK", Value: "config valid"},
+	}}
+	after := &baseline.Snapshot{Checks: []baseline.CheckResult{
+		{Name: "Web", Status: "CRIT", Value: `nginx config INVALID: auth_basic_user_file password=hunter2secretvalue`},
+	}}
+
+	entries := baseline.ComputeDiff(before, after)
+	data, err := json.Marshal(entries)
+	if err != nil {
+		t.Fatalf("marshalling diff: %v", err)
+	}
+	got := redactMCPJSON(data)
+
+	if strings.Contains(string(got), "hunter2secretvalue") {
+		t.Errorf("secret-shaped Value survived redactMCPJSON in a diff entry: %s", got)
+	}
+	if !json.Valid(got) {
+		t.Fatalf("redactMCPJSON produced invalid JSON: %s", got)
+	}
+	if !strings.Contains(string(got), `"Name":"Web"`) {
+		t.Errorf("non-secret field corrupted: %s", got)
+	}
+	if !strings.Contains(string(got), "CRIT") {
+		t.Errorf("status should survive redaction: %s", got)
 	}
 }
 

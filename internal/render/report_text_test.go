@@ -96,3 +96,67 @@ func TestRenderReportText_EmptyHostAndOS(t *testing.T) {
 		t.Errorf("expected dash placeholders for blank hostname/OS, got:\n%s", out)
 	}
 }
+
+// TestWithDecodeDisclosure guards internal-share-01-02: a share.Decode'd
+// blob is never verified as having actually come from the host it claims,
+// so dsd decode's output must always carry that disclosure — as an INFO
+// insight (the existing convention), not a new severity level.
+func TestWithDecodeDisclosure(t *testing.T) {
+	t.Parallel()
+	o := JSONOutput{
+		Verdict:  "WARN",
+		Counts:   JSONCounts{Warn: 1, Info: 2},
+		Insights: []JSONInsight{{Check: "Disk", Level: "WARN", Message: "80% full"}},
+	}
+	got := WithDecodeDisclosure(o)
+
+	if len(got.Insights) != len(o.Insights)+1 {
+		t.Fatalf("expected one insight added, got %d (was %d)", len(got.Insights), len(o.Insights))
+	}
+	added := got.Insights[0]
+	if added.Level != "INFO" {
+		t.Errorf("disclosure insight Level = %q, want INFO — a new severity level must never be introduced (frozen 1.x insights[].level enum)", added.Level)
+	}
+	if !strings.Contains(added.Message, "authenticity is not verified") {
+		t.Errorf("disclosure insight Message = %q, want it to mention unverified authenticity", added.Message)
+	}
+	if got.Counts.Info != o.Counts.Info+1 {
+		t.Errorf("Counts.Info = %d, want %d (original %d + 1 for the disclosure)", got.Counts.Info, o.Counts.Info+1, o.Counts.Info)
+	}
+	// The original insight must survive untouched, not be replaced.
+	found := false
+	for _, in := range got.Insights {
+		if in.Check == "Disk" && in.Message == "80% full" {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("original insight was lost, got: %+v", got.Insights)
+	}
+	// Every enum value insights[].level can hold per schema/dsd-output.json
+	// is exactly OK/WARN/CRIT/INFO/PENDING at the analysis layer (frozen for
+	// this JSON-level subset: INFO/WARN/CRIT) — confirm this fix reused one
+	// rather than silently minting a new one.
+	validLevels := map[string]bool{"INFO": true, "WARN": true, "CRIT": true}
+	if !validLevels[added.Level] {
+		t.Errorf("disclosure insight uses non-standard level %q", added.Level)
+	}
+}
+
+// TestWithDecodeDisclosure_RenderedByReportText confirms the disclosure
+// actually reaches RenderReportText's output, not just the JSONOutput
+// struct in isolation — the two are tested separately because
+// WithDecodeDisclosure's caller (cmd/decode.go) applies it before EITHER
+// output path, so a bug in the wiring (not this function) could still drop
+// the disclosure from one path silently.
+func TestWithDecodeDisclosure_RenderedByReportText(t *testing.T) {
+	t.Parallel()
+	o := WithDecodeDisclosure(JSONOutput{Verdict: "OK"})
+	out := RenderReportText(o)
+	if !strings.Contains(out, "[INFO] Decode:") {
+		t.Errorf("expected the disclosure to render as an INFO insight, got:\n%s", out)
+	}
+	if !strings.Contains(out, "authenticity is not verified") {
+		t.Errorf("expected the disclosure text to render, got:\n%s", out)
+	}
+}

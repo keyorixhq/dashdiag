@@ -125,23 +125,29 @@ func runCaptureRaw(cmd *cobra.Command) error {
 
 	fmt.Fprintf(os.Stderr, "\n✅ Raw bundle written: %s\n", out)
 	fmt.Fprintf(os.Stderr, "   Replay it offline with:  dsd replay %s\n", out)
-	if sanitize {
-		fmt.Fprintf(os.Stderr, "   Sanitized (best-effort): %d redaction(s) across %d file(s) + %d command(s).\n",
-			sanReport.TotalRedactions, sanReport.FilesRedacted, sanReport.CommandsRedacted)
-		fmt.Fprintln(os.Stderr, "   NOTE: best-effort redaction only — REVIEW before sharing.")
-		if identifiers {
-			fmt.Fprintln(os.Stderr, "   Identifiers redacted in file contents + command output: IPv4, MAC, hostname.")
-			fmt.Fprintln(os.Stderr, "   NOT redacted: IPv6, disk serials, and probe-target IPs (gateway/DNS) that")
-			fmt.Fprintln(os.Stderr, "   remain in the command index as replay lookup keys — review the bundle.")
-		} else {
-			fmt.Fprintln(os.Stderr, "   Identifiers (hostname, IPs, serials) kept for replay — add --identifiers to redact them.")
-		}
-	} else {
-		fmt.Fprintln(os.Stderr, "   NOTE: unredacted — contains hostname, IPs, disk serials, journald lines, and any")
-		fmt.Fprintln(os.Stderr, "   secrets in captured files/commands. Re-run with --sanitize for safer sharing.")
-	}
-	fmt.Fprintln(os.Stderr, "   Send it through a trusted channel; don't post it publicly.")
+	fmt.Fprintln(os.Stderr, "   "+sanitizeDisclosureNote(sanitize, identifiers, sanReport))
 	return nil
+}
+
+// sanitizeDisclosureNote reports a captured bundle's actual redaction state,
+// in wording shared verbatim between this command's stderr warning and the
+// dsd_capture MCP tool's structured response (sanitize-bundle-03): a caller
+// using the MCP tool has no stderr a human would see, so it needs the same
+// disclosure the CLI already prints, not a silent bundle_path with no signal
+// the contents are unredacted.
+func sanitizeDisclosureNote(sanitized, identifiers bool, r source.SanitizeReport) string {
+	if !sanitized {
+		return "NOTE: unredacted — contains hostname, IPs, disk serials, journald lines, and any secrets in captured files/commands. Re-run with --sanitize for safer sharing. Send it through a trusted channel; don't post it publicly."
+	}
+	note := fmt.Sprintf("Sanitized (best-effort): %d redaction(s) across %d file(s) + %d command(s). NOTE: best-effort redaction only — REVIEW before sharing.",
+		r.TotalRedactions, r.FilesRedacted, r.CommandsRedacted)
+	if identifiers {
+		note += " Identifiers redacted in file contents + command output: IPv4, MAC, hostname. NOT redacted: IPv6, disk serials, and probe-target IPs (gateway/DNS) that remain in the command index as replay lookup keys — review the bundle."
+	} else {
+		note += " Identifiers (hostname, IPs, serials) kept for replay — add --identifiers to redact them."
+	}
+	note += " Send it through a trusted channel; don't post it publicly."
+	return note
 }
 
 // captureRawDefaultOutPath builds the default --raw bundle filename when

@@ -274,3 +274,59 @@ func TestDetectGPUPresence_CardsFound(t *testing.T) {
 		t.Error("a recorded glob match should report GPU presence")
 	}
 }
+
+// TestSanitizeDisclosureNote guards sanitize-bundle-03: this is the single
+// source of the disclosure text shared between dsd capture --raw's stderr
+// warning and the dsd_capture MCP tool's structured Note field — a bug here
+// affects both callers identically, so it's worth its own direct table-
+// driven coverage independent of either caller's full live-pipeline test.
+func TestSanitizeDisclosureNote(t *testing.T) {
+	t.Parallel()
+	tests := []struct {
+		name        string
+		sanitized   bool
+		identifiers bool
+		report      source.SanitizeReport
+		wantAll     []string
+		wantNone    []string
+	}{
+		{
+			name:      "unsanitized",
+			sanitized: false,
+			wantAll:   []string{"unredacted", "secrets", "--sanitize", "trusted channel"},
+			wantNone:  []string{"Sanitized (best-effort)"},
+		},
+		{
+			name:        "sanitized without identifiers",
+			sanitized:   true,
+			identifiers: false,
+			report:      source.SanitizeReport{TotalRedactions: 3, FilesRedacted: 2, CommandsRedacted: 1},
+			wantAll:     []string{"Sanitized (best-effort)", "3 redaction(s)", "2 file(s)", "1 command(s)", "REVIEW before sharing", "--identifiers", "trusted channel"},
+			wantNone:    []string{"unredacted", "Identifiers redacted"},
+		},
+		{
+			name:        "sanitized with identifiers",
+			sanitized:   true,
+			identifiers: true,
+			report:      source.SanitizeReport{TotalRedactions: 5, FilesRedacted: 4, CommandsRedacted: 1},
+			wantAll:     []string{"Sanitized (best-effort)", "Identifiers redacted", "NOT redacted", "trusted channel"},
+			wantNone:    []string{"unredacted", "add --identifiers"},
+		},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Parallel()
+			got := sanitizeDisclosureNote(tt.sanitized, tt.identifiers, tt.report)
+			for _, want := range tt.wantAll {
+				if !strings.Contains(got, want) {
+					t.Errorf("sanitizeDisclosureNote(%v, %v) = %q, want substring %q", tt.sanitized, tt.identifiers, got, want)
+				}
+			}
+			for _, notWant := range tt.wantNone {
+				if strings.Contains(got, notWant) {
+					t.Errorf("sanitizeDisclosureNote(%v, %v) = %q, unexpectedly contains %q", tt.sanitized, tt.identifiers, got, notWant)
+				}
+			}
+		})
+	}
+}
