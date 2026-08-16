@@ -225,7 +225,10 @@ func TestDetectGuestView_Container(t *testing.T) {
 	if !collectors.ContainerGuestAvailable() {
 		t.Skip("not running inside a container")
 	}
-	view, found := detectGuestView(context.Background())
+	view, found, err := detectGuestView(context.Background())
+	if err != nil {
+		t.Fatalf("detectGuestView: %v", err)
+	}
 	if !found {
 		t.Fatal("ContainerGuestAvailable returned true but detectGuestView reported found=false")
 	}
@@ -263,7 +266,10 @@ func TestGuestViewFactories(t *testing.T) {
 
 	t.Run("aws", func(t *testing.T) {
 		t.Parallel()
-		v := awsGuestView(context.Background())
+		v, err := awsGuestView(context.Background())
+		if err != nil {
+			t.Fatalf("awsGuestView: %v", err)
+		}
 		checkCommon(t, v, "EC2")
 		if _, ok := v.jsonData.(*models.AWSInfo); !ok {
 			t.Errorf("jsonData should be *models.AWSInfo, got %T", v.jsonData)
@@ -271,7 +277,10 @@ func TestGuestViewFactories(t *testing.T) {
 	})
 	t.Run("azure", func(t *testing.T) {
 		t.Parallel()
-		v := azureGuestView(context.Background())
+		v, err := azureGuestView(context.Background())
+		if err != nil {
+			t.Fatalf("azureGuestView: %v", err)
+		}
 		checkCommon(t, v, "Azure")
 		if _, ok := v.jsonData.(*models.AzureInfo); !ok {
 			t.Errorf("jsonData should be *models.AzureInfo, got %T", v.jsonData)
@@ -279,7 +288,10 @@ func TestGuestViewFactories(t *testing.T) {
 	})
 	t.Run("gcp", func(t *testing.T) {
 		t.Parallel()
-		v := gcpGuestView(context.Background())
+		v, err := gcpGuestView(context.Background())
+		if err != nil {
+			t.Fatalf("gcpGuestView: %v", err)
+		}
 		checkCommon(t, v, "GCE")
 		if _, ok := v.jsonData.(*models.GCPInfo); !ok {
 			t.Errorf("jsonData should be *models.GCPInfo, got %T", v.jsonData)
@@ -287,7 +299,10 @@ func TestGuestViewFactories(t *testing.T) {
 	})
 	t.Run("oci", func(t *testing.T) {
 		t.Parallel()
-		v := ociGuestView(context.Background())
+		v, err := ociGuestView(context.Background())
+		if err != nil {
+			t.Fatalf("ociGuestView: %v", err)
+		}
 		checkCommon(t, v, "OCI")
 		if _, ok := v.jsonData.(*models.OCIInfo); !ok {
 			t.Errorf("jsonData should be *models.OCIInfo, got %T", v.jsonData)
@@ -299,7 +314,10 @@ func TestGuestViewFactories(t *testing.T) {
 	})
 	t.Run("vmware", func(t *testing.T) {
 		t.Parallel()
-		v := vmwareGuestView(context.Background())
+		v, err := vmwareGuestView(context.Background())
+		if err != nil {
+			t.Fatalf("vmwareGuestView: %v", err)
+		}
 		checkCommon(t, v, "VMware")
 		if _, ok := v.jsonData.(*models.VMwareInfo); !ok {
 			t.Errorf("jsonData should be *models.VMwareInfo, got %T", v.jsonData)
@@ -307,7 +325,10 @@ func TestGuestViewFactories(t *testing.T) {
 	})
 	t.Run("kvm", func(t *testing.T) {
 		t.Parallel()
-		v := kvmGuestView(context.Background())
+		v, err := kvmGuestView(context.Background())
+		if err != nil {
+			t.Fatalf("kvmGuestView: %v", err)
+		}
 		checkCommon(t, v, "QEMU/KVM")
 		if _, ok := v.jsonData.(*models.KVMGuestInfo); !ok {
 			t.Errorf("jsonData should be *models.KVMGuestInfo, got %T", v.jsonData)
@@ -315,7 +336,10 @@ func TestGuestViewFactories(t *testing.T) {
 	})
 	t.Run("container", func(t *testing.T) {
 		t.Parallel()
-		v := containerGuestView(context.Background())
+		v, err := containerGuestView(context.Background())
+		if err != nil {
+			t.Fatalf("containerGuestView: %v", err)
+		}
 		checkCommon(t, v, "Container")
 		if _, ok := v.jsonData.(*models.ContainerGuestInfo); !ok {
 			t.Errorf("jsonData should be *models.ContainerGuestInfo, got %T", v.jsonData)
