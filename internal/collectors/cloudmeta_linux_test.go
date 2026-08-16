@@ -94,9 +94,10 @@ func TestImdsCacheKey_DifferentHeadersDoNotCollide(t *testing.T) {
 func TestImdsCacheKey_SameURLAndHeadersMatch(t *testing.T) {
 	t.Parallel()
 	url := "http://169.254.169.254/latest/meta-data/instance-id"
-	headers := map[string]string{"X-aws-ec2-metadata-token": "tok"}
-	if imdsCacheKey(url, headers) != imdsCacheKey(url, headers) {
-		t.Fatal("imdsCacheKey() must be deterministic for the same (url, headers) pair")
+	headersA := map[string]string{"X-aws-ec2-metadata-token": "tok"}
+	headersB := map[string]string{"X-aws-ec2-metadata-token": "tok"}
+	if got1, got2 := imdsCacheKey(url, headersA), imdsCacheKey(url, headersB); got1 != got2 {
+		t.Fatalf("imdsCacheKey() not deterministic for equal (url, headers) pairs: %q vs %q", got1, got2)
 	}
 }
 
