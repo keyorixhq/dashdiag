@@ -66,6 +66,44 @@ func TestBuildMarkdown_SanitizesControlChars(t *testing.T) {
 	}
 }
 
+// TestBuildMarkdown_EscapesBackticksInRemediationFence guards Finding
+// internal-render-03-05: output.SanitizeControl strips control/ANSI bytes
+// but does nothing about literal backticks. A Hint containing a run of 3+
+// backticks could otherwise close the single fenced ``` Remediation block
+// early and inject arbitrary markdown/HTML into the rest of the generated
+// report. escapeMarkdownBackticks must neutralize every backtick in each
+// hint before it reaches the fence.
+func TestBuildMarkdown_EscapesBackticksInRemediationFence(t *testing.T) {
+	t.Parallel()
+	snap := &baseline.Snapshot{
+		Hostname:  "host1",
+		Timestamp: time.Date(2026, 6, 19, 12, 0, 0, 0, time.UTC),
+		Checks:    []baseline.CheckResult{{Name: "Memory", Status: "WARN", Value: "88%"}},
+	}
+	// Each Hint is rendered on its own line inside the single Remediation
+	// fence (see buildMarkdown's per-hint Fprintf) — a Hint whose content IS
+	// a bare backtick run is, by itself, a line CommonMark recognizes as a
+	// fence-closing marker (a line containing only backticks, at least as
+	// many as the opening fence). If unescaped, this closes the fence right
+	// after "harmless line" and everything after becomes live markdown.
+	insights := []models.Insight{
+		{Check: "Memory", Level: "WARN", Message: "high usage",
+			Hints: []string{"harmless line", "```", "# INJECTED HEADING"}},
+	}
+	md := buildMarkdown(snap, insights, time.Second, nil)
+
+	// Exactly two ``` occurrences: the real fence-open and fence-close. If
+	// the Hint's own "```" line survived unescaped, there would be more.
+	if got := strings.Count(md, "```"); got != 2 {
+		t.Errorf("expected exactly 2 literal ``` fence markers (open+close), got %d — Hint's backtick run was not escaped:\n%s", got, md)
+	}
+	// The escaped substitute must still be present (proves the hint content
+	// itself was rendered, not silently dropped).
+	if !strings.Contains(md, "ˋˋˋ") {
+		t.Errorf("expected the escaped backtick substitute in output, got:\n%s", md)
+	}
+}
+
 // TestBuildMarkdown_CVESection covers every severity bucket of the CVE section
 // (Critical/Important/Moderate/Low) plus pluralY's singular/plural forms and
 // the "no pending advisories" branch.

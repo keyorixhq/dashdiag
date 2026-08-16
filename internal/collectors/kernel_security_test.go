@@ -163,6 +163,42 @@ func TestApparmorDetail_PermissionDeniedViaSource(t *testing.T) {
 	}
 }
 
+// TestApparmorModeFromPath_TooLarge and TestApparmorDetail_TooLarge guard the
+// errFileTooLarge branch fsaccess.go's before-read size probe can now return
+// (internal-collectors-18-02/19-03): a profiles file reported far beyond any
+// legitimate size must be treated the same as EACCES — "present but couldn't
+// be audited" — not collapsed into the "absent/disabled" (mode) or "genuinely
+// zero profiles" (detail) case, for the same false-OK reason
+// TestApparmorModeFromPath_PermissionDenied_ViaSource /
+// TestApparmorDetail_PermissionDeniedViaSource already guard for EACCES.
+func TestApparmorModeFromPath_TooLarge(t *testing.T) {
+	path := "/sys/kernel/security/apparmor/profiles"
+	b := source.NewBundle()
+	b.PutStat(path, source.FileMeta{Size: maxSafeReadBytes + 1})
+	b.PutFile(path, []byte("/usr/sbin/sshd (enforce)\n"))
+	prev := SetSource(source.NewReplay(b))
+	t.Cleanup(func() { SetSource(prev) })
+
+	got := apparmorModeFromPath(path)
+	if got != ksStatusUnknown {
+		t.Errorf("too-large profiles file should report %q, got %q", ksStatusUnknown, got)
+	}
+}
+
+func TestApparmorDetail_TooLarge(t *testing.T) {
+	path := "/sys/kernel/security/apparmor/profiles"
+	b := source.NewBundle()
+	b.PutStat(path, source.FileMeta{Size: maxSafeReadBytes + 1})
+	b.PutFile(path, []byte("/usr/sbin/sshd (enforce)\n"))
+	prev := SetSource(source.NewReplay(b))
+	t.Cleanup(func() { SetSource(prev) })
+
+	total, enforce, complain := apparmorDetail()
+	if total != -1 || enforce != -1 || complain != -1 {
+		t.Errorf("apparmorDetail() on too-large = (%d, %d, %d), want (-1, -1, -1) sentinel, not zeros", total, enforce, complain)
+	}
+}
+
 func TestIsRecentAVCDenial(t *testing.T) {
 	// Real-format audit.log lines (the AVC record format is stable). Epoch 1715000000.
 	denied := `type=AVC msg=audit(1715000000.123:456): avc:  denied  { read } for  pid=1234 comm="httpd" name="shadow" scontext=system_u:system_r:httpd_t:s0 tcontext=system_u:object_r:shadow_t:s0 tclass=file permissive=0`

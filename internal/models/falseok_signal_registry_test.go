@@ -103,6 +103,7 @@ var guardedUnverifiedSignals = map[string]string{
 	"AWSInfo.EBSNeedsRoot":              "analysis/heuristics_aws_test.go (non-root EBS read → INFO)",
 	"AWSInfo.EBSReadFailed":             "analysis/heuristics_aws_test.go (sibling of EBSNeedsRoot)",
 	"AWSInfo.EBSDeltaReadFailed":        "analysis/heuristics_gapfill7_test.go TestCheckAWS_EBSDeltaReadFailed (internal-collectors-02-01: a failed second-sample read must not silently compute a false zero 'not currently throttled' delta)",
+	"AWSInfo.ENADeltaReadFailed":        "collector-layer disclosure (internal-collectors-02-01, ENA half): a per-interface second-read failure now leaves that interface's ENAStats.Active nil (collectors/aws_linux.go enaComputeDelta) rather than a fabricated all-zero map — analysis/heuristics_aws.go awsENAInsights ALREADY treats nil Active as 'no delta available' and safely falls back to the Total since-boot INFO framing (never a false 'not currently throttled' WARN-suppression), so this signal needed no analysis-layer change; see collectors/aws_linux_test.go TestEnaComputeDelta_InterfaceMissingFromSecond/_CounterMissingFromSecond for the collector-layer guard.",
 	"KVMInfo.VMsUnreadable":             "collectors/kvm_pve_test.go + analysis/heuristics_round4_test.go",
 	"GPUDevice.Unreadable":              "analysis (gpu all-zero/unreadable → not OK); see memory gpu-allzero-falseok-deferred",
 	"NFSMount.ServerReachable":          "analysis (NFS reachability heuristic, net deep)",

@@ -113,6 +113,20 @@ func collectSMARTDrives(ctx context.Context, info *models.HardwareInfo) {
 		return
 	}
 	if len(scan.Devices) == 0 {
+		// internal-collectors-14-02: smartctl ran cleanly and produced valid
+		// JSON, but reported zero devices. With the data available here
+		// (clean exit code, valid empty JSON — smartctl gives no further
+		// signal), this is indistinguishable in principle from a genuinely
+		// diskless host vs. a scan that found nothing because it could not
+		// OPEN any device (a permissions problem). Record a distinct,
+		// lower-confidence sentinel rather than returning silently — silence
+		// here reads identically to "never checked".
+		info.Drives = append(info.Drives, models.HardwareDrive{
+			Device:              "(scan)",
+			SmartctlAvailable:   true,
+			ZeroDevicesReported: true,
+			Error:               "smartctl --scan-open reported zero devices — verify this host is genuinely diskless; a permissions issue can also produce an empty scan",
+		})
 		return
 	}
 

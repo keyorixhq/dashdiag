@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -77,9 +78,16 @@ func (c *CloudMetaCollector) Collect(ctx context.Context) (interface{}, error) {
 
 // imdsGet caches imdsGetLive through the source so cloud metadata replays from the
 // bundle instead of re-querying the live IMDS endpoint (which is absent/different on
-// a replay box). Keyed by URL — each metadata field is fetched once.
+// a replay box). Keyed by URL AND headers.
+//
+// internal-collectors-04-02: keying by URL alone meant two calls to the same URL with
+// DIFFERENT headers (different auth tokens/contexts) collided — the second call
+// silently got the first's cached response instead of its own. imdsCacheKey folds a
+// deterministic, sorted encoding of the headers into the key so differing headers for
+// the same URL never collide, while identical (url, headers) pairs still hit the same
+// cache entry as before.
 func imdsGet(ctx context.Context, url string, headers map[string]string) (string, error) {
-	data, err := curSource().Cached("imds/"+url, func() ([]byte, error) {
+	data, err := curSource().Cached(imdsCacheKey(url, headers), func() ([]byte, error) {
 		s, e := imdsGetLive(ctx, url, headers)
 		if e != nil {
 			return nil, e
@@ -90,6 +98,37 @@ func imdsGet(ctx context.Context, url string, headers map[string]string) (string
 		return "", err
 	}
 	return string(data), nil
+}
+
+// imdsCacheKey builds imdsGet's Cached() key: "imds/"+url, plus a "#"-delimited,
+// sorted "K=V&K=V" suffix when headers are present. Headers are sorted by name first
+// — map iteration order is random in Go, and an unsorted encoding would make the same
+// logical request hash to a different key across calls, defeating the cache instead of
+// just protecting it. "#" (not "?") is the separator so this never collides with a
+// query string some IMDS URLs already carry (e.g. Azure's
+// ".../storageProfile?api-version=...&format=json").
+func imdsCacheKey(url string, headers map[string]string) string {
+	key := "imds/" + url
+	if len(headers) == 0 {
+		return key
+	}
+	names := make([]string, 0, len(headers))
+	for k := range headers {
+		names = append(names, k)
+	}
+	sort.Strings(names)
+	var b strings.Builder
+	b.WriteString(key)
+	b.WriteByte('#')
+	for i, k := range names {
+		if i > 0 {
+			b.WriteByte('&')
+		}
+		b.WriteString(k)
+		b.WriteByte('=')
+		b.WriteString(headers[k])
+	}
+	return b.String()
 }
 
 func imdsGetLive(ctx context.Context, url string, headers map[string]string) (string, error) {

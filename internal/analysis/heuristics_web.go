@@ -11,7 +11,13 @@ func webConfigVerdict(server string, configTested, configValid bool, configError
 	if configTested && !configValid {
 		msg := server + " on-disk config is INVALID — a reload/restart will fail"
 		if configError != "" {
-			msg += ": " + configError
+			// internal-analysis-13-04: configError is the web server's own
+			// config-test stderr — unbounded, unlike internal/collectors/
+			// bind_linux.go's sibling pattern (ConfigError capped at 200 runes
+			// via truncateRunes before use). Cap it here too before splicing
+			// into the message, so one oversized tool error can't inflate
+			// output size.
+			msg += ": " + truncateHint(configError, 200)
 		}
 		return []models.Insight{insight("CRIT", server, msg,
 			[]string{

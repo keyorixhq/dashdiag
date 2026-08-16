@@ -173,6 +173,35 @@ func TestPrometheusCollector_Collect_FullHappyPath(t *testing.T) {
 	}
 }
 
+// TestPrometheusCollector_Collect_DownSampleCapped is the regression test
+// for internal-collectors-27-04: DownSample (scrapeUrl + lastError) had no
+// length cap — an adversarial/misbehaving target could grow it unboundedly.
+// It must be capped at 200 runes (matching the bind_linux.go precedent).
+func TestPrometheusCollector_Collect_DownSampleCapped(t *testing.T) {
+	longError := ""
+	for i := 0; i < 300; i++ {
+		longError += "x"
+	}
+	targetsBody := `{"status":"success","data":{"activeTargets":[
+		{"health":"down","scrapeUrl":"http://a:9100/metrics","lastError":"` + longError + `"}
+	]}}`
+	withCombinedFixture(t, map[string][]byte{
+		"dial/tcp/127.0.0.1:9090":                                {'1'},
+		"http/http://127.0.0.1:9090/api/v1/status/buildinfo":     promHTTPResult(t, `{"status":"success","data":{"version":"2.53.0"}}`, 200),
+		"http/http://127.0.0.1:9090/api/v1/targets?state=active": promHTTPResult(t, targetsBody, 200),
+	}, nil, nil)
+	c := NewPrometheusCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.PrometheusInfo)
+	// truncateRunes caps at 200 runes and appends an ellipsis.
+	if len([]rune(info.DownSample)) != 201 {
+		t.Errorf("DownSample rune length = %d, want 201 (200 + ellipsis)", len([]rune(info.DownSample)))
+	}
+}
+
 func TestParsePromConfigReload(t *testing.T) {
 	tests := []struct {
 		name     string

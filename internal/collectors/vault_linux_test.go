@@ -5,6 +5,7 @@ package collectors
 import (
 	"context"
 	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -220,6 +221,56 @@ func TestVaultCollect_Sealed(t *testing.T) {
 	info := raw.(*models.VaultInfo)
 	if !info.Sealed {
 		t.Error("Sealed = false, want true")
+	}
+}
+
+// TestVaultCollect_VersionAndStorageTypeSanitizedAndCapped is the regression
+// test for internal-collectors-33-06: Version/StorageType never reach
+// Insight.Message, so they must be both sanitized and length-capped at the
+// point of assignment.
+func TestVaultCollect_VersionAndStorageTypeSanitizedAndCapped(t *testing.T) {
+	esc := string(rune(27))
+	longVersion := "1.15.0" + esc + "[31m"
+	longStorage := "raft" + esc + "[0m"
+	for i := 0; i < 300; i++ {
+		longVersion += "x"
+		longStorage += "y"
+	}
+	health, err := json.Marshal(struct {
+		Initialized bool   `json:"initialized"`
+		Sealed      bool   `json:"sealed"`
+		Version     string `json:"version"`
+	}{Initialized: true, Sealed: false, Version: longVersion})
+	if err != nil {
+		t.Fatalf("json.Marshal(health): %v", err)
+	}
+	seal, err := json.Marshal(struct {
+		StorageType string `json:"storage_type"`
+	}{StorageType: longStorage})
+	if err != nil {
+		t.Fatalf("json.Marshal(seal): %v", err)
+	}
+	seedVaultFixture(t, true, string(health), string(seal))
+
+	raw, err := NewVaultCollector().Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.VaultInfo)
+	if strings.Contains(info.Version, esc) {
+		t.Errorf("Version = %q, want ESC stripped", info.Version)
+	}
+	if len([]rune(info.Version)) != 201 {
+		t.Errorf("Version rune length = %d, want 201 (200 + ellipsis)", len([]rune(info.Version)))
+	}
+	if strings.Contains(info.StorageType, esc) {
+		t.Errorf("StorageType = %q, want ESC stripped", info.StorageType)
+	}
+	if len([]rune(info.StorageType)) != 201 {
+		t.Errorf("StorageType rune length = %d, want 201 (200 + ellipsis)", len([]rune(info.StorageType)))
+	}
+	if info.DevMode {
+		t.Error("DevMode = true, want false — sanitized/capped storage type is not exactly \"inmem\"")
 	}
 }
 

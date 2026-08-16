@@ -4,6 +4,8 @@ package collectors
 
 import (
 	"context"
+	"encoding/json"
+	"strings"
 	"testing"
 	"time"
 
@@ -118,6 +120,42 @@ func TestTraefikCollector_Collect_HappyPath(t *testing.T) {
 	}
 	if info.Version != "v3.1.0" {
 		t.Errorf("Version = %q, want v3.1.0", info.Version)
+	}
+}
+
+// TestTraefikCollector_Collect_VersionSanitizedAndCapped is the regression
+// test for internal-collectors-33-06: Version never reaches Insight.Message
+// (this collector emits no per-run message using it), so it must be both
+// sanitized and length-capped at the point of assignment.
+func TestTraefikCollector_Collect_VersionSanitizedAndCapped(t *testing.T) {
+	esc := string(rune(27))
+	overview := `{"http":{"routers":{"total":1}}}`
+	longVersion := "v3.1.0" + esc + "[31m"
+	for i := 0; i < 300; i++ {
+		longVersion += "x"
+	}
+	versionBody, err := json.Marshal(struct {
+		Version string `json:"Version"`
+	}{Version: longVersion})
+	if err != nil {
+		t.Fatalf("json.Marshal: %v", err)
+	}
+	withCombinedFixture(t, map[string][]byte{
+		"dial/tcp/127.0.0.1:8080":                 {'1'},
+		"http/http://127.0.0.1:8080/api/overview": promHTTPResult(t, overview, 200),
+		"http/http://127.0.0.1:8080/api/version":  promHTTPResult(t, string(versionBody), 200),
+	}, nil, nil)
+	c := NewTraefikCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.TraefikInfo)
+	if strings.Contains(info.Version, esc) {
+		t.Errorf("Version = %q, want ESC stripped", info.Version)
+	}
+	if len([]rune(info.Version)) != 201 {
+		t.Errorf("Version rune length = %d, want 201 (200 + ellipsis)", len([]rune(info.Version)))
 	}
 }
 

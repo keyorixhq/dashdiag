@@ -120,7 +120,6 @@ func TestCheckCVE_DispatchesToDNF(t *testing.T) {
 func TestCheckCVE_DispatchesToApt(t *testing.T) {
 	isolateCVEHome(t)
 	withLookPathFixture(t, map[string]bool{"apt-get": true}, func(b *source.Bundle) {
-		b.PutCmd("sh", []string{"-c", "grep -i ubuntu /etc/os-release"}, "", 1)
 		b.PutFile("/etc/os-release", []byte("ID=debian\n"))
 	})
 	res := CheckCVE(context.Background(), "CVE-2024-1234")

@@ -132,7 +132,15 @@ func printDiskDrives(info *models.DiskInfo, mode output.OutputMode) {
 	}
 	fmt.Printf("\nPhysical Drives — %d found\n", len(info.Drives))
 	for _, d := range info.Drives {
-		mountStr := strings.Join(d.Mounts, "  ")
+		// Mounts are mountpoint paths read from /proc/mounts — attacker-
+		// influenced on a hostile USB drive or virtualization backend that
+		// controls where it gets mounted (cmd-04-02, same class as
+		// internal-collectors-24-02's d.Model handling below).
+		sanitizedMounts := make([]string, 0, len(d.Mounts))
+		for _, m := range d.Mounts {
+			sanitizedMounts = append(sanitizedMounts, output.SanitizeControl(m))
+		}
+		mountStr := strings.Join(sanitizedMounts, "  ")
 		sizeStr := diskFmtGB(d.SizeGB)
 		modelStr := ""
 		if d.Model != "" {
@@ -361,10 +369,14 @@ func printDiskSteamOS(info *models.DiskInfo, mode output.OutputMode) {
 	}
 
 	for _, bm := range d.BindMounts {
+		// Path/Target are mountpoint paths read from the filesystem —
+		// untrusted per this review's threat model (cmd-04-02).
+		path := output.SanitizeControl(bm.Path)
+		target := output.SanitizeControl(bm.Target)
 		if bm.OK {
-			fmt.Printf("  %s Bind mount %s → %s — intact\n", asciiOr("ok", iconOK, mode), bm.Path, bm.Target)
+			fmt.Printf("  %s Bind mount %s → %s — intact\n", asciiOr("ok", iconOK, mode), path, target)
 		} else {
-			fmt.Printf("  %s Bind mount %s → %s — broken\n", asciiOr("warn", iconWarnSp, mode), bm.Path, bm.Target)
+			fmt.Printf("  %s Bind mount %s → %s — broken\n", asciiOr("warn", iconWarnSp, mode), path, target)
 		}
 	}
 }

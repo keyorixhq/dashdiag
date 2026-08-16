@@ -83,16 +83,75 @@ func cachedJSON(key string, compute func() (any, error), out any) error {
 // single file, mirroring the io.LimitReader cap netaccess_linux.go's
 // httpGetLive and cloudmeta_linux.go's IMDS fetch already apply to network
 // reads (guard_name in the resource-exhaustion review: "io.LimitReader
-// equivalent... absent here"). Unlike an HTTP body, a local read has no
-// natural streaming point at this layer (curSource().ReadFile already
-// returns a fully-materialized []byte for Live, and a malicious `dsd replay`
-// capture bundle can claim an arbitrarily large payload for any key), so this
-// caps what's RETAINED and handed to the parser rather than the underlying
-// read itself — still closes the "unbounded memory downstream" attack path
-// (a huge /var/log/syslog fallback scan, or a crafted oversized bundle entry)
-// even though it can't reduce the one-time Live read cost. Set generous
-// enough for any legitimate /proc, /sys, or log-tail read.
+// equivalent... absent here"). This caps what's RETAINED and handed to the
+// parser — still closes the "unbounded memory downstream" attack path (a huge
+// /var/log/syslog fallback scan, or a crafted oversized bundle entry). Set
+// generous enough for any legitimate /proc, /sys, or log-tail read.
+//
+// This does NOT by itself bound the one-time read cost below — see
+// maxSafeReadBytes / statSizeHint for the before-read half of the guard.
 const maxCappedFileBytes = 16 << 20 // 16MiB
+
+// maxSafeReadBytes is the size threshold beyond which readFile/openFile
+// refuse to attempt a full read at all (internal-collectors-18-02/19-03): a
+// pathologically huge file (an attacker-flooded /var/log/secure, or a
+// malicious `dsd replay` bundle entry claiming an oversized payload) must
+// never be fully materialized into memory just to be truncated afterwards.
+// Set to 10x maxCappedFileBytes — far beyond any legitimate /proc, /sys, or
+// log file, so it only fires for a genuinely pathological/adversarial read.
+//
+// The Source interface (internal/source) has no seek/range-read primitive —
+// ReadFile always returns the full []byte — so a true tail-seek isn't
+// achievable at this layer without changing that abstraction. statSizeHint
+// gives a best-effort size probe via the existing Stat() call instead: when
+// it reports a size over this threshold, the read is skipped entirely
+// (errFileTooLarge) rather than materializing it; when Stat is unavailable
+// (including a replay bundle recorded before this probe existed — Stat and
+// ReadFile are independently keyed, see internal/source/bundle.go) the
+// helpers fall back to the prior full-read-then-truncate behaviour, so old
+// bundles keep replaying exactly as before.
+const maxSafeReadBytes = maxCappedFileBytes * 10 // 160MiB
+
+// errFileTooLarge is returned by readFile/openFile when statSizeHint reports
+// a path far beyond any legitimate size for what these helpers read — see
+// maxSafeReadBytes. Callers already branch on "read failed" (permission
+// denied, not found, etc.) via the same err!=nil / os.IsPermission checks;
+// this is deliberately just another such error so it flows through those
+// existing "couldn't audit this" fallback paths without each call site
+// needing special-case handling.
+var errFileTooLarge = errors.New("fsaccess: file too large to safely read")
+
+// statSizeHint returns the size Stat reports for path, or -1 when Stat itself
+// is unavailable — any error, including source.ErrNotRecorded for a replay
+// bundle that never captured a Stat for this path (expected for bundles
+// captured before this probe existed, since Recorder only records a Stat
+// when a collector explicitly calls one — see internal/source/recorder.go).
+// -1 means "unknown", not "empty": callers must treat it as "proceed with
+// the existing full-read+cap behaviour", never as a zero-size fast path.
+//
+// readFile/openFile are the package's shared low-level read path — dozens of
+// collectors' tests build a minimal fake source.Source (embedding the
+// interface and overriding only ReadFile) to exercise a single branch without
+// wiring a full fixture, deliberately leaving every other method — including
+// Stat — nil so an unexpected call panics and flags itself. Adding a
+// mandatory Stat() call here must not turn every one of those pre-existing
+// test doubles into a panic; the recover mirrors the same defensive posture
+// internal/drilldown/drilldown.go already uses around a dependency that may
+// not implement what's expected (dispatchLive's recover-to-nil). A genuine
+// live/replay Source always implements Stat; only a deliberately-partial test
+// double hits this path.
+func statSizeHint(path string) (size int64) {
+	defer func() {
+		if recover() != nil {
+			size = -1
+		}
+	}()
+	meta, err := curSource().Stat(path)
+	if err != nil {
+		return -1
+	}
+	return meta.Size
+}
 
 // maxCappedDirEntries bounds how many names glob/readDirNames return, for the
 // same reason: an adversarial replay bundle (or a pathological live glob/dir)
@@ -120,8 +179,13 @@ func capDirEntries(names []string) []string {
 }
 
 // readFile returns the contents of path via the active source, capped at
-// maxCappedFileBytes (tail-preserving — see capFileBytes).
+// maxCappedFileBytes (tail-preserving — see capFileBytes). A best-effort Stat
+// probe runs first (statSizeHint); a path reported far beyond any legitimate
+// size (maxSafeReadBytes) is never read at all — see errFileTooLarge.
 func readFile(path string) ([]byte, error) {
+	if sz := statSizeHint(path); sz > maxSafeReadBytes {
+		return nil, errFileTooLarge
+	}
 	data, err := curSource().ReadFile(path)
 	if err != nil {
 		return nil, err
@@ -140,10 +204,14 @@ func glob(pattern string) ([]string, error) {
 }
 
 // openFile reads path via the active source and returns an io.ReadCloser,
-// capped at maxCappedFileBytes (tail-preserving — see capFileBytes).
+// capped at maxCappedFileBytes (tail-preserving — see capFileBytes). Same
+// before-read size probe as readFile — see statSizeHint / errFileTooLarge.
 // Use this as a drop-in for os.Open where the caller passes the result to a
 // parser that expects an io.Reader / io.ReadCloser.
 func openFile(path string) (io.ReadCloser, error) {
+	if sz := statSizeHint(path); sz > maxSafeReadBytes {
+		return nil, errFileTooLarge
+	}
 	data, err := curSource().ReadFile(path)
 	if err != nil {
 		return nil, err

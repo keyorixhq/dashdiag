@@ -185,7 +185,10 @@ func TestEnaComputeDelta(t *testing.T) {
 	t.Parallel()
 	first := map[string]map[string]uint64{"eth0": {"bw_in": 5}}
 	second := map[string]map[string]uint64{"eth0": {"bw_in": 8}}
-	delta := enaComputeDelta(first, second)
+	delta, failed := enaComputeDelta(first, second)
+	if failed {
+		t.Error("failed = true, want false — both samples present")
+	}
 	if delta["eth0"]["bw_in"] != 3 {
 		t.Errorf("delta = %v, want eth0.bw_in=3", delta)
 	}
@@ -195,7 +198,10 @@ func TestEnaComputeDelta_Saturates(t *testing.T) {
 	t.Parallel()
 	first := map[string]map[string]uint64{"eth0": {"bw_in": 10}}
 	second := map[string]map[string]uint64{"eth0": {"bw_in": 2}} // counter reset
-	delta := enaComputeDelta(first, second)
+	delta, failed := enaComputeDelta(first, second)
+	if failed {
+		t.Error("failed = true, want false — both samples present (just a reset counter)")
+	}
 	if delta["eth0"]["bw_in"] != 0 {
 		t.Errorf("delta = %v, want eth0.bw_in=0 (saturated)", delta)
 	}
@@ -399,7 +405,7 @@ func TestEnaExpressState_EthtoolFails(t *testing.T) {
 func TestAwsInstanceType(t *testing.T) {
 	withAWSFixture(t, map[string][]byte{
 		"imds-aws-token": []byte("tok123"),
-		"imds/http://169.254.169.254/latest/meta-data/instance-type": []byte("t4g.small"),
+		"imds/http://169.254.169.254/latest/meta-data/instance-type#X-aws-ec2-metadata-token=tok123": []byte("t4g.small"),
 	}, nil, func(b *source.Bundle) {})
 	if got := awsInstanceType(context.Background()); got != "t4g.small" {
 		t.Errorf("awsInstanceType() = %q, want t4g.small", got)
@@ -527,7 +533,7 @@ func TestSsmState_RunningViaProcComm(t *testing.T) {
 func TestAWSCollector_Collect_FullHappyPath(t *testing.T) {
 	withAWSFixture(t, map[string][]byte{
 		"imds-aws-token": []byte("tok123"),
-		"imds/http://169.254.169.254/latest/meta-data/instance-type": []byte("m5.large"),
+		"imds/http://169.254.169.254/latest/meta-data/instance-type#X-aws-ec2-metadata-token=tok123": []byte("m5.large"),
 		"aws-imdsv1-probe":    []byte("blocked"),
 		"aws-rebalance-probe": []byte("no"),
 	}, map[string]string{

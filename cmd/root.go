@@ -56,8 +56,13 @@ var rootCmd = &cobra.Command{
 // atomically (no separate Lstat-then-open TOCTOU window) while still letting
 // a re-run overwrite dsd's own prior REGULAR-file output at the same path —
 // the common case.
+//
+// Mode 0o600 (owner-only) rather than 0o644: --out captures a full diagnostic
+// report — SUID paths, process listings, anything that survived redaction —
+// and defaults to owner-only rather than world-readable (cmd-11-08). No
+// documented dsd workflow reads --out output as a different user.
 func createOutFile(outPath string) (*os.File, error) {
-	f, err := os.OpenFile(outPath, os.O_RDWR|os.O_CREATE|os.O_TRUNC|syscall.O_NOFOLLOW, 0o644) // #nosec G304 -- outPath is a user-supplied CLI flag by design; O_NOFOLLOW blocks symlink-follow
+	f, err := os.OpenFile(outPath, os.O_RDWR|os.O_CREATE|os.O_TRUNC|syscall.O_NOFOLLOW, 0o600) // #nosec G304 -- outPath is a user-supplied CLI flag by design; O_NOFOLLOW blocks symlink-follow
 	if errors.Is(err, syscall.ELOOP) {
 		return nil, fmt.Errorf("refusing to write through a symlink at %q", outPath)
 	}

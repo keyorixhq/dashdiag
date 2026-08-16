@@ -101,7 +101,11 @@ func singleSelectText(title string, options []string) (string, error) {
 	fmt.Printf("Enter number (1-%d): ", len(options))
 	scanner := bufio.NewScanner(os.Stdin)
 	if !scanner.Scan() {
-		return "", nil
+		// internal-tui-01-02: scanner.Err() is nil on a clean EOF (e.g. stdin
+		// closed / Ctrl-D — a legitimate "cancelled selection"), but non-nil on
+		// a genuine read error. Propagating it lets a caller distinguish the
+		// two instead of treating both as an empty, no-error selection.
+		return "", scanner.Err()
 	}
 	n, err := strconv.Atoi(strings.TrimSpace(scanner.Text()))
 	if err != nil || n < 1 || n > len(options) {
@@ -205,7 +209,10 @@ func multiSelectText(title string, options []string) ([]string, error) {
 	fmt.Print("Enter numbers separated by commas (e.g. 1,3,5): ")
 	scanner := bufio.NewScanner(os.Stdin)
 	if !scanner.Scan() {
-		return nil, nil
+		// internal-tui-01-02: see singleSelectText — propagate a genuine read
+		// error instead of returning it indistinguishably from a clean EOF /
+		// cancelled selection.
+		return nil, scanner.Err()
 	}
 	parts := strings.Split(scanner.Text(), ",")
 	var chosen []string

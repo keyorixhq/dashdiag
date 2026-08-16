@@ -877,6 +877,26 @@ func TestParseJournalLine_BenignKernelErrDowngraded(t *testing.T) {
 	}
 }
 
+// TestParseJournalLine_CatastropheKeywordWinsOverBenignDowngrade is the
+// regression test for internal-collectors-33-02: parseJournalLine previously
+// downgraded ANY CRIT entry containing a benign substring to INFO
+// unconditionally — including a message that also contains a genuine
+// catastrophe keyword (e.g. "panic"). Mirrors parseDmesgLine's existing
+// !catastrophe-gated test: the catastrophe keyword must win, never get
+// silently swallowed by the benign-substring downgrade just because
+// isBenignKernelErr also happens to match.
+func TestParseJournalLine_CatastropheKeywordWinsOverBenignDowngrade(t *testing.T) {
+	t.Parallel()
+	line := `{"__REALTIME_TIMESTAMP":"1700000000000000","PRIORITY":"3","_SYSTEMD_UNIT":"kernel","MESSAGE":"kernel panic - smbus base address uninitialized triggered watchdog reset"}`
+	ev := parseJournalLine(line)
+	if ev == nil {
+		t.Fatal("expected event, got nil")
+	}
+	if ev.Level != "CRIT" {
+		t.Errorf("Level = %q, want CRIT — a catastrophe keyword co-occurring with a benign substring must stay CRIT, not get downgraded to INFO", ev.Level)
+	}
+}
+
 // TestDeduplicateEvents_LongMessage covers line 271-273: messages longer than 40
 // chars are truncated to a 40-char prefix for the dedup key.  Two events with the
 // same long message must collapse into a single entry with Count==2.

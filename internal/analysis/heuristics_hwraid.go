@@ -59,15 +59,15 @@ func checkHWRaid(d models.HWRaidInfo) []models.Insight {
 			switch {
 			case pd.Failed:
 				out = append(out, insight("CRIT", hwRaidCat,
-					fmt.Sprintf("%s: physical drive %s has FAILED — replace it; the array behind it has lost a member", label, pd.Location),
+					fmt.Sprintf("%s: physical drive %q has FAILED — replace it; the array behind it has lost a member", label, pd.Location),
 					[]string{hwRaidInspectPfx + hwRaidInspectHint(d.Tool)}))
 			case pd.Predictive:
 				out = append(out, insight("WARN", hwRaidCat,
-					fmt.Sprintf("%s: physical drive %s reports PREDICTIVE FAILURE — it is about to fail; replace it proactively", label, pd.Location),
+					fmt.Sprintf("%s: physical drive %q reports PREDICTIVE FAILURE — it is about to fail; replace it proactively", label, pd.Location),
 					[]string{hwRaidInspectPfx + hwRaidInspectHint(d.Tool)}))
 			case pd.Rebuilding:
 				out = append(out, insight("WARN", hwRaidCat,
-					fmt.Sprintf("%s: physical drive %s is REBUILDING into the array", label, pd.Location),
+					fmt.Sprintf("%s: physical drive %q is REBUILDING into the array", label, pd.Location),
 					[]string{hwRaidInspectPfx + hwRaidInspectHint(d.Tool)}))
 			}
 		}
@@ -89,7 +89,7 @@ func checkHWRaid(d models.HWRaidInfo) []models.Insight {
 
 func hwRaidCtrlLabel(c models.HWRaidController) string {
 	if c.Model != "" {
-		return fmt.Sprintf("controller %d (%s)", c.ID, c.Model)
+		return fmt.Sprintf("controller %d (%q)", c.ID, c.Model)
 	}
 	return fmt.Sprintf("controller %d", c.ID)
 }

@@ -364,7 +364,7 @@ func printAdvisoryGroup(label string, advisories []models.CVEAdvisory) {
 		if a.CVEs != "" {
 			line += "  " + a.CVEs
 		} else if a.Summary != "" {
-			line += "  " + truncateStr(a.Summary, 50)
+			line += "  " + output.SanitizeControl(truncateStr(a.Summary, 50))
 		}
 		fmt.Println(line)
 	}
@@ -385,7 +385,7 @@ func printOVALResult(r *cvedata.OVALResult) {
 	}
 
 	if r.Summary != "" {
-		fmt.Printf("Summary:  %s\n", r.Summary)
+		fmt.Printf("Summary:  %s\n", output.SanitizeControl(r.Summary))
 	}
 	if r.Severity != "" {
 		fmt.Printf("Severity: %s\n\n", r.Severity)

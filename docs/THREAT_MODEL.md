@@ -132,10 +132,19 @@ binary (`selfupdate.go:227`, `os.CreateTemp(dir, ...)`), guaranteeing the
 final `os.Rename` is same-filesystem and therefore atomic — no partial-write
 window between verification and use.
 
-**Passive nudge is read-only:** `MaybeNudge()` (`internal/selfupdate/nudge.go`)
-only reads a locally cached version string and prints a one-line message; it
-never fetches a binary or executes anything, so it can't be tricked into
-more than a misleading version string on stdout.
+**Passive nudge reads a cache, and — opt-in only — can refresh it over the
+network:** `MaybeNudge()` (`internal/selfupdate/nudge.go`) reads a locally
+cached version string and prints a one-line message. If that cache is
+missing or older than 24h, it also attempts a single best-effort HTTPS
+refresh against `api.github.com` (`RefreshCache` → `LatestRelease`), bounded
+to 800ms so an interactive run is never noticeably delayed. That refresh is
+gated by the shared `platform.NetworkAllowed()` policy (`internal/platform/
+network_policy.go`) — off by default, opt in with `--network`/
+`DSD_ALLOW_NETWORK`, hard-overridden off by `DSD_OFFLINE` — in addition to
+the nudge-specific `DSD_NO_UPDATE_CHECK`. With network disallowed the nudge
+still degrades to the cached-only behavior described above; it never fetches
+a binary or executes anything, so it can't be tricked into more than a
+misleading version string on stdout.
 
 **Residual risk:** the same one every code-signing scheme has — if the
 `MINISIGN_SECRET_KEY` GitHub Actions secret or the maintainer's offline

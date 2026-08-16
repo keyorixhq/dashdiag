@@ -7,6 +7,8 @@ import (
 	"path/filepath"
 	"strconv"
 	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/platform"
 )
 
 func writeMemStatusFixture(t *testing.T, procRoot string, pid int, name string, rssKB int) {
@@ -30,7 +32,8 @@ func writeMeminfoFixture(t *testing.T, procRoot string, totalKB int) {
 }
 
 func TestTopProcessesByRSSLinux(t *testing.T) {
-	t.Parallel()
+	// No t.Parallel(): swapDetectContainerContext mutates package state.
+	swapDetectContainerContext(t, func() platform.ContainerContext { return platform.ContainerContext{} })
 	procRoot := t.TempDir()
 	writeMeminfoFixture(t, procRoot, 1_000_000)
 	writeMemStatusFixture(t, procRoot, 321, "hoggy", 100_000)
@@ -214,6 +217,86 @@ func TestSystemTotalMemKB_NoMemTotalLine(t *testing.T) {
 
 	if got := systemTotalMemKB(procRoot); got != 0 {
 		t.Errorf("systemTotalMemKB() with no MemTotal line = %d, want 0", got)
+	}
+}
+
+// TestEffectiveTotalMemKB_NotInContainerFallsBackToSystemTotal is the
+// baseline case: outside a container, effectiveTotalMemKB must return the
+// same value systemTotalMemKB does.
+func TestEffectiveTotalMemKB_NotInContainerFallsBackToSystemTotal(t *testing.T) {
+	swapDetectContainerContext(t, func() platform.ContainerContext { return platform.ContainerContext{} })
+	procRoot := t.TempDir()
+	writeMeminfoFixture(t, procRoot, 8_000_000)
+
+	if got := effectiveTotalMemKB(procRoot); got != 8_000_000 {
+		t.Errorf("effectiveTotalMemKB() = %d, want 8000000 (host meminfo total)", got)
+	}
+}
+
+// TestEffectiveTotalMemKB_InContainerUsesMemLimit is the regression test for
+// internal-drilldown-02-02: inside a container with a cgroup memory limit,
+// effectiveTotalMemKB must use the container's ceiling, not the host's
+// /proc/meminfo MemTotal (which reflects the HOST's total RAM and would
+// wildly understate MEM% for every process).
+func TestEffectiveTotalMemKB_InContainerUsesMemLimit(t *testing.T) {
+	swapDetectContainerContext(t, func() platform.ContainerContext {
+		return platform.ContainerContext{InContainer: true, MemLimitMB: 512}
+	})
+	procRoot := t.TempDir()
+	// Host meminfo reports a much larger total — must be ignored in favour of
+	// the container's 512MB limit.
+	writeMeminfoFixture(t, procRoot, 64_000_000)
+
+	want := int64(512 * 1024)
+	if got := effectiveTotalMemKB(procRoot); got != want {
+		t.Errorf("effectiveTotalMemKB() = %d, want %d (container mem limit, not host meminfo total)", got, want)
+	}
+}
+
+// TestEffectiveTotalMemKB_InContainerNoLimitFallsBackToSystemTotal covers an
+// unlimited container (cgroup memory.max == "max", so MemLimitMB parses to
+// 0) — there's no real ceiling to use, so this must fall back to the host
+// total rather than reporting a bogus zero (which would blank out every
+// MEM% column via the totalKB > 0 guard).
+func TestEffectiveTotalMemKB_InContainerNoLimitFallsBackToSystemTotal(t *testing.T) {
+	swapDetectContainerContext(t, func() platform.ContainerContext {
+		return platform.ContainerContext{InContainer: true, MemLimitMB: 0}
+	})
+	procRoot := t.TempDir()
+	writeMeminfoFixture(t, procRoot, 8_000_000)
+
+	if got := effectiveTotalMemKB(procRoot); got != 8_000_000 {
+		t.Errorf("effectiveTotalMemKB() = %d, want 8000000 (fallback to host meminfo total)", got)
+	}
+}
+
+// TestTopProcessesByRSSLinux_ContainerMemLimitOverridesTotal is the
+// end-to-end regression test for internal-drilldown-02-02: MEM% for the top
+// processes must be computed against the container's effective memory limit,
+// not the host-wide /proc/meminfo total that systemTotalMemKB alone would
+// have used.
+func TestTopProcessesByRSSLinux_ContainerMemLimitOverridesTotal(t *testing.T) {
+	// No t.Parallel(): swapDetectContainerContext mutates package state.
+	swapDetectContainerContext(t, func() platform.ContainerContext {
+		return platform.ContainerContext{InContainer: true, MemLimitMB: 1000} // 1,024,000 KB
+	})
+	procRoot := t.TempDir()
+	// Host total is 64x the container limit — if this leaked through, MEM%
+	// would be computed as ~0.15% instead of the correct ~10%.
+	writeMeminfoFixture(t, procRoot, 64_000_000)
+	writeMemStatusFixture(t, procRoot, 321, "hoggy", 100_000)
+
+	got, err := topProcessesByRSSLinuxAt(context.Background(), 5, procRoot)
+	if err != nil {
+		t.Fatalf("topProcessesByRSSLinuxAt: %v", err)
+	}
+	if len(got.Rows) != 1 {
+		t.Fatalf("expected 1 row, got %d: %+v", len(got.Rows), got.Rows)
+	}
+	// 100,000 / 1,024,000 * 100 = 9.765625% -> "9.8%"
+	want := "9.8%"
+	if got.Rows[0][1] != want {
+		t.Errorf("MEM%% = %q, want %q (must use container limit, not host meminfo total)", got.Rows[0][1], want)
 	}
 }
 

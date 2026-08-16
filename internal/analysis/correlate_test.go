@@ -988,9 +988,13 @@ func TestServiceMemoryLeakDoesNotFireWithNoNamedProcesses(t *testing.T) {
 // ── ruleRunQueueSaturation ────────────────────────────────────────────────
 
 func TestRunQueueSaturationFires(t *testing.T) {
-	// Run queue saturated, no iowait, no steal → genuinely CPU-bound.
+	// Run queue saturated, iowait and steal both confirmed measured-and-low →
+	// genuinely CPU-bound. internal-analysis-01-03: iowait/steal must be
+	// present in the index (actually measured), not merely absent.
 	insights := []models.Insight{
 		ins("WARN", "CPU Load/RunQueue", "16 runnable tasks on 4 CPUs"),
+		ins("OK", "CPU Load/IOWait", "iowait nominal"),
+		ins("OK", "CPU Load/Steal", "steal nominal"),
 	}
 	idx := buildIndex(insights)
 	c, ok := ruleRunQueueSaturation(idx)
@@ -1011,6 +1015,8 @@ func TestRunQueueSaturationFiresViaCorrelate(t *testing.T) {
 	// exercised — the direct-index test above never routes through Correlate.
 	insights := []models.Insight{
 		ins("WARN", "CPU Load/RunQueue", "16 runnable tasks on 4 CPUs"),
+		ins("OK", "CPU Load/IOWait", "iowait nominal"),
+		ins("OK", "CPU Load/Steal", "steal nominal"),
 	}
 	corrs := Correlate(insights)
 	if hasCorr(corrs, "CPU-Bound Run Queue Saturation") == nil {
@@ -1023,6 +1029,7 @@ func TestRunQueueSaturationSuppressedByIOWait(t *testing.T) {
 	insights := []models.Insight{
 		ins("WARN", "CPU Load/RunQueue", "saturated"),
 		ins("WARN", "CPU Load/IOWait", "I/O wait at 30%"),
+		ins("OK", "CPU Load/Steal", "steal nominal"),
 	}
 	idx := buildIndex(insights)
 	if _, ok := ruleRunQueueSaturation(idx); ok {
@@ -1034,6 +1041,7 @@ func TestRunQueueSaturationSuppressedBySteal(t *testing.T) {
 	// Saturated run queue but high steal — hypervisor theft, not local CPU shortage.
 	insights := []models.Insight{
 		ins("WARN", "CPU Load/RunQueue", "saturated"),
+		ins("OK", "CPU Load/IOWait", "iowait nominal"),
 		ins("CRIT", "CPU Load/Steal", "steal at 25%"),
 	}
 	idx := buildIndex(insights)
@@ -1046,5 +1054,19 @@ func TestRunQueueSaturationDoesNotFireWhenHealthy(t *testing.T) {
 	idx := buildIndex([]models.Insight{ins("OK", "CPU Load", "fine")})
 	if _, ok := ruleRunQueueSaturation(idx); ok {
 		t.Error("should not fire without a CPU/RunQueue WARN/CRIT")
+	}
+}
+
+func TestRunQueueSaturationDoesNotFireWhenIOWaitAndStealUnmeasured(t *testing.T) {
+	// internal-analysis-01-03: a saturated run queue with iowait/steal never
+	// measured at all (absent from idx) must NOT fire — "never measured" is
+	// not the same as "confirmed not elevated". Previously !atLeast() treated
+	// absence as "not elevated" and could assert "genuinely CPU-bound" on an
+	// unmeasured signal.
+	idx := buildIndex([]models.Insight{
+		ins("WARN", "CPU Load/RunQueue", "16 runnable tasks on 4 CPUs"),
+	})
+	if _, ok := ruleRunQueueSaturation(idx); ok {
+		t.Error("should not fire when iowait/steal were never measured")
 	}
 }

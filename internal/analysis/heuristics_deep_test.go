@@ -89,13 +89,22 @@ func TestCheckHealthDeep_CoreImbalance(t *testing.T) {
 
 	// Same imbalance but the box is essentially idle (loadavg 0.25 on 12 cores):
 	// one hot core with plenty of spare capacity is normal foreground work, NOT a
-	// bottleneck. Suppressed. (Regression guard — false alarm seen on a real
-	// AMD/12-core host, 2026-06-18.)
+	// bottleneck. WARN suppressed. (Regression guard — false alarm seen on a real
+	// AMD/12-core host, 2026-06-18.) The imbalance branch's own gate falls
+	// through, but MaxCorePct still clears the (unrelated) all-cores-pegged
+	// branch's raw threshold uncorroborated — internal-analysis-07-02: that must
+	// leave an INFO trace, not total silence.
 	idleImbalance := models.HealthDeepInfo{
 		CoreImbalance: 94, MaxCorePct: 98, MinCorePct: 4, NumCPU: 12, LoadAvg1: 0.25,
 		Cores: []models.CoreStat{{Core: 3, UsagePct: 98}, {Core: 1, UsagePct: 4}},
 	}
-	assertLevel(t, checkHealthDeep(idleImbalance), "")
+	idleImbalanceGot := checkHealthDeep(idleImbalance)
+	if hasLevel(idleImbalanceGot, "WARN") || hasLevel(idleImbalanceGot, "CRIT") {
+		t.Errorf("expected no WARN/CRIT for idle single-core imbalance, got %+v", idleImbalanceGot)
+	}
+	if !hasInsightMsg(idleImbalanceGot, "INFO", "could not corroborate") {
+		t.Errorf("expected an uncorroborated disclosure, got %+v", idleImbalanceGot)
+	}
 
 	// All cores pegged AND the load average corroborates → WARN.
 	pegged := models.HealthDeepInfo{
@@ -105,13 +114,25 @@ func TestCheckHealthDeep_CoreImbalance(t *testing.T) {
 	assertLevel(t, checkHealthDeep(pegged), "WARN")
 
 	// All cores read pegged but the box is idle by load average (0.05) — this is
-	// dsd's own deep collection saturating a small host, not real pressure.
-	// Suppressed. (Regression guard for the observer-effect false positive.)
+	// dsd's own deep collection saturating a small host, not real pressure. The
+	// WARN verdict is suppressed, but internal-analysis-07-02: suppression must
+	// not mean total silence (the two CPU-check siblings in
+	// heuristics_resources.go already disclose their uncorroborated branch as
+	// INFO) — a genuine short burst that happens to be uncorroborable must
+	// still leave a trace, not read identically to a box that was never
+	// elevated at all. (Regression guard for the observer-effect false
+	// positive AND the silent-drop gap.)
 	observerNoise := models.HealthDeepInfo{
 		MaxCorePct: 100, MinCorePct: 100, NumCPU: 2, LoadAvg1: 0.05,
 		Cores: []models.CoreStat{{Core: 0, UsagePct: 100}, {Core: 1, UsagePct: 100}},
 	}
-	assertLevel(t, checkHealthDeep(observerNoise), "")
+	got := checkHealthDeep(observerNoise)
+	if hasLevel(got, "WARN") || hasLevel(got, "CRIT") {
+		t.Errorf("expected no WARN/CRIT for uncorroborated all-cores-pegged, got %+v", got)
+	}
+	if !hasInsightMsg(got, "INFO", "could not corroborate") {
+		t.Errorf("expected an uncorroborated-all-cores-pegged disclosure, got %+v", got)
+	}
 }
 
 func TestCheckSysctl_Profiles(t *testing.T) {

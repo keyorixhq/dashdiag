@@ -176,11 +176,13 @@ func detectGuestView(ctx context.Context) (guestView, bool) {
 
 // awsInstanceTypeLabel returns the EC2 instance type, or a generic fallback
 // when the collector couldn't read it (metadata service unreachable/non-AWS).
+// info.InstanceType comes from IMDS — untrusted per this review's threat
+// model (cmd-01-02) — sanitize before it reaches the identity header.
 func awsInstanceTypeLabel(info *models.AWSInfo) string {
 	if info.InstanceType == "" {
 		return "instance"
 	}
-	return info.InstanceType
+	return output.SanitizeControl(info.InstanceType)
 }
 
 func awsGuestView(ctx context.Context) guestView {
@@ -234,7 +236,10 @@ func gcpNetworkingLabel(info *models.GCPInfo) string {
 	case info.UsesGVNIC:
 		return "gVNIC"
 	case info.NICDriver != "":
-		return info.NICDriver
+		// NICDriver is a /sys/class/net/*/device/driver symlink basename —
+		// untrusted per this review's threat model (cmd-01-02) — sanitize
+		// before it reaches the identity header.
+		return output.SanitizeControl(info.NICDriver)
 	default:
 		return "synthetic"
 	}
@@ -256,12 +261,14 @@ func gcpGuestView(ctx context.Context) guestView {
 }
 
 // ociShapeLabel returns the reported OCI shape, or a generic fallback when
-// IMDS couldn't be read.
+// IMDS couldn't be read. info.Shape is IMDS-reported — untrusted per this
+// review's threat model (cmd-01-02) — sanitize before it reaches the
+// identity header.
 func ociShapeLabel(info *models.OCIInfo) string {
 	if info.Shape == "" {
 		return "instance"
 	}
-	return info.Shape
+	return output.SanitizeControl(info.Shape)
 }
 
 // ociInsightProviderSide always returns false: unlike AWS/Azure/GCP, this
@@ -294,12 +301,14 @@ func isOCIRecognitionLine(msg string) bool {
 }
 
 // vmwareProductLabel returns the reported VMware product name, or a generic
-// fallback when DMI didn't expose one.
+// fallback when DMI didn't expose one. info.ProductName is DMI/firmware-
+// reported — untrusted per this review's threat model (cmd-01-02) —
+// sanitize before it reaches the identity header.
 func vmwareProductLabel(info *models.VMwareInfo) string {
 	if info.ProductName == "" {
 		return "VMware"
 	}
-	return info.ProductName
+	return output.SanitizeControl(info.ProductName)
 }
 
 func vmwareGuestView(ctx context.Context) guestView {
@@ -318,12 +327,14 @@ func vmwareGuestView(ctx context.Context) guestView {
 }
 
 // kvmGuestProductLabel returns the reported KVM/QEMU product name, or a
-// generic fallback when DMI didn't expose one.
+// generic fallback when DMI didn't expose one. info.ProductName is
+// DMI/firmware-reported — untrusted per this review's threat model
+// (cmd-01-02) — sanitize before it reaches the identity header.
 func kvmGuestProductLabel(info *models.KVMGuestInfo) string {
 	if info.ProductName == "" {
 		return "QEMU/KVM"
 	}
-	return info.ProductName
+	return output.SanitizeControl(info.ProductName)
 }
 
 func kvmGuestView(ctx context.Context) guestView {
@@ -342,15 +353,18 @@ func kvmGuestView(ctx context.Context) guestView {
 }
 
 // containerGuestIdentity names the container runtime and, when the container
-// is itself running inside a VM, the enclosing VM type.
+// is itself running inside a VM, the enclosing VM type. Runtime and
+// UnderlyingVM are detected from the local environment (cgroup/mount
+// heuristics) — untrusted per this review's threat model (cmd-01-02) —
+// sanitize before they reach the identity header.
 func containerGuestIdentity(info *models.ContainerGuestInfo) string {
-	rt := info.Runtime
+	rt := output.SanitizeControl(info.Runtime)
 	if rt == "" {
 		rt = "container"
 	}
 	id := "📦 Container (" + rt + ")"
 	if info.UnderlyingVM != "" {
-		id += "  →  on a " + info.UnderlyingVM + " VM"
+		id += "  →  on a " + output.SanitizeControl(info.UnderlyingVM) + " VM"
 	}
 	return id
 }

@@ -11,6 +11,7 @@ import (
 
 	"github.com/keyorixhq/dashdiag/internal/baseline"
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/output"
 	"github.com/keyorixhq/dashdiag/internal/version"
 )
 
@@ -142,8 +143,17 @@ func buildHTML(snap *baseline.Snapshot, insights []models.Insight, elapsed time.
 		case "INFO":
 			cls = "info"
 		}
+		// html/template auto-escapes "&'\"<>+ on Execute (XSS), but that's a
+		// different threat class from a control/ANSI byte (e.g. ESC 0x1B)
+		// embedded in a process name or similar attacker-influenced text —
+		// auto-escaping doesn't touch those, so they'd survive into the
+		// generated .html file and fire if it's later `cat`'d to a terminal.
+		// Strip them the same way every other rendered sink in this codebase
+		// does (internal-analysis-11-02), in addition to (not instead of) the
+		// template's own HTML escaping.
 		data.Issues = append(data.Issues, htmlIssue{
-			Level: ins.Level, LevelClass: cls, Check: ins.Check, Message: ins.Message, Hints: ins.Hints,
+			Level: ins.Level, LevelClass: cls, Check: ins.Check,
+			Message: output.SanitizeControl(ins.Message), Hints: sanitizeHints(ins.Hints),
 		})
 	}
 
