@@ -190,8 +190,11 @@ func (c *ProcessesCollector) collectDarwin(ctx context.Context) (*models.Process
 		}
 		// Skip zombies whose parent is an interactive shell.
 		// Shells create brief zombies between fork() and wait() for every command
-		// they run — these are transient and always self-healing.
-		if isShell(pidName[ppid]) {
+		// they run — these are transient and always self-healing. isShell(pidName[ppid])
+		// alone is only a cheap pre-filter on ps's self-reported comm (spoofable —
+		// internal-collectors-27-02); isVerifiedShellParentDarwin corroborates it
+		// against the kernel's actual mapped executable before trusting the skip.
+		if isShell(pidName[ppid]) && isVerifiedShellParentDarwin(ctx, ppid) {
 			continue
 		}
 		ps := models.ProcessState{
@@ -267,4 +270,38 @@ func isVerifiedShellParent(ppid int) bool {
 		return false
 	}
 	return isShell(filepath.Base(target))
+}
+
+// isVerifiedShellParentDarwin is macOS's analogue of isVerifiedShellParent:
+// macOS has no /proc/<pid>/exe (or any other non-cgo kernel-verified
+// path-resolution primitive), so ps's self-reported comm field
+// (internal-collectors-27-02: spoofable, e.g. via a renamed argv[0]/execve)
+// is corroborated against lsof's "txt" (text-segment) file descriptors
+// instead. Those entries reflect what the kernel actually mapped as
+// executable code for the process — data ps's comm column does not derive
+// from — so a process that renamed itself "bash" while actually running a
+// different binary shows its real binary's path here, not "bash". Checking
+// EVERY txt entry (not just the first) rather than assuming ordering also
+// means a coincidental shared-library name never produces a false match: a
+// real shell's dynamic libraries (dyld, locale data, libSystem, …) never
+// have a basename equal to a shell name, so only the actual shell binary's
+// entry can match. Returns false (not verified — the caller must count the
+// zombie/hung child rather than trust an unverifiable comm name) on any lsof
+// failure, including ppid having already exited — mirrors
+// isVerifiedShellParent's fail-closed posture on Linux.
+func isVerifiedShellParentDarwin(ctx context.Context, ppid int) bool {
+	out, err := runCmd(ctx, "lsof", "-p", strconv.Itoa(ppid), "-a", "-d", "txt", "-Fn")
+	if err != nil {
+		return false
+	}
+	for _, line := range strings.Split(out, "\n") {
+		path, ok := strings.CutPrefix(line, "n")
+		if !ok {
+			continue
+		}
+		if isShell(filepath.Base(path)) {
+			return true
+		}
+	}
+	return false
 }

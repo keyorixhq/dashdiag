@@ -188,7 +188,13 @@ func parseJournalLine(line string) *models.TimelineEvent {
 	// The same benign-by-platform kernel errs (e.g. arm64 of_root PCI) also arrive
 	// via journald — downgrade them here too, or they'd CRIT from this path even
 	// after the dmesg copy was downgraded (the two don't always dedup).
-	if level == "CRIT" && isBenignKernelErr(strings.ToLower(msg)) {
+	// internal-collectors-33-02: gated on !catastrophe, mirroring parseDmesgLine's
+	// identical gate below — a message that legitimately contains BOTH a
+	// catastrophe keyword and a benign substring (e.g. a crafted log line, or
+	// coincidental overlap) must stay CRIT, never get silently downgraded to
+	// INFO because isBenignKernelErr also happens to match.
+	msgLower := strings.ToLower(msg)
+	if level == "CRIT" && !isCatastropheKernelMsg(msgLower) && isBenignKernelErr(msgLower) {
 		level = "INFO"
 	}
 
@@ -397,6 +403,22 @@ func isBenignKernelErr(msgLower string) bool {
 	return false
 }
 
+// isCatastropheKernelMsg reports whether a lowercased message contains a
+// catastrophe keyword that must always escalate to (or stay) CRIT — shared by
+// parseDmesgLine and parseJournalLine so the two paths can't drift out of
+// sync. internal-collectors-33-02: parseJournalLine previously had no
+// catastrophe check at all, so isBenignKernelErr could downgrade a genuine
+// kernel panic/OOM/oops straight to INFO purely because its message also
+// happened to contain a benign substring — this must win over that downgrade
+// in both parsers, not just in parseDmesgLine's comment.
+// "out of memory" catches the kernel OOM killer header ("Out of memory: Killed
+// process ..."), which does not contain the literal token "oom".
+func isCatastropheKernelMsg(msgLower string) bool {
+	return strings.Contains(msgLower, "oom") || strings.Contains(msgLower, "out of memory") ||
+		strings.Contains(msgLower, "panic") || strings.Contains(msgLower, "oops") ||
+		strings.Contains(msgLower, "bug:")
+}
+
 // parseDmesgLine parses one dmesg -T line into a TimelineEvent.
 // Format: "[Mon Jan 02 15:04:05 2006] message"
 func parseDmesgLine(line string, since time.Time) *models.TimelineEvent {
@@ -446,11 +468,7 @@ func parseDmesgLine(line string, since time.Time) *models.TimelineEvent {
 		level = "CRIT"
 	}
 	msgLower := strings.ToLower(msg)
-	// "out of memory" catches the kernel OOM killer header ("Out of memory: Killed
-	// process ..."), which does not contain the literal token "oom".
-	catastrophe := strings.Contains(msgLower, "oom") || strings.Contains(msgLower, "out of memory") ||
-		strings.Contains(msgLower, "panic") || strings.Contains(msgLower, "oops") ||
-		strings.Contains(msgLower, "bug:")
+	catastrophe := isCatastropheKernelMsg(msgLower)
 	if catastrophe {
 		level = "CRIT"
 	}
