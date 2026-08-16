@@ -467,20 +467,37 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyc
 		// require both a meaningful absolute floor AND >0.01% of traffic erroring.
 		if nicErrorRateHigh(iface.RxErrors, iface.RxPackets) ||
 			nicErrorRateHigh(iface.TxErrors, iface.TxPackets) {
+			// Untagged sibling of cmd-04-05, found sweeping this file for the
+			// same pattern: iface.Name spliced unescaped into copy-pasteable
+			// shell hints, one function above the guarded PrimaryInterfaceDown
+			// case below.
+			safeIfaceName := "<interface>"
+			if looksLikeSafeToken(iface.Name) {
+				safeIfaceName = iface.Name
+			}
 			out = append(out, insight("WARN", catNetwork,
 				fmt.Sprintf("%s has hardware errors: rx:%d tx:%d — may indicate bad cable, NIC, or switch port", iface.Name, iface.RxErrors, iface.TxErrors),
 				[]string{
-					"to inspect: ethtool -S " + iface.Name,
-					"to inspect: ip -s link show " + iface.Name,
+					"to inspect: ethtool -S " + safeIfaceName,
+					"to inspect: ip -s link show " + safeIfaceName,
 				},
 			))
 		}
 	}
 
 	if net.PrimaryInterfaceDown {
+		// cmd-04-05: net.PrimaryInterface is spliced unescaped into a
+		// copy-pasteable "to fix: ip link set … up" shell hint below;
+		// validate before use, same looksLikeSafeToken guard
+		// diskGrowthHints applies for filesystem device/mount names.
+		safeIface := net.PrimaryInterface
+		fixHint := "to fix: interface name withheld — contains unexpected characters"
+		if looksLikeSafeToken(safeIface) {
+			fixHint = fmt.Sprintf("to fix: ip link set %s up", safeIface)
+		}
 		out = append(out, insight("CRIT", catNetwork,
 			fmt.Sprintf("primary interface %s is DOWN", net.PrimaryInterface),
-			[]string{netInspectIPLink, netInspectIPRoute, fmt.Sprintf("to fix: ip link set %s up", net.PrimaryInterface)},
+			[]string{netInspectIPLink, netInspectIPRoute, fixHint},
 		))
 	} else if net.ConnectivityProbeDisabled {
 		// DSD_OFFLINE skipped the ping/DNS probe entirely — GatewayPingMs,

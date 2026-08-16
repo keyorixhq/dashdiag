@@ -133,6 +133,9 @@ func TestRefreshCache_Error(t *testing.T) {
 
 func TestMaybeNudge_StaleCacheTriggersRefresh(t *testing.T) {
 	withTempCache(t)
+	// Network is off by default (see internal/platform/network_policy.go) —
+	// opt in so this test actually exercises the refresh path it's named for.
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	// Cache older than the TTL: MaybeNudge must attempt a (short, bounded)
 	// refresh. Point apiBase at a server that responds fast with a newer tag.
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
@@ -156,6 +159,9 @@ func TestMaybeNudge_StaleCacheTriggersRefresh(t *testing.T) {
 
 func TestMaybeNudge_NoCacheRefreshFails(t *testing.T) {
 	withTempCache(t)
+	// Network is off by default — opt in so the refresh is actually attempted
+	// (and observed to fail gracefully), not skipped by the network gate.
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	// No cache at all, and the refresh endpoint fails — MaybeNudge must not
 	// panic and must return "" (no cache to compare against).
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {

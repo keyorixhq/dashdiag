@@ -513,6 +513,18 @@ func checkZFS(z models.ZFSInfo) []models.Insight {
 func checkZFSPool(pool models.ZFSPool) []models.Insight { //nolint:funlen // flat list of independent pool checks
 	var out []models.Insight
 
+	// pool.Name is user-chosen at `zpool create` time and spliced unescaped
+	// into copy-pasteable "to inspect: zpool status …"/"to run scrub: zpool
+	// scrub …" hints throughout this function; validate before use (see
+	// looksLikeSafeToken), same guard checkKVMVMs applies for VM names. The
+	// insight message itself still shows the raw name — that's display
+	// text, already sanitized at the render choke point (PR #991), not a
+	// shell hint.
+	safeName := pool.Name
+	if !looksLikeSafeToken(safeName) {
+		safeName = "<pool-name>"
+	}
+
 	// Pool state — anything other than ONLINE is a problem
 	switch pool.State {
 	case "DEGRADED":
@@ -522,8 +534,8 @@ func checkZFSPool(pool models.ZFSPool) []models.Insight { //nolint:funlen // fla
 		}
 		out = append(out, insight("CRIT", "ZFS", msg,
 			[]string{
-				fmt.Sprintf("to inspect: zpool status %s", pool.Name),
-				fmt.Sprintf(inspectZPoolEventsFmt, pool.Name),
+				fmt.Sprintf("to inspect: zpool status %s", safeName),
+				fmt.Sprintf(inspectZPoolEventsFmt, safeName),
 				"note: replace failed vdev and run: zpool replace <pool> <old> <new>",
 				"note: data is at risk — restore redundancy immediately",
 			},
@@ -532,7 +544,7 @@ func checkZFSPool(pool models.ZFSPool) []models.Insight { //nolint:funlen // fla
 		out = append(out, insight("CRIT", "ZFS",
 			fmt.Sprintf("ZFS pool %s is FAULTED — pool may be unrecoverable", pool.Name),
 			[]string{
-				fmt.Sprintf(inspectZPoolStatusFmt, pool.Name),
+				fmt.Sprintf(inspectZPoolStatusFmt, safeName),
 				"note: FAULTED means pool was taken offline due to unrecoverable error",
 				"note: import with: zpool import -F <pool>  (force recovery, may lose data)",
 			},
@@ -546,17 +558,17 @@ func checkZFSPool(pool models.ZFSPool) []models.Insight { //nolint:funlen // fla
 		out = append(out, insight("CRIT", "ZFS",
 			fmt.Sprintf("ZFS pool %s is SUSPENDED — I/O is halted (too many devices lost); all access to the pool blocks", pool.Name),
 			[]string{
-				fmt.Sprintf(inspectZPoolStatusFmt, pool.Name),
-				fmt.Sprintf(inspectZPoolEventsFmt, pool.Name),
-				"note: restore the missing devices, then: zpool clear " + pool.Name,
+				fmt.Sprintf(inspectZPoolStatusFmt, safeName),
+				fmt.Sprintf(inspectZPoolEventsFmt, safeName),
+				"note: restore the missing devices, then: zpool clear " + safeName,
 			},
 		))
 	case "REMOVED", "UNAVAIL", "OFFLINE":
 		out = append(out, insight("CRIT", "ZFS",
 			fmt.Sprintf("ZFS pool %s state: %s", pool.Name, pool.State),
 			[]string{
-				fmt.Sprintf(inspectZPoolStatusFmt, pool.Name),
-				fmt.Sprintf(inspectZPoolEventsFmt, pool.Name),
+				fmt.Sprintf(inspectZPoolStatusFmt, safeName),
+				fmt.Sprintf(inspectZPoolEventsFmt, safeName),
 			},
 		))
 	case "ONLINE":
@@ -570,7 +582,7 @@ func checkZFSPool(pool models.ZFSPool) []models.Insight { //nolint:funlen // fla
 		// state fall through as if it were ONLINE.
 		out = append(out, unverifiedInsight("INFO", "ZFS",
 			fmt.Sprintf("ZFS pool %s state %q is not a recognized value — health could not be confirmed", pool.Name, pool.State),
-			[]string{fmt.Sprintf(inspectZPoolStatusFmt, pool.Name)},
+			[]string{fmt.Sprintf(inspectZPoolStatusFmt, safeName)},
 		))
 	}
 
@@ -580,7 +592,7 @@ func checkZFSPool(pool models.ZFSPool) []models.Insight { //nolint:funlen // fla
 			fmt.Sprintf("ZFS pool %s is %.0f%% full (%.1f GB free of %.1f GB)",
 				pool.Name, pool.UsedPct, pool.FreeGB, pool.SizeGB),
 			[]string{
-				fmt.Sprintf("to inspect: zfs list -r %s", pool.Name),
+				fmt.Sprintf("to inspect: zfs list -r %s", safeName),
 				"note: ZFS performance degrades significantly above 80% capacity",
 				"note: above 90%, writes may fail — free space or expand pool",
 				"to free space: zfs destroy <snapshot>  (remove old snapshots)",
@@ -593,14 +605,14 @@ func checkZFSPool(pool models.ZFSPool) []models.Insight { //nolint:funlen // fla
 		out = append(out, insight("WARN", "ZFS",
 			fmt.Sprintf("ZFS pool %s fragmentation at %d%% — read/write amplification likely", pool.Name, pool.FragPct),
 			[]string{
-				fmt.Sprintf("to inspect: zpool list %s", pool.Name),
+				fmt.Sprintf("to inspect: zpool list %s", safeName),
 				"note: fragmentation above 70% causes significant performance degradation",
 			},
 		))
 	} else if pool.FragPct >= 50 {
 		out = append(out, insight("INFO", "ZFS",
 			fmt.Sprintf("ZFS pool %s fragmentation at %d%%", pool.Name, pool.FragPct),
-			[]string{fmt.Sprintf("to inspect: zpool list %s", pool.Name)},
+			[]string{fmt.Sprintf("to inspect: zpool list %s", safeName)},
 		))
 	}
 
@@ -618,7 +630,7 @@ func checkZFSPool(pool models.ZFSPool) []models.Insight { //nolint:funlen // fla
 		out = append(out, insight("CRIT", "ZFS",
 			fmt.Sprintf("ZFS pool %s: last scrub found %d unrepairable error(s) — permanent data corruption", pool.Name, pool.ScrubErrors),
 			[]string{
-				fmt.Sprintf(inspectZPoolStatusFmt, pool.Name),
+				fmt.Sprintf(inspectZPoolStatusFmt, safeName),
 				"note: 'zpool status -v' lists the affected files — restore them from backup",
 			},
 		))
@@ -633,7 +645,7 @@ func checkZFSPool(pool models.ZFSPool) []models.Insight { //nolint:funlen // fla
 		if pool.State == "" || pool.State == "ONLINE" {
 			out = append(out, unverifiedInsight("INFO", "ZFS",
 				fmt.Sprintf("ZFS pool %s is ONLINE, but `zpool status` could not be read — per-vdev error counts and scrub status are unverified", pool.Name),
-				[]string{fmt.Sprintf("to inspect: zpool status %s  (it can hang on a sick pool — check dmesg)", pool.Name)}))
+				[]string{fmt.Sprintf("to inspect: zpool status %s  (it can hang on a sick pool — check dmesg)", safeName)}))
 		}
 		return out
 	}
@@ -644,7 +656,7 @@ func checkZFSPool(pool models.ZFSPool) []models.Insight { //nolint:funlen // fla
 		out = append(out, insight("WARN", "ZFS",
 			fmt.Sprintf("ZFS pool %s has never been scrubbed — silent corruption risk", pool.Name),
 			[]string{
-				fmt.Sprintf("to run scrub: zpool scrub %s", pool.Name),
+				fmt.Sprintf("to run scrub: zpool scrub %s", safeName),
 				"note: monthly scrubs are recommended for all ZFS pools",
 				"to automate: systemctl enable zfs-scrub.timer  (if available)",
 			},
@@ -652,7 +664,7 @@ func checkZFSPool(pool models.ZFSPool) []models.Insight { //nolint:funlen // fla
 	case pool.ScrubAgeDays > 30:
 		out = append(out, insight("INFO", "ZFS",
 			fmt.Sprintf("ZFS pool %s last scrubbed %d days ago (recommended: monthly)", pool.Name, pool.ScrubAgeDays),
-			[]string{fmt.Sprintf("to run scrub: zpool scrub %s", pool.Name)},
+			[]string{fmt.Sprintf("to run scrub: zpool scrub %s", safeName)},
 		))
 	}
 
@@ -674,36 +686,7 @@ func checkLVM(l models.LVMInfo) []models.Insight {
 			[]string{"to inspect: lvs --version"})}
 	}
 
-	// Thin pool data and metadata usage — CRIT thresholds are tight because
-	// exhaustion happens fast and recovery requires unmounting everything.
-	for _, pool := range l.ThinPools {
-		// Data exhaustion: 80% WARN, 90% CRIT (see analysis/thresholds.go)
-		if lv := LVMThinPoolLevel(pool.DataPct); lv != "" {
-			out = append(out, insight(lv, "LVM",
-				fmt.Sprintf("thin pool %s/%s data at %.0f%% (%.1f GB total)",
-					pool.VG, pool.Name, pool.DataPct, pool.SizeGB),
-				[]string{
-					fmt.Sprintf(inspectLVSFmt, pool.VG, pool.Name),
-					fmt.Sprintf("to extend:  lvextend -l +50%%FREE %s/%s", pool.VG, pool.Name),
-					"note: thin pool exhaustion silently freezes all VMs writing to it",
-					"note: set lvm.conf thin_pool_autoextend_threshold=80 to auto-extend",
-				},
-			))
-		}
-		// Metadata exhaustion: 50% WARN, 75% CRIT (much more dangerous than data)
-		// Metadata exhaustion cannot be easily recovered and requires pool deactivation.
-		if lv := levelPct(pool.MetaPct, 50, 75); lv != "" {
-			out = append(out, insight(lv, "LVM",
-				fmt.Sprintf("thin pool %s/%s metadata at %.0f%% — metadata exhaustion is unrecoverable without deactivation",
-					pool.VG, pool.Name, pool.MetaPct),
-				[]string{
-					fmt.Sprintf(inspectLVSFmt, pool.VG, pool.Name),
-					fmt.Sprintf("to extend:  lvextend --poolmetadatasize +1G %s/%s", pool.VG, pool.Name),
-					"note: metadata exhaustion is worse than data exhaustion — act immediately",
-				},
-			))
-		}
-	}
+	out = append(out, checkLVMThinPools(l.ThinPools)...)
 
 	// A VG that backs a thin pool is, by design, almost fully *allocated* to that
 	// pool — Proxmox's default layout hands nearly the whole VG to the `data` thin
@@ -715,13 +698,17 @@ func checkLVM(l models.LVMInfo) []models.Insight {
 
 	// VG free space — skip inactive VGs (no mounted LVs = leftover OS partition)
 	for _, vg := range l.VGs {
+		safeVGName := vg.Name
+		if !looksLikeSafeToken(safeVGName) {
+			safeVGName = "<vg>"
+		}
 		if !vg.HasMountedLV {
 			out = append(out, insight("INFO", "LVM",
 				fmt.Sprintf("inactive volume group %s is %.0f%% full — no LVs mounted (old OS partition?)",
 					vg.Name, 100-vg.FreePct),
 				[]string{
-					fmt.Sprintf("to inspect: vgs %s", vg.Name),
-					fmt.Sprintf("to inspect: lvs | grep %s", vg.Name),
+					fmt.Sprintf("to inspect: vgs %s", safeVGName),
+					fmt.Sprintf("to inspect: lvs | grep %s", safeVGName),
 					"note: this VG has no mounted LVs on this OS — likely a leftover from a previous install",
 				},
 			))
@@ -744,7 +731,7 @@ func checkLVM(l models.LVMInfo) []models.Insight {
 					vg.Name, 100-vg.FreePct, vg.FreeGB, vg.SizeGB),
 				[]string{
 					"note: a fully-allocated VG is the standard layout (root+swap take the whole VG) — not a fault on its own",
-					fmt.Sprintf("to grow an LV or snapshot later, add a PV: pvcreate /dev/<disk> && vgextend %s /dev/<disk>", vg.Name),
+					fmt.Sprintf("to grow an LV or snapshot later, add a PV: pvcreate /dev/<disk> && vgextend %s /dev/<disk>", safeVGName),
 				},
 			))
 		}
@@ -754,8 +741,8 @@ func checkLVM(l models.LVMInfo) []models.Insight {
 				fmt.Sprintf("volume group %s has %d missing PV(s) — data at risk",
 					vg.Name, vg.MissingPVs),
 				[]string{
-					fmt.Sprintf("to inspect: pvs | grep %s", vg.Name),
-					fmt.Sprintf("to inspect: vgreduce --removemissing %s  (removes missing PVs)", vg.Name),
+					fmt.Sprintf("to inspect: pvs | grep %s", safeVGName),
+					fmt.Sprintf("to inspect: vgreduce --removemissing %s  (removes missing PVs)", safeVGName),
 					"note: missing PVs mean LVs on that device are inaccessible",
 				},
 			))
@@ -764,14 +751,21 @@ func checkLVM(l models.LVMInfo) []models.Insight {
 
 	// Snapshots — COW table overflow corrupts the snapshot
 	for _, snap := range l.Snapshots {
+		safeSnapVG, safeSnapName := snap.VG, snap.Name
+		if !looksLikeSafeToken(safeSnapVG) {
+			safeSnapVG = "<vg>"
+		}
+		if !looksLikeSafeToken(safeSnapName) {
+			safeSnapName = "<snapshot>"
+		}
 		if lv := LVMSnapshotLevel(snap.DataPct); lv != "" {
 			out = append(out, insight(lv, "LVM",
 				fmt.Sprintf("snapshot %s/%s is %.0f%% full — overflow will corrupt the snapshot",
 					snap.VG, snap.Name, snap.DataPct),
 				[]string{
-					fmt.Sprintf(inspectLVSFmt, snap.VG, snap.Name),
-					fmt.Sprintf("to extend:  lvextend -L +1G %s/%s", snap.VG, snap.Name),
-					fmt.Sprintf("to remove:  lvremove %s/%s  (if snapshot is no longer needed)", snap.VG, snap.Name),
+					fmt.Sprintf(inspectLVSFmt, safeSnapVG, safeSnapName),
+					fmt.Sprintf("to extend:  lvextend -L +1G %s/%s", safeSnapVG, safeSnapName),
+					fmt.Sprintf("to remove:  lvremove %s/%s  (if snapshot is no longer needed)", safeSnapVG, safeSnapName),
 				},
 			))
 		}
@@ -781,17 +775,76 @@ func checkLVM(l models.LVMInfo) []models.Insight {
 	return out
 }
 
+// checkLVMThinPools covers thin-pool data/metadata exhaustion. Split out of
+// checkLVM to keep it under the funlen limit, same pattern
+// checkKVMVMsXMLDeep/checkKVMVMsDiskErrors use in heuristics_virt.go.
+//
+// VG/LV names here are operator-chosen at creation time and spliced
+// unescaped into copy-pasteable "to inspect: lvs …"/"to extend: lvextend …"
+// hints; validate before use (see looksLikeSafeToken), same guard
+// checkKVMVMs applies for VM names and checkZFSPool applies for pool names.
+// Each insight message still shows the raw name — that's display text,
+// already sanitized at the render choke point (PR #991), not a shell hint.
+func checkLVMThinPools(pools []models.LVMThinPool) []models.Insight {
+	var out []models.Insight
+	for _, pool := range pools {
+		safeVG, safePool := pool.VG, pool.Name
+		if !looksLikeSafeToken(safeVG) {
+			safeVG = "<vg>"
+		}
+		if !looksLikeSafeToken(safePool) {
+			safePool = "<pool>"
+		}
+		// Data exhaustion: 80% WARN, 90% CRIT (see analysis/thresholds.go)
+		if lv := LVMThinPoolLevel(pool.DataPct); lv != "" {
+			out = append(out, insight(lv, "LVM",
+				fmt.Sprintf("thin pool %s/%s data at %.0f%% (%.1f GB total)",
+					pool.VG, pool.Name, pool.DataPct, pool.SizeGB),
+				[]string{
+					fmt.Sprintf(inspectLVSFmt, safeVG, safePool),
+					fmt.Sprintf("to extend:  lvextend -l +50%%FREE %s/%s", safeVG, safePool),
+					"note: thin pool exhaustion silently freezes all VMs writing to it",
+					"note: set lvm.conf thin_pool_autoextend_threshold=80 to auto-extend",
+				},
+			))
+		}
+		// Metadata exhaustion: 50% WARN, 75% CRIT (much more dangerous than data)
+		// Metadata exhaustion cannot be easily recovered and requires pool deactivation.
+		if lv := levelPct(pool.MetaPct, 50, 75); lv != "" {
+			out = append(out, insight(lv, "LVM",
+				fmt.Sprintf("thin pool %s/%s metadata at %.0f%% — metadata exhaustion is unrecoverable without deactivation",
+					pool.VG, pool.Name, pool.MetaPct),
+				[]string{
+					fmt.Sprintf(inspectLVSFmt, safeVG, safePool),
+					fmt.Sprintf("to extend:  lvextend --poolmetadatasize +1G %s/%s", safeVG, safePool),
+					"note: metadata exhaustion is worse than data exhaustion — act immediately",
+				},
+			))
+		}
+	}
+	return out
+}
+
 func checkLVMRaid(l models.LVMInfo) []models.Insight {
 	var out []models.Insight
-	// RAID/mirror LV health
+	// RAID/mirror LV health. VG/LV names are operator-chosen and spliced
+	// unescaped into copy-pasteable hints below; validate before use, same
+	// guard checkLVM applies above.
 	for _, r := range l.RaidLVs {
+		safeRVG, safeRName := r.VG, r.Name
+		if !looksLikeSafeToken(safeRVG) {
+			safeRVG = "<vg>"
+		}
+		if !looksLikeSafeToken(safeRName) {
+			safeRName = "<lv>"
+		}
 		if r.Degraded {
 			out = append(out, insight("CRIT", "LVM",
 				fmt.Sprintf("%s LV %s/%s is DEGRADED — one or more PVs failed", r.Type, r.VG, r.Name),
 				[]string{
-					fmt.Sprintf("to inspect: lvs -a -o name,vg_name,lv_attr,devices %s/%s", r.VG, r.Name),
+					fmt.Sprintf("to inspect: lvs -a -o name,vg_name,lv_attr,devices %s/%s", safeRVG, safeRName),
 					"to inspect: pvs  (identify failed PV)",
-					"to recover: lvconvert --repair " + r.VG + "/" + r.Name,
+					"to recover: lvconvert --repair " + safeRVG + "/" + safeRName,
 				},
 			))
 		} else if r.Resyncing {
@@ -799,7 +852,7 @@ func checkLVMRaid(l models.LVMInfo) []models.Insight {
 				fmt.Sprintf("%s LV %s/%s is resyncing (%.1f%% complete) — degraded protection until complete",
 					r.Type, r.VG, r.Name, r.SyncPct),
 				[]string{
-					fmt.Sprintf("to watch:  lvs -a %s/%s  (monitor sync%%)", r.VG, r.Name),
+					fmt.Sprintf("to watch:  lvs -a %s/%s  (monitor sync%%)", safeRVG, safeRName),
 					"note: do not remove any PV while resync is in progress",
 				},
 			))
@@ -1137,6 +1190,17 @@ func checkDisk(disk models.DiskInfo, thresh Thresholds) []models.Insight {
 		}
 	}
 	for _, fs := range disk.Filesystems {
+		// fs.Mount comes from /proc/mounts and, in a container/namespace, can
+		// be influenced by whoever configured that namespace's mount table
+		// (same rationale nfs_linux.go's DSD_OFFLINE-gated dial uses for
+		// treating a mount-table value as not fully trusted). Spliced
+		// unescaped into copy-pasteable "to inspect: du …"/"mount -o
+		// remount,rw …" hints below; validate before use (see
+		// looksLikeSafeToken), same guard checkKVMVMs applies for VM names.
+		safeMount := fs.Mount
+		if !looksLikeSafeToken(safeMount) {
+			safeMount = "<mount>"
+		}
 		// Inherently read-only image filesystems (iso9660, squashfs, erofs,
 		// cramfs) are packed to capacity at build time — 100% used is their
 		// normal state and no admin action can free space. Skip usage/inode
@@ -1146,7 +1210,7 @@ func checkDisk(disk models.DiskInfo, thresh Thresholds) []models.Insight {
 		inherentRO := IsInherentlyReadOnlyFS(fs.FSType)
 		if !inherentRO {
 			if l := levelPct(fs.UsedPct, thresh.DiskWarnPct, thresh.DiskCritPct); l != "" {
-				hints := []string{"to inspect: df -h", fmt.Sprintf("to inspect: du -sh %s/* 2>/dev/null | sort -h | tail -20", fs.Mount)}
+				hints := []string{"to inspect: df -h", fmt.Sprintf("to inspect: du -sh %s/* 2>/dev/null | sort -h | tail -20", safeMount)}
 				// /boot filling up is almost always old kernel images after upgrades.
 				// Show distro-specific cleanup command based on detected package manager.
 				if fs.Mount == "/boot" {
@@ -1194,7 +1258,7 @@ func checkDisk(disk models.DiskInfo, thresh Thresholds) []models.Insight {
 			if l := levelPct(fs.InodesUsedPct, thresh.DiskWarnPct, thresh.DiskCritPct); l != "" {
 				out = append(out, insight(l, "Disk",
 					fmt.Sprintf("inode usage at %.0f%% on %s", fs.InodesUsedPct, fs.Mount),
-					[]string{"to inspect: df -i", fmt.Sprintf("to inspect: find %s -xdev -printf '%%h\\n' | sort | uniq -c | sort -rn | head -20", fs.Mount)},
+					[]string{"to inspect: df -i", fmt.Sprintf("to inspect: find %s -xdev -printf '%%h\\n' | sort | uniq -c | sort -rn | head -20", safeMount)},
 				))
 			}
 		}
@@ -1220,8 +1284,8 @@ func checkDisk(disk models.DiskInfo, thresh Thresholds) []models.Insight {
 			hints := make([]string, 0, 5)
 			hints = append(hints,
 				"to inspect: dmesg | grep -iE 'remount|i/o error|ext4-fs error|xfs.*(error|corrupt)|btrfs.*error'",
-				fmt.Sprintf("to inspect: mount | grep ' %s '", fs.Mount),
-				fmt.Sprintf("after fixing the cause: mount -o remount,rw %s", fs.Mount),
+				fmt.Sprintf("to inspect: mount | grep ' %s '", safeMount),
+				fmt.Sprintf("after fixing the cause: mount -o remount,rw %s", safeMount),
 				"note: intentionally read-only mounts (immutable OS, ro bind mounts) can ignore this",
 			)
 			hints = append(hints, busyProcessHints(fs)...)

@@ -1132,6 +1132,24 @@ func checkCVEPacman(ctx context.Context, cveID string) *models.CVEResult {
 		return result
 	}
 
+	// internal-collectors-07-05: mirrors scanAllPacman's (07-01) and
+	// checkCVEZypper's (07-03) hardening — the guard above only catches
+	// err+empty output. A non-zero exit with SOME non-empty, non-matching
+	// stdout (a repo/lock/permission warning arch-audit printed before
+	// failing) fell straight through to the parse loop below, found no row
+	// matching cveID, and returned a confident CVENotAffected. "CVE-" is
+	// this format's structural marker for a genuine record (every real row
+	// has a CVE-XXXX-YYYY column, unlike scanAllPacman's -u output whose
+	// marker is "is affected by") — its total absence means arch-audit
+	// never produced its normal report at all, a genuine failure, never a
+	// silent "not affected".
+	if err != nil && !strings.Contains(out, "CVE-") {
+		result.Status = models.CVEUnknown
+		result.StatusReason = archAuditFailed + err.Error()
+		result.FallbackURL = "https://security.archlinux.org/" + strings.ToLower(cveID)
+		return result
+	}
+
 	// arch-audit --format "%n %c %s" output: "pkgname CVE-XXXX-YYYY,CVE-XXXX-ZZZZ severity"
 	var pkgs []models.CVEPackage
 	cveUpper := strings.ToUpper(cveID)

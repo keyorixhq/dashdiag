@@ -352,14 +352,30 @@ func isZFSImportUnit(unit string) bool {
 // for ZFS-import units on a host with no imported pools, or the generic
 // "unit failed" CRIT (with an SELinux-AVC hint when SELinux is enforcing).
 func failedUnitInsight(unit string, selinuxEnforcing, zfsPoolsPresent bool) models.Insight {
+	// unit comes from `systemctl --failed`, enumerating whatever is loaded —
+	// including transient units an unprivileged user can name arbitrarily via
+	// `systemd-run --unit=<name>` (session-scoped) or a container/generator
+	// that drops its own .service file. Spliced unescaped into copy-pasteable
+	// "to inspect: systemctl status …"/"journalctl -u …" hints below;
+	// validate before use (see looksLikeSafeToken), same guard checkKVMVMs
+	// applies for VM names. The insight message itself still shows the raw
+	// unit — that's display text, already sanitized at the render choke
+	// point (PR #991), not a shell hint. isBootFilesystemUnit/isZFSImportUnit
+	// below match unit against a fixed allowlist of known-safe literals, but
+	// that's a behavioral classification, not a safety guarantee for unit
+	// itself — validate unconditionally rather than relying on it.
+	safeUnit := unit
+	if !looksLikeSafeToken(safeUnit) {
+		safeUnit = "<unit>"
+	}
 	// Boot-time filesystem units (root remount, fsck) get a targeted repair hint —
 	// a failed fsck/remount is the classic cause of a host stuck in emergency mode.
 	if isBootFilesystemUnit(unit) {
 		return insight("CRIT", "Systemd",
 			fmt.Sprintf("boot filesystem unit %s failed — a filesystem check/remount did not complete at boot (can drop the host into emergency mode)", unit),
 			[]string{
-				fmt.Sprintf("to inspect: systemctl status %s", unit),
-				fmt.Sprintf("to inspect: journalctl -u %s -b --no-pager", unit),
+				fmt.Sprintf("to inspect: systemctl status %s", safeUnit),
+				fmt.Sprintf("to inspect: journalctl -u %s -b --no-pager", safeUnit),
 				"to find the device: blkid ; cat /etc/fstab",
 				"to repair (offline/unmounted): e2fsck -y <device>   (xfs_repair for XFS)",
 			})
@@ -370,21 +386,21 @@ func failedUnitInsight(unit string, selinuxEnforcing, zfsPoolsPresent bool) mode
 		return insight("INFO", "Systemd",
 			fmt.Sprintf("unit %s has failed, but no ZFS pools are imported on this host — expected when ZFS is passed through to a VM or unused", unit),
 			[]string{
-				fmt.Sprintf("to inspect: systemctl status %s", unit),
+				fmt.Sprintf("to inspect: systemctl status %s", safeUnit),
 				"to verify:  zpool list  (empty = no host pools, so the import failure is benign)",
-				fmt.Sprintf("to disable: systemctl disable %s  (if this host never imports pools)", unit),
+				fmt.Sprintf("to disable: systemctl disable %s  (if this host never imports pools)", safeUnit),
 			})
 	}
 	hints := []string{
-		fmt.Sprintf("to inspect: systemctl status %s", unit),
-		fmt.Sprintf("to inspect: journalctl -u %s -n 50", unit),
+		fmt.Sprintf("to inspect: systemctl status %s", safeUnit),
+		fmt.Sprintf("to inspect: journalctl -u %s -n 50", safeUnit),
 	}
 	// SELinux double-layer hint — permission errors from SELinux produce no output
 	// in journalctl -u, so admins check standard permissions and find nothing wrong.
 	if selinuxEnforcing {
 		hints = append(hints,
 			"note: SELinux is enforcing — check AVC denials if permissions look correct",
-			fmt.Sprintf("to check SELinux: ausearch -m avc -ts recent -c %s", unitBaseName(unit)),
+			fmt.Sprintf("to check SELinux: ausearch -m avc -ts recent -c %s", unitBaseName(safeUnit)),
 		)
 	}
 	return insight("CRIT", "Systemd", fmt.Sprintf("unit %s has failed", unit), hints)

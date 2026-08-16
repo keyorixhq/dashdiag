@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/platform"
 )
 
 const (
@@ -138,11 +139,12 @@ type dnsProbeResult struct {
 // (ExternalResolvesOK=false), which the heuristic reports as unverified, not OK.
 func runDNSProbe(ctx context.Context, info *models.DNSResolverInfo) {
 	// internal-collectors-09-01: this is a real outbound DNS query
-	// (google.com, plus the host's own hostname) with no opt-out — every
-	// other live network probe elsewhere in the codebase honors DSD_OFFLINE.
-	// ProbeSkipped tells the heuristic this is unmeasured, never a false
-	// "resolution is failing".
-	if os.Getenv("DSD_OFFLINE") != "" {
+	// (google.com, plus the host's own hostname), gated by
+	// platform.NetworkAllowed like every other live network probe in the
+	// codebase — off by default. ProbeSkipped tells the heuristic this is
+	// unmeasured, never a false "resolution is failing". sourceIsReplaying
+	// short-circuits the gate under `dsd replay` (see TestDNSProbeReplaysFromBundle).
+	if !platform.NetworkAllowed() && !sourceIsReplaying() {
 		info.ProbeSkipped = true
 		return
 	}

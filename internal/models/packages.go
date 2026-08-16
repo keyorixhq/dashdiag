@@ -16,6 +16,14 @@ type PackageIntegrity struct {
 	LdconfigOK      bool     `json:"ldconfig_ok"`
 	VerifyTimedOut  bool     `json:"verify_timed_out,omitempty"`
 	VerifyLocked    bool     `json:"verify_locked,omitempty"` // integrity check couldn't run — package manager was locked
+	// CheckFailed is true when the underlying integrity tool itself (dnf
+	// check / rpm --verify / dpkg --audit / apt-get check) failed to spawn or
+	// run at all — a genuine execution failure, not "ran and found nothing."
+	// Those commands are read via runCmdOutput/runCmdCombined specifically so
+	// their non-zero-exit findings survive (see pkgIntegrityDNF/APT), which
+	// means empty stdout alone can't distinguish "verified clean" from "never
+	// ran" — this flag closes that gap.
+	CheckFailed bool `json:"check_failed,omitempty"`
 }
 
 // PackagesInfo holds package security advisory data.

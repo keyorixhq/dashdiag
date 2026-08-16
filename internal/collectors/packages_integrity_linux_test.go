@@ -70,6 +70,43 @@ func TestPkgIntegrityAPT_DpkgBrokenPackages(t *testing.T) {
 	}
 }
 
+// TestPkgIntegrityDNF_CheckFailed is the mechanical-sweep finding (gap C,
+// idiom 3): `dnf check` failing to spawn at all (not a findings-bearing
+// non-zero exit) left BrokenPackages empty with no disclosure —
+// indistinguishable from a genuinely clean system. CheckFailed must be set.
+func TestPkgIntegrityDNF_CheckFailed(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmdNotFound("dnf", []string{"check", flagQuiet})
+		b.PutCmdNotFound("rpm", append([]string{"--verify"}, []string{"bash", "coreutils", "systemd", "glibc", "openssl-libs"}...))
+	})
+	var pi models.PackageIntegrity
+	pkgIntegrityDNF(context.Background(), &pi)
+	if len(pi.BrokenPackages) != 0 || len(pi.RPMVerifyFailed) != 0 {
+		t.Errorf("expected no findings on total command failure, got BrokenPackages=%v RPMVerifyFailed=%v", pi.BrokenPackages, pi.RPMVerifyFailed)
+	}
+	if !pi.CheckFailed {
+		t.Error("expected CheckFailed=true — otherwise indistinguishable from a verified-clean system")
+	}
+}
+
+// TestPkgIntegrityAPT_CheckFailed is the sibling of TestPkgIntegrityDNF_CheckFailed:
+// `dpkg --audit`/`apt-get check` failing to spawn at all left BrokenPackages/
+// UnmetDeps empty with no disclosure.
+func TestPkgIntegrityAPT_CheckFailed(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmdNotFound("dpkg", []string{"--audit"})
+		b.PutCmdNotFound(pkgCmdAptGet, []string{"check"})
+	})
+	var pi models.PackageIntegrity
+	pkgIntegrityAPT(context.Background(), &pi)
+	if len(pi.BrokenPackages) != 0 || len(pi.UnmetDeps) != 0 {
+		t.Errorf("expected no findings on total command failure, got BrokenPackages=%v UnmetDeps=%v", pi.BrokenPackages, pi.UnmetDeps)
+	}
+	if !pi.CheckFailed {
+		t.Error("expected CheckFailed=true — otherwise indistinguishable from a verified-clean system")
+	}
+}
+
 // TestPkgIntegrityDNF_TenOrMoreBrokenPackages covers packages_linux.go:1016 —
 // the `if len(pi.BrokenPackages) >= 10 { break }` cap in pkgIntegrityDNF.
 func TestPkgIntegrityDNF_TenOrMoreBrokenPackages(t *testing.T) {

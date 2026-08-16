@@ -15,6 +15,8 @@ import (
 	"strings"
 	"time"
 	"unicode"
+
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 // Options tunes a fleet run.
@@ -347,7 +349,23 @@ func sshRun(ctx context.Context, opts Options, host, cmd string) ([]byte, error)
 	// "--" terminates ssh option parsing so a host that survived validation can
 	// never be reinterpreted as a flag; ValidateHost is the primary guard.
 	args := append(sshBaseArgs(opts), "--", host, cmd)
+	// subprocess-wrappers-08: force-kill after context cancel (RunTimeout),
+	// same primitive collectors/baseline/drilldown/init use — without it a
+	// wedged ssh (a half-open TCP connection, a server that stops responding
+	// mid-session) can outlive ctx's deadline instead of dying with it.
+	//
+	// Deliberately NOT source.ResolveTrustedTool'd: unlike dsd's own
+	// collectors, "ssh" here must resolve via the operator's own $PATH — dsd
+	// routinely runs fleet as a non-root user with a custom SSH client
+	// (corporate wrapper scripts, a non-standard install prefix, ProxyCommand
+	// setups) and PATH-restricting it would break exactly the "inherits the
+	// user's ~/.ssh/config, keys, and agent" design this package exists for
+	// (see the package doc comment). Locale forcing is skipped for the same
+	// reason it doesn't apply: sshRun's stdout is the REMOTE dsd's JSON
+	// output, not text parsed for locale-sensitive words/numbers — ssh's own
+	// local locale has no bearing on it.
 	c := exec.CommandContext(ctx, "ssh", args...) // NOSONAR — hardcoded binary, PATH lookup is intentional
+	c.WaitDelay = source.ExecWaitDelay
 	stdout := &capBuffer{limit: sshOutputMaxBytes}
 	stderr := &capBuffer{limit: 32 << 10}
 	c.Stdout = stdout
@@ -364,7 +382,12 @@ func sshRun(ctx context.Context, opts Options, host, cmd string) ([]byte, error)
 func scp(ctx context.Context, opts Options, localPath, host, remotePath string) error {
 	scpArgs := append([]string{"-q"}, sshBaseArgs(opts)...)
 	scpArgs = append(scpArgs, "--", localPath, host+":"+remotePath)
-	return exec.CommandContext(ctx, "scp", scpArgs...).Run() // NOSONAR — hardcoded binary, PATH lookup is intentional
+	// Same rationale as sshRun above: WaitDelay yes, PATH-trust/locale no —
+	// scp must resolve via the operator's own $PATH for the same reason ssh
+	// does, and there is no output here to locale-parse at all.
+	c := exec.CommandContext(ctx, "scp", scpArgs...) // NOSONAR — hardcoded binary, PATH lookup is intentional
+	c.WaitDelay = source.ExecWaitDelay
+	return c.Run()
 }
 
 func sshBaseArgs(opts Options) []string {

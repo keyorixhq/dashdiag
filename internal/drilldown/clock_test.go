@@ -167,6 +167,9 @@ func TestClockTrackingLinux_NoToolingAvailable(t *testing.T) {
 }
 
 func TestClockTrackingMac_TimedRunningWithSNTP(t *testing.T) {
+	// Network is off by default (see internal/platform/network_policy.go) —
+	// opt in so this test actually exercises the sntp path it's named for.
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	swapRunCmd(t, func(_ context.Context, name string, args ...string) (string, error) {
 		switch name {
 		case "pgrep":

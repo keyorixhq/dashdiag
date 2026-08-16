@@ -151,9 +151,11 @@ func detectCloudEnvironmentFromPaths(dmiDir, hypervisorUUID, blockDir, imdsURL s
 // standalone dsd subcommand runs (via recordResultSeverity, to pick the
 // right IO-latency thresholds for its exit code) as well as `dsd health` —
 // so, unlike a feature the operator explicitly invoked, it fires on
-// essentially every dsd command with no opt-out. Honor DSD_OFFLINE.
+// essentially every dsd command — the highest-blast-radius of dsd's network
+// call sites. Gated by NetworkAllowed(): off by default, opt in with
+// --network/DSD_ALLOW_NETWORK, DSD_OFFLINE always overrides both.
 func checkIMDS(url string) bool {
-	if os.Getenv("DSD_OFFLINE") != "" {
+	if !NetworkAllowed() {
 		return false
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 150*time.Millisecond)
