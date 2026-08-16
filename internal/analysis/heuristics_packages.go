@@ -463,6 +463,19 @@ func checkPackageIntegrity(pi models.PackageIntegrity) []models.Insight {
 		))
 	}
 
+	// Mechanical-sweep finding (gap C, idiom 3): dnf check/rpm --verify/
+	// dpkg --audit/apt-get check failing to spawn at all (tool absent, not a
+	// findings-bearing non-zero exit) previously left every *Packages/
+	// *Failed/*Deps slice empty with no disclosure — indistinguishable from
+	// a genuinely clean system. Same "couldn't verify" treatment as
+	// VerifyLocked above.
+	if pi.CheckFailed {
+		out = append(out, unverifiedInsight("INFO", "Packages",
+			"could not verify package integrity — the underlying check tool failed to run",
+			[]string{"to inspect: dnf check   OR   dpkg --audit && apt-get check"},
+		))
+	}
+
 	if len(pi.MissingLibs) > 0 {
 		out = append(out, insight("CRIT", "Packages",
 			fmt.Sprintf("%d missing shared library/libraries detected", len(pi.MissingLibs)),

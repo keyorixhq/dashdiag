@@ -248,6 +248,10 @@ func kvmCheckDiskErrors(ctx context.Context, vm *models.KVMVM) {
 	}
 	out, err := runCmd(ctx, "virsh", "domblkerror", vm.Name)
 	if err != nil {
+		// Mechanical-sweep finding (gap C, idiom 2): DiskIOError stays false
+		// on a failed probe, the same zero value a genuinely clean VM has —
+		// disclose the failure so it isn't read as "verified no I/O errors."
+		vm.DiskErrorCheckFailed = true
 		return
 	}
 	// "No errors found" = clean. Actual errors look like: "vda  I/O error"
@@ -325,6 +329,9 @@ func updateKVMCounts(info *models.KVMInfo, vm *models.KVMVM) {
 	}
 	if vm.DiskIOError {
 		info.DiskIOErrors++
+	}
+	if vm.DiskErrorCheckFailed {
+		info.DiskErrorChecksFailed++
 	}
 }
 
@@ -421,6 +428,15 @@ func kvmCollectPools(ctx context.Context, info *models.KVMInfo) {
 		infoOut, err := runCmd(ctx, "virsh", "pool-info", pool.Name)
 		if err == nil {
 			kvmParsePoolInfo(infoOut, &pool)
+		} else {
+			// Mechanical-sweep finding (gap C, idiom 2): a pool-info failure
+			// left CapacityGB/UsedPct at zero, so "pool.CapacityGB > 0 &&
+			// UsedPct >= 85" below is always false for it — a genuinely
+			// near-full pool with a failing probe silently reads as fine.
+			// Disclose it as unmeasured instead, same "don't fabricate a
+			// clean result from a failed probe" rule kvmCollectPools'
+			// enum-failed guard above applies to the whole enumeration.
+			info.PoolsCapUnknown++
 		}
 		if pool.CapacityGB > 0 && pool.UsedPct >= 85 {
 			info.PoolsNearFull++

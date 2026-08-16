@@ -114,6 +114,19 @@ func checkKVMVMs(kvm models.KVMInfo) []models.Insight {
 			},
 		))
 	}
+	// Mechanical-sweep finding (gap C, idiom 2): `virsh domblkerror` failing
+	// leaves DiskIOError false, the same zero value a genuinely error-free VM
+	// has — disclose it as unverified rather than letting it silently pass
+	// as "no I/O errors", same treatment VMsUnreadable gets above.
+	if kvm.DiskErrorChecksFailed > 0 {
+		out = append(out, unverifiedInsight("WARN", virtCatKVM,
+			fmt.Sprintf("%d VM(s) had an unreadable disk-error check (virsh domblkerror failed) — I/O error status unknown for them", kvm.DiskErrorChecksFailed),
+			[]string{
+				"to inspect: virsh domblkerror <name>",
+				"note: a transient libvirt error or permission issue hid the VM's real disk-error state",
+			},
+		))
+	}
 	out = append(out, checkKVMVMsXMLDeep(kvm)...)
 	return out
 }
@@ -205,6 +218,18 @@ func checkKVM(kvm models.KVMInfo) []models.Insight {
 			[]string{
 				"to inspect: virsh pool-info <name>",
 				"to inspect: du -sh /var/lib/libvirt/images/*",
+			},
+		))
+	}
+	// Pool capacity could not be read (virsh pool-info failed) — couldn't
+	// verify, not healthy. Same treatment as VMsUnreadable above: a pool this
+	// affects could be near-full and PoolsNearFull would never fire for it.
+	if kvm.PoolsCapUnknown > 0 {
+		out = append(out, unverifiedInsight("WARN", virtCatKVM,
+			fmt.Sprintf("%d storage pool(s) had unreadable capacity (virsh pool-info failed) — near-full detection unreliable for them", kvm.PoolsCapUnknown),
+			[]string{
+				"to inspect: virsh pool-info <name>",
+				"note: a transient libvirt error or permission issue hid the pool's real usage",
 			},
 		))
 	}

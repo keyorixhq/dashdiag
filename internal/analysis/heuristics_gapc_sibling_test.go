@@ -154,3 +154,63 @@ func TestCheckNetworkdConfig_PathAndNameOmitShellMetachars(t *testing.T) {
 		}
 	}
 }
+
+// TestCheckKVMVMs_PoolsCapUnknownDisclosed and TestCheckKVMVMs_DiskErrorChecksFailedDisclosed
+// cover the two collectors-side mechanical-sweep findings (gap C, idiom 2):
+// a `virsh pool-info`/`virsh domblkerror` failure must surface as an
+// unverified WARN, not silently pass as "not near-full"/"no I/O errors."
+
+func TestCheckKVM_PoolsCapUnknownDisclosed(t *testing.T) {
+	t.Parallel()
+	got := checkKVM(models.KVMInfo{Detected: true, PoolsCapUnknown: 2})
+	found := false
+	for _, ins := range got {
+		if strings.Contains(ins.Message, "unreadable capacity") {
+			found = true
+			if ins.Level != "WARN" {
+				t.Errorf("PoolsCapUnknown insight level = %q, want WARN", ins.Level)
+			}
+		}
+	}
+	if !found {
+		t.Error("expected a WARN insight disclosing unreadable pool capacity")
+	}
+}
+
+func TestCheckKVMVMs_DiskErrorChecksFailedDisclosed(t *testing.T) {
+	t.Parallel()
+	got := checkKVMVMs(models.KVMInfo{DiskErrorChecksFailed: 3})
+	found := false
+	for _, ins := range got {
+		if strings.Contains(ins.Message, "unreadable disk-error check") {
+			found = true
+			if ins.Level != "WARN" {
+				t.Errorf("DiskErrorChecksFailed insight level = %q, want WARN", ins.Level)
+			}
+		}
+	}
+	if !found {
+		t.Error("expected a WARN insight disclosing the unreadable disk-error check")
+	}
+}
+
+// TestCheckPackageIntegrity_CheckFailedDisclosed covers the two
+// packages_linux.go mechanical-sweep findings (gap C, idiom 3): dnf/dpkg/
+// apt-get failing to spawn must surface as unverified, not silently pass as
+// "no broken packages."
+func TestCheckPackageIntegrity_CheckFailedDisclosed(t *testing.T) {
+	t.Parallel()
+	got := checkPackageIntegrity(models.PackageIntegrity{CheckFailed: true})
+	found := false
+	for _, ins := range got {
+		if strings.Contains(ins.Message, "underlying check tool failed to run") {
+			found = true
+			if ins.Level != "INFO" {
+				t.Errorf("CheckFailed insight level = %q, want INFO", ins.Level)
+			}
+		}
+	}
+	if !found {
+		t.Error("expected an INFO insight disclosing the failed integrity check tool")
+	}
+}

@@ -113,6 +113,9 @@ func TestKVMCheckDiskErrors_Found(t *testing.T) {
 	}
 }
 
+// Mechanical-sweep finding (gap C, idiom 2): DiskIOError=false on a command
+// failure looks identical to "genuinely no I/O errors" — DiskErrorCheckFailed
+// must be set so the two are distinguishable.
 func TestKVMCheckDiskErrors_CmdFails(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmdNotFound("virsh", []string{"domblkerror", "vm1"})
@@ -121,6 +124,9 @@ func TestKVMCheckDiskErrors_CmdFails(t *testing.T) {
 	kvmCheckDiskErrors(context.Background(), &vm)
 	if vm.DiskIOError {
 		t.Error("expected DiskIOError=false on command failure")
+	}
+	if !vm.DiskErrorCheckFailed {
+		t.Error("expected DiskErrorCheckFailed=true on command failure — otherwise indistinguishable from a verified-clean VM")
 	}
 }
 
