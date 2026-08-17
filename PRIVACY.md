@@ -147,15 +147,26 @@ bump and changelog notice.
 
 ## Network calls
 
-**Off by default.** Every outbound network call dsd can make is gated behind
-one policy, `platform.NetworkAllowed()`, which defaults to false. Opt in
-per-run with `dsd health --network`, or persistently with `DSD_ALLOW_NETWORK=1`
-(e.g. for a cron job). `DSD_OFFLINE=1` is a hard override in the other
-direction: it forces offline even if `--network`/`DSD_ALLOW_NETWORK` are also
-set — an explicit request to go offline always wins over a request to allow
-network, so a script that already sets `DSD_OFFLINE=1` cannot be made to
-phone out by an environment that also happens to export `DSD_ALLOW_NETWORK=1`
-(e.g. a shared CI image).
+**Off by default.** Every network call dsd can make **on its own initiative —
+without you naming a target on the command line** — is gated behind one
+policy, `platform.NetworkAllowed()`, which defaults to false. Opt in per-run
+with `dsd health --network`, or persistently with `DSD_ALLOW_NETWORK=1` (e.g.
+for a cron job). `DSD_OFFLINE=1` is a hard override in the other direction: it
+forces offline even if `--network`/`DSD_ALLOW_NETWORK` are also set — an
+explicit request to go offline always wins over a request to allow network, so
+a script that already sets `DSD_OFFLINE=1` cannot be made to phone out by an
+environment that also happens to export `DSD_ALLOW_NETWORK=1` (e.g. a shared
+CI image).
+
+A separate, smaller category is **not** gated, deliberately: commands whose
+entire purpose is a network action you invoked directly, naming the target
+yourself, right now — `dsd fleet <host>` (SSH, your `~/.ssh/config`), `dsd tls
+--endpoint <host:port>` (a TLS handshake to the address you just typed), and
+`dsd update` (checks/downloads a release because you ran `dsd update`). These
+are not "dsd phoning out on its own" — they're the direct effect of a command
+whose name says what it does, the same way `--network` gating `curl` itself
+would make no sense. Gating them behind an additional flag would be friction
+with no privacy benefit: you already named the target in the same breath.
 
 With the default left alone, dsd behaves exactly as this document has always
 promised: no telemetry, no DNS lookups, no update checks, no outbound call of

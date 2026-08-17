@@ -9,6 +9,96 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.0.0] - 2026-08-17
+
+### Breaking Changes
+
+- **Network calls are now off by default.** Every outbound call dsd can make
+  on its own initiative — cloud-metadata detection, the connectivity/DNS
+  probe, NFS reachability, CVE enrichment, the update nudge, SteamOS
+  update/CDN checks, macOS clock sync, and `dsd services`' configured port
+  probes — now requires explicit opt-in. Previously these fired
+  unconditionally with no way to disable them short of an undocumented env
+  var, contradicting PRIVACY.md's long-standing "no network calls, ever"
+  promise.
+
+  **Opt in:**
+  - Per-run: `dsd health --network`
+  - Persistently (e.g. a cron job): `DSD_ALLOW_NETWORK=1`
+  - `DSD_OFFLINE=1` is a hard override in the other direction — it forces
+    offline even if `--network`/`DSD_ALLOW_NETWORK` are also set, so an
+    existing `DSD_OFFLINE=1` script's behavior is unchanged by this release.
+
+  **Migration — check your automation against this list.** With no flags
+  changed, `dsd health --json` now reports these differently than before:
+
+  | `checks[].name` | What changes without `--network` |
+  |---|---|
+  | `Network` | `checks[].status` degrades from a real verdict to `INFO`; the check's `raw` object (`gateway_ping_ms`, `internet_ping_ms`, `dns_resolves_ms`, `dns_failed`) stops being populated and `raw.connectivity_probe_disabled: true` is set instead |
+  | `NFS` | Same INFO degrade for non-loopback mounts; `raw.server_reachable`/`raw.nfs_port_open` stop being populated, `raw.server_check_skipped: true` instead |
+  | `CloudMeta` | On a real cloud instance, this check is **absent from `checks[]` entirely** (not degraded) — cloud detection itself needs the network call it's gating, so it never registers without `--network` |
+
+  (`checks[].raw`'s shape is explicitly not covered by `COMPATIBILITY.md`'s
+  1.x stability promise; the `status`/`counts`/`insights[]` changes above are
+  on the covered surface.) Separately, `dsd services --json`'s
+  `results[].status` degrades to `WARN` with `results[].error: "port probe
+  skipped — network is off by default; pass --network or set
+  DSD_ALLOW_NETWORK=1"` for every configured probe; `dsd services deep`'s
+  systemd-health fields are unaffected (they never touched the network).
+
+  If you don't run on a cloud host, don't have non-loopback NFS mounts, and
+  don't configure `dsd services`, this release changes nothing for you.
+
+### Added
+
+- `dsd mcp`'s `dsd_capture` tool response now discloses sanitization state
+  (`sanitized` bool, human-readable `note`) — previously only the CLI's
+  stderr warning carried this; the MCP JSON response was silent about it.
+- `dsd decode` now discloses that a decoded report's authenticity is not
+  verified (an INFO insight, both `--json` and text output) — a hand-crafted
+  blob renders identically to a genuine one, and this was previously
+  undisclosed.
+- `dsd mcp`'s `dsd_diff` tool response is now redacted (secret-shaped
+  strings in before/after diff values), matching the redaction already
+  applied to `dsd_health` and `dsd_capture`.
+
+### Fixed
+
+A large adversarial-review remediation campaign (~100 PRs since 1.23.1),
+summarized by class of issue closed rather than enumerated:
+
+- **False-OK / silent-clean verdicts** (the majority of this release):
+  dozens of collectors across storage, systemd, cloud, security, and
+  hardware checks that previously read a probe failure, a missing tool, or
+  a permission error as a clean "OK" now disclose the failure explicitly —
+  never a fabricated pass. Includes a self-maintaining completeness guard
+  so a new check can't silently ship without this discipline.
+- **Injection hardening**: terminal-escape sequences, shell metacharacters,
+  and control bytes reaching rendered output (CLI printers, hint strings,
+  markdown reports) are now sanitized at every identified sink.
+- **Path traversal / filesystem safety**: closed in bundle-blob extraction,
+  golden-baseline handling, `--out` symlink following, and a batch of other
+  filesystem-safety findings.
+- **Subprocess execution**: PATH-hijack fallbacks removed or hardened across
+  `install.sh`, package-manager (`dpkg-query`/`rpm`), and diagnostic tool
+  (`smartctl`/`arch-audit`/`ldd`) invocations; a git-alias subprocess-
+  execution class closed.
+- **Resource exhaustion**: unbounded reads bounded, context cancellation
+  propagated through previously-uncancelable goroutines, an abandoned-
+  goroutine race closed.
+- **Secret/identifier redaction**: leaks closed across sanitize/capture/MCP
+  paths (in addition to the MCP disclosure work above).
+- **Process-identity verification**: PID-reuse / spoofed-name race
+  conditions closed for CPU/IO attribution and for service-identity checks
+  (Alertmanager, Envoy, Grafana, Vault, and others).
+- **Network-egress disclosure**: previously-undisclosed, default-on network
+  calls identified and disclosed ahead of the systemic gate described above.
+
+Plus routine Sonar/code-quality cleanup (duplicate-literal extraction,
+redundant variable removal) across the same files.
+
+---
+
 ## [1.23.1] - 2026-07-29
 
 ### Fixed
