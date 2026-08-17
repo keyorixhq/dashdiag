@@ -20,12 +20,33 @@ jobs:
           cache: true
       - name: Run portable fuzz targets
         run: make test-fuzz FUZZTIME=5m
+      # Go's native fuzzer writes a newly-found crash's minimized repro into
+      # testdata/fuzz/<Func>/ — the SAME directory committed seed corpus
+      # entries live in, with an indistinguishable content-hash filename. An
+      # unconditional `**/testdata/fuzz/**` glob therefore always re-uploads
+      # every already-committed corpus entry alongside any genuinely new
+      # crash, so a "crashes" artifact can be 100% stale files with zero new
+      # findings — this cost a full diagnostic cycle on 2026-08-17 (two
+      # already-fixed corpus entries misread as new crashes). git-tracked vs
+      # untracked is the only real signal: a file the fuzzer just wrote
+      # during THIS run cannot yet be committed.
+      - name: Stage newly-discovered crash inputs
+        if: failure()
+        run: |
+          mkdir -p /tmp/fuzz-crashes
+          git status --porcelain --untracked-files=all \
+            | awk '$1 == "??" {print $2}' \
+            | grep '/testdata/fuzz/' \
+            | while IFS= read -r f; do
+                mkdir -p "/tmp/fuzz-crashes/$(dirname "$f")"
+                cp "$f" "/tmp/fuzz-crashes/$f"
+              done
       - name: Upload crash inputs
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: fuzz-crashes-portable-${{ github.run_id }}
-          path: '**/testdata/fuzz/**'
+          path: /tmp/fuzz-crashes
           if-no-files-found: ignore
 
   fuzz-linux:
@@ -39,10 +60,23 @@ jobs:
           cache: true
       - name: Run Linux-only fuzz targets
         run: make test-fuzz-linux FUZZTIME=5m
+      # See the "Stage newly-discovered crash inputs" step in fuzz-portable
+      # above for why this can't be a plain **/testdata/fuzz/** glob.
+      - name: Stage newly-discovered crash inputs
+        if: failure()
+        run: |
+          mkdir -p /tmp/fuzz-crashes
+          git status --porcelain --untracked-files=all \
+            | awk '$1 == "??" {print $2}' \
+            | grep '/testdata/fuzz/' \
+            | while IFS= read -r f; do
+                mkdir -p "/tmp/fuzz-crashes/$(dirname "$f")"
+                cp "$f" "/tmp/fuzz-crashes/$f"
+              done
       - name: Upload crash inputs
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
           name: fuzz-crashes-linux-${{ github.run_id }}
-          path: '**/testdata/fuzz/**'
+          path: /tmp/fuzz-crashes
           if-no-files-found: ignore
