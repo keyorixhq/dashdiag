@@ -34,6 +34,11 @@ Host key checking follows your ~/.ssh/config as-is (fleet never overrides it) â€
 an unknown host key fails closed rather than prompting, since fleet always runs
 non-interactively. Pass --accept-new-host-keys to trust-on-first-use instead.
 
+fleet's SSH/SCP connections go to hosts YOU name on the command line or in
+--hosts-file, at the moment you run it â€” that's not the kind of ambient,
+on-your-behalf network activity --network/DSD_ALLOW_NETWORK gates, so the flag
+has no effect here.
+
 Examples:
   dsd fleet web1 web2 db1
   dsd fleet --hosts-file hosts.txt
