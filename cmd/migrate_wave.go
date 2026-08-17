@@ -30,7 +30,9 @@ Examples:
   dsd migrate wave --pairs-file wave.txt --report-html --name "Acme Corp July Wave"
 
 Exit code: 2 if any pair FAILed, 1 if any PASS-WITH-WARNINGS, else 0.`,
-	PersistentPreRun: func(_ *cobra.Command, _ []string) { /* suppress brand header */ },
+	// Suppress brand header; --network is inert here too — every pair goes
+	// through replayBundle, same as dsd replay (see its PersistentPreRun).
+	PersistentPreRun: func(cmd *cobra.Command, _ []string) { applyNetworkPolicy(cmd) },
 	RunE:             runMigrateWave,
 }
 

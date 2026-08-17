@@ -41,20 +41,27 @@ drifted — with a PASS / PASS-WITH-WARNINGS / FAIL verdict.`,
 }
 
 var migrateBaselineCmd = &cobra.Command{
-	Use:              "baseline",
-	Short:            "Capture a pre-migration baseline on the SOURCE guest",
-	Long:             `Capture a portable baseline bundle on the source guest before migrating, and print a readiness summary (pre-existing issues you should resolve before the move). The bundle is a dsd capture --raw bundle; carry it to the destination for 'dsd migrate certify'.`,
-	Args:             cobra.NoArgs,
-	PersistentPreRun: func(_ *cobra.Command, _ []string) { /* suppress brand header */ },
+	Use:   "baseline",
+	Short: "Capture a pre-migration baseline on the SOURCE guest",
+	Long:  `Capture a portable baseline bundle on the source guest before migrating, and print a readiness summary (pre-existing issues you should resolve before the move). The bundle is a dsd capture --raw bundle; carry it to the destination for 'dsd migrate certify'.`,
+	Args:  cobra.NoArgs,
+	// Suppress brand header; still apply --network — baseline calls
+	// runCaptureRaw, which runs the real collector pipeline (source.Recorder,
+	// not Replay), so the gate is genuinely evaluated here (same reasoning as
+	// dsd capture --raw). The readiness-summary replay afterward is separately
+	// inert, but the capture itself is not.
+	PersistentPreRun: func(cmd *cobra.Command, _ []string) { applyNetworkPolicy(cmd) },
 	RunE:             runMigrateBaseline,
 }
 
 var migrateCertifyCmd = &cobra.Command{
-	Use:              "certify <source-baseline.tar.gz> <destination.tar.gz>",
-	Short:            "Certify the destination guest against the source baseline",
-	Long:             `Replay the source baseline and the destination capture through the identical health pipeline and certify the migration: PASS / PASS-WITH-WARNINGS / FAIL, with every check that regressed. A source-only check that gates off after the move (e.g. VMware guest tools) is EXPECTED and not counted against the verdict; only a check that got worse on the destination is a regression.`,
-	Args:             cobra.ExactArgs(2),
-	PersistentPreRun: func(_ *cobra.Command, _ []string) { /* suppress brand header */ },
+	Use:   "certify <source-baseline.tar.gz> <destination.tar.gz>",
+	Short: "Certify the destination guest against the source baseline",
+	Long:  `Replay the source baseline and the destination capture through the identical health pipeline and certify the migration: PASS / PASS-WITH-WARNINGS / FAIL, with every check that regressed. A source-only check that gates off after the move (e.g. VMware guest tools) is EXPECTED and not counted against the verdict; only a check that got worse on the destination is a regression.`,
+	Args:  cobra.ExactArgs(2),
+	// Suppress brand header; --network is inert here — certify only replays
+	// both bundles via replayBundle, same as dsd replay.
+	PersistentPreRun: func(cmd *cobra.Command, _ []string) { applyNetworkPolicy(cmd) },
 	RunE:             runMigrateCertify,
 }
 

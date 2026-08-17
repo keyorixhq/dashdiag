@@ -107,8 +107,12 @@ Example fixture (legion.yaml):
       message: "14 critical security update(s) available (apt)"
       hints:
         - "to fix: apt-get upgrade"`,
-	Args:             cobra.ExactArgs(1),
-	PersistentPreRun: func(_ *cobra.Command, _ []string) { /* suppress brand header */ },
+	Args: cobra.ExactArgs(1),
+	// Suppress brand header; --network is inert today — mock only renders a
+	// YAML fixture, no collection at all. Wired anyway per the standing rule:
+	// don't let a blanked PersistentPreRun silently drop the flag if this
+	// command ever grows a live-collection path.
+	PersistentPreRun: func(cmd *cobra.Command, _ []string) { applyNetworkPolicy(cmd) },
 	RunE:             runMock,
 }
 

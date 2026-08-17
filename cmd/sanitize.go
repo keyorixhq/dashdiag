@@ -42,8 +42,12 @@ keys; IPv6 and disk serials are not handled. Review the bundle either way.
   dsd sanitize --identifiers dsd-raw-host.tar.gz    # also scrub IPs/MAC/hostname
 
 NOTE: best-effort only — REVIEW a bundle before sharing it.`,
-	Args:             cobra.ExactArgs(1),
-	PersistentPreRun: func(_ *cobra.Command, _ []string) { /* suppress brand header */ },
+	Args: cobra.ExactArgs(1),
+	// Suppress brand header; --network is inert today — sanitize only does
+	// string-level redaction on an existing bundle, no collection at all.
+	// Wired anyway per the standing rule: don't let a blanked PersistentPreRun
+	// silently drop the flag if this command ever grows a live-collection path.
+	PersistentPreRun: func(cmd *cobra.Command, _ []string) { applyNetworkPolicy(cmd) },
 	RunE:             runSanitize,
 }
 
