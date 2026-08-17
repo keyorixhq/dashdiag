@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -350,16 +351,18 @@ func collectCPU(info *models.HardwareInfo) {
 		FreqMHz: cpu.freqMHz,
 	}
 
-	// Max boost frequency from cpufreq sysfs (kHz → MHz)
+	// Max boost frequency from cpufreq sysfs (kHz → MHz). parseFiniteFloat
+	// rejects NaN/Inf/negative — a raw err==nil check alone doesn't (see
+	// io.go's parseFiniteFloat doc comment).
 	if b, err := readFile("/sys/devices/system/cpu/cpu0/cpufreq/cpuinfo_max_freq"); err == nil { // #nosec G304
-		if n, err := strconv.ParseFloat(strings.TrimSpace(string(b)), 64); err == nil {
+		if n, ok := parseFiniteFloat(strings.TrimSpace(string(b))); ok {
 			info.CPU.MaxFreqMHz = n / 1000
 		}
 	}
 	// Current frequency from cpufreq if not in /proc/cpuinfo (common on ARM)
 	if info.CPU.FreqMHz == 0 {
 		if b, err := readFile("/sys/devices/system/cpu/cpu0/cpufreq/scaling_cur_freq"); err == nil { // #nosec G304
-			if n, err := strconv.ParseFloat(strings.TrimSpace(string(b)), 64); err == nil {
+			if n, ok := parseFiniteFloat(strings.TrimSpace(string(b))); ok {
 				info.CPU.FreqMHz = n / 1000
 			}
 		}
@@ -369,8 +372,11 @@ func collectCPU(info *models.HardwareInfo) {
 	if b, err := readFile("/proc/loadavg"); err == nil { // #nosec G304
 		fields := strings.Fields(string(b))
 		if len(fields) >= 1 {
-			if load1, err := strconv.ParseFloat(fields[0], 64); err == nil && threads > 0 {
-				info.CPU.LoadPct = load1 / float64(threads) * 100
+			if load1, ok := parseFiniteFloat(fields[0]); ok && threads > 0 {
+				pct := load1 / float64(threads) * 100
+				if !math.IsInf(pct, 0) {
+					info.CPU.LoadPct = pct
+				}
 			}
 		}
 	}
@@ -421,11 +427,11 @@ func collectRAM(ctx context.Context, info *models.HardwareInfo) {
 		if strings.HasPrefix(line, "Size:") {
 			val := strings.TrimSpace(strings.TrimPrefix(line, "Size:"))
 			if strings.Contains(val, "GB") {
-				if n, err := strconv.ParseFloat(strings.Fields(val)[0], 64); err == nil {
+				if n, ok := parseFiniteFloat(strings.Fields(val)[0]); ok {
 					current.SizeGB = n
 				}
 			} else if strings.Contains(val, "MB") {
-				if n, err := strconv.ParseFloat(strings.Fields(val)[0], 64); err == nil {
+				if n, ok := parseFiniteFloat(strings.Fields(val)[0]); ok {
 					current.SizeGB = n / 1024
 				}
 			}

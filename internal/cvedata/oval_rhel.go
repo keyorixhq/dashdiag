@@ -8,6 +8,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"strconv"
 	"strings"
@@ -182,8 +183,11 @@ func parseCVSS3Attr(attr string) (float64, string) {
 	if idx < 0 {
 		return 0, ""
 	}
+	// strconv.ParseFloat treats "NaN" as a successful parse, not an error — a
+	// NaN score would fail every score>=N severity-bucket comparison
+	// downstream and silently understate a CVE's severity instead of erroring.
 	score, err := strconv.ParseFloat(attr[:idx], 64)
-	if err != nil {
+	if err != nil || math.IsNaN(score) || math.IsInf(score, 0) {
 		return 0, ""
 	}
 	return score, attr[idx+1:]

@@ -846,8 +846,12 @@ func collectWiFiIwconfig(iface string, w *models.WiFiInfo) {
 			rest := after
 			fields := strings.Fields(rest)
 			if len(fields) >= 2 {
-				// parse "866.7" — round to int
-				if v, err := strconv.ParseFloat(fields[0], 64); err == nil {
+				// parse "866.7" — round to int. parseFiniteFloat rejects
+				// NaN/Inf/negative before the cast — int(NaN)/int(+Inf) is
+				// an implementation-defined garbage value in Go, the same
+				// float->int conversion class as the fixed zfs.go
+				// parseZFSCount bug (#727).
+				if v, ok := parseFiniteFloat(fields[0]); ok {
 					w.RateMbps = int(v)
 				}
 			}
@@ -858,7 +862,7 @@ func collectWiFiIwconfig(iface string, w *models.WiFiInfo) {
 			rest := after
 			fields := strings.Fields(rest)
 			if len(fields) >= 2 {
-				if v, err := strconv.ParseFloat(fields[0], 64); err == nil {
+				if v, ok := parseFiniteFloat(fields[0]); ok {
 					w.FreqGHz = v
 					if v < 3.0 {
 						w.Band = "2.4GHz"

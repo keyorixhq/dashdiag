@@ -93,7 +93,7 @@ func parseZpoolList(out string) map[string]models.ZFSPool {
 		pool.FragPct = parseZFSInt(strings.TrimSuffix(fields[3], "%"))
 		// cap%: "45%" or "-"
 		capStr := strings.TrimSuffix(fields[4], "%")
-		if cap, err := strconv.ParseFloat(capStr, 64); err == nil {
+		if cap, ok := parseFiniteFloat(capStr); ok {
 			pool.UsedPct = cap // cap is more accurate than computed
 		}
 		pool.ScrubAgeDays = -1 // default: never scrubbed
@@ -325,13 +325,23 @@ func parseZFSSize(s string) float64 {
 		numStr = upper[:len(upper)-1]
 	default:
 		// Raw bytes
-		if n, err := strconv.ParseFloat(upper, 64); err == nil {
+		if n, ok := parseFiniteFloat(upper); ok {
 			return n / (1024 * 1024 * 1024)
 		}
 		return 0
 	}
-	if n, err := strconv.ParseFloat(numStr, 64); err == nil {
-		return n * mult
+	n, ok := parseFiniteFloat(numStr)
+	if !ok {
+		return 0
 	}
-	return 0
+	v := n * mult
+	if math.IsInf(v, 0) {
+		// n was already finite/non-negative (parseFiniteFloat guarantees
+		// that); a hostile/garbled huge value times mult (up to 1024*1024
+		// for the P suffix) can still overflow float64 — the same class as
+		// the fixed snapper_linux.go parseMiB bug (#862). Read as "not
+		// measured" rather than an infinite pool size.
+		return 0
+	}
+	return v
 }

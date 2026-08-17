@@ -8,6 +8,7 @@ import (
 	"encoding/xml"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"regexp"
 	"sort"
@@ -72,8 +73,11 @@ func parseCVSS3Prefix(s string) float64 {
 	if i := strings.IndexByte(s, '/'); i >= 0 {
 		s = s[:i]
 	}
+	// strconv.ParseFloat treats "NaN" as a successful parse, not an error — a
+	// NaN score would fail every score>=N severity-bucket comparison
+	// downstream and silently understate a CVE's severity instead of erroring.
 	v, err := strconv.ParseFloat(s, 64)
-	if err != nil {
+	if err != nil || math.IsNaN(v) || math.IsInf(v, 0) {
 		return 0
 	}
 	return v

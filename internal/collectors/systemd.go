@@ -6,6 +6,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math"
 	"runtime"
 	"slices"
 	"strings"
@@ -526,6 +527,15 @@ func parseBlameTime(s string) float64 {
 			n := parseFloat(strings.TrimSuffix(p, "h"))
 			total += n * 3600
 		}
+	}
+	if math.IsInf(total, 0) {
+		// Each token is already finite/non-negative (parseFloat guarantees
+		// that); a hostile/garbled huge token can still overflow float64 on
+		// the ×3600/×60 multiply or the running sum — same class as the
+		// fixed snapper_linux.go parseMiB bug (#862). services_deep_linux.go's
+		// parseDurationMs guards the equivalent int-domain sum with
+		// floatMsToInt+clampAdd; this is the float-domain analog.
+		return 0
 	}
 	return total
 }

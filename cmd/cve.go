@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -190,7 +191,13 @@ func recordCVEResultSeverity(r *models.CVEResult) {
 	if r == nil || r.Status != models.CVEVulnerable {
 		return
 	}
-	score, _ := strconv.ParseFloat(strings.TrimSpace(r.CVSS3Score), 64)
+	// strconv.ParseFloat treats "NaN" as a successful parse, not an error, and
+	// NaN>=9.0 is false — a garbled CVSS score would otherwise silently miss
+	// the CRIT exit-code gate instead of erroring loudly.
+	score, err := strconv.ParseFloat(strings.TrimSpace(r.CVSS3Score), 64)
+	if err != nil || math.IsNaN(score) {
+		score = 0
+	}
 	if r.KnownExploited || score >= 9.0 {
 		recordExitCode(2)
 		return
