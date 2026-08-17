@@ -7,6 +7,7 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"math"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -278,7 +279,14 @@ func parseProcStart(r io.Reader, boot time.Time) (time.Time, string, bool) {
 		return time.Time{}, "", false
 	}
 	startTicks, err := strconv.ParseFloat(fields[19], 64)
-	if err != nil {
+	// strconv.ParseFloat treats "NaN"/"Inf" as successful parses, not errors —
+	// err == nil alone doesn't catch a garbled starttime field, and
+	// time.Duration(NaN) or time.Duration(+Inf) is an implementation-defined
+	// garbage value, the same float->integer conversion class as the fixed
+	// zfs.go parseZFSCount bug (#727). This package can't import collectors'
+	// parseFiniteFloat (baseline is not in its importer list), so the check
+	// is duplicated inline.
+	if err != nil || math.IsNaN(startTicks) || math.IsInf(startTicks, 0) || startTicks < 0 {
 		return time.Time{}, "", false
 	}
 	startTime := boot.Add(time.Duration(startTicks/100) * time.Second)

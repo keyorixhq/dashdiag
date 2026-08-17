@@ -3,6 +3,7 @@ package collectors
 import (
 	"context"
 	"fmt"
+	"math"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -119,8 +120,16 @@ func (c *SysctlCollector) collectLinux(ctx context.Context) (*models.SysctlInfo,
 	// Uptime — used by correlation engine for sysctl-drift-after-reboot detection.
 	if data, err := readFile("/proc/uptime"); err == nil {
 		if fields := strings.Fields(string(data)); len(fields) >= 1 {
-			if f, err := strconv.ParseFloat(fields[0], 64); err == nil {
-				info.UptimeSeconds = int64(f)
+			// parseFiniteFloat rejects NaN/Inf/negative; the MaxInt64 check
+			// before the cast saturates instead of Go's implementation-defined
+			// float->int64 conversion for an out-of-range value — same class
+			// as the fixed zfs.go parseZFSCount bug (#727).
+			if f, ok := parseFiniteFloat(fields[0]); ok {
+				if f >= float64(math.MaxInt64) {
+					info.UptimeSeconds = math.MaxInt64
+				} else {
+					info.UptimeSeconds = int64(f)
+				}
 			}
 		}
 	}

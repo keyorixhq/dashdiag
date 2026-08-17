@@ -5,6 +5,7 @@ package collectors
 import (
 	"context"
 	"encoding/json"
+	"math"
 	"net/http"
 	"strconv"
 	"strings"
@@ -100,8 +101,12 @@ func parseAMConfigReload(metrics string) (ok, found bool) {
 				// read the timestamp — and a failed reload ("… 0 1700000000") would
 				// then parse as success. (This metric is unlabeled, so fields[1] is
 				// always the value.)
+				// strconv.ParseFloat treats "NaN" as a successful parse, not an
+				// error, and NaN != 0 is true — a garbled metric value would
+				// otherwise read as "reload successful", a direct false-OK on
+				// this boolean health signal.
 				v, err := strconv.ParseFloat(fields[1], 64)
-				if err != nil {
+				if err != nil || math.IsNaN(v) {
 					continue
 				}
 				return v != 0, true

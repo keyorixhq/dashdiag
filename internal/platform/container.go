@@ -1,6 +1,7 @@
 package platform
 
 import (
+	"math"
 	"os"
 	"path/filepath"
 	"slices"
@@ -189,10 +190,22 @@ func parseCgroupV2CPU(path string) float64 {
 	}
 	quota, err1 := strconv.ParseFloat(parts[0], 64)
 	period, err2 := strconv.ParseFloat(parts[1], 64)
-	if err1 != nil || err2 != nil || period == 0 {
+	// strconv.ParseFloat treats "NaN"/"Inf" as successful parses, not errors —
+	// err1/err2 == nil alone doesn't catch a garbled cgroupfs value, and a NaN
+	// or Inf effective-CPU-count would corrupt any threshold that reads it.
+	// Same guard shape as internal/collectors' parseFiniteFloat (this package
+	// can't import collectors — platform is a dependency-free leaf per the
+	// architecture contract — so the check is duplicated inline, not shared).
+	if err1 != nil || err2 != nil || period <= 0 ||
+		math.IsNaN(quota) || math.IsInf(quota, 0) || quota < 0 ||
+		math.IsNaN(period) || math.IsInf(period, 0) {
 		return 0
 	}
-	return quota / period
+	v := quota / period
+	if math.IsInf(v, 0) {
+		return 0
+	}
+	return v
 }
 
 func parseCgroupV1Memory(path string) float64 {

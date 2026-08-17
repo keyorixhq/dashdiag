@@ -7,6 +7,7 @@ import (
 	"context"
 	"encoding/xml"
 	"fmt"
+	"math"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -481,7 +482,15 @@ func kvmParseBytes(s string) float64 {
 	unit := strings.ToUpper(fields[1])
 	switch {
 	case strings.HasPrefix(unit, "TIB") || strings.HasPrefix(unit, "TB"):
-		return val * 1000
+		gb := val * 1000
+		if math.IsInf(gb, 0) {
+			// val is already finite/non-negative (parseFloat guarantees
+			// that); a hostile/garbled huge TiB value can still overflow
+			// float64 on ×1000 — same class as the fixed snapper_linux.go
+			// parseMiB bug (#862).
+			return 0
+		}
+		return gb
 	case strings.HasPrefix(unit, "GIB") || strings.HasPrefix(unit, "GB"):
 		return val
 	case strings.HasPrefix(unit, "MIB") || strings.HasPrefix(unit, "MB"):
