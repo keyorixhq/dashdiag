@@ -178,7 +178,7 @@ The full list, opted into with `--network`/`DSD_ALLOW_NETWORK`:
 | Call | Contacts | When |
 |---|---|---|
 | Connectivity/DNS probe | `8.8.8.8` (ping), `github.com` (resolve) | default `dsd health` network section |
-| Cloud-metadata detection | link-local instance metadata service | every dsd command (picks accurate cloud IO thresholds) |
+| Cloud-metadata detection | link-local instance metadata service | most standalone subcommands (picks accurate cloud IO thresholds for the exit code) — not commands that don't reach a diagnostic result, e.g. `dsd tls`, `dsd update`, `dsd diff`, `dsd sanitize`, `dsd mock`, `dsd capture` (without `--raw`) |
 | Update nudge | `api.github.com` | interactive runs, at most once per 24h |
 | CVE enrichment | `access.redhat.com` (discloses the CVE ID) | `dsd cve` on RHEL-family distros only |
 | NFS reachability | the NFS server from your mount table | default NFS collector, non-loopback mounts |

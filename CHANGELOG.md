@@ -64,6 +64,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **`--network` didn't reach every command this release's headline flag was
+  supposed to control.** `dsd mcp --network` had no effect at all — an MCP
+  client could not get network-gated data through the flag; the only route
+  was setting `DSD_ALLOW_NETWORK=1` in the environment before launch. `dsd
+  capture --raw` and `dsd migrate baseline` had the same gap: both run the
+  live collector pipeline, so the network-off-by-default gates above were
+  genuinely evaluated, but `--network` never reached them either — a raw
+  capture or migration baseline silently recorded "not measured" for every
+  gated collector even when `--network` was passed. Root cause: cobra
+  replaces, not chains, a subcommand's own `PersistentPreRun`, and none of
+  the affected commands' had been wired to apply the flag. Fixed, with a
+  guard so this class of gap can't reappear on a future command silently.
+- `--network` no longer appears in `--help` for `dsd fleet`, `dsd tls`, and
+  `dsd update` — these commands contact operator-named targets you pass on
+  the command line (or invoke explicitly, for `update`), not the kind of
+  on-your-behalf network activity `--network` gates, and the flag never had
+  any effect on them; showing it implied otherwise.
+
 A large adversarial-review remediation campaign (~100 PRs since 1.23.1),
 summarized by class of issue closed rather than enumerated:
 
