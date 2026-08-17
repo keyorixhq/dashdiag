@@ -27,7 +27,11 @@ can write (e.g. /usr/local/bin), re-run with sudo.
 Examples:
   dsd update            check, then prompt to install if newer
   dsd update --check    report only — do not install
-  dsd update --yes      install without prompting`,
+  dsd update --yes      install without prompting
+
+dsd update's GitHub release check and download only happen when you explicitly
+run this command — that's not the kind of ambient, on-your-behalf network
+activity --network/DSD_ALLOW_NETWORK gates, so the flag has no effect here.`,
 	RunE: runUpdate,
 }
 

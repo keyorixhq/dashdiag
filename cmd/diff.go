@@ -44,8 +44,12 @@ more intuitive two-argument form.
 
 NOTE: bundle diff runs inside a linux binary to exercise linux-specific parsers;
 the bundles are portable but the binary is not (use an OrbStack container on macOS).`,
-	Args:             cobra.RangeArgs(0, 2),
-	PersistentPreRun: func(_ *cobra.Command, _ []string) { /* suppress brand header */ },
+	Args: cobra.RangeArgs(0, 2),
+	// Suppress brand header; --network is inert today — the bundle path only
+	// replays (replayBundle) and --last only reads the local store, neither of
+	// which reaches a live collector. Wired anyway so this doesn't silently
+	// inherit the gap if diff ever gains a live-collection path.
+	PersistentPreRun: func(cmd *cobra.Command, _ []string) { applyNetworkPolicy(cmd) },
 	RunE:             runDiff,
 }
 

@@ -41,7 +41,12 @@ Auto-detects certificates in common locations:
   ~/.dsd/certs/*.{crt,pem}
 
 Or pass explicit paths:
-  dsd tls /etc/nginx/ssl/example.crt /path/to/cert.pem`,
+  dsd tls /etc/nginx/ssl/example.crt /path/to/cert.pem
+
+--endpoint/--endpoints-file connect to hosts YOU name, at the moment you run
+this command — that's not the kind of ambient, on-your-behalf network
+activity --network/DSD_ALLOW_NETWORK gates, so the flag has no effect here;
+those connections happen regardless.`,
 	RunE: runTLS,
 }
 

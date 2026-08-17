@@ -63,8 +63,10 @@ Register in Claude Code:
   claude mcp add dsd -- dsd mcp
 
 See docs/MCP_DESIGN.md for architecture, security model, and non-goals.`,
-	// Suppress the version/platform line that runE's PersistentPreRun emits.
-	PersistentPreRun: func(_ *cobra.Command, _ []string) {},
+	// Suppress the version/platform line that runE's PersistentPreRun emits,
+	// but still apply --network (mcp reaches the live collector pipeline via
+	// dsd_health/dsd_capture, so the gate is not cosmetic here).
+	PersistentPreRun: func(cmd *cobra.Command, _ []string) { applyNetworkPolicy(cmd) },
 	RunE:             runMCP,
 }
 

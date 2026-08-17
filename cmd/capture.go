@@ -54,7 +54,13 @@ Workflow:
 
   # Replay anywhere:
   dsd mock fixtures/my-host.yaml`,
-	PersistentPreRun: func(_ *cobra.Command, _ []string) { /* suppress brand header */ },
+	// Suppress brand header; still apply --network — `dsd capture --raw` runs
+	// the real collector pipeline through a source.Recorder (not a Replay), so
+	// NetworkAllowed() gates are genuinely evaluated here, same as `dsd
+	// health`. Without this, `dsd capture --raw --network` silently had no
+	// effect and every gated collector recorded its "not measured" fallback
+	// into the bundle instead of the real data.
+	PersistentPreRun: func(cmd *cobra.Command, _ []string) { applyNetworkPolicy(cmd) },
 	RunE:             runCapture,
 }
 

@@ -1,9 +1,11 @@
 package cmd
 
 import (
+	"bytes"
 	"errors"
 	"fmt"
 	"os"
+	"strings"
 	"syscall"
 
 	"github.com/keyorixhq/dashdiag/internal/platform"
@@ -111,6 +113,18 @@ func applyNetworkPolicy(cmd *cobra.Command) {
 	}
 }
 
+// networkFlagExempt lists commands whose network calls target operator-named
+// hosts at invocation time (fleet: SSH/SCP args; tls: --endpoint(s); update:
+// the GitHub release download) rather than the ambient, on-your-behalf calls
+// --network/DSD_ALLOW_NETWORK gates. Their --help should not advertise a flag
+// that has no effect on them — see each command's Long text for the full
+// explanation shown alongside the flag's removal here.
+var networkFlagExempt = map[string]bool{
+	"fleet":  true,
+	"tls":    true,
+	"update": true,
+}
+
 func init() {
 	rootCmd.CompletionOptions.HiddenDefaultCmd = true
 	// Help = the command's description (Long, else Short) followed by usage.
@@ -125,6 +139,10 @@ func init() {
 		if desc != "" {
 			fmt.Fprintln(cmd.OutOrStderr(), desc)
 			fmt.Fprintln(cmd.OutOrStderr())
+		}
+		if networkFlagExempt[cmd.Name()] {
+			printUsageWithoutNetworkFlag(cmd)
+			return
 		}
 		cmd.Usage() //nolint:errcheck
 	})
@@ -153,6 +171,34 @@ func init() {
 	// so users don't see features that don't work yet.
 	_ = f.MarkHidden("share")
 	_ = f.MarkHidden("qr")
+}
+
+// printUsageWithoutNetworkFlag renders cmd's usage exactly like cmd.Usage(),
+// minus the --network line. MarkHidden can't scope this to one command:
+// --network lives on rootCmd.PersistentFlags(), and every command that
+// inherits it shares the same underlying *pflag.Flag pointer, so
+// pflag.Flag.Hidden is one field on one shared object — marking it hidden via
+// any single command's FlagSet hides it from every command's --help, not
+// just this one (verified empirically: doing so via fleet's FlagSet also
+// hid --network from `dsd health --help`). Filtering the rendered text is
+// the only way to scope the omission to networkFlagExempt commands without
+// mutating that shared state.
+func printUsageWithoutNetworkFlag(cmd *cobra.Command) {
+	var buf bytes.Buffer
+	out := cmd.OutOrStderr()
+	cmd.SetOut(&buf)
+	cmd.SetErr(&buf)
+	_ = cmd.Usage()
+
+	lines := strings.Split(strings.TrimSuffix(buf.String(), "\n"), "\n")
+	kept := make([]string, 0, len(lines))
+	for _, line := range lines {
+		if strings.Contains(line, "--network ") {
+			continue
+		}
+		kept = append(kept, line)
+	}
+	fmt.Fprintln(out, strings.Join(kept, "\n"))
 }
 
 func Execute() {
