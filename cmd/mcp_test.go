@@ -138,6 +138,19 @@ func TestRedactMCPJSON(t *testing.T) {
 	}
 }
 
+// TestRedactMCPJSON_InvalidJSONReturnsInputUnchanged covers redactMCPJSON's
+// fail-open branch: RedactJSONSecrets errors on malformed JSON, and
+// redactMCPJSON must return the original bytes rather than dropping the
+// response or panicking. No prior test exercised this branch.
+func TestRedactMCPJSON_InvalidJSONReturnsInputUnchanged(t *testing.T) {
+	t.Parallel()
+	in := []byte(`not valid json{{{`)
+	out := redactMCPJSON(in)
+	if string(out) != string(in) {
+		t.Errorf("redactMCPJSON(invalid JSON) = %q, want the input returned unchanged", out)
+	}
+}
+
 // TestToolHealth_ForwardsCallerContext is the regression test for
 // cmd-09-03: toolHealth used to discard its request-scoped ctx parameter and
 // build a fresh context.Background() instead, so a JSON-RPC caller that
