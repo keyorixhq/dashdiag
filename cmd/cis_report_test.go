@@ -117,6 +117,49 @@ func TestPrintNIS2ReportFailOnlyFilter(t *testing.T) {
 	}
 }
 
+// TestNIS2Icon: found alongside the identical bug in bsiIcon (see
+// cis_report_bsi_test.go's TestBSIIcon) — nis2Icon had the exact same
+// "PASS" trailing-spaces / "n/a " default-token bugs, meaning `dsd cis
+// --nis2 --plain`/`--json` rendered a passing article as "UNKNOWN" instead
+// of "OK". No prior test called nis2Icon directly. Fixed to match cisIcon's
+// convention ("ok"/"unknown"), same as bsiIcon.
+func TestNIS2Icon(t *testing.T) {
+	t.Parallel()
+	cases := []struct {
+		status string
+		mode   output.OutputMode
+		want   string
+	}{
+		{"PASS", output.ModeHuman, "✅"},
+		{"FAIL", output.ModeHuman, "❌"},
+		{"PARTIAL", output.ModeHuman, "⚠️"},
+		{"UNVERIFIED", output.ModeHuman, "❓"},
+		{"SKIP", output.ModeHuman, "⏭️"},
+		{"PASS", output.ModePlain, "OK"},
+		{"FAIL", output.ModePlain, "CRIT"},
+	}
+	for _, c := range cases {
+		if got := nis2Icon(c.status, c.mode); !strings.Contains(got, c.want) {
+			t.Errorf("nis2Icon(%q, %v) = %q, want it to contain %q", c.status, c.mode, got, c.want)
+		}
+	}
+	if got := nis2Icon("UNMAPPED", output.ModePlain); !strings.Contains(got, "-") {
+		t.Errorf("nis2Icon(unrecognized) = %q, want the default unknown token", got)
+	}
+}
+
+// TestNIS2StatusColour: sibling to TestBSIStatusColour — just asserts no
+// panic and a non-empty result for every status/colour-state combination.
+func TestNIS2StatusColour(t *testing.T) {
+	t.Parallel()
+	for _, status := range []string{"FAIL", "PARTIAL", "UNVERIFIED", "PASS", "UNMAPPED", ""} {
+		if got := nis2StatusColour(status, true); got == "" && status != "" {
+			t.Errorf("nis2StatusColour(%q, true) = empty, want a colour code", status)
+		}
+		_ = nis2StatusColour(status, false)
+	}
+}
+
 func TestPrintNIS2ReportUnmappedAlwaysShown(t *testing.T) {
 	groups := []cis.NIS2ArticleGroup{
 		{Article: cis.NIS2Article21{ID: "Art.21(2)(a)", Title: "Risk analysis"}, Status: "UNMAPPED"},

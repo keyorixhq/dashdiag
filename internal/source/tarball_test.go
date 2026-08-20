@@ -208,6 +208,34 @@ func TestTarGzDirReadFileFailure(t *testing.T) {
 	}
 }
 
+// TestTarGzDirRefusesSymlinkedDest covers the O_NOFOLLOW/ELOOP branch: a
+// pre-existing symlink at dstPath (an operator/caller-chosen, potentially
+// predictable path — --out, or an MCP tool's out_path) must be refused
+// rather than followed and its target silently overwritten.
+func TestTarGzDirRefusesSymlinkedDest(t *testing.T) {
+	t.Parallel()
+
+	src := t.TempDir()
+	if err := os.WriteFile(filepath.Join(src, "f.txt"), []byte("data"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	dir := t.TempDir()
+	target := filepath.Join(dir, "elsewhere")
+	if err := os.WriteFile(target, []byte("x"), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	dst := filepath.Join(dir, "out.tar.gz")
+	if err := os.Symlink(target, dst); err != nil {
+		t.Fatal(err)
+	}
+
+	err := tarGzDir(src, dst)
+	if err == nil || !strings.Contains(err.Error(), "refusing to write through a symlink") {
+		t.Errorf("tarGzDir() = %v, want a symlink-refusal error", err)
+	}
+}
+
 // TestUntarGzSkipsNonRegularEntries verifies untarGz skips tar entries that
 // are not regular files (e.g. a directory header written explicitly).
 // TestUntarGzWithLimits_EntryCountCapped is the regression test for
