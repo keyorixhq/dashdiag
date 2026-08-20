@@ -120,3 +120,50 @@ func TestPersistHealthRun_StoreOpenError(t *testing.T) {
 		t.Errorf("expected 'store:' on stderr when Open fails, got %q", stderr)
 	}
 }
+
+// TestPrintPersistDrift_MoreThanShowTruncates exercises printPersistDrift's
+// "+N more" summary branch directly (no store/HOME involved — it's a pure
+// formatter), which TestPersistHealthRun_DriftSummary's single-check change
+// never reaches since it's below the show=3 cap.
+func TestPrintPersistDrift_MoreThanShowTruncates(t *testing.T) {
+	prev := store.Entry{
+		Timestamp: time.Now().Add(-time.Hour),
+		Checks:    map[string]string{"a": "OK", "b": "OK", "c": "OK", "d": "OK"},
+	}
+	cur := store.Entry{
+		Timestamp: time.Now(),
+		Checks:    map[string]string{"a": "WARN", "b": "WARN", "c": "WARN", "d": "WARN"},
+	}
+	out := captureStderr(t, func() { printPersistDrift(prev, cur) })
+	if !strings.Contains(out, "4 change(s)") {
+		t.Errorf("expected the total change count in the summary, got: %q", out)
+	}
+	if !strings.Contains(out, "+1 more") {
+		t.Errorf("expected the truncation suffix once changes exceed show=3, got: %q", out)
+	}
+}
+
+// TestPrintPersistDrift_NewAndGoneChecks covers the "new"/"gone" placeholder
+// branches: a check absent from the prior entry (Before == "") or absent from
+// the current one (After == "").
+func TestPrintPersistDrift_NewAndGoneChecks(t *testing.T) {
+	prev := store.Entry{Timestamp: time.Now().Add(-time.Hour), Checks: map[string]string{"removed": "OK"}}
+	cur := store.Entry{Timestamp: time.Now(), Checks: map[string]string{"added": "WARN"}}
+	out := captureStderr(t, func() { printPersistDrift(prev, cur) })
+	if !strings.Contains(out, "added new→WARN") {
+		t.Errorf("expected the new-check placeholder, got: %q", out)
+	}
+	if !strings.Contains(out, "removed OK→gone") {
+		t.Errorf("expected the gone-check placeholder, got: %q", out)
+	}
+}
+
+// TestPrintPersistDrift_NoChanges covers the early-return when DiffChecks
+// finds nothing — printPersistDrift must stay silent, not print an empty summary.
+func TestPrintPersistDrift_NoChanges(t *testing.T) {
+	entry := store.Entry{Timestamp: time.Now(), Checks: map[string]string{"memory": "OK"}}
+	out := captureStderr(t, func() { printPersistDrift(entry, entry) })
+	if out != "" {
+		t.Errorf("expected no output when nothing changed, got: %q", out)
+	}
+}

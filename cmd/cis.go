@@ -271,7 +271,7 @@ func nis2StatusColour(status string, colour bool) string {
 func nis2Icon(status string, mode output.OutputMode) string {
 	switch status {
 	case "PASS":
-		return asciiOr("ok  ", "✅  ", mode)
+		return asciiOr("ok", "✅  ", mode)
 	case "FAIL":
 		return asciiOr("fail", "❌  ", mode)
 	case "PARTIAL":
@@ -284,7 +284,7 @@ func nis2Icon(status string, mode output.OutputMode) string {
 	case "SKIP":
 		return asciiOr("skip", "⏭️  ", mode)
 	default:
-		return asciiOr("n/a ", "—   ", mode)
+		return asciiOr("unknown", "—   ", mode)
 	}
 }
 
@@ -387,7 +387,7 @@ func bsiStatusColour(status string, colour bool) string {
 func bsiIcon(status string, mode output.OutputMode) string {
 	switch status {
 	case "PASS":
-		return asciiOr("ok  ", "✅  ", mode)
+		return asciiOr("ok", "✅  ", mode)
 	case "FAIL":
 		return asciiOr("fail", "❌  ", mode)
 	case "PARTIAL":
@@ -398,7 +398,7 @@ func bsiIcon(status string, mode output.OutputMode) string {
 	case "SKIP":
 		return asciiOr("skip", "⏭️  ", mode)
 	default:
-		return asciiOr("n/a ", "—   ", mode)
+		return asciiOr("unknown", "—   ", mode)
 	}
 }
 

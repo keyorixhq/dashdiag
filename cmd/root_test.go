@@ -250,3 +250,34 @@ func TestRootHelpFunc(t *testing.T) {
 		t.Errorf("expected the usage block still printed, got: %q", buf3.String())
 	}
 }
+
+// TestRootHelpFunc_NetworkExemptCommandOmitsFlag covers the
+// networkFlagExempt branch: fleetCmd is a real child of rootCmd (registered
+// via fleet.go's own init()), so it inherits rootCmd's --network persistent
+// flag — the help output must omit it (printUsageWithoutNetworkFlag), unlike
+// a non-exempt command.
+func TestRootHelpFunc_NetworkExemptCommandOmitsFlag(t *testing.T) {
+	hf := rootCmd.HelpFunc()
+
+	var buf bytes.Buffer
+	fleetCmd.SetOut(&buf)
+	fleetCmd.SetErr(&buf)
+	hf(fleetCmd, nil)
+	out := buf.String()
+	if strings.Contains(out, "--network ") {
+		t.Errorf("fleet is network-flag-exempt — --network must not appear in its help, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Usage:") {
+		t.Errorf("expected the usage block still printed (minus --network), got:\n%s", out)
+	}
+
+	// Contrast: a non-exempt command (historyCmd, also a real rootCmd child)
+	// must still advertise --network.
+	var buf2 bytes.Buffer
+	historyCmd.SetOut(&buf2)
+	historyCmd.SetErr(&buf2)
+	hf(historyCmd, nil)
+	if !strings.Contains(buf2.String(), "--network ") {
+		t.Errorf("history is NOT network-flag-exempt — expected --network in its help, got:\n%s", buf2.String())
+	}
+}
