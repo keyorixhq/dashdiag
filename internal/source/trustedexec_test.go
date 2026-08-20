@@ -56,3 +56,34 @@ func TestResolveTrustedTool_UnresolvedNameNeverExecutesFromPATH(t *testing.T) {
 		t.Fatal("planted PATH tool was executed — ResolveTrustedTool's unresolved fallback still honors the inherited $PATH")
 	}
 }
+
+// TestHardenedEnv asserts the exact contract HardenedEnv's doc comment
+// promises: the inherited environment, plus LC_ALL=C and LANG=C appended so
+// external command output stays locale-stable (see the doc comment's dmesg
+// -T / es_ES example). Every hardened exec site in the codebase depends on
+// this shape.
+func TestHardenedEnv(t *testing.T) {
+	t.Setenv("DSD_TEST_HARDENED_ENV_MARKER", "present")
+	env := HardenedEnv()
+
+	foundMarker, foundLCAll, foundLang := false, false, false
+	for _, kv := range env {
+		switch kv {
+		case "DSD_TEST_HARDENED_ENV_MARKER=present":
+			foundMarker = true
+		case "LC_ALL=C":
+			foundLCAll = true
+		case "LANG=C":
+			foundLang = true
+		}
+	}
+	if !foundMarker {
+		t.Error("HardenedEnv() dropped an inherited environment variable — it must extend os.Environ(), not replace it")
+	}
+	if !foundLCAll {
+		t.Error(`HardenedEnv() missing "LC_ALL=C"`)
+	}
+	if !foundLang {
+		t.Error(`HardenedEnv() missing "LANG=C"`)
+	}
+}
