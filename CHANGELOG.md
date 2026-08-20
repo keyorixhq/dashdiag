@@ -9,7 +9,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
-## [2.0.0] - 2026-08-17
+## [2.0.0] - 2026-08-20
 
 ### Breaking Changes
 
@@ -81,6 +81,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   the command line (or invoke explicitly, for `update`), not the kind of
   on-your-behalf network activity `--network` gates, and the flag never had
   any effect on them; showing it implied otherwise.
+- `strconv.ParseFloat` treats `"NaN"`/`"Inf"` as a *successful* parse, not an
+  error — a garbled numeric field (a CVSS score, a `/proc/<pid>/stat`
+  starttime tick count, a metrics-endpoint timestamp, a sysctl/hardware
+  sensor value) could silently produce a non-finite result that then fed
+  into severity/exit-code decisions or a `time.Duration` conversion, an
+  implementation-defined garbage value rather than an error. Found by the
+  continuous fuzzing rig; hardened across the 12 parse sites this pattern
+  actually appears at (`cmd/cve.go`, `internal/baseline`,
+  `internal/collectors` alertmanager/hardware/kvm/network/sysctl/systemd/zfs,
+  `internal/cvedata` OVAL parsing, `internal/platform` container detection),
+  plus a governance test guarding against a new NaN/Inf-unguarded
+  `ParseFloat` call reappearing.
+- `dsd cis --bsi`/`--nis2 --plain`/`--json` rendered a **passing** requirement
+  as `"UNKNOWN"` instead of `"OK"` — `bsiIcon`/`nis2Icon` passed the
+  machine-readable-mode formatter a level string with trailing whitespace
+  baked in (`"ok  "` instead of `"ok"`), which matched no recognized token.
+  Default human (TTY) output, which always renders the emoji regardless of
+  this token, was unaffected — only the ASCII token `--plain`/`--json`/
+  `--yaml` emit was wrong.
 
 A large adversarial-review remediation campaign (~100 PRs since 1.23.1),
 summarized by class of issue closed rather than enumerated:
