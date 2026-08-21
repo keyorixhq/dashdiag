@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -211,6 +212,90 @@ func TestFromSnapshotSkipsNonRegularAndNonTxt(t *testing.T) {
 		if string(rec.data) == skipBody {
 			t.Fatalf("non-.txt entry %q was ingested, should have been skipped", path)
 		}
+	}
+}
+
+// TestFromSnapshotWithLimits_EntryCountCapped is the regression test for the
+// gap the adversarial untrusted-input review found: FromSnapshot bounded a
+// single entry's size but not the archive's total entry count, unlike
+// untarGzWithLimits in tarball.go. Mirrors
+// TestUntarGzWithLimits_EntryCountCapped's shape.
+func TestFromSnapshotWithLimits_EntryCountCapped(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "many-entries.tar.gz")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	gz := gzip.NewWriter(f)
+	tw := tar.NewWriter(gz)
+	for i := range 5 {
+		name := "hwsnap-host-x/f" + string(rune('a'+i)) + ".txt"
+		if err := tw.WriteHeader(&tar.Header{Name: name, Typeflag: tar.TypeReg, Mode: 0o644, Size: 1}); err != nil {
+			t.Fatalf("write header: %v", err)
+		}
+		if _, err := tw.Write([]byte("x")); err != nil {
+			t.Fatalf("write body: %v", err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatalf("tar close: %v", err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatalf("gzip close: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("file close: %v", err)
+	}
+
+	if _, err := fromSnapshotWithLimits(path, 3, maxUntarTotalBytes); err == nil {
+		t.Fatal("expected an error when the snapshot exceeds the entry-count cap")
+	}
+	if _, err := fromSnapshotWithLimits(path, 10, maxUntarTotalBytes); err != nil {
+		t.Errorf("unexpected error under the entry-count cap: %v", err)
+	}
+}
+
+// TestFromSnapshotWithLimits_TotalBytesCapped is the regression test for the
+// total-size half of the same gap: several .txt entries, each within the
+// per-file cap, whose combined size exceeds the archive-wide total must be
+// refused rather than ingested in full. Mirrors
+// TestUntarGzWithLimits_TotalBytesCapped's shape.
+func TestFromSnapshotWithLimits_TotalBytesCapped(t *testing.T) {
+	t.Parallel()
+
+	path := filepath.Join(t.TempDir(), "big-total.tar.gz")
+	f, err := os.Create(path)
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	gz := gzip.NewWriter(f)
+	tw := tar.NewWriter(gz)
+	for _, name := range []string{"hwsnap-host-x/a.txt", "hwsnap-host-x/b.txt", "hwsnap-host-x/c.txt"} {
+		body := strings.Repeat("x", 100)
+		if err := tw.WriteHeader(&tar.Header{Name: name, Typeflag: tar.TypeReg, Mode: 0o644, Size: int64(len(body))}); err != nil {
+			t.Fatalf("write header: %v", err)
+		}
+		if _, err := tw.Write([]byte(body)); err != nil {
+			t.Fatalf("write body: %v", err)
+		}
+	}
+	if err := tw.Close(); err != nil {
+		t.Fatalf("tar close: %v", err)
+	}
+	if err := gz.Close(); err != nil {
+		t.Fatalf("gzip close: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("file close: %v", err)
+	}
+
+	if _, err := fromSnapshotWithLimits(path, maxUntarEntries, 250); err == nil {
+		t.Fatal("expected an error when the snapshot exceeds the total-bytes cap")
+	}
+	if _, err := fromSnapshotWithLimits(path, maxUntarEntries, 1000); err != nil {
+		t.Errorf("unexpected error under the total-bytes cap: %v", err)
 	}
 }
 
