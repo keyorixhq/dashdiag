@@ -628,6 +628,18 @@ inventory in a format an external CMDB can ingest.
 
 ---
 
+## Deferred to 3.0 (next major)
+
+- [ ] **Remove `--suid` (hidden alias for `--deep`).** `cmd/security.go` registers
+  `--suid` as a deprecated alias for `--deep` and marks it hidden via
+  `MarkHidden` — it does not appear in `--help`. Per COMPATIBILITY.md, hidden
+  flags carry no stability guarantee and are excluded from the 2.x promise, so
+  removing it is not a breaking change under semver. Left in place for 2.x
+  rather than removed now, since it's zero-cost to keep and 3.0 is the natural
+  point to drop deprecated hidden surface in bulk rather than one flag at a time.
+
+---
+
 ## Notes / cross-refs
 - Hardware-validation gaps (server-grade ECC/IPMI/NUMA, ARM, x86 metal, SteamOS, vSphere)
   are tracked in `docs/PLATFORM_COVERAGE.md` under "Known validation gaps" — also demand-gated.
