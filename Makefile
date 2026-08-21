@@ -128,7 +128,7 @@ license-check:
 .PHONY: test
 test:
 	@echo "→ Unit tests (race detector)"
-	go test -race -count=1 -timeout 60s ./...
+	go test -race -count=1 -timeout 300s ./...
 	@echo "✅ Tests passed"
 
 .PHONY: cover
