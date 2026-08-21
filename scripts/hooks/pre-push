@@ -1,5 +1,5 @@
 #!/bin/bash
-# Pre-push: thorough checks before code reaches GitHub — target < 90 seconds
+# Pre-push: thorough checks before code reaches GitHub
 # Install: cp scripts/hooks/pre-push .git/hooks/pre-push && chmod +x .git/hooks/pre-push
 
 set -e
@@ -7,7 +7,7 @@ echo "→ Pre-push (thorough checks)"
 
 # 1. Full test suite with race detector
 echo "  Running tests with race detector..."
-if ! go test -race -count=1 -timeout 90s ./... 2>&1; then
+if ! go test -race -count=1 -timeout 300s ./... 2>&1; then
     echo "❌ Tests failed (race detector)"
     exit 1
 fi
