@@ -22,6 +22,18 @@ var directCopy = map[string]string{
 
 var sectionHeader = regexp.MustCompile(`^===== (.+) =====$`)
 
+// maxSnapshotIngestBytes bounds FromSnapshot's total accumulated bytes.
+// Deliberately NOT maxUntarTotalBytes (tarball.go, 2 GiB): that bound was
+// sized for LoadTarball's disk extraction, where each entry is written to a
+// temp file and released. FromSnapshot never touches disk — every ingested
+// entry's decoded content is held in memory for the life of the returned
+// Bundle (b.files, see ingestSnapshotFile) — so reusing the disk-sized bound
+// here would let a crafted snapshot hold up to 2 GiB in RAM, not just spike
+// briefly during extraction. 256 MiB is generous for a real hw-snapshot.sh
+// run (a few thousand small text files) while keeping the in-memory ceiling
+// an order of magnitude below the disk bound.
+const maxSnapshotIngestBytes int64 = 256 << 20
+
 // FromSnapshot ingests the FILE layer of an hw-snapshot.sh tarball into a
 // replayable Bundle. dumptree sections (`===== /path =====`) and the handful of
 // direct-copied files are keyed by their real absolute path — the same key the
@@ -33,7 +45,7 @@ var sectionHeader = regexp.MustCompile(`^===== (.+) =====$`)
 // (Phase 2); until then a command-based collector hits ErrNotRecorded on replay,
 // which is the correct loud signal rather than a silent wrong answer.
 func FromSnapshot(tarballPath string) (*Bundle, error) {
-	return fromSnapshotWithLimits(tarballPath, maxUntarEntries, maxUntarTotalBytes)
+	return fromSnapshotWithLimits(tarballPath, maxUntarEntries, maxSnapshotIngestBytes)
 }
 
 // fromSnapshotWithLimits is FromSnapshot's testable core — maxEntries/
