@@ -100,6 +100,23 @@ type Source interface {
 // recording is a gap to fix, not a system fact to trust.
 var ErrNotRecorded = errors.New("source: input not present in replay bundle (recording gap)")
 
+// ErrNotNativeBundle signals that the given path does not contain a native
+// raw-v1 bundle: LoadTarball couldn't read it as our own format (bad gzip/tar,
+// or extraction succeeded but the content isn't shaped like Save's output —
+// no manifest, wrong layout). This is the ONLY signal a caller should treat as
+// "try a different parser" (e.g. FromSnapshot for an hw-snapshot.sh tarball).
+var ErrNotNativeBundle = errors.New("source: not a native raw-v1 bundle")
+
+// ErrRejected signals that LoadTarball recognised the input as (or as
+// resembling) a native bundle but refused to process it because it tripped a
+// defensive limit — too many entries, too much cumulative data, a single
+// entry over the per-file cap, or an attempted write through a symlink. This
+// is NOT a "wrong format" signal, and callers must never fall back to a
+// less-defended parser on it: doing so is exactly how a limit that was just
+// enforced gets silently re-exposed to the same hostile input (the bug this
+// sentinel exists to prevent — see cmd/replay.go's loadBundle).
+var ErrRejected = errors.New("source: rejected hostile or malformed tarball")
+
 // cacheKeyPrefix is the NUL-delimited sentinel cacheKey() prepends to a
 // Cached() key, so it can never collide with a recorded file path (see
 // cacheKey). cleanPath special-cases it — see there for why.
