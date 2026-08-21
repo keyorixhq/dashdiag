@@ -316,6 +316,173 @@ services:
 	}
 }
 
+// TestLoad_ImplicitConfigSymlinkRefused confirms an implicit $HOME config
+// that is a symlink is refused outright, regardless of what it points at or
+// the process's privilege level — closing the gap where only root had any
+// check at all (ownership), and even that used Stat (follows symlinks).
+func TestLoad_ImplicitConfigSymlinkRefused(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+
+	target := filepath.Join(dir, "real-target.yaml")
+	yaml := `
+services:
+  - name: attacker-controlled
+    host: 10.0.0.1
+    port: 4444
+    protocol: tcp
+`
+	if err := os.WriteFile(target, []byte(yaml), 0600); err != nil {
+		t.Fatalf("write target: %v", err)
+	}
+	cfgPath := filepath.Join(dir, ".dsd.yaml")
+	if err := os.Symlink(target, cfgPath); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(cfg.Services) != 0 {
+		t.Fatalf("a symlinked implicit config must be refused, got Services=%+v", cfg.Services)
+	}
+}
+
+// TestLoad_ImplicitConfigWorldWritableRefused confirms a group/world-writable
+// implicit $HOME config is refused: its content isn't exclusively controlled
+// by its apparent owner, so ownership alone (the existing root-only check)
+// isn't sufficient trust evidence.
+func TestLoad_ImplicitConfigWorldWritableRefused(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	cfgPath := filepath.Join(dir, ".dsd.yaml")
+	yaml := `
+services:
+  - name: attacker-controlled
+    host: 10.0.0.1
+    port: 4444
+    protocol: tcp
+`
+	if err := os.WriteFile(cfgPath, []byte(yaml), 0666); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	// os.WriteFile's mode is masked by the process umask (typically 022),
+	// which would silently strip the group/world write bits this test needs
+	// to exercise — os.Chmod bypasses the umask and sets the mode exactly.
+	if err := os.Chmod(cfgPath, 0666); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+
+	cfg, err := Load("")
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(cfg.Services) != 0 {
+		t.Fatalf("a world-writable implicit config must be refused, got Services=%+v", cfg.Services)
+	}
+}
+
+// TestLoad_ImplicitConfigOversizeRefused confirms an implicit $HOME config
+// over the size cap is refused with a disclosed error, before ever reaching
+// viper's unbounded read.
+func TestLoad_ImplicitConfigOversizeRefused(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	cfgPath := filepath.Join(dir, ".dsd.yaml")
+
+	f, err := os.OpenFile(cfgPath, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0600) // #nosec G304 -- test-owned temp path
+	if err != nil {
+		t.Fatalf("create: %v", err)
+	}
+	if err := f.Truncate(maxImplicitConfigBytes + 1); err != nil {
+		t.Fatalf("truncate: %v", err)
+	}
+	if err := f.Close(); err != nil {
+		t.Fatalf("close: %v", err)
+	}
+
+	cfg, err := Load("")
+	if err == nil {
+		t.Fatal("expected an error for an oversized implicit config")
+	}
+	if len(cfg.Services) != 0 || cfg.Thresholds.DiskWarnPct != 80.0 {
+		t.Fatalf("oversized implicit config must fall back to defaults, got %+v", cfg)
+	}
+}
+
+// TestLoad_ExplicitConfigBypassesSymlinkAndWritableChecks confirms an
+// explicit --config path (a deliberate operator choice) is never subject to
+// the new implicit-$HOME symlink/writable-bits/size checks, mirroring the
+// existing explicit-bypasses-ownership-check guarantee above.
+func TestLoad_ExplicitConfigBypassesSymlinkAndWritableChecks(t *testing.T) {
+	dir := t.TempDir()
+	target := filepath.Join(dir, "real-target.yaml")
+	yaml := `
+services:
+  - name: postgres
+    host: localhost
+    port: 5432
+    protocol: tcp
+`
+	if err := os.WriteFile(target, []byte(yaml), 0666); err != nil {
+		t.Fatalf("write target: %v", err)
+	}
+	cfgFile := filepath.Join(dir, "explicit.yaml")
+	if err := os.Symlink(target, cfgFile); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+
+	cfg, err := Load(cfgFile)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if len(cfg.Services) != 1 || cfg.Services[0].Name != "postgres" {
+		t.Fatalf("explicit --config path must bypass the new implicit-path checks, got Services=%+v", cfg.Services)
+	}
+}
+
+// TestImplicitConfigSafe exercises the real (non-mocked) implicit-config
+// trust check directly, matching TestDefaultFileOwner's style below.
+func TestImplicitConfigSafe(t *testing.T) {
+	dir := t.TempDir()
+
+	missing := filepath.Join(dir, "missing.yaml")
+	if safe, err := implicitConfigSafe(missing); !safe || err != nil {
+		t.Errorf("missing file: got safe=%v err=%v, want safe=true err=nil", safe, err)
+	}
+
+	regular := filepath.Join(dir, "regular.yaml")
+	if err := os.WriteFile(regular, []byte("x"), 0600); err != nil {
+		t.Fatalf("write regular: %v", err)
+	}
+	if safe, err := implicitConfigSafe(regular); !safe || err != nil {
+		t.Errorf("regular 0600 file: got safe=%v err=%v, want safe=true err=nil", safe, err)
+	}
+
+	writable := filepath.Join(dir, "writable.yaml")
+	if err := os.WriteFile(writable, []byte("x"), 0664); err != nil {
+		t.Fatalf("write writable: %v", err)
+	}
+	// os.Chmod bypasses the umask (see the analogous comment in
+	// TestLoad_ImplicitConfigWorldWritableRefused) so the group-write bit
+	// this test needs actually lands.
+	if err := os.Chmod(writable, 0664); err != nil {
+		t.Fatalf("chmod: %v", err)
+	}
+	if safe, _ := implicitConfigSafe(writable); safe {
+		t.Error("group-writable file: want safe=false")
+	}
+
+	link := filepath.Join(dir, "link.yaml")
+	if err := os.Symlink(regular, link); err != nil {
+		t.Fatalf("symlink: %v", err)
+	}
+	if safe, _ := implicitConfigSafe(link); safe {
+		t.Error("symlink: want safe=false")
+	}
+}
+
 // TestDefaultFileOwner exercises the real (non-mocked) ownership resolver.
 func TestDefaultFileOwner(t *testing.T) {
 	dir := t.TempDir()
