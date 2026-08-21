@@ -2,11 +2,14 @@
 
 DashDiag follows [Semantic Versioning](https://semver.org/). Starting at **1.0.0**,
 this document defines exactly what is covered by that promise — what you can build
-against and rely on across the entire `1.x` series, and what you can't.
+against and rely on across the entire `2.x` series, and what you can't. (The `1.x`
+promise ended at `2.0.0`, which shipped the breaking changes described in this
+document's "Covered" section below — see CHANGELOG.md's `[2.0.0]` entry for the
+full migration list.)
 
 The short version: **`dsd health --json` is the stable platform API.** Everything
 listed under "Covered" below will not change in a breaking way without a major
-version bump (`2.0.0`). Everything under "Not covered" may change in any release.
+version bump (`3.0.0`). Everything under "Not covered" may change in any release.
 
 ---
 
@@ -20,7 +23,7 @@ For the covered surface, a **breaking change** is any of:
 - Narrowing an enum (removing a possible value) or tightening accepted input
 - Changing default behaviour in a way that alters output a consumer already parses
 
-The following are **not** breaking and may ship in any `1.x` minor or patch:
+The following are **not** breaking and may ship in any `2.x` minor or patch:
 
 - **Adding** a new field to an existing JSON object
 - **Adding** a new enum value (consumers must tolerate unknown values — see below)
@@ -31,11 +34,11 @@ The following are **not** breaking and may ship in any `1.x` minor or patch:
 
 > **Consumer rule:** treat enums as open. A `status` or `level` you don't recognize
 > should degrade gracefully (e.g. map unknown → treat as at least WARN), not crash.
-> New severity-adjacent values may be added under `1.x`.
+> New severity-adjacent values may be added under `2.x`.
 
 ---
 
-## Covered by the 1.x promise
+## Covered by the 2.x promise
 
 ### 1. `dsd health --json` top-level object
 
@@ -67,6 +70,14 @@ Stable fields per check: `name`, `status`, `duration`, `error`.
   the `CPU` check's status).
 - A collector that is not applicable to the host is **omitted**, not shown as `OK`.
   Consumers must not assume a fixed set of checks is always present.
+- Since `2.0.0`, outbound network calls are off by default (see PRIVACY.md and the
+  `[2.0.0]` CHANGELOG entry for the full list of affected calls). Two effects on
+  this covered surface follow, both stable as of `2.x`: without `--network` /
+  `DSD_ALLOW_NETWORK=1`, the `Network` and `NFS` checks' `status` degrades to
+  `INFO` instead of a real verdict, and — on an actual cloud instance — the
+  `CloudMeta` check is **omitted from `checks[]` entirely** rather than degraded
+  (the same "not applicable" omission rule above, since cloud detection itself
+  needs the network call it's gating).
 
 ### 3. `insights[]` entries
 
@@ -96,8 +107,8 @@ likewise stable.
 ### 5. The `--blob` / `decode` round-trip
 
 `dsd health --blob` emits a gzip+base64 report block; `dsd decode` reads it back.
-The format is versioned internally; a `1.x` `dsd decode` will read any blob produced
-by a `1.x` `dsd`. The blob is **encoded, not encrypted or redacted** — this is a
+The format is versioned internally; a `2.x` `dsd decode` will read any blob produced
+by a `2.x` `dsd`. The blob is **encoded, not encrypted or redacted** — this is a
 documented property, not a bug (see PRIVACY.md). That contract is stable.
 
 ---
@@ -126,7 +137,7 @@ Pre-rendered human-readable drill-down text. Presence and content may change fre
 `dsd db`, `dsd net`, `dsd disk`, `dsd k8s`, etc. — is **best-effort**, not part of
 the frozen platform API. These shapes (`incidents[]`, `issues[]`, `uncheckable[]`,
 and the rest) are useful and we try not to churn them, but they are not bound by the
-1.x promise. If you depend on one and want it frozen, open an issue and we'll
+2.x promise. If you depend on one and want it frozen, open an issue and we'll
 consider promoting it.
 
 The single designated platform API surface is **`dsd health --json`**.
@@ -149,9 +160,9 @@ guarantee for importing DashDiag as a library. The supported interface is the CL
 
 When a covered surface must change incompatibly, we will, where practical:
 
-1. Add the replacement alongside the old surface in a `1.x` minor.
+1. Add the replacement alongside the old surface in a `2.x` minor.
 2. Document the old surface as deprecated in the changelog and `--help`.
-3. Keep the deprecated surface working until the next major (`2.0.0`).
+3. Keep the deprecated surface working until the next major (`3.0.0`).
 
 Some changes (a genuine correctness fix to a wrong exit code, say) may not allow a
 gentle path; those are called out explicitly in the changelog under **Breaking
@@ -162,7 +173,7 @@ misreporting.
 
 ## Reporting a compatibility break
 
-If a `1.x` release breaks something listed under "Covered" above, that's a bug —
+If a `2.x` release breaks something listed under "Covered" above, that's a bug —
 please open an issue tagged `compat`. If you're relying on something under "Not
 covered" and want it stabilized, open an issue and make the case; promotion from
 best-effort to covered is exactly how this surface is meant to grow.
