@@ -2,7 +2,7 @@
   "$schema": "http://json-schema.org/draft-07/schema#",
   "$id": "https://github.com/keyorixhq/dashdiag/schema/dsd-output.json",
   "title": "dsd health output",
-  "description": "JSON output schema for `dsd health --json`. This is the frozen platform API surface for the 1.x series (see COMPATIBILITY.md). Generated from the JSONOutput struct in internal/render/json.go; the struct is the source of truth and internal/render/schema_sync_test.go fails if the two drift.",
+  "description": "JSON output schema for `dsd health --json`. This is the frozen platform API surface for the 2.x series (see COMPATIBILITY.md). Generated from the JSONOutput struct in internal/render/json.go; the struct is the source of truth and internal/render/schema_sync_test.go fails if the two drift.",
   "type": "object",
   "required": ["hostname", "os", "timestamp", "version", "verdict", "counts", "checks", "insights"],
   "additionalProperties": false,
