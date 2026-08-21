@@ -39,6 +39,17 @@ func (b *Bundle) SaveTarball(path string) error {
 }
 
 // LoadTarball reads a bundle previously written by SaveTarball.
+//
+// Every error it returns is either ErrRejected (untarGzWithLimits recognised
+// the archive but refused it for tripping a defensive limit — entry count,
+// total bytes, or per-entry size) or wraps ErrNotNativeBundle (anything else:
+// not a valid gzip/tar stream, or extraction succeeded but the content isn't
+// shaped like a native raw-v1 bundle). A caller falling back to a different
+// parser (e.g. cmd/replay.go's loadBundle, trying FromSnapshot) must check
+// specifically for ErrNotNativeBundle and propagate ErrRejected as a real
+// failure — falling back on ANY error is what let a crafted archive defeat
+// these same limits by routing straight into FromSnapshot, which had none of
+// its own until fromSnapshotWithLimits was added.
 func LoadTarball(path string) (*Bundle, error) {
 	tmp, err := os.MkdirTemp("", "dsd-raw-*")
 	if err != nil {
@@ -46,14 +57,17 @@ func LoadTarball(path string) (*Bundle, error) {
 	}
 	if err := untarGz(path, tmp); err != nil {
 		_ = os.RemoveAll(tmp)
-		return nil, err
+		if errors.Is(err, ErrRejected) {
+			return nil, err
+		}
+		return nil, fmt.Errorf("%w: %w", ErrNotNativeBundle, err)
 	}
 	// Load reads every blob into []byte before returning — tmp is fully consumed
 	// after this call and can be removed regardless of the outcome.
 	b, err := Load(tmp)
 	_ = os.RemoveAll(tmp)
 	if err != nil {
-		return nil, err
+		return nil, fmt.Errorf("%w: %w", ErrNotNativeBundle, err)
 	}
 	return b, nil
 }
@@ -150,7 +164,7 @@ func untarGzWithLimits(srcPath, dstDir string, maxEntries int, maxTotalBytes int
 		}
 		entries++
 		if entries > maxEntries {
-			return fmt.Errorf("archive has more than %d entries — refusing to extract further", maxEntries)
+			return fmt.Errorf("%w: archive has more than %d entries — refusing to extract further", ErrRejected, maxEntries)
 		}
 		// Guard against path traversal in a crafted archive.
 		clean := filepath.Clean(hdr.Name)
@@ -162,10 +176,10 @@ func untarGzWithLimits(srcPath, dstDir string, maxEntries int, maxTotalBytes int
 			return err
 		}
 		if hdr.Size < 0 || hdr.Size > maxUntarFileSize {
-			return fmt.Errorf("tar entry %q exceeds maximum size (%d bytes)", hdr.Name, maxUntarFileSize)
+			return fmt.Errorf("%w: tar entry %q exceeds maximum size (%d bytes)", ErrRejected, hdr.Name, maxUntarFileSize)
 		}
 		if totalBytes+hdr.Size > maxTotalBytes {
-			return fmt.Errorf("archive's total extracted size exceeds %d bytes — refusing to extract further", maxTotalBytes)
+			return fmt.Errorf("%w: archive's total extracted size exceeds %d bytes — refusing to extract further", ErrRejected, maxTotalBytes)
 		}
 		out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600) // #nosec G304 -- dst is under our temp dir
 		if err != nil {
@@ -178,7 +192,7 @@ func untarGzWithLimits(srcPath, dstDir string, maxEntries int, maxTotalBytes int
 		}
 		if n > maxUntarFileSize {
 			_ = out.Close()
-			return fmt.Errorf("tar entry %q exceeds maximum size (%d bytes)", hdr.Name, maxUntarFileSize)
+			return fmt.Errorf("%w: tar entry %q exceeds maximum size (%d bytes)", ErrRejected, hdr.Name, maxUntarFileSize)
 		}
 		totalBytes += n
 		if err := out.Close(); err != nil {
