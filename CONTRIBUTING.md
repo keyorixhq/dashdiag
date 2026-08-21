@@ -121,6 +121,7 @@ CI will fail any PR that contains unsigned commits.
 - [ ] `dsd health --json | python3 -m json.tool` still produces valid JSON
 - [ ] `--plain` output has no ANSI escape codes
 - [ ] No new dependencies without discussion in PR description
+- [ ] If this PR changes a security boundary (input parsing/validation, sanitization, auth, signing/verification), `docs/THREAT_MODEL.md` is updated in the same commit
 
 ## Testing
 

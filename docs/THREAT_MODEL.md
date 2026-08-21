@@ -45,16 +45,39 @@ adversarial-adjacent, even if not actively malicious.
 - **Decompression-bomb / breadth bound on both extraction paths.** `untarGz`
   (`tarball.go`'s `untarGzWithLimits`) caps per-file size (`maxUntarFileSize`),
   entry count (`maxUntarEntries`), and total extracted bytes
-  (`maxUntarTotalBytes`); `FromSnapshot` (`snapshot.go`'s
-  `fromSnapshotWithLimits`) enforces the same three caps. This doc previously
-  (incorrectly) claimed neither path had a size bound, then (still
-  incorrectly, after a partial correction) claimed `FromSnapshot` lacked the
-  entry-count/total-bytes caps `untarGz` already had — both are fixed as of
-  2026-08-21's adversarial untrusted-input review: `LoadTarball`'s caps are
-  fuzz-verified (`FuzzLoadTarball`, ~42k local execs, no failures);
-  `FromSnapshot`'s caps are unit-boundary-tested
+  (`maxUntarTotalBytes`, 2 GiB — sized for disk extraction, where each entry
+  is written to a temp file and released); `FromSnapshot` (`snapshot.go`'s
+  `fromSnapshotWithLimits`) enforces matching per-file and entry-count caps,
+  plus its own, deliberately smaller total-bytes bound
+  (`maxSnapshotIngestBytes`, 256 MiB) rather than reusing `maxUntarTotalBytes`
+  — `FromSnapshot` never touches disk, so every ingested entry's content is
+  held in memory for the returned `Bundle`'s lifetime, and the disk-sized
+  bound would let a crafted snapshot hold up to 2 GiB in RAM rather than just
+  spike briefly during extraction. This doc previously (incorrectly) claimed
+  neither path had a size bound, then (still incorrectly, after a partial
+  correction) claimed `FromSnapshot` lacked the entry-count/total-bytes caps
+  `untarGz` already had — both are fixed as of 2026-08-21's adversarial
+  untrusted-input review: `LoadTarball`'s caps are fuzz-verified
+  (`FuzzLoadTarball`, ~42k local execs, no failures); `FromSnapshot`'s caps
+  are unit-boundary-tested
   (`TestFromSnapshotWithLimits_EntryCountCapped`/`TotalBytesCapped`) but not
   yet covered by a dedicated fuzz target.
+- **The fallback from `LoadTarball` to `FromSnapshot` can no longer defeat
+  the caps above.** `cmd/replay.go`'s `loadBundle` used to discard
+  `LoadTarball`'s error unconditionally and fall back to `FromSnapshot` on
+  ANY failure — including `LoadTarball`'s own hostile-input rejections. Before
+  `FromSnapshot` had breadth caps of its own (the bullet above), that
+  fallback fully defeated `LoadTarball`'s protection for a rejected archive;
+  even after `FromSnapshot` gained matching caps, the fallback still
+  bypassed `LoadTarball`'s checks for no reason other than a swallowed error.
+  Fixed 2026-08-21: `internal/source` now distinguishes `ErrNotNativeBundle`
+  ("this isn't our format, try a different parser" — the only signal
+  `loadBundle` treats as license to fall back) from `ErrRejected`
+  ("recognised as/resembling our format but refused for tripping a limit" —
+  propagated as a real failure, never retried against a less-defended
+  parser). See `internal/source/source.go`'s sentinel doc comments and
+  `cmd/replay_loadbundle_test.go`'s regression coverage (confirmed to fail
+  against the pre-fix `loadBundle`).
 
 **Residual gaps:**
 - **Manifest fields beyond `Format` are unconstrained strings** (`Host`,
