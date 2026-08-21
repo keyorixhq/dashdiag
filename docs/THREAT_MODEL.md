@@ -44,14 +44,23 @@ adversarial-adjacent, even if not actively malicious.
   `Format` string is rejected before the bundle is used.
 
 **Residual gaps:**
-- **No decompression-bomb / size bound.** Both `untarGz` (`tarball.go:121`,
-  `io.Copy` with a `#nosec G110 -- our own bundle, bounded` justification that
-  no longer holds once bundles are treated as externally-sourced) and
-  `FromSnapshot` (`snapshot.go:67`, `io.ReadAll`) read tar members into memory
-  with no per-file or total-bundle cap. A crafted bundle with one hugely
-  inflating member, or millions of small entries, exhausts memory on
-  whatever machine runs `dsd replay` — a local DoS, not a compromise, but a
-  real one given bundles are now explicitly meant to be shared inbound.
+- **`FromSnapshot`'s ingestion has no breadth bound (`untarGz`'s does).**
+  `untarGz` (`tarball.go`'s `untarGzWithLimits`) caps per-file size
+  (`maxUntarFileSize`), entry count (`maxUntarEntries`), and total extracted
+  bytes (`maxUntarTotalBytes`) — this doc previously (incorrectly) claimed
+  `untarGz` had no size bound at all; corrected 2026-08-21 after an
+  adversarial untrusted-input review confirmed the caps are present and
+  fuzz-clean (`internal/source/fuzz_untrusted_test.go`'s `FuzzLoadTarball`,
+  ~42k local execs, no failures). `FromSnapshot` (`snapshot.go`) only bounds a
+  single entry's size (`maxUntarFileSize`), not the archive's total entry
+  count or cumulative bytes — the same class of gap `untarGzWithLimits`
+  already closed for `LoadTarball`, just not mirrored here. `FromSnapshot` is
+  reachable from `dsd replay <bundle>` any time the file fails `LoadTarball`'s
+  native-format check (`cmd/replay.go`'s `loadBundle` falls back to it), so a
+  crafted gzip+tar with many small entries, each under the per-file cap, can
+  still exhaust memory/CPU on whatever machine runs `dsd replay` — a local
+  DoS, not a compromise, but a real one given bundles are explicitly meant to
+  be shared inbound.
 - **Manifest fields beyond `Format` are unconstrained strings** (`Host`,
   `OS`, `DistroID`, `Kernel`, `DsdVer`, etc.) — low severity today since
   they're only ever displayed or used for informational branching, but worth
@@ -65,13 +74,14 @@ adversarial-adjacent, even if not actively malicious.
   to reach the same parsers with adversarial input, and the fuzz corpus is
   the right existing tool to extend here rather than building new defenses.
 
-**Recommendation (not yet implemented):** add a size cap (per-file and
-total) to both extraction paths, and update ADR-0003's trust language to
-match how bundles are actually used — replace "trusted-debugging artifact"
-with an explicit statement that bundles may arrive from another party and
-extraction is hardened accordingly (path/symlink/size), while *contents*
-(command output, file contents) are handled by the same
-parser-hardening effort already applied to live collector input.
+**Recommendation:** mirror `untarGzWithLimits`'s entry-count/total-bytes caps
+into `FromSnapshot` (not yet implemented as of this revision), and update
+ADR-0003's trust language to match how bundles are actually used — replace
+"trusted-debugging artifact" with an explicit statement that bundles may
+arrive from another party and extraction is hardened accordingly
+(path/symlink/size), while *contents* (command output, file contents) are
+handled by the same parser-hardening effort already applied to live
+collector input.
 
 ## 2. Capture sanitization — `dsd capture --sanitize` / `dsd sanitize` / `--identifiers`
 
