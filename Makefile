@@ -169,6 +169,9 @@ test-fuzz:
 	go test -run=NONE -fuzz='^FuzzParseUnitFromMessage$$' -fuzztime=$(FUZZTIME) ./internal/drilldown/; \
 	go test -run=NONE -fuzz='^FuzzParseOSRelease$$'      -fuzztime=$(FUZZTIME) ./internal/platform/; \
 	go test -run=NONE -fuzz='^FuzzCompareDpkg$$'         -fuzztime=$(FUZZTIME) ./internal/cvedata/; \
+	go test -run=NONE -fuzz='^FuzzDecode$$'              -fuzztime=$(FUZZTIME) ./internal/share/; \
+	go test -run=NONE -fuzz='^FuzzLoadTarball$$'         -fuzztime=$(FUZZTIME) ./internal/source/; \
+	go test -run=NONE -fuzz='^FuzzLoad$$'                -fuzztime=$(FUZZTIME) ./internal/source/; \
 	go test -run=NONE -fuzz='^FuzzReadAll$$'             -fuzztime=$(FUZZTIME) ./internal/store/
 	@echo "✅ all portable fuzz harnesses passed"
 	@echo "→ Linux-only parser harnesses (skipped on $(shell go env GOOS)):"
