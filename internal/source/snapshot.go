@@ -33,6 +33,21 @@ var sectionHeader = regexp.MustCompile(`^===== (.+) =====$`)
 // (Phase 2); until then a command-based collector hits ErrNotRecorded on replay,
 // which is the correct loud signal rather than a silent wrong answer.
 func FromSnapshot(tarballPath string) (*Bundle, error) {
+	return fromSnapshotWithLimits(tarballPath, maxUntarEntries, maxUntarTotalBytes)
+}
+
+// fromSnapshotWithLimits is FromSnapshot's testable core — maxEntries/
+// maxTotalBytes are parameterized so a test can exercise the breadth caps with
+// a handful of tiny entries instead of constructing a snapshot large enough to
+// hit the real (200k entry / 2GiB) production limits. Mirrors
+// untarGzWithLimits in tarball.go: FromSnapshot previously bounded only a
+// single entry's size (maxUntarFileSize below), not the archive's total entry
+// count or cumulative bytes, unlike untarGzWithLimits — a crafted
+// hw-snapshot.sh-style tarball with many small .txt entries, each under the
+// per-file cap, could still exhaust memory/CPU on `dsd replay`, which falls
+// back to this function whenever LoadTarball rejects the file as not a native
+// raw-v1 bundle (cmd/replay.go's loadBundle).
+func fromSnapshotWithLimits(tarballPath string, maxEntries int, maxTotalBytes int64) (*Bundle, error) {
 	f, err := os.Open(tarballPath) // #nosec G304 -- operator-supplied snapshot path
 	if err != nil {
 		return nil, err
@@ -49,6 +64,8 @@ func FromSnapshot(tarballPath string) (*Bundle, error) {
 	b.Manifest.Note = "ingested from hw-snapshot.sh: " + filepath.Base(tarballPath)
 
 	tr := tar.NewReader(gz)
+	var entries int
+	var totalBytes int64
 	for {
 		hdr, err := tr.Next()
 		if err == io.EOF {
@@ -60,12 +77,19 @@ func FromSnapshot(tarballPath string) (*Bundle, error) {
 		if hdr.Typeflag != tar.TypeReg {
 			continue
 		}
+		entries++
+		if entries > maxEntries {
+			return nil, fmt.Errorf("snapshot has more than %d entries — refusing to ingest further", maxEntries)
+		}
 		base := filepath.Base(hdr.Name)
 		if !strings.HasSuffix(base, ".txt") {
 			continue // skip .err/.exit/.missing/MANIFEST and command blobs
 		}
 		if hdr.Size < 0 || hdr.Size > maxUntarFileSize {
 			return nil, fmt.Errorf("snapshot entry %q exceeds maximum size (%d bytes)", hdr.Name, maxUntarFileSize)
+		}
+		if totalBytes+hdr.Size > maxTotalBytes {
+			return nil, fmt.Errorf("snapshot's total ingested size exceeds %d bytes — refusing to ingest further", maxTotalBytes)
 		}
 		data, err := io.ReadAll(io.LimitReader(tr, maxUntarFileSize+1))
 		if err != nil {
@@ -74,6 +98,7 @@ func FromSnapshot(tarballPath string) (*Bundle, error) {
 		if int64(len(data)) > maxUntarFileSize {
 			return nil, fmt.Errorf("snapshot entry %q exceeds maximum size (%d bytes)", hdr.Name, maxUntarFileSize)
 		}
+		totalBytes += int64(len(data))
 		ingestSnapshotFile(b, base, string(data))
 	}
 	return b, nil
