@@ -398,6 +398,83 @@ func TestLoadCommandBlobPathTraversalRejected(t *testing.T) {
 	}
 }
 
+// TestLoadCommandStderrBlobMissingIsRejected is TestLoadCommandBlobsMissingIsRejected's
+// StderrBlob-only counterpart. That test (and TestLoadCommandBlobPathTraversalRejected
+// below it) set BOTH StdoutBlob and StderrBlob to the same bad value — since Load's
+// StdoutBlob check runs first and returns immediately on failure, neither test proves
+// the StderrBlob guard (persist.go:260-268) works independently. A hostile bundle with
+// a valid StdoutBlob and only a malicious/missing StderrBlob was untested.
+func TestLoadCommandStderrBlobMissingIsRejected(t *testing.T) {
+	t.Parallel()
+
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "files"), 0o755); err != nil {
+		t.Fatalf("premkdir files: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "commands"), 0o755); err != nil {
+		t.Fatalf("premkdir commands: %v", err)
+	}
+	if err := writeJSON(filepath.Join(dir, "manifest.json"), Manifest{Format: FormatVersion}); err != nil {
+		t.Fatalf("writeJSON manifest: %v", err)
+	}
+	if err := writeJSON(filepath.Join(dir, "files/index.json"), []fileIndexEntry{}); err != nil {
+		t.Fatalf("writeJSON files/index.json: %v", err)
+	}
+	cidx := []cmdIndexEntry{{
+		Argv:       []string{"ghost-tool"},
+		StderrBlob: "commands/blobs/missing.err", // StdoutBlob left empty — only Stderr is bad
+	}}
+	if err := writeJSON(filepath.Join(dir, "commands/index.json"), cidx); err != nil {
+		t.Fatalf("writeJSON commands/index.json: %v", err)
+	}
+
+	b, err := Load(dir)
+	if err == nil {
+		t.Fatalf("Load should reject a missing StderrBlob even when StdoutBlob is empty, got a bundle: %+v", b)
+	}
+}
+
+// TestLoadCommandStderrBlobPathTraversalRejected is
+// TestLoadCommandBlobPathTraversalRejected's StderrBlob-only counterpart —
+// see TestLoadCommandStderrBlobMissingIsRejected above for why the
+// StdoutBlob+StderrBlob-together tests don't prove this independently.
+func TestLoadCommandStderrBlobPathTraversalRejected(t *testing.T) {
+	t.Parallel()
+
+	outside := t.TempDir()
+	secretPath := filepath.Join(outside, "secret")
+	if err := os.WriteFile(secretPath, []byte("attacker should never see this"), 0o600); err != nil {
+		t.Fatalf("write secret: %v", err)
+	}
+
+	dir := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(dir, "files"), 0o755); err != nil {
+		t.Fatalf("premkdir files: %v", err)
+	}
+	if err := os.MkdirAll(filepath.Join(dir, "commands"), 0o755); err != nil {
+		t.Fatalf("premkdir commands: %v", err)
+	}
+	if err := writeJSON(filepath.Join(dir, "manifest.json"), Manifest{Format: FormatVersion}); err != nil {
+		t.Fatalf("writeJSON manifest: %v", err)
+	}
+	if err := writeJSON(filepath.Join(dir, "files/index.json"), []fileIndexEntry{}); err != nil {
+		t.Fatalf("writeJSON files/index.json: %v", err)
+	}
+	rel, err := filepath.Rel(dir, secretPath)
+	if err != nil {
+		t.Fatalf("filepath.Rel: %v", err)
+	}
+	cidx := []cmdIndexEntry{{Argv: []string{"ghost-tool"}, StderrBlob: rel}}
+	if err := writeJSON(filepath.Join(dir, "commands/index.json"), cidx); err != nil {
+		t.Fatalf("writeJSON commands/index.json: %v", err)
+	}
+
+	b, err := Load(dir)
+	if err == nil {
+		t.Fatalf("Load should reject a StderrBlob path that escapes the bundle directory even when StdoutBlob is empty, got a bundle: %+v", b)
+	}
+}
+
 // TestSaveManifestWriteFailureRootSafe covers persist.go:61-63 without relying
 // on directory permissions (chmod), so it also passes when the test runs as
 // root.  Pre-creating manifest.json as a directory makes os.WriteFile fail

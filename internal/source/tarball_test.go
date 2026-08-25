@@ -6,6 +6,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 )
@@ -205,6 +206,57 @@ func TestTarGzDirReadFileFailure(t *testing.T) {
 	dst := filepath.Join(t.TempDir(), "out.tar.gz")
 	if err := tarGzDir(src, dst); err == nil {
 		t.Fatal("tarGzDir should fail when a source file is unreadable")
+	}
+}
+
+// TestTarGzDirWalkDirFailure covers the filepath.Walk callback's own err
+// parameter (tarGzDir's walk func returns it unconditionally at the top) —
+// distinct from TestTarGzDirReadFileFailure above, which fails later at
+// os.ReadFile on a specific unreadable FILE. This one fails earlier, when
+// Walk itself can't list a subdirectory's entries (no read/execute
+// permission on the directory), so the callback is invoked a second time
+// for that directory carrying a non-nil err.
+func TestTarGzDirWalkDirFailure(t *testing.T) {
+	t.Parallel()
+
+	src := t.TempDir()
+	unreadableDir := filepath.Join(src, "no-list")
+	if err := os.Mkdir(unreadableDir, 0o755); err != nil {
+		t.Fatalf("mkdir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(unreadableDir, "f.txt"), []byte("data"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+	chmodRestoring(t, unreadableDir, 0o000)
+
+	dst := filepath.Join(t.TempDir(), "out.tar.gz")
+	if err := tarGzDir(src, dst); err == nil {
+		t.Fatal("tarGzDir should fail when a source subdirectory can't be listed")
+	}
+}
+
+// TestTarGzDirWriteHeaderFailure covers the walk callback's tw.WriteHeader
+// error branch (tarball.go:112-114) using /dev/full (Linux-only — a device
+// that always returns ENOSPC on write) as the destination. tw.WriteHeader
+// writes through tar.Writer -> gzip.Writer -> the destination file, and in
+// practice a small header write reaches the underlying device promptly
+// rather than sitting in gzip's internal buffer until Close() — verified
+// empirically against golang:1.26 in the Linux container before writing this
+// test, since the alternative hypothesis (failure deferred to tw.Close())
+// turned out not to hold for real header/data sizes.
+func TestTarGzDirWriteHeaderFailure(t *testing.T) {
+	if runtime.GOOS != "linux" {
+		t.Skip("/dev/full is Linux-only")
+	}
+	t.Parallel()
+
+	src := t.TempDir()
+	if err := os.WriteFile(filepath.Join(src, "f.txt"), []byte("data"), 0o644); err != nil {
+		t.Fatalf("write: %v", err)
+	}
+
+	if err := tarGzDir(src, "/dev/full"); err == nil {
+		t.Fatal("tarGzDir should fail when the destination device always returns ENOSPC")
 	}
 }
 

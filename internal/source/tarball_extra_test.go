@@ -3,6 +3,7 @@ package source
 import (
 	"archive/tar"
 	"compress/gzip"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -139,18 +140,17 @@ func TestLoadTarball_LoadFails(t *testing.T) {
 	}
 }
 
-// TestUntarGz_OversizeHeader exercises the hdr.Size > maxUntarFileSize guard in
-// untarGz (line 130): a crafted tar entry with a declared size exceeding the
-// 100 MiB limit must be rejected before any file is written.
-//
-// We write the raw tar header bytes manually (512-byte POSIX ustar block) to
-// embed a large size field (maxUntarFileSize+1) without having to actually
-// produce that many payload bytes — the untarGz size check fires on the
-// declared header size before any io.Copy, so the payload content is
-// irrelevant.  A final double-512 EOF block and a trivially valid checksum
-// make the tar reader parse at least one valid header before the guard fires.
-func TestUntarGz_OversizeHeader(t *testing.T) {
-	t.Parallel()
+// writeOversizeTarGz writes a .tar.gz archive to path containing a single
+// entry whose declared header size exceeds maxUntarFileSize, and returns the
+// path. We write the raw tar header bytes manually (512-byte POSIX ustar
+// block) to embed a large size field (maxUntarFileSize+1) without having to
+// actually produce that many payload bytes — untarGzWithLimits's size check
+// fires on the declared header size before any io.Copy, so the payload
+// content is irrelevant. A final double-512 EOF block and a trivially valid
+// checksum make the tar reader parse at least one valid header before the
+// guard fires.
+func writeOversizeTarGz(t *testing.T, path string) string {
+	t.Helper()
 
 	// Build a POSIX ustar 512-byte header block encoding name "oversize.bin",
 	// typeflag '0' (regular file), and size = maxUntarFileSize+1 in octal.
@@ -180,8 +180,7 @@ func TestUntarGz_OversizeHeader(t *testing.T) {
 
 	// Build the gzip stream: one header block + two zero 512-byte EOF blocks.
 	var eof [1024]byte
-	src := filepath.Join(t.TempDir(), "oversize.tar.gz")
-	f, err := os.Create(src)
+	f, err := os.Create(path)
 	if err != nil {
 		t.Fatalf("create archive: %v", err)
 	}
@@ -198,9 +197,38 @@ func TestUntarGz_OversizeHeader(t *testing.T) {
 	if err := f.Close(); err != nil {
 		t.Fatalf("file close: %v", err)
 	}
+	return path
+}
 
-	err = untarGz(src, t.TempDir())
+// TestUntarGz_OversizeHeader exercises the hdr.Size > maxUntarFileSize guard in
+// untarGz (line 130): a crafted tar entry with a declared size exceeding the
+// 100 MiB limit must be rejected before any file is written.
+func TestUntarGz_OversizeHeader(t *testing.T) {
+	t.Parallel()
+	src := writeOversizeTarGz(t, filepath.Join(t.TempDir(), "oversize.tar.gz"))
+	err := untarGz(src, t.TempDir())
 	if err == nil {
 		t.Fatal("untarGz should reject a tar entry whose declared size exceeds maxUntarFileSize")
+	}
+}
+
+// TestLoadTarball_PropagatesErrRejected covers LoadTarball's ErrRejected
+// passthrough (tarball.go:60-62) at the PUBLIC entrypoint, not just
+// untarGzWithLimits directly. This is the exact error-classification
+// contract the function's own doc comment warns about: a caller (e.g.
+// cmd/replay.go's loadBundle) that falls back to a different parser on ANY
+// LoadTarball error, rather than checking specifically for
+// ErrNotNativeBundle, defeats these breadth/size caps entirely — so
+// LoadTarball must return ErrRejected unwrapped (not smashed into
+// ErrNotNativeBundle) for a rejected-but-recognized archive.
+func TestLoadTarball_PropagatesErrRejected(t *testing.T) {
+	t.Parallel()
+	src := writeOversizeTarGz(t, filepath.Join(t.TempDir(), "oversize.tar.gz"))
+	_, err := LoadTarball(src)
+	if !errors.Is(err, ErrRejected) {
+		t.Errorf("LoadTarball() error = %v, want errors.Is(err, ErrRejected)", err)
+	}
+	if errors.Is(err, ErrNotNativeBundle) {
+		t.Errorf("LoadTarball() error = %v, must NOT also match ErrNotNativeBundle — a caller checking only that sentinel would wrongly fall back", err)
 	}
 }
