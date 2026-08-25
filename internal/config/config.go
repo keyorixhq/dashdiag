@@ -92,7 +92,15 @@ var geteuid = os.Geteuid
 var fileOwner = defaultFileOwner
 
 func defaultFileOwner(path string) (uid int, ok bool) {
-	fi, err := os.Stat(path)
+	// Lstat, not Stat: this feeds the implicit-$HOME trust decision below, and
+	// Stat would report a symlink's TARGET owner rather than the symlink
+	// itself. An attacker who controls $HOME (e.g. a preserved unprivileged
+	// $HOME under `sudo -E`) could otherwise symlink .dsd.yaml at a
+	// root-owned-but-group/world-writable file elsewhere and pass this check
+	// on the target's ownership alone. implicitConfigSafe below refuses any
+	// symlink outright, but resolving ownership via Lstat too closes the
+	// TOCTOU gap between that check and this one.
+	fi, err := os.Lstat(path)
 	if err != nil {
 		return 0, false
 	}
@@ -101,6 +109,37 @@ func defaultFileOwner(path string) (uid int, ok bool) {
 		return 0, false
 	}
 	return int(st.Uid), true
+}
+
+// maxImplicitConfigBytes bounds an auto-discovered $HOME config before it's
+// handed to viper, which has no size limit of its own. An explicit --config
+// path is a deliberate operator choice and isn't capped.
+const maxImplicitConfigBytes = 1 << 20 // 1 MiB, generously larger than any real dsd config
+
+// implicitConfigSafe reports whether the auto-discovered $HOME config at path
+// is safe to trust: not a symlink (which could point anywhere, chosen by
+// whoever controls $HOME rather than the operator's explicit --config
+// choice), not group/world-writable (content isn't exclusively controlled by
+// its apparent owner), and under the size cap. Applies regardless of
+// privilege level — the existing owner check below only runs as root; a
+// non-root dsd process trusted an implicit symlink or writable file with no
+// check of any kind before this. Uses Lstat throughout, never Stat, so a
+// symlink is judged on its own attributes, not a followed target's.
+func implicitConfigSafe(path string) (bool, error) {
+	fi, err := os.Lstat(path)
+	if err != nil {
+		return true, nil // doesn't exist (or unreadable) — ReadInConfig reports that as usual
+	}
+	if fi.Mode()&os.ModeSymlink != 0 {
+		return false, nil
+	}
+	if fi.Mode().Perm()&0o022 != 0 {
+		return false, nil
+	}
+	if fi.Size() > maxImplicitConfigBytes {
+		return false, fmt.Errorf("implicit config %s exceeds maximum size of %d bytes", path, maxImplicitConfigBytes)
+	}
+	return true, nil
 }
 
 func Load(cfgFile string) (*Config, error) {
@@ -127,6 +166,13 @@ func Load(cfgFile string) (*Config, error) {
 		}
 		cfgFile = filepath.Join(home, ".dsd.yaml")
 		v.SetConfigFile(cfgFile)
+	}
+
+	if implicitPath {
+		if safe, sizeErr := implicitConfigSafe(cfgFile); !safe {
+			cfg := defaults
+			return &cfg, sizeErr
+		}
 	}
 
 	// A root process must not silently trust an auto-discovered $HOME config it

@@ -18,6 +18,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"runtime"
@@ -81,12 +82,24 @@ func init() {
 }
 
 // loadBundle reads a native raw-v1 bundle, falling back to an hw-snapshot.sh
-// tarball (file layer only) when there is no manifest.
+// tarball (file layer only) ONLY when LoadTarball reports the file isn't a
+// native bundle at all (source.ErrNotNativeBundle). A rejection
+// (source.ErrRejected — the archive tripped an entry-count/size/symlink
+// limit) is returned as-is, never silently retried against FromSnapshot:
+// falling back on any error, not specifically "wrong format", is what let a
+// crafted archive walk straight past LoadTarball's limits into a parser that
+// (at the time) had none of its own. Callers wrap the returned error with
+// their own context ("loading bundle"/"loading baseline bundle"); this
+// function deliberately doesn't add its own layer on top.
 func loadBundle(path string) (*source.Bundle, error) {
-	if b, err := source.LoadTarball(path); err == nil {
+	b, err := source.LoadTarball(path)
+	if err == nil {
 		return b, nil
 	}
-	return source.FromSnapshot(path)
+	if errors.Is(err, source.ErrNotNativeBundle) {
+		return source.FromSnapshot(path)
+	}
+	return nil, err
 }
 
 // replayBundle runs the full health pipeline against a single bundle with the

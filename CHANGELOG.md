@@ -9,6 +9,38 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.0.2] - 2026-08-21
+
+### Fixed
+
+- `dsd replay`/`dsd diff`'s `loadBundle` discarded `LoadTarball`'s error
+  unconditionally and fell back to `FromSnapshot` on ANY failure — including
+  `LoadTarball`'s own hostile-input rejections (entry-count, total-bytes, and
+  per-entry-size caps). A crafted archive tripping one of those caps was
+  silently retried against `FromSnapshot` instead of being rejected.
+  `internal/source` now distinguishes `ErrNotNativeBundle` ("not our format,
+  try a different parser" — the only signal `loadBundle` treats as license to
+  fall back) from `ErrRejected` ("recognised but refused for tripping a
+  limit" — now propagated as a real failure). As defence in depth,
+  `FromSnapshot` also gets its own, smaller, in-memory total-bytes bound
+  (`maxSnapshotIngestBytes`, 256 MiB) instead of reusing `LoadTarball`'s
+  disk-sized one (`maxUntarTotalBytes`, 2 GiB).
+- `internal/config`'s implicit `~/.dsd.yaml` lookup had no symlink check at
+  all, and its existing root-only ownership guard used `os.Stat` (which
+  resolves symlinks) — an attacker who controls `$HOME` could symlink
+  `.dsd.yaml` at a root-owned-but-group/world-writable file elsewhere and
+  pass the ownership check on the target's owner alone. The implicit lookup
+  now refuses a symlinked, group/world-writable, or oversized config
+  outright, via `Lstat` throughout. An explicit `--config` path remains a
+  trusted, unrestricted operator choice, as before.
+
+### Changed
+
+- `docs/THREAT_MODEL.md` §1 updated to reflect the `loadBundle` fix above and
+  `FromSnapshot`'s now-separate memory bound; `CONTRIBUTING.md`'s PR
+  checklist now requires updating `THREAT_MODEL.md` in the same commit as any
+  security-boundary change.
+
 ## [2.0.1] - 2026-08-21
 
 ### Fixed
