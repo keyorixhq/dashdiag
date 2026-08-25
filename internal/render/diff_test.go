@@ -144,6 +144,26 @@ func TestPrintDiffHumanMode(t *testing.T) {
 	}
 }
 
+// TestPrintDiffUnverifiedTransition covers the e.Unverified branches: a
+// check whose after-side reading came from an Unverified CheckResult (e.g.
+// re-run non-root, data couldn't be measured) must render "(unverified —
+// not confirmed this run)" in ModeHuman — the only mode that renders the
+// styled diff string carrying that suffix (ModePlain's branch rebuilds its
+// line from the raw before/after values instead, without it).
+func TestPrintDiffUnverifiedTransition(t *testing.T) {
+	t.Parallel()
+	before := diffSnap("host1", baseline.CheckResult{Name: "Disk", Status: "CRIT", Value: "/ 94%"})
+	after := diffSnap("host1", baseline.CheckResult{Name: "Disk", Status: "INFO", Value: "unmeasured", Unverified: true})
+
+	var humanBuf bytes.Buffer
+	if err := PrintDiff(&humanBuf, before, after, output.ModeHuman); err != nil {
+		t.Fatalf("PrintDiff(ModeHuman): %v", err)
+	}
+	if !strings.Contains(humanBuf.String(), "(unverified — not confirmed this run)") {
+		t.Errorf("ModeHuman: expected the unverified suffix, got:\n%s", humanBuf.String())
+	}
+}
+
 // TestTimeAgo covers each of the three buckets (minutes, hours[+minutes], days)
 // plus the "at least 1 minute" floor for a just-now timestamp.
 func TestTimeAgo(t *testing.T) {

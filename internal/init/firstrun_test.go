@@ -1,13 +1,37 @@
 package init_pkg
 
 import (
+	"context"
+	"io"
 	"os"
+	"os/exec"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/output"
 )
+
+// captureStdout redirects os.Stdout for the duration of f and returns what
+// was written.
+func captureStdout(t *testing.T, f func()) string {
+	t.Helper()
+	old := os.Stdout
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	os.Stdout = w
+	f()
+	w.Close()
+	os.Stdout = old
+	out, err := io.ReadAll(r)
+	if err != nil {
+		t.Fatalf("ReadAll: %v", err)
+	}
+	return string(out)
+}
 
 // t.Setenv panics if called from a parallel test, so these intentionally skip
 // t.Parallel() — same convention as internal/tips/state_test.go.
@@ -106,6 +130,47 @@ func TestWriteProfileConfig_DoesNotOverwriteExisting(t *testing.T) {
 	}
 	if string(data) != original {
 		t.Errorf("existing config was overwritten: got %q, want %q", string(data), original)
+	}
+}
+
+// TestRunWizard_ProcessScanFailedMessage covers RunWizard's ok==false
+// branch: when the process scan itself fails, RunWizard must print the
+// "process list unavailable — please verify" message rather than presenting
+// the "general" fallback as a confirmed detection. Darwin-only: newPSCmd is
+// the only injection seam available (see TestDarwinProcessNames_PsNotFound
+// in detector_test.go) — on Linux, runningProcessNames() dispatches to
+// linuxProcessNames(), which reads the real, always-present /proc with no
+// equivalent seam. Not t.Parallel(): swaps the package-level newPSCmd var
+// (same constraint as TestDarwinProcessNames_PsNotFound).
+func TestRunWizard_ProcessScanFailedMessage(t *testing.T) {
+	if runtime.GOOS != "darwin" {
+		t.Skip("newPSCmd only intercepts the process scan on darwin — see doc comment")
+	}
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+
+	old := newPSCmd
+	newPSCmd = func(ctx context.Context) *exec.Cmd {
+		return exec.CommandContext(ctx, filepath.Join(t.TempDir(), "definitely-not-a-real-binary"), "aux")
+	}
+	defer func() { newPSCmd = old }()
+
+	r, w, err := os.Pipe()
+	if err != nil {
+		t.Fatalf("os.Pipe: %v", err)
+	}
+	w.Close() // EOF stdin — no selection, RunWizard returns after printing
+	oldStdin := os.Stdin
+	os.Stdin = r
+	defer func() { os.Stdin = oldStdin }()
+
+	out := captureStdout(t, func() {
+		if err := RunWizard(output.ModeHuman); err != nil {
+			t.Errorf("RunWizard() = %v, want nil", err)
+		}
+	})
+	if !strings.Contains(out, "process list unavailable") {
+		t.Errorf("RunWizard() output = %q, want the process-scan-failed message", out)
 	}
 }
 

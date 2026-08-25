@@ -67,6 +67,13 @@ func TestLogoDataURI(t *testing.T) {
 	if err == nil {
 		t.Error("http:// URI must be rejected")
 	}
+	// An oversized https:// URL is rejected — same maxLogoBytes cap as the
+	// data: URI and file-path branches, applied to the URL string itself.
+	hugeURL := "https://x/" + strings.Repeat("a", maxLogoBytes)
+	_, err = logoDataURI(hugeURL)
+	if err == nil {
+		t.Error("oversized https:// logo URL must be rejected")
+	}
 	// An https:// URL containing a quote must be rejected — logoDataURI returns
 	// template.URL, which html/template emits verbatim with NO escaping, so an
 	// unquoted-attribute-breakout character would inject arbitrary HTML/JS into
@@ -193,6 +200,22 @@ func TestBrandBarHTMLLocalLogoNoDisclosure(t *testing.T) {
 	got := brandBarHTML()
 	if strings.Contains(got, "brand-logo-disclosure") {
 		t.Errorf("a self-contained data: logo must not get an external-disclosure note, got %q", got)
+	}
+}
+
+// TestBrandBarHTMLRejectedLogoOmitted covers brandBarHTML's logoDataURI
+// error branch: a rejected logo (here, a plain http:// URL) must not
+// prevent the report from rendering — it's logged to stderr and simply
+// omitted, no <img> tag at all.
+func TestBrandBarHTMLRejectedLogoOmitted(t *testing.T) {
+	resetBrand(t)
+	SetBrand(Brand{Company: "Acme Co", Logo: "http://insecure.example/logo.png"})
+	got := brandBarHTML()
+	if strings.Contains(got, `class="brand-logo"`) {
+		t.Errorf("a rejected logo must not produce an <img> tag, got %q", got)
+	}
+	if !strings.Contains(got, "brand-name") {
+		t.Errorf("company should still render even though the logo was rejected, got %q", got)
 	}
 }
 
