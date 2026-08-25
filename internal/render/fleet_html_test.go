@@ -115,6 +115,53 @@ func TestGenerateFleetHTMLReport_Branded(t *testing.T) {
 	}
 }
 
+// TestBuildFleetHTML_Logo covers buildFleetHTML's b.Logo != "" branch —
+// every other test in this file only ever sets Company, never Logo.
+func TestBuildFleetHTML_Logo(t *testing.T) {
+	prev := brandOverride
+	SetBrand(Brand{Logo: "data:image/png;base64,AAAA"})
+	defer SetBrand(prev)
+
+	report := FleetReport{
+		Date: "2026-07-16 12:00:00 UTC", Version: "v1.19.1",
+		Verdict: "OK", VerdictClass: "ok", VerdictText: "All hosts are healthy.",
+		Total: 1, CountOK: 1, Year: 2026,
+		Hosts: []FleetHostRow{{Host: "web01", Status: "OK", StatusClass: "ok"}},
+	}
+
+	html, err := buildFleetHTML(report)
+	if err != nil {
+		t.Fatalf("buildFleetHTML error: %v", err)
+	}
+	if !strings.Contains(html, `class="brand-logo"`) {
+		t.Errorf("expected a rendered logo <img>, got:\n%s", html)
+	}
+}
+
+// TestBuildFleetHTML_RejectedLogoOmitted covers buildFleetHTML's
+// logoDataURI error branch: a rejected logo must not prevent the report
+// from rendering.
+func TestBuildFleetHTML_RejectedLogoOmitted(t *testing.T) {
+	prev := brandOverride
+	SetBrand(Brand{Logo: "http://insecure.example/logo.png"})
+	defer SetBrand(prev)
+
+	report := FleetReport{
+		Date: "2026-07-16 12:00:00 UTC", Version: "v1.19.1",
+		Verdict: "OK", VerdictClass: "ok", VerdictText: "All hosts are healthy.",
+		Total: 1, CountOK: 1, Year: 2026,
+		Hosts: []FleetHostRow{{Host: "web01", Status: "OK", StatusClass: "ok"}},
+	}
+
+	html, err := buildFleetHTML(report)
+	if err != nil {
+		t.Fatalf("buildFleetHTML error: %v", err)
+	}
+	if strings.Contains(html, `class="brand-logo"`) {
+		t.Errorf("a rejected logo must not render an <img>, got:\n%s", html)
+	}
+}
+
 func TestGenerateFleetHTMLReport_WritesFile(t *testing.T) {
 	dir := t.TempDir()
 	orig, err := os.Getwd()

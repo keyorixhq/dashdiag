@@ -719,6 +719,42 @@ func TestGitLastCommitTime_PackedCommit(t *testing.T) {
 	}
 }
 
+// TestGitLastCommitTime_NoHEADFile covers resolveHEAD's os.ReadFile error
+// branch: a .git directory that exists but has no HEAD file at all (a
+// shallow/corrupted/mid-operation checkout) must degrade to an error, not
+// panic.
+func TestGitLastCommitTime_NoHEADFile(t *testing.T) {
+	t.Parallel()
+	repo := t.TempDir()
+	gitDir := filepath.Join(repo, ".git")
+	if err := os.MkdirAll(gitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// No HEAD file written.
+	if _, err := gitLastCommitTime(repo); err == nil {
+		t.Error("expected an error when .git/HEAD is missing")
+	}
+}
+
+// TestGitLastCommitTime_RefWithNoLooseOrPackedRef covers
+// resolvePackedRef's os.ReadFile error branch: HEAD points at a ref that
+// has neither a loose ref file nor a packed-refs file to resolve it from.
+func TestGitLastCommitTime_RefWithNoLooseOrPackedRef(t *testing.T) {
+	t.Parallel()
+	repo := t.TempDir()
+	gitDir := filepath.Join(repo, ".git")
+	if err := os.MkdirAll(gitDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Neither refs/heads/main nor packed-refs exists.
+	if _, err := gitLastCommitTime(repo); err == nil {
+		t.Error("expected an error when the ref has no loose file and no packed-refs")
+	}
+}
+
 func TestValidateSHA(t *testing.T) {
 	t.Parallel()
 	valid := strings.Repeat("a1b2", 10) // 40 hex chars

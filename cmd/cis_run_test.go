@@ -23,6 +23,8 @@ func newBareCISCmd() *cobra.Command {
 	f.Int("level", 1, "")
 	f.Bool("fail-only", false, "")
 	f.Bool("stig", false, "")
+	f.Bool("nis2", false, "")
+	f.Bool("bsi", false, "")
 	return c
 }
 
@@ -65,6 +67,97 @@ func TestRunCISStigAndFailOnly(t *testing.T) {
 	})
 	if !strings.Contains(out, "DISA STIG Ubuntu 20.04 LTS Level 2") {
 		t.Errorf("--stig --level 2 should render the STIG level-2 profile header, got: %q", out)
+	}
+}
+
+// TestRunCISBSIMode covers runCIS's --bsi branch, in both plain and --json
+// output, plus --fail-only filtering — none of which newBareCISCmd exercised
+// before (it didn't even register the "bsi" flag).
+func TestRunCISBSIMode(t *testing.T) {
+	c := newBareCISCmd()
+	_ = c.Flags().Set("plain", "true")
+	_ = c.Flags().Set("bsi", "true")
+	out := captureStdout(t, func() {
+		if err := runCIS(c, nil); err != nil {
+			t.Fatalf("runCIS (bsi): %v", err)
+		}
+	})
+	if !strings.Contains(out, "BSI IT-Grundschutz Kompendium") {
+		t.Errorf("--bsi plain mode should render the BSI report header, got: %q", out)
+	}
+}
+
+func TestRunCISBSIMode_JSON(t *testing.T) {
+	c := newBareCISCmd()
+	_ = c.Flags().Set("json", "true")
+	_ = c.Flags().Set("bsi", "true")
+	out := captureStdout(t, func() {
+		if err := runCIS(c, nil); err != nil {
+			t.Fatalf("runCIS (bsi, json): %v", err)
+		}
+	})
+	if !strings.Contains(out, "[") {
+		t.Errorf("--bsi --json should emit a JSON array of groups, got: %q", out)
+	}
+}
+
+func TestRunCISBSIMode_FailOnlyJSON(t *testing.T) {
+	c := newBareCISCmd()
+	_ = c.Flags().Set("json", "true")
+	_ = c.Flags().Set("bsi", "true")
+	_ = c.Flags().Set("fail-only", "true")
+	out := captureStdout(t, func() {
+		if err := runCIS(c, nil); err != nil {
+			t.Fatalf("runCIS (bsi, json, fail-only): %v", err)
+		}
+	})
+	if !strings.Contains(out, "[") {
+		t.Errorf("--bsi --json --fail-only should still emit a JSON array, got: %q", out)
+	}
+}
+
+// TestRunCISNIS2Mode covers runCIS's --nis2 branch, mirroring
+// TestRunCISBSIMode above.
+func TestRunCISNIS2Mode(t *testing.T) {
+	c := newBareCISCmd()
+	_ = c.Flags().Set("plain", "true")
+	_ = c.Flags().Set("nis2", "true")
+	out := captureStdout(t, func() {
+		if err := runCIS(c, nil); err != nil {
+			t.Fatalf("runCIS (nis2): %v", err)
+		}
+	})
+	if !strings.Contains(out, "NIS2 Directive") {
+		t.Errorf("--nis2 plain mode should render the NIS2 report header, got: %q", out)
+	}
+}
+
+func TestRunCISNIS2Mode_JSON(t *testing.T) {
+	c := newBareCISCmd()
+	_ = c.Flags().Set("json", "true")
+	_ = c.Flags().Set("nis2", "true")
+	out := captureStdout(t, func() {
+		if err := runCIS(c, nil); err != nil {
+			t.Fatalf("runCIS (nis2, json): %v", err)
+		}
+	})
+	if !strings.Contains(out, "[") {
+		t.Errorf("--nis2 --json should emit a JSON array of groups, got: %q", out)
+	}
+}
+
+func TestRunCISNIS2Mode_FailOnlyJSON(t *testing.T) {
+	c := newBareCISCmd()
+	_ = c.Flags().Set("json", "true")
+	_ = c.Flags().Set("nis2", "true")
+	_ = c.Flags().Set("fail-only", "true")
+	out := captureStdout(t, func() {
+		if err := runCIS(c, nil); err != nil {
+			t.Fatalf("runCIS (nis2, json, fail-only): %v", err)
+		}
+	})
+	if !strings.Contains(out, "[") {
+		t.Errorf("--nis2 --json --fail-only should still emit a JSON array, got: %q", out)
 	}
 }
 

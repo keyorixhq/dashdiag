@@ -356,3 +356,39 @@ func TestTopProcessesByIOLinuxAt_ContextCancelled(t *testing.T) {
 		t.Error("expected an error from a pre-cancelled context")
 	}
 }
+
+// TestProcStartTime_MissingStatFile covers procStartTime's os.ReadFile error
+// branch: no /proc/<pid>/stat present at all (process already exited between
+// listing and reading) must degrade to ("", false), not an error.
+func TestProcStartTime_MissingStatFile(t *testing.T) {
+	t.Parallel()
+	procRoot := t.TempDir()
+	start, ok := procStartTime(procRoot, 999)
+	if ok || start != "" {
+		t.Errorf("procStartTime(missing pid) = (%q, %v), want (\"\", false)", start, ok)
+	}
+}
+
+// TestProcStartTime_TooFewFields covers procStartTime's len(rest) < 20
+// branch: a stat file whose post-comm fields are truncated before reaching
+// field 22 (starttime) must degrade to ("", false), same as a missing file —
+// this is the fallback the PID-recycling identity check (io.go:132-140)
+// relies on when starttime can't be determined.
+func TestProcStartTime_TooFewFields(t *testing.T) {
+	t.Parallel()
+	procRoot := t.TempDir()
+	dir := filepath.Join(procRoot, "42")
+	if err := os.MkdirAll(dir, 0755); err != nil {
+		t.Fatalf("MkdirAll: %v", err)
+	}
+	// Only 10 fields after "(comm) state" — starttime is field 22, so this is
+	// truncated well before it.
+	truncated := "42 (fixtureproc) R 0 0 0 0 0 0 0 0 0\n"
+	if err := os.WriteFile(filepath.Join(dir, "stat"), []byte(truncated), 0644); err != nil {
+		t.Fatalf("WriteFile stat: %v", err)
+	}
+	start, ok := procStartTime(procRoot, 42)
+	if ok || start != "" {
+		t.Errorf("procStartTime(truncated stat) = (%q, %v), want (\"\", false)", start, ok)
+	}
+}

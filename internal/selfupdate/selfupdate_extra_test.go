@@ -196,10 +196,27 @@ func TestHTTPGet_ErrorPaths(t *testing.T) {
 		}
 	})
 
-	t.Run("request creation error", func(t *testing.T) {
+	t.Run("host validation error", func(t *testing.T) {
+		// "http://\x7f" is rejected by validateAssetURL's untrusted-host
+		// check before ever reaching http.NewRequestWithContext — this
+		// subtest covers that gate, not request construction (see the
+		// nil-context subtest below for the actual NewRequestWithContext
+		// error branch, which a malformed *host* string can't reach since
+		// validateAssetURL already parsed the same URL string successfully).
 		_, err := httpGet(context.Background(), client, "http://\x7f")
 		if err == nil {
-			t.Fatal("expected request construction error")
+			t.Fatal("expected an untrusted-host validation error")
+		}
+	})
+
+	t.Run("request creation error", func(t *testing.T) {
+		// http.NewRequestWithContext returns an error for a nil context —
+		// the only deterministic way to reach this branch, since any URL
+		// that reaches here already parsed successfully in validateAssetURL.
+		//lint:ignore SA1012 deliberately nil, exercising NewRequestWithContext's own nil-context guard
+		_, err := httpGet(nil, client, "https://github.com/x") //nolint:staticcheck // SA1012: deliberately nil, exercising NewRequestWithContext's own nil-context guard
+		if err == nil {
+			t.Fatal("expected request construction error from a nil context")
 		}
 	})
 

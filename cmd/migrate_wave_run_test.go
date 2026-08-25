@@ -9,6 +9,18 @@ import (
 	"github.com/spf13/cobra"
 )
 
+// captureStdoutErr runs f with both os.Stdout and os.Stderr redirected,
+// returning what each captured. runMigrateWave always writes a progress
+// line to stderr ("Certifying N pair(s)…") even in --json mode, so tests
+// that don't want that noise mixed into stdout use this helper.
+func captureStdoutErr(t *testing.T, f func()) (stdout, stderr string) {
+	t.Helper()
+	stderr = captureStderr(t, func() {
+		stdout = captureStdout(t, f)
+	})
+	return stdout, stderr
+}
+
 // newBareWaveCmd returns a cobra.Command with the flags that runMigrateWave reads.
 // applyBrand reads "brand" and "logo"; the rest are the wave-specific flags.
 func newBareWaveCmd() *cobra.Command {
@@ -98,5 +110,91 @@ func TestRunMigrateWave_PairsFileWithBadLine(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "expected two fields") {
 		t.Errorf("expected 'expected two fields' error, got %q", err.Error())
+	}
+}
+
+// TestRunMigrateWave_Success_PlainTable covers runMigrateWave's success
+// path in plain mode: certifyWave runs for real against a minimal but
+// valid bundle pair (same source.NewBundle() precedent as
+// replay_run_test.go), and printWaveTable renders the pair count summary.
+func TestRunMigrateWave_Success_PlainTable(t *testing.T) {
+	dir := t.TempDir()
+	src := newReplayTestBundle(t, dir, "src.tar.gz", "src-host")
+	dst := newReplayTestBundle(t, dir, "dst.tar.gz", "dst-host")
+
+	pre := pendingExitCode
+	t.Cleanup(func() { pendingExitCode = pre })
+
+	cmd := newBareWaveCmd()
+	stdout, _ := captureStdoutErr(t, func() {
+		if err := runMigrateWave(cmd, []string{src + ":" + dst}); err != nil {
+			t.Fatalf("runMigrateWave: %v", err)
+		}
+	})
+	if !strings.Contains(stdout, "1 pair(s)") {
+		t.Errorf("expected the wave table summary in stdout, got:\n%s", stdout)
+	}
+}
+
+// TestRunMigrateWave_Success_JSON covers runMigrateWave's --json branch,
+// which returns via emitWaveJSON instead of printWaveTable.
+func TestRunMigrateWave_Success_JSON(t *testing.T) {
+	dir := t.TempDir()
+	src := newReplayTestBundle(t, dir, "src.tar.gz", "src-host")
+	dst := newReplayTestBundle(t, dir, "dst.tar.gz", "dst-host")
+
+	pre := pendingExitCode
+	t.Cleanup(func() { pendingExitCode = pre })
+
+	cmd := newBareWaveCmd()
+	_ = cmd.Flags().Set("json", "true")
+	stdout, _ := captureStdoutErr(t, func() {
+		if err := runMigrateWave(cmd, []string{src + ":" + dst}); err != nil {
+			t.Fatalf("runMigrateWave (json): %v", err)
+		}
+	})
+	if !strings.Contains(stdout, `"verdict"`) {
+		t.Errorf("--json should emit the waveJSON shape, got: %q", stdout)
+	}
+}
+
+// TestRunMigrateWave_ReportHTML covers runMigrateWave's --report-html
+// branch: GenerateWaveHTMLReport writes dsd-migration-wave-<ts>.html to the
+// CWD (no injectable output dir), so this Chdir's into a t.TempDir() for
+// the duration of the call — same precedent as
+// TestRunMigrateBaseline_DefaultOutPath in migrate_run_test.go.
+func TestRunMigrateWave_ReportHTML(t *testing.T) {
+	dir := t.TempDir()
+	src := newReplayTestBundle(t, dir, "src.tar.gz", "src-host")
+	dst := newReplayTestBundle(t, dir, "dst.tar.gz", "dst-host")
+
+	old, err := os.Getwd()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(old) })
+
+	pre := pendingExitCode
+	t.Cleanup(func() { pendingExitCode = pre })
+
+	cmd := newBareWaveCmd()
+	_ = cmd.Flags().Set("report-html", "true")
+	_, stderr := captureStdoutErr(t, func() {
+		if err := runMigrateWave(cmd, []string{src + ":" + dst}); err != nil {
+			t.Fatalf("runMigrateWave (report-html): %v", err)
+		}
+	})
+	if !strings.Contains(stderr, "Wave HTML report saved") {
+		t.Errorf("expected the report-saved confirmation on stderr, got:\n%s", stderr)
+	}
+	matches, err := filepath.Glob(filepath.Join(dir, "dsd-migration-wave-*.html"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(matches) != 1 {
+		t.Errorf("expected exactly one generated wave report file in %s, got %v", dir, matches)
 	}
 }

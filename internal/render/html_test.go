@@ -188,6 +188,38 @@ func TestBuildHTML_TemplateExecuteError(t *testing.T) {
 	}
 }
 
+// TestBuildHTML_Logo covers buildHTML's b.Logo != "" branch — no other
+// test in this file ever calls SetBrand at all.
+func TestBuildHTML_Logo(t *testing.T) {
+	prev := brandOverride
+	SetBrand(Brand{Logo: "data:image/png;base64,AAAA"})
+	defer SetBrand(prev)
+
+	html, err := buildHTML(sampleSnap("OK"), nil, time.Second, nil)
+	if err != nil {
+		t.Fatalf("buildHTML error: %v", err)
+	}
+	if !strings.Contains(html, `class="brand-logo"`) {
+		t.Errorf("expected a rendered logo <img>, got:\n%s", html)
+	}
+}
+
+// TestBuildHTML_RejectedLogoOmitted covers buildHTML's logoDataURI error
+// branch: a rejected logo must not prevent the report from rendering.
+func TestBuildHTML_RejectedLogoOmitted(t *testing.T) {
+	prev := brandOverride
+	SetBrand(Brand{Logo: "http://insecure.example/logo.png"})
+	defer SetBrand(prev)
+
+	html, err := buildHTML(sampleSnap("OK"), nil, time.Second, nil)
+	if err != nil {
+		t.Fatalf("buildHTML error: %v", err)
+	}
+	if strings.Contains(html, `class="brand-logo"`) {
+		t.Errorf("a rejected logo must not render an <img>, got:\n%s", html)
+	}
+}
+
 // TestGenerateHTMLReport_BuildError covers html.go:29-31: GenerateHTMLReport
 // propagates a buildHTML error when the report template is broken.
 // Not parallel — swaps the package-level htmlReportTmpl.

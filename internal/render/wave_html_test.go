@@ -265,3 +265,50 @@ func TestBuildWaveHTML_Branded(t *testing.T) {
 		t.Errorf("branded wave report should retain DashDiag attribution")
 	}
 }
+
+// TestBuildWaveHTML_Logo covers buildWaveHTML's b.Logo != "" branch —
+// TestBuildWaveHTML_Branded above only ever sets Company, never Logo.
+func TestBuildWaveHTML_Logo(t *testing.T) {
+	prev := brandOverride
+	SetBrand(Brand{Logo: "data:image/png;base64,AAAA"})
+	defer SetBrand(prev)
+
+	report := WaveReport{
+		Date: "2026-07-16 12:00:00 UTC", Version: "v1.19.1",
+		Verdict: "PASS", VerdictClass: "ok", VerdictText: "All pairs passed certification — the migration wave is clean.",
+		Total: 1, CountPass: 1, Year: 2026,
+		Pairs: []WavePairRow{{Source: "vm01-src", Destination: "vm01-dst", Verdict: "PASS", VerdictClass: "ok"}},
+	}
+
+	html, err := buildWaveHTML(report)
+	if err != nil {
+		t.Fatalf("buildWaveHTML error: %v", err)
+	}
+	if !strings.Contains(html, `class="brand-logo"`) {
+		t.Errorf("expected a rendered logo <img>, got:\n%s", html)
+	}
+}
+
+// TestBuildWaveHTML_RejectedLogoOmitted covers buildWaveHTML's
+// logoDataURI error branch: a rejected logo must not prevent the report
+// from rendering.
+func TestBuildWaveHTML_RejectedLogoOmitted(t *testing.T) {
+	prev := brandOverride
+	SetBrand(Brand{Logo: "http://insecure.example/logo.png"})
+	defer SetBrand(prev)
+
+	report := WaveReport{
+		Date: "2026-07-16 12:00:00 UTC", Version: "v1.19.1",
+		Verdict: "PASS", VerdictClass: "ok", VerdictText: "All pairs passed certification — the migration wave is clean.",
+		Total: 1, CountPass: 1, Year: 2026,
+		Pairs: []WavePairRow{{Source: "vm01-src", Destination: "vm01-dst", Verdict: "PASS", VerdictClass: "ok"}},
+	}
+
+	html, err := buildWaveHTML(report)
+	if err != nil {
+		t.Fatalf("buildWaveHTML error: %v", err)
+	}
+	if strings.Contains(html, `class="brand-logo"`) {
+		t.Errorf("a rejected logo must not render an <img>, got:\n%s", html)
+	}
+}

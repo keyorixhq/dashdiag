@@ -195,6 +195,20 @@ func TestParseCgroupV2CPU_Errors(t *testing.T) {
 			t.Errorf("parseCgroupV2CPU(unparseable period) = %f, want 0", got)
 		}
 	})
+	t.Run("division overflows to Inf", func(t *testing.T) {
+		t.Parallel()
+		dir := t.TempDir()
+		path := filepath.Join(dir, "cpu.max")
+		// quota is math.MaxFloat64 (finite, passes the earlier NaN/Inf/<=0
+		// guards on its own), but quota/period overflows float64 range.
+		content := "1.7976931348623157e+308 0.5\n"
+		if err := os.WriteFile(path, []byte(content), 0644); err != nil {
+			t.Fatalf("WriteFile: %v", err)
+		}
+		if got := parseCgroupV2CPU(path); got != 0 {
+			t.Errorf("parseCgroupV2CPU(division overflow) = %f, want 0", got)
+		}
+	})
 }
 
 // TestParseCgroupV1Memory_Errors covers the ReadFile-error, ParseUint-error,
