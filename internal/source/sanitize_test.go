@@ -367,6 +367,16 @@ func TestBundleSanitizeSensitiveEnvCacheKey(t *testing.T) {
 	}
 }
 
+// TestIsSensitiveEnvCacheKey_BenignName covers the "no pattern matched"
+// return: an env/-prefixed cache key for a name that isn't credential-shaped
+// must not be force-redacted.
+func TestIsSensitiveEnvCacheKey_BenignName(t *testing.T) {
+	t.Parallel()
+	if isSensitiveEnvCacheKey(cacheKey("env/PATH")) {
+		t.Error("isSensitiveEnvCacheKey(env/PATH) = true, want false for a benign env var name")
+	}
+}
+
 // TestBundleSanitizeCmdArgvSecret guards redaction-primitives-02: Sanitize
 // never touched a command's own argv, only its stdout/stderr — persist.go's
 // Save() writes argv verbatim into commands/index.json, so a credential

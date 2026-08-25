@@ -191,6 +191,26 @@ func TestStateFilePath_HomeDirUnavailable(t *testing.T) {
 	}
 }
 
+// TestLoadState_HomeDirUnavailable covers LoadState's own path=="" branch —
+// distinct from TestStateFilePath_HomeDirUnavailable, which only tests
+// stateFilePath() directly. With $HOME unresolved, LoadState must degrade to
+// a default in-memory State rather than erroring.
+func TestLoadState_HomeDirUnavailable(t *testing.T) {
+	// No t.Parallel(): t.Setenv mutates the shared HOME env var.
+	t.Setenv("HOME", "")
+
+	s, err := LoadState()
+	if err != nil {
+		t.Fatalf("LoadState with unresolved HOME: %v", err)
+	}
+	if !s.TipsEnabled {
+		t.Error("expected TipsEnabled=true for default state")
+	}
+	if s.CommandCounts == nil {
+		t.Error("expected CommandCounts to be initialized")
+	}
+}
+
 // TestSave_NoHomeDirFailsClosed guards internal-tips-01-02: with $HOME
 // unresolved, Save() must return an error and must NOT write anything to
 // the process's current working directory (the old ".dsd/state.json.tmp"

@@ -444,3 +444,13 @@ func TestBuildSnapshot_WorstAndQualified(t *testing.T) {
 		t.Errorf("Memory should be CRIT (worst wins over earlier WARN), got %q", got["Memory"])
 	}
 }
+
+// TestReadCappedReader_ReadError covers the io.ReadAll error branch: this
+// guards LoadBaseline("-")'s stdin ingestion against a broken pipe/reader.
+// errReader is defined in since_deploy_test.go (same package).
+func TestReadCappedReader_ReadError(t *testing.T) {
+	t.Parallel()
+	if _, err := readCappedReader(errReader{}, 1024); err == nil {
+		t.Error("expected an error from a reader that always fails")
+	}
+}

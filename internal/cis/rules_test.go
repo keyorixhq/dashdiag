@@ -3,7 +3,9 @@ package cis
 import (
 	"fmt"
 	"os"
+	"os/user"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"testing"
 
@@ -1807,6 +1809,65 @@ func TestCheckFileOwnerRootRootOrShadow_Missing(t *testing.T) {
 	got := checkFileOwnerRootRootOrShadow(r, "/nonexistent/shadow", "fix")
 	if got.Status != models.CISSkipped {
 		t.Errorf("got %s, want SKIP for missing file", got.Status)
+	}
+}
+
+// TestCheckFileOwnerRootRootOrShadow_PassRootGroup verifies the gid==0 PASS
+// branch: a file owned root:root must pass. Root-gated — a non-root test
+// process cannot os.Chown a file to uid 0.
+func TestCheckFileOwnerRootRootOrShadow_PassRootGroup(t *testing.T) {
+	if os.Getuid() != 0 {
+		t.Skip("requires root to chown a file to uid/gid 0")
+	}
+	dir := t.TempDir()
+	p := filepath.Join(dir, "shadow")
+	if err := os.WriteFile(p, []byte("root:!:0:0:99999:7:::\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chown(p, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	r := ruleByID("6.1.10")
+	got := checkFileOwnerRootRootOrShadow(r, p, "chown root:shadow /etc/shadow")
+	if got.Status == models.CISSkipped {
+		t.Skip("file ownership stat unavailable on this platform")
+	}
+	if got.Status != models.CISPass {
+		t.Errorf("got %s, want PASS for a root:root-owned file", got.Status)
+	}
+}
+
+// TestCheckFileOwnerRootRootOrShadow_PassShadowGroup verifies the
+// user.LookupGroup("shadow")-match PASS branch: a file owned root:shadow
+// must pass. Root-gated (chown to uid 0) and skipped if this system has no
+// "shadow" group.
+func TestCheckFileOwnerRootRootOrShadow_PassShadowGroup(t *testing.T) {
+	if os.Getuid() != 0 {
+		t.Skip("requires root to chown a file to uid 0")
+	}
+	g, err := user.LookupGroup("shadow")
+	if err != nil {
+		t.Skipf("no 'shadow' group on this system: %v", err)
+	}
+	gid, err := strconv.Atoi(g.Gid)
+	if err != nil {
+		t.Fatalf("parsing shadow group gid %q: %v", g.Gid, err)
+	}
+	dir := t.TempDir()
+	p := filepath.Join(dir, "shadow")
+	if err := os.WriteFile(p, []byte("root:!:0:0:99999:7:::\n"), 0o640); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chown(p, 0, gid); err != nil {
+		t.Fatal(err)
+	}
+	r := ruleByID("6.1.10")
+	got := checkFileOwnerRootRootOrShadow(r, p, "chown root:shadow /etc/shadow")
+	if got.Status == models.CISSkipped {
+		t.Skip("file ownership stat unavailable on this platform")
+	}
+	if got.Status != models.CISPass {
+		t.Errorf("got %s, want PASS for a root:shadow-owned file", got.Status)
 	}
 }
 

@@ -137,6 +137,10 @@ func TestDetectRHELMajor_ReadError(t *testing.T) {
 // osReleasePath) can't be read at all, enrichment must silently no-op rather
 // than propagate the error (best-effort by design — see the function doc).
 func TestEnrichFromRHAPI_ReadOSReleaseErrorIsSilent(t *testing.T) {
+	// Network is off by default — opt in so this test actually reaches the
+	// readOSRelease call instead of returning earlier at the NetworkAllowed
+	// gate (which would make the assertions below pass vacuously).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	prev := osReleasePath
 	osReleasePath = filepath.Join(t.TempDir(), "does-not-exist")
 	t.Cleanup(func() { osReleasePath = prev })
@@ -170,6 +174,10 @@ func TestEnrichFromRHAPI_ReadOSReleaseErrorIsSilent(t *testing.T) {
 // (RHEL, readable os-release) for enrichment.
 func TestEnrichFromRHAPI_DSD_OFFLINE_SkipsNetworkCall(t *testing.T) {
 	withOSRelease(t, "ID=rhel\nVERSION_ID=\"9.4\"\n")
+	// Also opt into DSD_ALLOW_NETWORK so this actually proves DSD_OFFLINE
+	// wins over an explicit opt-in, rather than merely observing the
+	// network-off-by-default outcome DSD_ALLOW_NETWORK unset already gives.
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	t.Setenv("DSD_OFFLINE", "1")
 
 	called := false
@@ -198,6 +206,7 @@ func TestEnrichFromRHAPI_DSD_OFFLINE_SkipsNetworkCall(t *testing.T) {
 // literal cveID lands in the URL) produces a URL http.NewRequestWithContext
 // rejects, and EnrichFromRHAPI must swallow the error rather than panic.
 func TestEnrichFromRHAPI_MalformedURLIsSilent(t *testing.T) {
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withOSRelease(t, "ID=rhel\nVERSION_ID=\"9.4\"\n")
 	prevAPI := rhSecurityAPI
 	// A control character (raw newline) in the URL path makes
@@ -218,6 +227,7 @@ func TestEnrichFromRHAPI_MalformedURLIsSilent(t *testing.T) {
 // actually sends and then closes the connection, so reading the body fails
 // partway through. EnrichFromRHAPI must swallow that error too.
 func TestEnrichFromRHAPI_BodyReadErrorIsSilent(t *testing.T) {
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withOSRelease(t, "ID=rhel\nVERSION_ID=\"9.4\"\n")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Length", "1000")
@@ -243,6 +253,7 @@ func TestEnrichFromRHAPI_BodyReadErrorIsSilent(t *testing.T) {
 }
 
 func TestEnrichFromRHAPI_NonRHFamilySkipsNetworkCall(t *testing.T) {
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withOSRelease(t, "ID=ubuntu\nVERSION_ID=\"24.04\"\n")
 	called := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -301,6 +312,7 @@ func TestCVEIDPattern(t *testing.T) {
 // never reach the URL builder or make a network call, even on an otherwise
 // RH-family host.
 func TestEnrichFromRHAPI_InvalidCVEIDSkipsNetworkCall(t *testing.T) {
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withOSRelease(t, "ID=rhel\nVERSION_ID=\"9.4\"\n")
 	called := false
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -382,6 +394,7 @@ func TestEnrichFromRHAPI_FallsBackToFirstPackageStateEntry(t *testing.T) {
 // confirmed: not affected on this product" from it would attribute a
 // confirmation Red Hat never made for this system.
 func TestEnrichFromRHAPI_FallbackNotAffectedDoesNotClaimConfirmed(t *testing.T) {
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withOSRelease(t, "ID=rhel\nVERSION_ID=\"9.4\"\n")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte(`{
@@ -425,6 +438,7 @@ func TestEnrichFromRHAPI_NotAffectedClarifiesReason(t *testing.T) {
 }
 
 func TestEnrichFromRHAPI_HTTPErrorIsSilent(t *testing.T) {
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withOSRelease(t, "ID=rhel\nVERSION_ID=\"9.4\"\n")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.WriteHeader(http.StatusNotFound)
@@ -442,6 +456,7 @@ func TestEnrichFromRHAPI_HTTPErrorIsSilent(t *testing.T) {
 }
 
 func TestEnrichFromRHAPI_MalformedJSONIsSilent(t *testing.T) {
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	withOSRelease(t, "ID=rhel\nVERSION_ID=\"9.4\"\n")
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		_, _ = w.Write([]byte("{not json"))
