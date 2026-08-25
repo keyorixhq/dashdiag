@@ -5,6 +5,7 @@ package cmd
 import (
 	"context"
 	"encoding/json"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -182,6 +183,121 @@ func TestStatusRank(t *testing.T) {
 		if got := statusRank(tc.status); got != tc.want {
 			t.Errorf("statusRank(%q) = %d, want %d", tc.status, got, tc.want)
 		}
+	}
+}
+
+// TestRunDiffFromStore_Success_Human covers runDiffFromStore's success
+// path end to end (ReadAll → DiffChecks → renderStoreDiff), previously only
+// exercised at the renderStoreDiff layer directly. Not parallel: uses
+// t.Setenv.
+func TestRunDiffFromStore_Success_Human(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+
+	path := filepath.Join(dir, ".dsd", "store.jsonl")
+	ts := time.Now()
+	seedStore(t, path, []store.Entry{
+		{Hostname: "myhost", Timestamp: ts.Add(-time.Hour), Verdict: "OK", Checks: map[string]string{"cpu": "OK", "memory": "OK"}},
+		{Hostname: "myhost", Timestamp: ts, Verdict: "WARN", Checks: map[string]string{"cpu": "OK", "memory": "WARN"}},
+	})
+
+	c := newBareDiffCmd()
+	_ = c.Flags().Set("last", "true")
+	_ = c.Flags().Set("host", "myhost")
+
+	out := captureStdout(t, func() {
+		if err := runDiffFromStore(c); err != nil {
+			t.Fatalf("runDiffFromStore: %v", err)
+		}
+	})
+	if !strings.Contains(out, "memory") {
+		t.Errorf("expected the changed 'memory' check in output, got: %q", out)
+	}
+}
+
+// TestRunDiffFromStore_Success_JSON covers runDiffFromStore's --json branch
+// end to end.
+func TestRunDiffFromStore_Success_JSON(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+
+	path := filepath.Join(dir, ".dsd", "store.jsonl")
+	ts := time.Now()
+	seedStore(t, path, []store.Entry{
+		{Hostname: "myhost", Timestamp: ts.Add(-time.Hour), Verdict: "OK", Checks: map[string]string{"disk": "OK"}},
+		{Hostname: "myhost", Timestamp: ts, Verdict: "CRIT", Checks: map[string]string{"disk": "CRIT"}},
+	})
+
+	c := newBareDiffCmd()
+	_ = c.Flags().Set("last", "true")
+	_ = c.Flags().Set("host", "myhost")
+	_ = c.Flags().Set("json", "true")
+
+	out := captureStdout(t, func() {
+		if err := runDiffFromStore(c); err != nil {
+			t.Fatalf("runDiffFromStore (json): %v", err)
+		}
+	})
+	var result storeDiffOutput
+	if err := json.Unmarshal([]byte(out), &result); err != nil {
+		t.Fatalf("invalid JSON output: %v\noutput: %q", err, out)
+	}
+	if len(result.Changes) != 1 || result.Changes[0].Name != "disk" {
+		t.Errorf("unexpected changes: %+v", result.Changes)
+	}
+}
+
+// TestRunDiffFromStore_EmptyHostResolvesLocal covers the host=="" branch,
+// which falls back to os.Hostname() instead of the --host flag.
+func TestRunDiffFromStore_EmptyHostResolvesLocal(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+
+	local, err := os.Hostname()
+	if err != nil {
+		t.Skipf("os.Hostname unavailable in this environment: %v", err)
+	}
+
+	path := filepath.Join(dir, ".dsd", "store.jsonl")
+	ts := time.Now()
+	seedStore(t, path, []store.Entry{
+		{Hostname: local, Timestamp: ts.Add(-time.Hour), Verdict: "OK", Checks: map[string]string{"cpu": "OK"}},
+		{Hostname: local, Timestamp: ts, Verdict: "OK", Checks: map[string]string{"cpu": "OK"}},
+	})
+
+	c := newBareDiffCmd() // "host" left empty
+	_ = c.Flags().Set("last", "true")
+
+	out := captureStdout(t, func() {
+		if err := runDiffFromStore(c); err != nil {
+			t.Fatalf("runDiffFromStore (empty --host): %v", err)
+		}
+	})
+	if !strings.Contains(out, "no check status changes") {
+		t.Errorf("expected 'no check status changes', got: %q", out)
+	}
+}
+
+// TestRunDiffFromStore_ReadAllError covers the store.ReadAll error branch:
+// a directory sitting at the store path (instead of a regular file) opens
+// successfully but fails on the first Read — same EISDIR trick used for
+// internal/store's own ReadAll error-path test.
+func TestRunDiffFromStore_ReadAllError(t *testing.T) {
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+
+	storeDir := filepath.Join(dir, ".dsd", "store.jsonl")
+	if err := os.MkdirAll(storeDir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+
+	c := newBareDiffCmd()
+	_ = c.Flags().Set("last", "true")
+	_ = c.Flags().Set("host", "myhost")
+
+	err := runDiffFromStore(c)
+	if err == nil || !strings.Contains(err.Error(), "reading store") {
+		t.Errorf("expected a 'reading store' error, got: %v", err)
 	}
 }
 
