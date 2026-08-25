@@ -58,7 +58,12 @@ jobs:
 
   sonarcloud:
     needs: [changes]
-    if: needs.changes.outputs.docs_only != 'true'
+    # Dependabot-triggered pull_request runs don't get repository Actions
+    # secrets (GitHub withholds them unless SONAR_TOKEN is separately
+    # registered as a Dependabot secret) — the scan would just fail on
+    # "Not authorized". Skip here; push-to-main still runs the full scan
+    # once the bump is merged.
+    if: needs.changes.outputs.docs_only != 'true' && github.actor != 'dependabot[bot]'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
