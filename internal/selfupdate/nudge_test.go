@@ -73,6 +73,20 @@ func TestSaveCache_EmptyPathFailsClosed(t *testing.T) {
 	}
 }
 
+// TestLoadCache_EmptyPathReturnsNil is loadCache's counterpart to
+// TestSaveCache_EmptyPathFailsClosed above: with cachePath() returning "",
+// loadCache must degrade to nil (no cache) rather than attempting a
+// relative-path read.
+func TestLoadCache_EmptyPathReturnsNil(t *testing.T) {
+	old := cachePath
+	cachePath = func() string { return "" }
+	t.Cleanup(func() { cachePath = old })
+
+	if got := loadCache(); got != nil {
+		t.Errorf(`loadCache() = %+v, want nil when cachePath() is ""`, got)
+	}
+}
+
 // TestSaveCache_RefusesSymlinkedTmp guards the O_NOFOLLOW half of
 // internal-selfupdate-01-04: saveCache's tmp-file write previously used
 // plain os.WriteFile (follows an existing symlink, no O_EXCL). A pre-planted

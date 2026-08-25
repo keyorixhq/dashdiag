@@ -281,3 +281,13 @@ func TestCheckAuth_TopSourceHint(t *testing.T) {
 		t.Errorf("TopSources must surface a top-attacker hint, got %+v", out)
 	}
 }
+
+// TestExePathUnderSystemDir_EmptyPath covers the fail-closed empty-path
+// branch: an empty path must never be treated as "under a system dir" —
+// filepath.Clean("") returns "." which could otherwise match unexpectedly.
+func TestExePathUnderSystemDir_EmptyPath(t *testing.T) {
+	t.Parallel()
+	if exePathUnderSystemDir("") {
+		t.Error("exePathUnderSystemDir(\"\") = true, want false (fail closed)")
+	}
+}

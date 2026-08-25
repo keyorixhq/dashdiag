@@ -114,6 +114,34 @@ func TestDownloadToTemp_CopyError(t *testing.T) {
 	}
 }
 
+// TestFetchBytes_ReadError covers fetchBytes' io.ReadAll error branch, same
+// technique as TestDownloadToTemp_CopyError above: a raw listener advertises
+// a Content-Length larger than what it actually sends, then closes early.
+func TestFetchBytes_ReadError(t *testing.T) {
+	t.Parallel()
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatalf("listen: %v", err)
+	}
+	go func() {
+		conn, err := ln.Accept()
+		if err != nil {
+			return
+		}
+		defer conn.Close()
+		buf := make([]byte, 4096)
+		_, _ = conn.Read(buf)
+		_, _ = conn.Write([]byte("HTTP/1.1 200 OK\r\nContent-Length: 1000\r\n\r\nshort"))
+	}()
+	defer ln.Close()
+
+	url := "http://" + ln.Addr().String() + "/asset"
+	_, err = fetchBytes(context.Background(), url)
+	if err == nil {
+		t.Fatal("expected an error when the body is shorter than Content-Length promised")
+	}
+}
+
 // TestSaveCache_WriteFileFails covers the os.WriteFile error branch in
 // saveCache: MkdirAll succeeds, but the ".tmp" staging path is itself a
 // pre-existing directory, so WriteFile fails.

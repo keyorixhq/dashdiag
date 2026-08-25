@@ -43,6 +43,16 @@ func TestLoadPolicy_MissingFile(t *testing.T) {
 	}
 }
 
+// TestLoadPolicy_ReadFileError covers the os.ReadFile error branch: a
+// directory at path passes os.Stat (and its trivially small "size") but
+// fails to read as a file.
+func TestLoadPolicy_ReadFileError(t *testing.T) {
+	dir := t.TempDir()
+	if _, err := LoadPolicy(dir); err == nil {
+		t.Error("expected an error when path is a directory, got nil")
+	}
+}
+
 func TestLoadPolicy_InvalidYAML(t *testing.T) {
 	dir := t.TempDir()
 	path := filepath.Join(dir, "policy.yaml")
@@ -73,6 +83,19 @@ func TestLoadPolicy_RejectsInfPercent(t *testing.T) {
 	_ = os.WriteFile(path, []byte("disk_crit_pct: .inf\n"), 0644)
 	if _, err := LoadPolicy(path); err == nil {
 		t.Error("expected an error for disk_crit_pct: .inf, got nil")
+	}
+}
+
+// TestLoadPolicy_RejectsInfNonPercentThreshold covers validatePolicy's
+// second (non-percentage) threshold loop's own Inf/negative rejection —
+// TestLoadPolicy_RejectsInfPercent only ever exercises the pcts loop above
+// it, never a field like io_await_warn_ms.
+func TestLoadPolicy_RejectsInfNonPercentThreshold(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "policy.yaml")
+	_ = os.WriteFile(path, []byte("io_await_warn_ms: .inf\n"), 0644)
+	if _, err := LoadPolicy(path); err == nil {
+		t.Error("expected an error for io_await_warn_ms: .inf, got nil")
 	}
 }
 

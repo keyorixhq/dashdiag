@@ -1,6 +1,7 @@
 package fleet
 
 import (
+	"context"
 	"encoding/json"
 	"strings"
 	"testing"
@@ -272,6 +273,21 @@ func TestValidateRemoteCmd(t *testing.T) {
 	}
 }
 
+// TestRun_RejectsInvalidRemoteCmd covers Run's own validateRemoteCmd
+// early-return (fleet.go:149-151): a malicious --remote-cmd must short-
+// circuit Run before it ever touches ssh/scp for any host, not just be
+// rejected by validateRemoteCmd in isolation.
+func TestRun_RejectsInvalidRemoteCmd(t *testing.T) {
+	t.Parallel()
+	_, err := Run(context.Background(), []string{"example.invalid"}, Options{RemoteCmd: "; rm -rf /"})
+	if err == nil {
+		t.Fatal("Run with a shell-metacharacter --remote-cmd should return an error, got nil")
+	}
+	if !strings.Contains(err.Error(), "forbidden shell character") {
+		t.Errorf("Run() error = %v, want a validateRemoteCmd rejection", err)
+	}
+}
+
 // TestShellQuote guards the defense-in-depth quoting around the remote
 // chmod/exec command string: a path with a space or an embedded single quote
 // must round-trip safely inside a single-quoted shell argument.
@@ -285,5 +301,38 @@ func TestShellQuote(t *testing.T) {
 		if got := shellQuote(c.in); got != c.want {
 			t.Errorf("shellQuote(%q) = %q, want %q", c.in, got, c.want)
 		}
+	}
+}
+
+// TestCapBuffer_TruncatesOversizedWrite covers capBuffer's partial-write
+// branch directly: a single Write larger than the remaining capacity must
+// be truncated to exactly fill the buffer, not silently dropped or grown
+// past limit. The indirect exerciser (TestSSHRun_CapsOversizedStdout) never
+// hits this because os/exec's io.Copy chunk size happens to divide evenly
+// into sshOutputMaxBytes.
+func TestCapBuffer_TruncatesOversizedWrite(t *testing.T) {
+	t.Parallel()
+	cb := &capBuffer{limit: 10}
+	n, err := cb.Write(make([]byte, 15))
+	if err != nil {
+		t.Fatalf("Write: %v", err)
+	}
+	if n != 15 {
+		t.Errorf("Write() n = %d, want 15 (io.Writer contract: report all bytes accepted)", n)
+	}
+	if cb.buf.Len() != 10 {
+		t.Errorf("buf.Len() = %d, want 10 (truncated to limit)", cb.buf.Len())
+	}
+
+	// A second Write once already at limit must be a pure no-op.
+	n2, err := cb.Write([]byte("more"))
+	if err != nil {
+		t.Fatalf("Write (at limit): %v", err)
+	}
+	if n2 != 4 {
+		t.Errorf("Write() n = %d, want 4", n2)
+	}
+	if cb.buf.Len() != 10 {
+		t.Errorf("buf.Len() after write-at-limit = %d, want unchanged 10", cb.buf.Len())
 	}
 }

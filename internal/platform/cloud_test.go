@@ -186,6 +186,11 @@ func TestDetectCloud_DMIDirAbsent_NotUnknown(t *testing.T) {
 }
 
 func TestDetectCloud_IMDSTimeout(t *testing.T) {
+	// Network is off by default (see network_policy.go) — opt in so this test
+	// actually dials the httptest server and measures checkIMDS's real
+	// timeout, instead of returning early at the NetworkAllowed gate (which
+	// would make the elapsed-time assertion below pass vacuously).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	dir, dmiDir := makeDMIDir(t, "", "")
 	blockDir := filepath.Join(dir, "block")
 	_ = os.MkdirAll(blockDir, 0755)
@@ -263,6 +268,11 @@ func TestDetectCloud_DSD_OFFLINE_SkipsIMDSProbe(t *testing.T) {
 // regression (internal-collectors-02-02): checkIMDS must not follow a
 // redirect off the metadata endpoint to an attacker-chosen host.
 func TestDetectCloud_IMDS_DoesNotFollowRedirect(t *testing.T) {
+	// Network is off by default — opt in so this test actually reaches
+	// checkIMDS's CheckRedirect closure instead of returning early at the
+	// NetworkAllowed gate (which would make attackerHit==false pass
+	// vacuously regardless of whether redirect-refusal works).
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
 	dir, dmiDir := makeDMIDir(t, "", "")
 	blockDir := filepath.Join(dir, "block")
 	_ = os.MkdirAll(blockDir, 0755)
