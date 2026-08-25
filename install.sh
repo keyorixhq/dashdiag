@@ -110,15 +110,19 @@ fetch_latest_version() {
 }
 
 # ── download ─────────────────────────────────────────────────────────────────
+# WORK_DIR must already be set by the caller (main(), before this is invoked
+# via `TMPFILE="$(download)"`) -- NOT created in here. `$(...)` command
+# substitution runs the function in a SUBSHELL, so a `WORK_DIR="$(mktemp -d)"`
+# assigned inside download() would vanish the instant download() returns,
+# leaving every later WORK_DIR-relative path (verify_checksum's SUMS_FILE,
+# verify_signature's SIG_FILE, the EXIT trap's cleanup) resolving against an
+# EMPTY WORK_DIR -- i.e. the filesystem root -- silently failing every write
+# there and forcing every default install into the fail-closed "could not
+# verify" path. (Found live on main, 2026-08-25: this broke every `curl | sh`
+# install that didn't pass --no-verify.)
 download() {
     FILENAME="${BINARY}-${PLATFORM}"
     URL="https://github.com/${REPO}/releases/download/${VERSION}/${FILENAME}"
-    # Note: intentionally NOT named TMPDIR -- that name would shadow the
-    # environment TMPDIR that mktemp itself (and any child process spawned
-    # after this point) reads, causing every subsequent temp-file operation
-    # in this shell to silently resolve against our just-created directory
-    # instead of the real environment setting.
-    WORK_DIR="$(mktemp -d)"
     TMPFILE="${WORK_DIR}/${BINARY}"
 
     info "Downloading dsd ${VERSION} (${PLATFORM})..."
@@ -281,7 +285,7 @@ verify_install() {
     # $PATH than ${INSTALL_DIR} would otherwise get reported as proof the
     # install succeeded, even though it's not the binary this script placed.
     if [ -x "$DEST" ]; then
-        DSD_VER="$("$DEST" version 2>/dev/null | head -1 || true)"
+        DSD_VER="$("$DEST" --version 2>/dev/null | head -1 || true)"
         success "dsd is ready${DSD_VER:+: $DSD_VER}"
         printf '\n  Quick start:\n'
         printf '    dsd health          # instant server health snapshot\n'
@@ -330,11 +334,20 @@ main() {
     [ -n "$VERSION" ] || fetch_latest_version
     info "Version: ${VERSION}  Platform: ${PLATFORM}  Prefix: ${PREFIX}"
 
-    TMPFILE="$(download)"
-    # WORK_DIR is set by download(); register cleanup now so any subsequent die()
-    # or set -e exit removes the temp directory, not leaving a partial/unverified
-    # binary behind.
+    # WORK_DIR must be created HERE, not inside download() -- download() is
+    # invoked via `TMPFILE="$(download)"`, and a subshell-local WORK_DIR would
+    # not survive back to this (the real) shell. See download()'s doc comment.
+    # Note: intentionally NOT named TMPDIR -- that name would shadow the
+    # environment TMPDIR that mktemp itself (and any child process spawned
+    # after this point) reads, causing every subsequent temp-file operation in
+    # this shell to silently resolve against our just-created directory
+    # instead of the real environment setting.
+    WORK_DIR="$(mktemp -d)"
+    # Register cleanup now, before download() runs, so any subsequent die() or
+    # set -e exit (including one from inside download() itself) removes the
+    # temp directory rather than leaking it.
     trap 'rm -rf "$WORK_DIR"' EXIT
+    TMPFILE="$(download)"
     verify_checksum "$TMPFILE"
     verify_signature
     # Make executable only after checksum (and optional signature) are verified —
