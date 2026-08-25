@@ -9,6 +9,36 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [2.0.3] - 2026-08-25
+
+### Fixed
+
+- Two test-suite correctness bugs where tests were vacuously passing
+  regardless of whether the code under test worked: `internal/cvedata`'s Red
+  Hat Security API enrichment tests, and `internal/platform`'s cloud
+  metadata-server (IMDS) anti-SSRF/timeout tests — both never opened the
+  `DSD_ALLOW_NETWORK` gate the code under test checks, so the network-off
+  default short-circuited before ever reaching the behavior each test was
+  named for.
+- `LoadTarball`'s `ErrRejected` error-classification contract — a caller
+  falling back to a different bundle parser on any error, rather than
+  specifically `ErrNotNativeBundle`, would defeat the entry-count/size caps
+  a crafted archive is meant to trip — was previously only exercised
+  against an internal helper, never through the public entrypoint.
+- Routine dependency bumps: `golang.org/x/crypto` (SSH client fixes) and
+  several pinned GitHub Actions versions.
+
+### Internal
+
+- Test coverage raised across every package with room to improve —
+  `internal/store`, `cmd`, `internal/cis`, `internal/cvedata`,
+  `internal/drilldown`, `internal/baseline`, `internal/source`,
+  `internal/tips`, `internal/platform`, `internal/fleet`,
+  `internal/selfupdate`, `internal/analysis`, `internal/init`, and
+  `internal/render` — closing real, previously-untested error and edge-case
+  branches (symlink/path-traversal guards, size-cap enforcement, secret-
+  redaction paths, and more). No behavior changes; test-only.
+
 ## [2.0.2] - 2026-08-21
 
 ### Fixed
