@@ -89,6 +89,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `internal/collectors` only, `os.ReadDir(".")`) is now repo-wide — the two
   real bypasses above both lived outside `internal/collectors` and were
   invisible to the old, narrower guard.
+- Added two probe-turned-regression tests confirming `--policy` and `--oval`
+  are not vulnerable to nested-document expansion attacks, and pinning the
+  reason why: `LoadPolicy`'s YAML anchor/alias handling is safe today only
+  because `PolicyFile` is a flat struct of named scalars and
+  `gopkg.in/yaml.v3` discards unrecognized keys (the bomb's anchors) without
+  walking their aliased content — a future `map[string]any`/`[]any` field
+  would silently reopen the vector, which is what
+  `TestLoadPolicy_YAMLAnchorExpansionBounded` now guards against. `loadOVAL`
+  is protected against a deeply-nested (not large) `<criteria>` document by
+  Go's `encoding/xml` stdlib decoder's own max-depth limit, not by anything
+  dsd added — `TestLoadOVAL_DeeplyNestedCriteriaRejected` pins that inherited
+  behavior so a future stdlib change wouldn't silently remove it unnoticed.
 
 ## [2.0.3] - 2026-08-25
 
