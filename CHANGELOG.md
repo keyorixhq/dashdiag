@@ -11,6 +11,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.1.0] - 2026-08-31
+
 ### Changed
 
 - **Exit code contract**: added a new exit code, `3` (UNKNOWN), reserved for
@@ -110,6 +112,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   Go's `encoding/xml` stdlib decoder's own max-depth limit, not by anything
   dsd added — `TestLoadOVAL_DeeplyNestedCriteriaRejected` pins that inherited
   behavior so a future stdlib change wouldn't silently remove it unnoticed.
+- `dsd capture --raw --sanitize` now also redacts netrc-style `login`/
+  `password` credential lines (`/etc/apt/auth.conf.d/*.conf`'s grammar),
+  found via a live canary sweep that planted a fake credential and
+  confirmed it previously survived sanitization unredacted.
+
+> **Note:** the LAN-only hardware smoke test (`scripts/hardware-smoke.sh`,
+> real SMART/thermal/battery sanity checks) was not run for this release —
+> no hardware collectors changed this cycle. Per `docs/RELEASE.md`, noted
+> explicitly here rather than left silent.
 
 ## [2.0.3] - 2026-08-25
 
