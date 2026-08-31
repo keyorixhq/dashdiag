@@ -99,7 +99,7 @@ func TestDarwinProcessNames_Smoke(t *testing.T) {
 // With newPSCmd pointed at a nonexistent binary, darwinProcessNames() takes
 // its error branch and returns (nil, false) — exercises that path without
 // needing a real macOS host. Swaps newPSCmd rather than $PATH: since
-// internal-init-01-04, "ps" resolves via source.ResolveTrustedTool, which
+// internal-init-01-04, "ps" resolves via platform.ResolveTrustedTool, which
 // deliberately ignores $PATH (see its doc comment), so clearing $PATH no
 // longer has any effect on which binary this runs. Not t.Parallel(): the var
 // swap is only race-free because Go's test runner finishes all serial tests
@@ -148,7 +148,7 @@ func TestDarwinProcessNamesBoundsHungPs(t *testing.T) {
 	oldNewPSCmd := newPSCmd
 	newPSCmd = func(ctx context.Context) *exec.Cmd {
 		cmd := exec.CommandContext(ctx, fakePS, "aux")
-		cmd.WaitDelay = 100 * time.Millisecond // matches source.ExecWaitDelay
+		cmd.WaitDelay = 100 * time.Millisecond // matches platform.ExecWaitDelay
 		return cmd
 	}
 	defer func() { newPSCmd = oldNewPSCmd }()

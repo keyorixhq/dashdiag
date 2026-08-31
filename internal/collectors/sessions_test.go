@@ -263,7 +263,7 @@ func TestIsTTYName(t *testing.T) {
 // exactly shaped like a `w` LOGIN@ day-name or date-stamp string was
 // misclassified as "not a host" — silently losing RemoteCount/RootSSH
 // attribution. Since dsd forces LC_ALL=C/LANG=C on every subprocess
-// (source.HardenedEnv), `w`'s real LOGIN@ output is always exact C-locale
+// (platform.HardenedEnv), `w`'s real LOGIN@ output is always exact C-locale
 // title case ("Mon", "Jun") — never lowercase/uppercase, and never an
 // arbitrary 3-letter sequence — so anchoring the patterns to that exact
 // shape is real corroboration, not a guess.

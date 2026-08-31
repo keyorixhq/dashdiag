@@ -8,7 +8,7 @@ package fleet
 // The WaitDelay half of this finding (force-kill after context cancel) is
 // already covered by this package's own tests exercising real sshRun/scp
 // calls. What's untested is the DELIBERATE non-application of
-// source.HardenedEnv/source.ResolveTrustedTool — a scoping decision, not an
+// platform.HardenedEnv/platform.ResolveTrustedTool — a scoping decision, not an
 // oversight (see sshRun's own "internal-init-01-04" cross-reference comment
 // in fleet.go, which is the sibling this finding was scoped narrower than).
 
@@ -23,9 +23,9 @@ import (
 // TestSpec_SubprocessWrappers08_SSHRunDoesNotForceLocale:
 // subprocess-wrappers-08 was closed WONT_FIX because it's already correctly
 // scoped per an explicit earlier decision in this engagement: apply
-// source.ExecWaitDelay to fleet's ssh/scp (a wedged remote session must still
+// platform.ExecWaitDelay to fleet's ssh/scp (a wedged remote session must still
 // die with the context), but deliberately do NOT apply
-// source.HardenedEnv/source.ResolveTrustedTool the way collectors/baseline/
+// platform.HardenedEnv/platform.ResolveTrustedTool the way collectors/baseline/
 // drilldown do — ssh/scp need the OPERATOR's own $PATH, SSH agent, and
 // ProxyCommand setup to work at all (corporate wrapper scripts, non-standard
 // install prefixes), and sshRun's stdout is the remote dsd's own JSON output,
@@ -47,7 +47,7 @@ func TestSpec_SubprocessWrappers08_SSHRunDoesNotForceLocale(t *testing.T) {
 	}
 	if got := string(out); got != "LC_ALL=en_US.UTF-8\n" {
 		t.Errorf("sshRun's subprocess saw LC_ALL=%q, want the operator's own \"en_US.UTF-8\" to pass "+
-			"through unchanged — if sshRun now forces C locale (source.HardenedEnv), "+
+			"through unchanged — if sshRun now forces C locale (platform.HardenedEnv), "+
 			"subprocess-wrappers-08 may have been widened beyond its scoped decision; revisit the "+
 			"decision doc rather than just updating this expectation", got)
 	}

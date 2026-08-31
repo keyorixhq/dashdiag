@@ -9,7 +9,7 @@ import (
 	"strings"
 	"time"
 
-	"github.com/keyorixhq/dashdiag/internal/source"
+	"github.com/keyorixhq/dashdiag/internal/platform"
 )
 
 // psTimeout bounds the `ps aux` call in darwinProcessNames. RunWizard has no
@@ -21,9 +21,9 @@ import (
 var psTimeout = 5 * time.Second
 
 // newPSCmd builds the hardened `ps aux` command darwinProcessNames runs:
-// source.ResolveTrustedTool (PATH-trust), source.HardenedEnv (locale), and
-// source.ExecWaitDelay (force-kill on context cancel) — the same three
-// primitives collectors/baseline/drilldown use.
+// platform.ResolveTrustedTool (PATH-trust), platform.HardenedEnv (locale),
+// and platform.ExecWaitDelay (force-kill on context cancel) — the same
+// three primitives collectors/baseline/drilldown use.
 //
 // A package-level var, not an inline call, for the same reason drilldown's
 // runCmd is one (see drilldown.go): it gives tests a seam to inject a fake
@@ -32,9 +32,9 @@ var psTimeout = 5 * time.Second
 // used to work by manipulating $PATH (t.Setenv("PATH", tempDir)) no longer
 // reaches a substitute binary that way; it must swap this var instead.
 var newPSCmd = func(ctx context.Context) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, source.ResolveTrustedTool("ps"), "aux") // NOSONAR — hardcoded binary
-	cmd.Env = source.HardenedEnv()
-	cmd.WaitDelay = source.ExecWaitDelay // force-kill after context cancel
+	cmd := exec.CommandContext(ctx, platform.ResolveTrustedTool("ps"), "aux") // NOSONAR — hardcoded binary
+	cmd.Env = platform.HardenedEnv()
+	cmd.WaitDelay = platform.ExecWaitDelay // force-kill after context cancel
 	return cmd
 }
 

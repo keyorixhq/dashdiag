@@ -8,6 +8,7 @@ import (
 	"sync/atomic"
 	"time"
 
+	"github.com/keyorixhq/dashdiag/internal/platform"
 	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
@@ -32,13 +33,13 @@ func truncateRunes(s string, max int) string {
 
 // runCmd runs an external command with LC_ALL=C and LANG=C so numeric output
 // always uses dot as the decimal separator regardless of the user's locale.
-// localeSafeEnv is source.HardenedEnv under this package's established name —
+// localeSafeEnv is platform.HardenedEnv under this package's established name —
 // every external command we parse must use this. runCmd applies it for you;
 // raw exec.Command/CommandContext .Output() sites must set cmd.Env =
 // localeSafeEnv() — otherwise parsing silently breaks on non-English hosts (e.g.
 // `dmesg -T` prints "dom jun" on es_ES, which an English layout cannot parse).
 func localeSafeEnv() []string {
-	return source.HardenedEnv()
+	return platform.HardenedEnv()
 }
 
 // localeSafeCmd is exec.CommandContext with the C locale forced. Use it for any
@@ -114,12 +115,12 @@ func ActiveSource() source.Source { return curSource() }
 // a genuine spawn failure (tool absent, ctx cancelled) returns a non-nil error.
 // This is the production exec path for every collector (runCmd/runCmdOutput/
 // runCmdCombined all route here via curSource().Run) — name is resolved via
-// source.ResolveTrustedTool (trusted system dirs, never the inherited $PATH,
+// platform.ResolveTrustedTool (trusted system dirs, never the inherited $PATH,
 // since dsd routinely runs as root) before exec.
 func localeSafeExec(ctx context.Context, name string, args ...string) (source.Result, error) {
-	cmd := exec.CommandContext(ctx, source.ResolveTrustedTool(name), args...)
+	cmd := exec.CommandContext(ctx, platform.ResolveTrustedTool(name), args...)
 	cmd.Env = localeSafeEnv()
-	cmd.WaitDelay = source.ExecWaitDelay // force-kill after context cancel
+	cmd.WaitDelay = platform.ExecWaitDelay // force-kill after context cancel
 	so, se := source.NewCapWriter(source.MaxCapturedOutput), source.NewCapWriter(source.MaxCapturedOutput)
 	cmd.Stdout, cmd.Stderr = so, se
 	// cmd.Run() calls Wait() internally on every path, so the child is always

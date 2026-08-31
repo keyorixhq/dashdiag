@@ -22,17 +22,17 @@ func TestQueryInstalledRPM_NotAvailable(t *testing.T) {
 }
 
 // writeFakeRPM drops an executable shell script named "rpm" onto dir, then
-// points PATH at dir (and nothing else) for the duration of the test, so
-// exec.CommandContext(ctx, "rpm", "-qa", "--queryformat", ...) in
-// QueryInstalledRPM resolves to this fake instead of a real rpm binary —
-// mirroring the writeFakeBin pattern in internal/fleet/sshexec_test.go. The
+// points resolveRPM (P2: platform.ResolveTrustedTool, which deliberately
+// ignores $PATH) directly at it for the duration of the test, so
+// exec.CommandContext(ctx, resolveRPM("rpm"), "-qa", "--queryformat", ...) in
+// QueryInstalledRPM resolves to this fake instead of a real rpm binary. The
 // fake ignores its arguments and unconditionally echoes lines in the exact
 // "%{NAME} %{EPOCH}:%{VERSION}-%{RELEASE}\n" shape QueryInstalledRPM's
 // queryformat produces (rpm.go:18-19), including an "(none)" epoch line so
 // the "(none):" -> "0:" normalisation (rpm.go:36) is exercised for real.
 //
-// Callers MUST NOT also call t.Parallel(): t.Setenv panics if the test (or
-// an ancestor) is parallel — same constraint as writeFakeBin.
+// Callers MUST NOT also call t.Parallel(): swapping the package-level
+// resolveRPM var is only race-free serially, same constraint as t.Setenv.
 func writeFakeRPM(t *testing.T, extraLines string) {
 	t.Helper()
 	writeFakeRPMWithGoVersion(t, "0:1.25.5-160000.1.1", extraLines)
@@ -60,7 +60,9 @@ func writeFakeRPMWithGoVersion(t *testing.T, goEVR, extraLines string) {
 	if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
 		t.Fatalf("writing fake rpm: %v", err)
 	}
-	t.Setenv("PATH", dir)
+	orig := resolveRPM
+	resolveRPM = func(string) string { return path }
+	t.Cleanup(func() { resolveRPM = orig })
 }
 
 // TestQueryInstalledRPM_Success exercises the real parsing/success path

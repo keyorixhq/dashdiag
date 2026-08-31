@@ -16,7 +16,7 @@ import (
 	"time"
 	"unicode"
 
-	"github.com/keyorixhq/dashdiag/internal/source"
+	"github.com/keyorixhq/dashdiag/internal/platform"
 )
 
 // Options tunes a fleet run.
@@ -354,7 +354,7 @@ func sshRun(ctx context.Context, opts Options, host, cmd string) ([]byte, error)
 	// wedged ssh (a half-open TCP connection, a server that stops responding
 	// mid-session) can outlive ctx's deadline instead of dying with it.
 	//
-	// Deliberately NOT source.ResolveTrustedTool'd: unlike dsd's own
+	// Deliberately NOT platform.ResolveTrustedTool'd: unlike dsd's own
 	// collectors, "ssh" here must resolve via the operator's own $PATH — dsd
 	// routinely runs fleet as a non-root user with a custom SSH client
 	// (corporate wrapper scripts, a non-standard install prefix, ProxyCommand
@@ -365,7 +365,7 @@ func sshRun(ctx context.Context, opts Options, host, cmd string) ([]byte, error)
 	// output, not text parsed for locale-sensitive words/numbers — ssh's own
 	// local locale has no bearing on it.
 	c := exec.CommandContext(ctx, "ssh", args...) // NOSONAR — hardcoded binary, PATH lookup is intentional
-	c.WaitDelay = source.ExecWaitDelay
+	c.WaitDelay = platform.ExecWaitDelay
 	stdout := &capBuffer{limit: sshOutputMaxBytes}
 	stderr := &capBuffer{limit: 32 << 10}
 	c.Stdout = stdout
@@ -386,7 +386,7 @@ func scp(ctx context.Context, opts Options, localPath, host, remotePath string) 
 	// scp must resolve via the operator's own $PATH for the same reason ssh
 	// does, and there is no output here to locale-parse at all.
 	c := exec.CommandContext(ctx, "scp", scpArgs...) // NOSONAR — hardcoded binary, PATH lookup is intentional
-	c.WaitDelay = source.ExecWaitDelay
+	c.WaitDelay = platform.ExecWaitDelay
 	return c.Run()
 }
 

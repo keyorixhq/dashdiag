@@ -13,7 +13,7 @@ import (
 // ─────────────────────────────────────────────────────────────────────────────
 // Each test that needs a specific installed version injects a fake dpkg-query
 // via the resolveDpkgQuery seam (internal-cvedata-01-05: production resolves
-// "dpkg-query" through source.ResolveTrustedTool — trusted system dirs, never
+// "dpkg-query" through platform.ResolveTrustedTool — trusted system dirs, never
 // $PATH — so a PATH-shadowed fake would silently lose to the real
 // /usr/bin/dpkg-query on any host that has one installed). These tests
 // cannot be t.Parallel() because they mutate the package-level

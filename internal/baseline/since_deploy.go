@@ -16,7 +16,7 @@ import (
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/output"
-	"github.com/keyorixhq/dashdiag/internal/source"
+	"github.com/keyorixhq/dashdiag/internal/platform"
 )
 
 func DetectLastDeployTime() (time.Time, string, error) {
@@ -31,10 +31,10 @@ func DetectLastDeployTime() (time.Time, string, error) {
 		// PATH-trust "systemctl" (dsd routinely runs as root; an untrusted $PATH
 		// entry ahead of the real binary is a hijack vector), and force-kill on
 		// context cancel — the same three primitives collectors/drilldown use.
-		cmd := exec.CommandContext(ctx, source.ResolveTrustedTool("systemctl"), "show", svc, //nolint:gosec // G204: hardcoded binary // NOSONAR
+		cmd := exec.CommandContext(ctx, platform.ResolveTrustedTool("systemctl"), "show", svc, //nolint:gosec // G204: hardcoded binary // NOSONAR
 			"--property=ActiveEnterTimestamp", "--value")
-		cmd.Env = source.HardenedEnv()
-		cmd.WaitDelay = source.ExecWaitDelay
+		cmd.Env = platform.HardenedEnv()
+		cmd.WaitDelay = platform.ExecWaitDelay
 		out, err := cmd.Output()
 		cancel()
 		if err != nil || strings.TrimSpace(string(out)) == "" {
