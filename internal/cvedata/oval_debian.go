@@ -13,17 +13,17 @@ import (
 	"regexp"
 	"strings"
 
-	"github.com/keyorixhq/dashdiag/internal/source"
+	"github.com/keyorixhq/dashdiag/internal/platform"
 )
 
 // resolveDpkgQuery resolves "dpkg-query" to an absolute path via
-// source.ResolveTrustedTool (trusted system dirs, never the process's
-// inherited $PATH — see internal/source/trustedexec.go) before
+// platform.ResolveTrustedTool (trusted system dirs, never the process's
+// inherited $PATH — see internal/platform/trustedexec.go) before
 // QueryInstalledDPKG execs it, so a directory prepended ahead of the real
 // /usr/bin can't shadow dpkg-query for a privileged dsd invocation. A var
 // (not a direct call) so tests can point QueryInstalledDPKG at a fake binary
 // without needing it to live in one of those trusted directories.
-var resolveDpkgQuery = source.ResolveTrustedTool
+var resolveDpkgQuery = platform.ResolveTrustedTool
 
 // ubuntuPriorityToCVSS maps Ubuntu/Debian priority strings to approximate
 // CVSS3 scores for bucketing. Ubuntu does not publish numeric CVSS scores
@@ -338,6 +338,8 @@ func ParseUbuntuOVAL(ovalPath string) (map[string]RHELCVERecord, error) {
 // QueryInstalledDPKG returns installed packages on Debian/Ubuntu via dpkg-query.
 func QueryInstalledDPKG(ctx context.Context) ([]InstalledPackage, error) {
 	cmd := exec.CommandContext(ctx, resolveDpkgQuery("dpkg-query"), "-W", "-f=${Package}\t${Version}\n") //nolint:gosec // G204: hardcoded binary // NOSONAR
+	cmd.Env = platform.HardenedEnv()
+	cmd.WaitDelay = platform.ExecWaitDelay
 	out, err := cmd.Output()
 	if err != nil {
 		return nil, fmt.Errorf("dpkg-query failed: %w", err)

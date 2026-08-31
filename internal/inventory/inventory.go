@@ -18,7 +18,6 @@ import (
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/platform"
-	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 // Build assembles the Inventory. hw, gpu, and cloud may be nil (e.g. on
@@ -233,19 +232,22 @@ func countDir(dir string) int {
 	return n
 }
 
-// resolveRPM resolves "rpm" to an absolute path via source.ResolveTrustedTool
+// resolveRPM resolves "rpm" to an absolute path via platform.ResolveTrustedTool
 // (trusted system dirs, never the invoking process's inherited $PATH) before
 // countRPM execs it — this inventory build can run as root, so a directory
 // earlier in $PATH than the real rpm binary could otherwise substitute a
-// malicious one (same class internal/source/trustedexec.go's
+// malicious one (same class internal/platform/trustedexec.go's
 // ResolveTrustedTool already hardens for the collectors package's exec
 // path). A var so tests can point countRPM at a fake binary directly.
-var resolveRPM = source.ResolveTrustedTool
+var resolveRPM = platform.ResolveTrustedTool
 
 func countRPM() int {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
-	out, err := exec.CommandContext(ctx, resolveRPM("rpm"), "-qa").Output() // NOSONAR — hardcoded binary
+	cmd := exec.CommandContext(ctx, resolveRPM("rpm"), "-qa") // NOSONAR — hardcoded binary
+	cmd.Env = platform.HardenedEnv()
+	cmd.WaitDelay = platform.ExecWaitDelay
+	out, err := cmd.Output()
 	if err != nil {
 		return 0
 	}

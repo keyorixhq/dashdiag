@@ -17,6 +17,7 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/collectors"
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
+	"github.com/keyorixhq/dashdiag/internal/platform"
 	"github.com/keyorixhq/dashdiag/internal/runner"
 	"github.com/keyorixhq/dashdiag/internal/source"
 )
@@ -273,13 +274,13 @@ func procComm(procRoot string, pid int) string {
 // parallel batch (same constraint as the t.Setenv("HOME") tests elsewhere in
 // this codebase).
 var runCmd = func(ctx context.Context, name string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, source.ResolveTrustedTool(name), args...)
-	cmd.Env = source.HardenedEnv()
+	cmd := exec.CommandContext(ctx, platform.ResolveTrustedTool(name), args...)
+	cmd.Env = platform.HardenedEnv()
 	// subprocess-wrappers-06: force-kill after context cancel, same as
 	// collectors' localeSafeExec — without this, a wedged tool (a stuck
 	// chronyc/aa-status/sntp) can outlive ctx's deadline instead of dying with
 	// it, since cmd.Wait() alone doesn't kill on cancellation.
-	cmd.WaitDelay = source.ExecWaitDelay
+	cmd.WaitDelay = platform.ExecWaitDelay
 	// internal-drilldown-01-07: a plain bytes.Buffer has no size limit — any of
 	// the tools this runs (du, chronyc, timedatectl, aa-status, pgrep, sntp)
 	// writing unbounded stdout would otherwise buffer unbounded in memory

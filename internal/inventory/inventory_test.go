@@ -10,7 +10,6 @@ import (
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/platform"
-	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 func TestBuild_FromHardwareInfo(t *testing.T) {
@@ -292,7 +291,7 @@ func TestCountDpkg_MissingFile(t *testing.T) {
 
 func TestCountRPM(t *testing.T) {
 	t.Parallel()
-	// countRPM resolves "rpm" via source.ResolveTrustedTool (trusted system
+	// countRPM resolves "rpm" via platform.ResolveTrustedTool (trusted system
 	// dirs, never $PATH — internal-inventory-01-03). In the test sandbox the
 	// rpm binary is absent from every trusted dir too, so this
 	// deterministically exercises the CommandContext-error graceful-zero
@@ -310,14 +309,14 @@ func TestCountRPM(t *testing.T) {
 // TestCountRPM_ResolvesViaTrustedDirs below, which overrides resolveRPM
 // entirely, can't distinguish a trusted-dir resolver from a bare passthrough
 // either. This test instead asserts the WIRING directly: resolveRPM's
-// default must be source.ResolveTrustedTool itself, not an identity
+// default must be platform.ResolveTrustedTool itself, not an identity
 // passthrough — which is exactly what a revert of the fix would restore.
 func TestResolveRPM_DefaultsToTrustedToolResolver(t *testing.T) {
 	t.Parallel()
 	got := reflect.ValueOf(resolveRPM).Pointer()
-	want := reflect.ValueOf(source.ResolveTrustedTool).Pointer()
+	want := reflect.ValueOf(platform.ResolveTrustedTool).Pointer()
 	if got != want {
-		t.Error("resolveRPM's default must be source.ResolveTrustedTool, not an identity/bare-name passthrough")
+		t.Error("resolveRPM's default must be platform.ResolveTrustedTool, not an identity/bare-name passthrough")
 	}
 }
 
@@ -351,7 +350,7 @@ func TestCountRPM_ResolvesViaTrustedDirs(t *testing.T) {
 // package-level resolveRPM var directly at it — same seam as
 // withResolveDpkgQuery in internal/cvedata/oval_debian_scan_test.go.
 // PATH-shadowing alone is NOT enough here: after internal-inventory-01-03,
-// countRPM resolves "rpm" via source.ResolveTrustedTool, which searches fixed
+// countRPM resolves "rpm" via platform.ResolveTrustedTool, which searches fixed
 // system dirs (/usr/bin, /bin, ...) before ever consulting $PATH. On any
 // host/CI image that ships a real rpm binary in one of those dirs — true of
 // GitHub's ubuntu-22.04/24.04 runners — a PATH-only fake was silently bypassed

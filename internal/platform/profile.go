@@ -405,7 +405,19 @@ func systemctlIsActiveWithLookup(unit string, lookup func(string) (string, error
 	}
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	return exec.CommandContext(ctx, "systemctl", "is-active", unit).Run() == nil // NOSONAR — hardcoded binary
+	// PATH-trust: dsd routinely runs as root, and profile detection feeds
+	// other collectors' decisions — a directory prepended ahead of the real
+	// systemctl (a tampered shell profile, a leftover sudo environment) must
+	// not be able to substitute a fake "is-active" answer. ResolveTrustedTool
+	// lives in this package (P2) specifically so platform/ — contractually
+	// stdlib-only — never has to import anything internal to get it.
+	// HardenedEnv is deliberately NOT set: only the exit code is read here,
+	// nothing parses stdout/stderr, so there's no locale-sensitive text to
+	// protect — add HardenedEnv() if this call site ever starts reading
+	// output.
+	cmd := exec.CommandContext(ctx, ResolveTrustedTool("systemctl"), "is-active", unit) // NOSONAR — hardcoded binary
+	cmd.WaitDelay = ExecWaitDelay
+	return cmd.Run() == nil
 }
 
 // DebugLine renders a one-line platform summary for `--debug` output.

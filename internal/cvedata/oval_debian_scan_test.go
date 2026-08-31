@@ -103,7 +103,7 @@ func TestScanUbuntuOVALPackages_RejectsOversizedFeed(t *testing.T) {
 
 // withResolveDpkgQuery swaps resolveDpkgQuery for the duration of the test,
 // restoring the original on cleanup. Since internal-cvedata-01-05,
-// QueryInstalledDPKG resolves "dpkg-query" via source.ResolveTrustedTool
+// QueryInstalledDPKG resolves "dpkg-query" via platform.ResolveTrustedTool
 // (trusted system dirs, never $PATH), so a fake binary on a PATH-shadowed
 // directory no longer reaches exec — tests that need QueryInstalledDPKG to
 // see a specific (possibly nonexistent) binary path go through this seam
@@ -176,7 +176,7 @@ func TestQueryInstalledDPKG_SkipsEmptyPackageName(t *testing.T) {
 
 // TestQueryInstalledDPKG_IgnoresPATHHijack is the regression guard for
 // internal-cvedata-01-05: with the production resolveDpkgQuery
-// (source.ResolveTrustedTool) in effect, a malicious "dpkg-query" placed in a
+// (platform.ResolveTrustedTool) in effect, a malicious "dpkg-query" placed in a
 // directory that is the ONLY entry on $PATH must never run — the real
 // /usr/bin/dpkg-query (present in this container per
 // TestQueryInstalledDPKG_RealSystem's own comment) must win regardless of

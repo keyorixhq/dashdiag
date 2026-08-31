@@ -61,6 +61,34 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   (an explicit offset dmesg computes itself), with a fallback to raw
   monotonic offsets anchored to boot time for a dmesg build supporting
   neither flag (busybox, or a util-linux predating `--time-format=iso`).
+- Two subprocess call sites (`internal/cvedata`'s RPM CVE scan,
+  `internal/platform`'s systemd service-active check) executed a bare tool
+  name, letting Go's `os/exec` fall back to the inherited `$PATH` — a
+  hijack vector for a process that routinely runs as root. Two more
+  (`internal/cvedata`'s dpkg CVE scan, `internal/inventory`'s package
+  count) resolved the trusted path correctly but never forced the C
+  locale, leaving their output parsing locale-fragile. All four now go
+  through the same primitives every other subprocess call in dsd already
+  used. The trusted-tool resolver itself is hardened further: as root, a
+  directory on the trusted list that isn't ITSELF root-owned and locked
+  down (no group/other write bit) is no longer trusted — closing a
+  real gap for e.g. Homebrew's `/opt/homebrew` on macOS, which is owned
+  by the installing user, not root, by Homebrew's own design.
+
+### Internal
+
+- Moved the trusted-exec primitives (`ResolveTrustedTool`, `HardenedEnv`,
+  `ExecWaitDelay`) from `internal/source` to `internal/platform` — the
+  code was already pure stdlib with no coupling to `source`'s own
+  machinery, and `internal/platform` (contractually stdlib-only) needed
+  direct access to fix its own bypass above without violating that
+  constraint. No re-exported alias kept in `source`: every caller was
+  updated to the new location directly, so there's exactly one name per
+  primitive.
+- The locale/PATH-trust enforcement test (previously scoped to
+  `internal/collectors` only, `os.ReadDir(".")`) is now repo-wide — the two
+  real bypasses above both lived outside `internal/collectors` and were
+  invisible to the old, narrower guard.
 
 ## [2.0.3] - 2026-08-25
 

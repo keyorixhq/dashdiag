@@ -16,7 +16,7 @@ import (
 //
 // Both patterns are deliberately narrow, not (?i)/any-3-letters, per
 // internal-collectors-30-02: dsd forces LC_ALL=C/LANG=C on every subprocess
-// it runs (source.HardenedEnv), so `w`'s weekday/month abbreviations always
+// it runs (platform.HardenedEnv), so `w`'s weekday/month abbreviations always
 // come out in the fixed C-locale title case ("Mon", "Jun", never "mon" or
 // "MON") — anchoring to that exact, guaranteed shape is real corroboration,
 // not a guess, and it stops a real (if unusual) short hostname like "sun" or

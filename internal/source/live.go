@@ -7,6 +7,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+
+	"github.com/keyorixhq/dashdiag/internal/platform"
 )
 
 // Live reads the running system. It is the default Source in production.
@@ -58,10 +60,10 @@ func (l Live) Run(ctx context.Context, name string, args ...string) (Result, err
 // defaultExec runs a command capturing stdout, stderr, and exit code. A non-zero
 // exit is reported via Result.ExitCode with a nil error; only a real execution
 // failure (binary not found, context cancelled) returns a non-nil error.
-// name is resolved via ResolveTrustedTool (trusted system dirs, never the
-// inherited $PATH) before exec — see trustedexec.go.
+// name is resolved via platform.ResolveTrustedTool (trusted system dirs,
+// never the inherited $PATH) before exec — see internal/platform/trustedexec.go.
 func defaultExec(ctx context.Context, name string, args ...string) (Result, error) {
-	cmd := exec.CommandContext(ctx, ResolveTrustedTool(name), args...)
+	cmd := exec.CommandContext(ctx, platform.ResolveTrustedTool(name), args...)
 	so, se := NewCapWriter(MaxCapturedOutput), NewCapWriter(MaxCapturedOutput)
 	cmd.Stdout, cmd.Stderr = so, se
 	err := cmd.Run()
