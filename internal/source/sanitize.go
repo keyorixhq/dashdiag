@@ -88,6 +88,21 @@ var secretRules = []secretRule{
 	// database connection strings that show up verbatim in error logs. Keep the
 	// scheme and username (structure/context), redact only the password.
 	{regexp.MustCompile(`\b([a-zA-Z][a-zA-Z0-9+.-]*://[^\s/@:]+:)([^\s@]+)(@)`), "${1}" + redactedMark + "${3}"},
+	// netrc-style credential lines: "login USER password PASS" (one line, ~/.netrc
+	// and /etc/apt/auth.conf.d/*.conf's grammar, read verbatim by
+	// internal/collectors/pve_linux.go) or the same pair split across two lines.
+	// The keyword rule above requires an "="/":" separator and cannot see this —
+	// netrc/auth.conf use a bare space, so "password CANARY_SECRET" sailed through
+	// unredacted (found via a canary-file sweep of dsd capture --raw --sanitize).
+	// Anchored to whole lines (optionally "machine HOST " prefixed) rather than a
+	// bare "login\s+\S+\s+password\s+\S+" scan, so ordinary prose that happens to
+	// contain both words — "the login and password steps are separate" — cannot
+	// satisfy it: that sentence doesn't start at BOL with "login"/"machine", and
+	// once anchored, "and"/"steps" fail to complete the required single-token
+	// login-value / password-value shape as literal line content. Keeps the login
+	// line and the "password" keyword; drops only the password value.
+	{regexp.MustCompile(`(?mi)^([ \t]*(?:machine\s+\S+[ \t]+)?login\s+\S+)([ \t]+|[ \t]*\r?\n[ \t]*)(pass(?:word|wd)?\s+)(\S+)[ \t]*$`),
+		"${1}${2}${3}" + redactedMark},
 }
 
 // sensitiveCacheKeys are Source.Cached() keys whose value is a live credential

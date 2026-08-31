@@ -110,6 +110,34 @@ func TestRedactSecrets(t *testing.T) {
 			mustKeep:   []string{"password =", "secret ="},
 			wantN:      2,
 		},
+		{
+			// Found via a canary-file sweep of `dsd capture --raw --sanitize`:
+			// /etc/apt/auth.conf.d/*.conf (read verbatim by pve_linux.go) uses
+			// netrc grammar — "login USER" / "password PASS" with a bare space,
+			// no "="/":" — which the keyword rule above cannot see.
+			name:       "netrc/apt auth.conf.d two-line login/password",
+			in:         "machine enterprise.proxmox.com/debian/pve\nlogin canary-svc-account\npassword S3cretApt9f8e\n",
+			mustRedact: []string{"S3cretApt9f8e"},
+			mustKeep:   []string{"machine enterprise.proxmox.com/debian/pve", "login canary-svc-account", "password "},
+			wantN:      1,
+		},
+		{
+			name:       "netrc-style one-line machine/login/password",
+			in:         "machine deb.example.com login myuser password mysecretpw",
+			mustRedact: []string{"mysecretpw"},
+			mustKeep:   []string{"machine deb.example.com", "login myuser", "password "},
+			wantN:      1,
+		},
+		{
+			// The netrc rule is line-anchored specifically so ordinary prose
+			// containing both words never matches — it must not fire outside a
+			// real credential-file line.
+			name:       "prose containing both words is not mistaken for netrc credentials",
+			in:         "Please login then enter your password immediately.\nThe login and password steps are separate from checkout.",
+			mustRedact: nil,
+			mustKeep:   []string{"Please login then enter your password immediately.", "login and password steps are separate"},
+			wantN:      0,
+		},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
