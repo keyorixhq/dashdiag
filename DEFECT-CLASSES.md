@@ -177,6 +177,15 @@ Each class states: mechanism, why it's invisible today, the probe that would set
 7. **Version-drift sweep across the full ~60-parser surface.** **Narrowed and answered** (follow-up pass): checked whether the "does it error or return empty-treated-as-healthy" question has a shared entry point that would collapse ~60 checks into one — it does not; no shared "parse tool output" abstraction exists anywhere in `internal/collectors`, each collector hand-rolls its own parser. That means this question doesn't reduce to one check — it's the exact same shape as, and already fully answered by, `COLLECTOR-SWEEP.md`'s 99-collector sweep (26 real gaps found, 2 now fixed, 24 tracked and ranked). Still not worth a dedicated audit beyond that — see below.
 8. **Deeply nested YAML/JSON on `--policy`/`--oval`.** ✅ **RESOLVED BY PROBE** (follow-up pass) — both directions closed, no fix needed. See the updated table row above.
 
+**Landed via four PRs**, one worktree, one branch per task/task-group, merge-then-continue between each:
+
+| PR | Merged (UTC) | Covers |
+|---|---|---|
+| [#1047](https://github.com/keyorixhq/dashdiag/pull/1047) | 2026-08-31 03:47:39 | Task 1 sweep + C1/C2 fix (exit-code floor, `/dev/kmsg`, shared glob helper) |
+| [#1048](https://github.com/keyorixhq/dashdiag/pull/1048) | 2026-08-31 15:12:57 | C3 fix (dmesg/journalctl TZ) + P2 guard (trusted-exec relocation/hardening) |
+| [#1049](https://github.com/keyorixhq/dashdiag/pull/1049) | 2026-08-31 15:32:21 | Task 5 probes (nested YAML/OVAL-depth regression guards) |
+| [#1050](https://github.com/keyorixhq/dashdiag/pull/1050) | 2026-08-31 18:49:59 | C6 redaction default decision + canary sweep + netrc fix |
+
 ### Exclusions — sibling-project classes that don't apply here
 
 - **Multi-tenant row scoping** — DashDiag has no tenants, no rows, no database. There is nothing to scope. Not a "small version of the same risk," genuinely inapplicable — DashDiag's entire persistent state is one operator's `~/.dsd/` directory.
