@@ -74,6 +74,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   down (no group/other write bit) is no longer trusted — closing a
   real gap for e.g. Homebrew's `/opt/homebrew` on macOS, which is owned
   by the installing user, not root, by Homebrew's own design.
+- `dsd capture --raw --sanitize`'s secret redaction missed netrc-style
+  credential lines (`login USER` / `password PASS`, space-separated, no
+  `=`/`:`) — the grammar `/etc/apt/auth.conf.d/*.conf` uses for the PVE
+  subscription credential dsd itself reads. Found via a live canary sweep
+  (planted a fake credential, ran a real capture, confirmed it survived
+  sanitization unredacted in the resulting bundle) rather than inferred.
+  Fixed with a new, line-anchored redaction rule scoped to the real
+  netrc/auth.conf line shape, so it can't fire on ordinary prose that
+  happens to contain both words.
 
 ### Internal
 
