@@ -65,7 +65,10 @@ func (c *NetworkdConfigCollector) Collect(ctx context.Context) (interface{}, err
 
 	info := &models.NetworkdConfigInfo{Detected: true}
 	for _, g := range networkdConfigGlobs {
-		matches, _ := glob(networkdConfigDir + "/" + g)
+		matches, unreadable, _ := globChecked(networkdConfigDir + "/" + g)
+		if unreadable {
+			info.ConfigDirUnreadable = true
+		}
 		for _, path := range matches {
 			info.TotalFiles++
 			meta, err := statFile(path)

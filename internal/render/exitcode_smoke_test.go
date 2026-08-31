@@ -22,6 +22,25 @@ func TestExitCodeFromInsights(t *testing.T) {
 			{Level: "WARN", Check: "IO"},
 			{Level: "CRIT", Check: "Disk"},
 		}, 2},
+		// C1: a check that could not run must never exit 0 — an Unverified
+		// insight floors the exit code at WARN(1) even though its Level is
+		// merely INFO (the level a "couldn't measure" insight normally carries).
+		// This is the shape C2 (/dev/kmsg) needs: the collector ran fine, the
+		// specific read failed, and today that's indistinguishable from OK.
+		{"unverified info floors to WARN", []models.Insight{
+			{Level: "INFO", Check: "Logs", Message: "kmsg unreadable", Unverified: true},
+		}, 1},
+		// A genuine CRIT elsewhere must still win — "couldn't determine one
+		// thing" does not downgrade a real critical finding.
+		{"unverified info does not downgrade a real CRIT", []models.Insight{
+			{Level: "CRIT", Check: "Disk", Message: "full"},
+			{Level: "INFO", Check: "Logs", Message: "kmsg unreadable", Unverified: true},
+		}, 2},
+		// An Unverified WARN is already >=1 on its own merits — no double
+		// counting, no regression from the floor logic.
+		{"unverified warn stays WARN", []models.Insight{
+			{Level: "WARN", Check: "Firewall", Message: "unverified", Unverified: true},
+		}, 1},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

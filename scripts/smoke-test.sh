@@ -22,7 +22,11 @@ echo ""
 check "binary exists"                    test -f "$BINARY"
 check "dsd --version exits 0"            $BINARY --version
 check "dsd --help exits 0"              $BINARY --help
-check "dsd health exits 0-2"            bash -c "$BINARY health; [ \$? -le 2 ]"
+# Exit code contract (COMPATIBILITY.md): 0=OK, 1=WARN, 2=CRIT, 3=UNKNOWN (the
+# tool itself couldn't produce a verdict — bad --policy, zero collectors ran,
+# an unrecovered panic). A clean smoke run on a healthy CI box should stay in
+# 0-2; a bare "<=2" check would silently accept 3 as if it were CRIT.
+check "dsd health exits 0-2 (not UNKNOWN)" bash -c "$BINARY health; [ \$? -le 2 ]"
 check "dsd health --json valid JSON"    bash -c "$BINARY health --json | python3 -m json.tool"
 check "dsd health --plain no ANSI"      bash -c "$BINARY health --plain | grep -qv $'\\033'"
 check "dsd health --diff no crash"      bash -c "$BINARY health --diff; [ \$? -le 2 ]"

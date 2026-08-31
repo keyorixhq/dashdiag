@@ -37,6 +37,17 @@ func TestRecordWorstInsight(t *testing.T) {
 		{"info only", []models.Insight{{Level: "INFO"}}, 0},
 		{"warn", []models.Insight{{Level: "INFO"}, {Level: "WARN"}}, 1},
 		{"crit wins", []models.Insight{{Level: "WARN"}, {Level: "CRIT"}, {Level: "WARN"}}, 2},
+		// C1, standalone-subcommand path: an Unverified INFO insight (a check
+		// that could not be determined) must floor the exit code at WARN(1),
+		// same as dsd health's exitCodeFromInsights — these two are meant to
+		// stay in lockstep (BUG-022).
+		{"unverified info floors to WARN", []models.Insight{
+			{Level: "INFO", Unverified: true},
+		}, 1},
+		{"unverified info does not downgrade a real CRIT", []models.Insight{
+			{Level: "CRIT"},
+			{Level: "INFO", Unverified: true},
+		}, 2},
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {

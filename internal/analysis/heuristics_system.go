@@ -774,6 +774,20 @@ func checkLogs(logs models.LogsInfo, thresh Thresholds) []models.Insight {
 			nil,
 		))
 	}
+	// C2: NeedsRoot only fires on non-root; a root run where /dev/kmsg is
+	// unreadable for another reason (a seccomp/LSM policy inside a
+	// container, for instance) needs its own disclosure — otherwise
+	// OOMKills/Segfaults sit at their zero value with no caveat at all,
+	// identical to a genuinely quiet host. Not deduplicated against the
+	// NeedsRoot insight above: on non-root AND kmsg-unreadable-for-another-
+	// reason (both true at once is possible), both captions are accurate and
+	// distinct, so both are shown.
+	if logs.KmsgUnreadable {
+		out = append(out, unverifiedInsight("INFO", "Logs",
+			"kernel ring buffer (/dev/kmsg) unreadable this run — OOM/segfault/lockup counts from it could not be determined",
+			[]string{"to inspect: dmesg | tail -50"},
+		))
+	}
 	if l := levelPct(logs.JournalSizeGB, thresh.JournalSizeWarnGB, thresh.JournalSizeCritGB); l != "" {
 		out = append(out, insight(l, "Logs",
 			fmt.Sprintf("journal is %.1f GB", logs.JournalSizeGB),

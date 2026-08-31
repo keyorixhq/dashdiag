@@ -162,24 +162,37 @@ func isVMVirtType(s string) bool {
 // through the active source so capture/replay reproduces the captured kernel log
 // instead of re-reading the live ring buffer on replay (which is non-deterministic
 // and host-specific). Keyed once per run.
-func kmsgRecords(ctx context.Context) []string {
+func kmsgRecords(ctx context.Context) ([]string, error) {
+	// openErr is only set when the live closure actually runs (a live read,
+	// never a replay — Cached serves cached bytes on replay without invoking
+	// this closure at all, which is correct: "unreadable this run" is a
+	// live-only concept). readKmsgLive's error is captured here rather than
+	// returned through Cached's own error, so the (possibly empty) content
+	// still gets cached/replayed exactly as before this change — only the
+	// open-failure signal is new.
+	var openErr error
 	data, _ := curSource().Cached("kmsg", func() ([]byte, error) {
-		return []byte(readKmsgLive(ctx)), nil
+		content, err := readKmsgLive(ctx)
+		openErr = err
+		return []byte(content), nil
 	})
 	s := strings.TrimRight(string(data), "\n")
 	if s == "" {
-		return nil
+		return nil, openErr
 	}
-	return strings.Split(s, "\n")
+	return strings.Split(s, "\n"), openErr
 }
 
 // readKmsgLive drains the live /dev/kmsg ring buffer (non-blocking) into newline-
-// separated records. One f.Read == one kmsg record.
-func readKmsgLive(ctx context.Context) string {
+// separated records. One f.Read == one kmsg record. The returned error is only
+// ever the OpenFile failure — never confused with "opened fine, ring buffer
+// drained" (EAGAIN/EOF on Read, the ordinary end-of-scan case), which returns
+// (partial-content, nil) same as before.
+func readKmsgLive(ctx context.Context) (string, error) {
 	// nosemgrep: dsd-collector-raw-fs-bypasses-source -- live-fetch closure of curSource().Cached("kmsg") in kmsgRecords; the RESULT is captured/replayed (/dev/kmsg is a non-blocking stream ReadFile can't model)
 	f, err := os.OpenFile(kmsgPath, os.O_RDONLY|syscall.O_NONBLOCK, 0) // #nosec G304 -- hardcoded /dev/kmsg constant
 	if err != nil {
-		return ""
+		return "", err
 	}
 	defer f.Close() //nolint:errcheck
 	var b strings.Builder
@@ -187,12 +200,12 @@ func readKmsgLive(ctx context.Context) string {
 	for {
 		select {
 		case <-ctx.Done():
-			return b.String()
+			return b.String(), nil
 		default:
 		}
 		n, err := f.Read(buf)
 		if n == 0 || err != nil {
-			return b.String() // EAGAIN or EOF — ring buffer exhausted
+			return b.String(), nil // EAGAIN or EOF — ring buffer exhausted
 		}
 		b.WriteString(strings.TrimRight(string(buf[:n]), "\n"))
 		b.WriteByte('\n')
@@ -203,7 +216,18 @@ func readKmsgLive(ctx context.Context) string {
 // /dev/kmsg entries are: "priority,sequence,timestamp_usec,flags;message"
 // timestamp_usec is monotonic time since boot in microseconds.
 func parseKmsg(ctx context.Context, info *models.LogsInfo, lookback time.Duration) { //nolint:funlen,cyclop // NOSONAR — kernel-log level classification is an inherently long, branchy dispatch
-	kmsgLines := kmsgRecords(ctx)
+	kmsgLines, err := kmsgRecords(ctx)
+	// C2: an open failure (err != nil) is distinct from "opened fine, ring
+	// buffer empty" (len==0, err==nil) — the former means OOM/segfault/lockup
+	// detection could not run at all this call, and must not be
+	// indistinguishable from a genuinely quiet host. This is the actual
+	// read-result check; info.NeedsRoot (set in Collect from os.Getuid())
+	// is a coarser, euid-only proxy that stays false on a root run where a
+	// seccomp/LSM policy blocks the read anyway.
+	if err != nil {
+		info.KmsgUnreadable = true
+		return
+	}
 	if len(kmsgLines) == 0 {
 		return
 	}

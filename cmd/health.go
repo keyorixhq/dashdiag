@@ -152,7 +152,10 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen // Cobra 
 	policyPath, _ := cmd.Flags().GetString("policy")
 	policy, err := loadPolicyIfSet(policyPath)
 	if err != nil {
-		return err
+		// C1: a broken --policy file means no check ever ran — exit 3
+		// (UNKNOWN), not the 1 a generic Cobra error would get (which
+		// collides with a real WARN verdict). See fatalPreflightError.
+		return fatalPreflight(err)
 	}
 
 	opts := healthRunOpts{
@@ -403,6 +406,19 @@ func healthOutputMode(cmd *cobra.Command) output.OutputMode {
 // returning the exit code and the writer subsequent notices should use (stderr
 // in machine modes, so JSON/YAML stdout stays a single parseable document).
 func printHealthResults(cmd *cobra.Command, ctrCtx platform.ContainerContext, mode output.OutputMode, results []runner.Result, insights []models.Insight, snap *baseline.Snapshot, elapsed time.Duration, deepFlag bool) (exitCode int, noticeW io.Writer) { // NOSONAR — render dispatcher; all params are distinct required context, not reducible without a struct churn
+	// C1: zero results means no collector ran at all — not a clean host.
+	// buildHealthCollectors always registers a fixed base set, so this is
+	// defensive (nothing upstream mechanically guarantees results is
+	// nonempty), not a live path today. Exit 3 (UNKNOWN): a run that
+	// determined nothing must never read as OK.
+	if len(results) == 0 {
+		noticeW = os.Stdout
+		if mode == output.ModeJSON || mode == output.ModeYAML {
+			noticeW = os.Stderr
+		}
+		fmt.Fprintln(os.Stderr, "dsd: no collectors ran — nothing could be determined")
+		return 3, noticeW
+	}
 	renderer := render.NewRenderer(mode)
 	if ctrCtx.InContainer {
 		renderer.PrintContainerBanner(ctrCtx)

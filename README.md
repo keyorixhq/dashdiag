@@ -335,7 +335,9 @@ for host in web1 web2 db1 db2; do
 done
 ```
 
-**Exit codes:** `0` = healthy, `1` = warnings, `2` = critical issues.
+**Exit codes:** `0` = healthy, `1` = warnings (or one or more checks couldn't
+determine something), `2` = critical issues, `3` = the tool itself couldn't
+produce a verdict (bad `--policy` file, etc.) — see COMPATIBILITY.md.
 
 No agent. No port. No registration. Works wherever SSH works.
 

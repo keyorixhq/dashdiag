@@ -1733,6 +1733,21 @@ func (r *Renderer) printHintsPlain(hints []string) {
 	}
 }
 
+// exitCodeFromInsights derives the process exit code from the worst insight:
+// 0 = OK, 1 = WARN, 2 = CRIT. A CRIT anywhere wins outright.
+//
+// C1: an insight whose Unverified bit is set means the underlying check could
+// NOT be determined this run (permission denied, a collector error, a read
+// that failed) — its Level is usually a downgraded INFO, which on its own
+// never raises the exit code. Without this floor, a run where every check
+// hit exactly this shape (see C2, /dev/kmsg) exits 0 — a confident "healthy"
+// from a run that determined nothing. Unverified floors at WARN(1), never
+// higher: "couldn't check this" is real cause to look, but it must not
+// outrank an actual CRIT finding elsewhere in the same run (that would let a
+// single flaky check mask a genuine critical result) — see
+// internal/render/nagios.go's identical, previously-shipped precedent for
+// collector errors (internal-render-03-03), which this generalizes to cover
+// in-collector Unverified insights, not just outright collector errors.
 func exitCodeFromInsights(insights []models.Insight) int {
 	code := 0
 	for _, ins := range insights {
@@ -1743,6 +1758,9 @@ func exitCodeFromInsights(insights []models.Insight) int {
 			if code < 1 {
 				code = 1
 			}
+		}
+		if ins.Unverified && code < 1 {
+			code = 1
 		}
 	}
 	return code

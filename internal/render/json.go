@@ -52,6 +52,16 @@ type JSONCounts struct {
 	// iterating checks[]. Additive, omitempty: existing consumers validating
 	// against the frozen schema are unaffected when it's zero.
 	Errored int `json:"errored,omitempty"`
+	// Unverified is the number of insights with Unverified=true — a check
+	// that RAN without error but could not determine the thing it checks
+	// (permission denied, an unreadable file, a read that failed mid-parse).
+	// This is distinct from Errored: the collector succeeded, one specific
+	// measurement inside it didn't. Its Level is usually a downgraded INFO,
+	// which (like Errored) never raises Verdict/Crit/Warn on its own — see
+	// buildOutput's verdict-floor logic, which forces Verdict to at least
+	// WARN when this is nonzero and would otherwise read OK. Additive,
+	// omitempty.
+	Unverified int `json:"unverified,omitempty"`
 }
 
 type JSONCheck struct {
@@ -69,6 +79,12 @@ type JSONInsight struct {
 	Message string          `json:"message"`
 	Hints   []string        `json:"hints,omitempty"`
 	Details *models.Details `json:"details,omitempty"`
+	// Unverified marks an insight whose Level reflects a downgrade because
+	// the underlying data could NOT be read/measured this run — not a
+	// genuine "nothing wrong here" finding. See models.Insight.Unverified.
+	// Additive, omitempty: existing consumers validating against the frozen
+	// schema are unaffected when it's false/absent.
+	Unverified bool `json:"unverified,omitempty"`
 }
 
 func RenderJSON(results []runner.Result, insights []models.Insight) ([]byte, error) {
@@ -137,11 +153,12 @@ func buildOutput(results []runner.Result, insights []models.Insight) JSONOutput 
 			continue
 		}
 		jsonInsights = append(jsonInsights, JSONInsight{
-			Check:   ins.Check,
-			Level:   ins.Level,
-			Message: ins.Message,
-			Hints:   ins.Hints, // all hints, not just first
-			Details: ins.Details,
+			Check:      ins.Check,
+			Level:      ins.Level,
+			Message:    ins.Message,
+			Hints:      ins.Hints, // all hints, not just first
+			Details:    ins.Details,
+			Unverified: ins.Unverified,
 		})
 	}
 
@@ -169,12 +186,14 @@ func buildOutput(results []runner.Result, insights []models.Insight) JSONOutput 
 			counts.Errored++
 		}
 	}
-	// internal-render-03-04: at least one collector errored outright and
+	// internal-render-03-04, extended for C1: at least one collector errored
+	// outright, OR at least one insight is Unverified (ran fine, but could
+	// not determine the specific thing it checks — see C2, /dev/kmsg) — and
 	// there's no WARN/CRIT insight to already explain it — don't let the
 	// verdict read "OK". WARN is the closed enum's (schema/dsd-output.json)
 	// best fit for "not confirmed healthy" without overstating severity; a
 	// real CRIT/WARN insight is left as-is (it already outranks this).
-	if counts.Errored > 0 && verdict == "OK" {
+	if (counts.Errored > 0 || counts.Unverified > 0) && verdict == "OK" {
 		verdict = "WARN"
 	}
 
@@ -202,6 +221,9 @@ func summarizeInsights(insights []models.Insight) (string, JSONCounts) {
 			c.Warn++
 		case "INFO":
 			c.Info++
+		}
+		if ins.Unverified {
+			c.Unverified++
 		}
 	}
 	verdict := "OK"

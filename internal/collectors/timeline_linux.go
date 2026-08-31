@@ -351,16 +351,43 @@ func collectDmesgEvents(ctx context.Context, since time.Time) ([]models.Timeline
 	dCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 
-	// -x decodes facility:level into each line so severity can follow the kernel's
-	// own rating instead of guessing from words in the message text.
-	out, err := runCmd(dCtx, "dmesg", "-T", "-x", "--level=err,warn,crit,emerg,alert")
+	// bootTime anchors the monotonic-timestamp fallback below to a real
+	// instant. Computed once regardless of which invocation succeeds below —
+	// cheap (one /proc/uptime read via the source), and the ISO path ignores
+	// it entirely.
+	bootTime := time.Now().Add(-time.Duration(systemUptimeSeconds() * float64(time.Second)))
+
+	// C3: dmesg -T's old bracketed ctime format ("[Mon Jan 2 15:04:05 2026]")
+	// carries no UTC offset at all — Go's time.Parse silently defaults an
+	// offset-less layout to UTC, which is WRONG on any non-UTC host (the
+	// text itself is local time) and invisible on a UTC-only test/CI box,
+	// where local time IS UTC and the bug produces a coincidentally correct
+	// result. --time-format=iso instead prints an explicit offset dmesg
+	// computes itself, so the parsed instant is correct regardless of what
+	// timezone THIS process happens to be running in. -x decodes
+	// facility:level so severity follows the kernel's own rating.
+	out, err := runCmd(dCtx, "dmesg", "-x", "--time-format", "iso", "--level=err,warn,crit,emerg,alert")
 	if err != nil {
-		return nil, err // caller flags "sources unavailable" if journald also failed
+		// Fallback for a dmesg build that supports neither flag (busybox,
+		// or a util-linux predating --time-format=iso): the bare, always-
+		// supported invocation, which prints raw monotonic offsets with no
+		// severity decoding available at all. parseDmesgLine anchors those
+		// offsets to bootTime and falls back to the WARN+catastrophe-keyword
+		// severity heuristic already used whenever -x's decoding is
+		// unavailable. Neither --level nor -x is requested here (both are
+		// the same util-linux-only features busybox lacks), so this path can
+		// return far more — lower average value — lines before the 500-line
+		// cap below is reached: a real, explicit cost of running on a host
+		// this limited, not a silently accepted one.
+		out, err = runCmd(dCtx, "dmesg")
+		if err != nil {
+			return nil, err // caller flags "sources unavailable" if journald also failed
+		}
 	}
 
 	var events []models.TimelineEvent
 	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
-		ev := parseDmesgLine(line, since)
+		ev := parseDmesgLine(line, since, bootTime)
 		if ev != nil {
 			events = append(events, *ev)
 		}
@@ -419,40 +446,75 @@ func isCatastropheKernelMsg(msgLower string) bool {
 		strings.Contains(msgLower, "bug:")
 }
 
-// parseDmesgLine parses one dmesg -T line into a TimelineEvent.
-// Format: "[Mon Jan 02 15:04:05 2006] message"
-func parseDmesgLine(line string, since time.Time) *models.TimelineEvent {
-	// `dmesg -Tx` prefixes each line with "facility:level: " ahead of the
-	// "[timestamp]". Pull the decoded kernel level so severity follows the kernel's
-	// own rating. (Lines without the prefix — old format — leave kernLevel empty
-	// and fall back to WARN + the catastrophe-keyword override below.)
-	kernLevel := ""
-	if !strings.HasPrefix(line, "[") {
-		br := strings.Index(line, "[")
-		if br < 0 {
-			return nil
-		}
-		if fields := strings.SplitN(line[:br], ":", 3); len(fields) >= 2 {
-			kernLevel = strings.TrimSpace(fields[1])
-		}
-		line = line[br:]
+// parseDmesgLine parses one line of dmesg output into a TimelineEvent. Two
+// shapes, dispatched on whether the line is bracket-prefixed:
+//
+//   - No leading '[': the primary `dmesg -x --time-format=iso` shape —
+//     "kern  :err   : 2026-08-31T09:15:00.000000+0000 message text". The
+//     timestamp carries an explicit UTC offset dmesg computes itself, so the
+//     resulting instant is correct regardless of this process's own
+//     timezone (C3).
+//   - Leading '[': the fallback bare-`dmesg` shape (busybox, or a
+//     util-linux predating --time-format=iso) — a raw monotonic offset
+//     since boot, "[   123.456789] message text", with no facility:level
+//     decoding available. Anchored to bootTime.
+func parseDmesgLine(line string, since, bootTime time.Time) *models.TimelineEvent {
+	trimmed := strings.TrimSpace(line)
+	if strings.HasPrefix(trimmed, "[") {
+		return parseDmesgMonotonicLine(trimmed, since, bootTime)
 	}
+	return parseDmesgISOLine(trimmed, since)
+}
+
+// parseDmesgISOLine parses the primary `-x --time-format=iso` shape:
+// "kern  :err   : 2026-08-31T09:15:00.000000+0000 message text". The
+// facility:level prefix always precedes the timestamp and contains no
+// ": " (colon-space) itself, so the first occurrence of that substring in
+// the line unambiguously marks the prefix/timestamp boundary.
+func parseDmesgISOLine(line string, since time.Time) *models.TimelineEvent {
+	prefix, rest, ok := strings.Cut(line, ": ")
+	if !ok {
+		return nil
+	}
+	kernLevel := ""
+	if fields := strings.SplitN(prefix, ":", 2); len(fields) == 2 {
+		kernLevel = strings.TrimSpace(fields[1])
+	}
+	tsStr, msg, ok := strings.Cut(rest, " ")
+	if !ok {
+		return nil
+	}
+	ts, err := time.Parse("2006-01-02T15:04:05.000000-0700", tsStr)
+	if err != nil {
+		return nil
+	}
+	return buildDmesgEvent(ts, since, kernLevel, strings.TrimSpace(msg))
+}
+
+// parseDmesgMonotonicLine parses the fallback bare-`dmesg` shape: a raw
+// monotonic offset since boot, with no facility:level decoding available
+// (busybox and similarly minimal dmesg builds don't support -x). Severity
+// falls back to the WARN+catastrophe-keyword heuristic buildDmesgEvent
+// already applies whenever kernLevel is empty.
+func parseDmesgMonotonicLine(line string, since, bootTime time.Time) *models.TimelineEvent {
 	end := strings.Index(line, "]")
 	if end < 0 {
 		return nil
 	}
-	timeStr := strings.TrimSpace(line[1:end])
+	offsetStr := strings.TrimSpace(line[1:end])
 	msg := strings.TrimSpace(line[end+1:])
-
-	// Parse timestamp: "Mon Jan  2 15:04:05 2026" (dmesg -T format)
-	ts, err := time.Parse("Mon Jan  2 15:04:05 2006", timeStr)
+	offsetSec, err := strconv.ParseFloat(offsetStr, 64)
 	if err != nil {
-		// Try two-digit day
-		ts, err = time.Parse("Mon Jan 02 15:04:05 2006", timeStr)
-		if err != nil {
-			return nil
-		}
+		return nil
 	}
+	ts := bootTime.Add(time.Duration(offsetSec * float64(time.Second)))
+	return buildDmesgEvent(ts, since, "", msg)
+}
+
+// buildDmesgEvent applies the severity/window/subsystem logic shared by
+// both dmesg shapes to an already-parsed (timestamp, kernLevel, message)
+// triple.
+func buildDmesgEvent(ts, since time.Time, kernLevel, msg string) *models.TimelineEvent {
 	if ts.Before(since) {
 		return nil
 	}
@@ -483,7 +545,7 @@ func parseDmesgLine(line string, since time.Time) *models.TimelineEvent {
 		level = "INFO"
 	}
 
-	// Extract subsystem from first word group in brackets: "[ 1234.567] EXT4-fs..."
+	// Extract subsystem from first word group: "EXT4-fs (sda1): warning..."
 	unit := extractKernelSubsystem(msg)
 
 	msg = truncateMessage(msg)

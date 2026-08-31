@@ -86,6 +86,14 @@ var neverSilentChecks = []neverSilentCheck{
 		wantSubstr: "could not enumerate physical drives",
 	},
 	{
+		name:    "checkNetworkdConfig: /etc/systemd/network permission-denied",
+		checkFn: "checkNetworkdConfig",
+		run: func() []models.Insight {
+			return checkNetworkdConfig(models.NetworkdConfigInfo{Detected: true, ConfigDirUnreadable: true})
+		},
+		wantSubstr: "could not read",
+	},
+	{
 		name:    "checkNetwork: /proc/net/sockstat read failed",
 		checkFn: "checkNetwork",
 		run: func() []models.Insight {

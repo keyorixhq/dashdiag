@@ -199,8 +199,8 @@ func TestKmsgRecords_Empty(t *testing.T) {
 	b := source.NewBundle()
 	prev := SetSource(&fakeCombinedSource{Replay: source.NewReplay(b), cached: map[string][]byte{"kmsg": []byte("")}})
 	t.Cleanup(func() { SetSource(prev) })
-	if got := kmsgRecords(context.Background()); got != nil {
-		t.Errorf("expected nil for empty kmsg, got %v", got)
+	if got, err := kmsgRecords(context.Background()); got != nil || err != nil {
+		t.Errorf("expected (nil, nil) for empty kmsg via the cache fixture (no live closure invoked), got (%v, %v)", got, err)
 	}
 }
 
@@ -222,8 +222,42 @@ func (liveCachedKmsgSource) Cached(_ string, produce func() ([]byte, error)) ([]
 func TestKmsgRecords_LiveClosureUnavailable(t *testing.T) {
 	prev := SetSource(liveCachedKmsgSource{Replay: source.NewReplay(source.NewBundle())})
 	t.Cleanup(func() { SetSource(prev) })
-	if got := kmsgRecords(context.Background()); got != nil {
+	got, err := kmsgRecords(context.Background())
+	if got != nil {
 		t.Errorf("expected nil when /dev/kmsg is unavailable, got %v", got)
+	}
+	// C2: the open failure must be reported as a real error, not silently
+	// folded into "empty". readKmsgLive previously swallowed os.OpenFile's
+	// error and returned "" indistinguishably from a genuinely drained ring
+	// buffer — this is the read-result signal parseKmsg now needs to set
+	// KmsgUnreadable, replacing the euid-only proxy.
+	if err == nil {
+		t.Error("expected a non-nil error when /dev/kmsg's OpenFile fails, got nil")
+	}
+}
+
+// TestParseKmsg_UnreadableSetsSentinel is C2's collector-level regression
+// test: previously, an unreadable /dev/kmsg (for any reason — non-root,
+// or, the gap this closes, a root run where a seccomp/LSM policy blocks it
+// anyway) made parseKmsg return early with info left at its zero value
+// (OOMKills: 0, Segfaults: 0) and NO record of the fact that nothing was
+// actually read — indistinguishable from a genuinely quiet host. This uses
+// the SAME liveCachedKmsgSource fixture as TestKmsgRecords_LiveClosureUnavailable
+// (forces the real os.OpenFile("/dev/kmsg") call, which fails deterministically
+// in the test environment — no real kernel ring buffer is read) to confirm the
+// failure now sets an explicit sentinel instead of vanishing silently.
+func TestParseKmsg_UnreadableSetsSentinel(t *testing.T) {
+	prev := SetSource(liveCachedKmsgSource{Replay: source.NewReplay(source.NewBundle())})
+	t.Cleanup(func() { SetSource(prev) })
+
+	info := &models.LogsInfo{}
+	parseKmsg(context.Background(), info, time.Hour)
+
+	if !info.KmsgUnreadable {
+		t.Error("expected KmsgUnreadable=true when /dev/kmsg could not be opened, got false")
+	}
+	if info.OOMKills != 0 || info.Segfaults != 0 {
+		t.Errorf("expected OOMKills/Segfaults to stay at their zero value on an unreadable kmsg (not fabricated), got OOMKills=%d Segfaults=%d", info.OOMKills, info.Segfaults)
 	}
 }
 

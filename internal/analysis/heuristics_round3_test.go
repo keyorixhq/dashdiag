@@ -142,6 +142,7 @@ func TestCheckLogs(t *testing.T) {
 	}{
 		{"clean is empty", models.LogsInfo{}, ""},
 		{"needs root is INFO", models.LogsInfo{NeedsRoot: true}, "INFO"},
+		{"kmsg unreadable is INFO", models.LogsInfo{KmsgUnreadable: true}, "INFO"},
 		{"oom kills is CRIT", models.LogsInfo{OOMKills: 1, OOMProcesses: []string{"java"}}, "CRIT"},
 		{"segfaults is WARN", models.LogsInfo{Segfaults: 1, SegfaultProcs: []string{"app"}}, "WARN"},
 		{"soft lockup is CRIT", models.LogsInfo{SoftLockups: 1}, "CRIT"},
@@ -155,6 +156,40 @@ func TestCheckLogs(t *testing.T) {
 		t.Run(tt.name, func(t *testing.T) {
 			assertLevel(t, checkLogs(tt.logs, defaultThresh), tt.want)
 		})
+	}
+}
+
+// TestCheckLogs_KmsgUnreadableIsUnverified is C2's regression guard: a root
+// run where /dev/kmsg is unreadable for a reason OTHER than non-root (a
+// seccomp/LSM policy inside a container, for instance) must still disclose
+// that OOM/segfault detection could not run — the collector-level fix
+// (logs_linux.go, KmsgUnreadable set from the actual open error, not
+// os.Getuid()) is only half the guard; this confirms the signal actually
+// reaches an Insight with Unverified=true, not just a bare INFO string that
+// looks the same as any other informational note to a machine consumer.
+func TestCheckLogs_KmsgUnreadableIsUnverified(t *testing.T) {
+	insights := checkLogs(models.LogsInfo{KmsgUnreadable: true}, defaultThresh)
+	var found bool
+	for _, ins := range insights {
+		if ins.Unverified {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("expected an Unverified insight when KmsgUnreadable is set, got: %+v", insights)
+	}
+}
+
+// TestCheckLogs_KmsgUnreadableDoesNotClaimZeroOOMKills is the false-OK check
+// C2 exists to close: OOMKills==0/Segfaults==0 (their zero value, identical
+// to a genuinely clean host) combined with KmsgUnreadable=true must still
+// surface the unverified caveat — never render as a silent, unqualified
+// "clean" the way it did when the only signal was the euid proxy.
+func TestCheckLogs_KmsgUnreadableDoesNotClaimZeroOOMKills(t *testing.T) {
+	logs := models.LogsInfo{KmsgUnreadable: true, OOMKills: 0, Segfaults: 0}
+	insights := checkLogs(logs, defaultThresh)
+	if len(insights) == 0 {
+		t.Fatal("expected at least the unverified caveat insight, got none — this is exactly the silent false-OK C2 was")
 	}
 }
 

@@ -51,6 +51,27 @@ func TestCheckNetworkdConfigWarnsOnFailedLink(t *testing.T) {
 	}
 }
 
+// TestCheckNetworkdConfigUnverifiedOnDirUnreadable is the shared-glob-fix
+// regression test's analysis-layer half: a permission-denied config
+// directory (ConfigDirUnreadable, set by globChecked in the collector) must
+// surface as an unverified disclosure — TotalFiles==0 here looks IDENTICAL
+// to a genuinely empty, fully-readable directory (TestCheckNetworkdConfigQuietWhenClean
+// below), so ConfigDirUnreadable is the only signal distinguishing "audited,
+// clean" from "could not audit at all".
+func TestCheckNetworkdConfigUnverifiedOnDirUnreadable(t *testing.T) {
+	info := models.NetworkdConfigInfo{Detected: true, ConfigDirUnreadable: true}
+	got := checkNetworkdConfig(info)
+	if len(got) != 1 {
+		t.Fatalf("want 1 insight, got %d: %+v", len(got), got)
+	}
+	if got[0].Level != "INFO" {
+		t.Errorf("level = %q, want INFO", got[0].Level)
+	}
+	if !got[0].Unverified {
+		t.Error("expected Unverified=true — this is a couldn't-audit caveat, not a genuine clean finding")
+	}
+}
+
 // Healthy host (all files readable, all links configured) and non-networkd host
 // (Detected=false) stay quiet — no false alarm.
 func TestCheckNetworkdConfigQuietWhenClean(t *testing.T) {
