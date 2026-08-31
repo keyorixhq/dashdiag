@@ -21,9 +21,15 @@ import (
 // format-fragile dmesg/journal/sar output — exactly the surface the BUG-024..035
 // parser-hardening wave touched. No external commands or filesystem access.
 //
-// Timestamps are asserted via TimestampUnix (time.Parse uses UTC when the layout
-// carries no zone, and time.Unix(sec,0).Unix()==sec), so results are independent
-// of the test host's timezone. The tz-sensitive TimeStr field is not asserted.
+// Timestamps are asserted via TimestampUnix, an absolute instant, so results
+// don't depend on the test process's own timezone (unlike the tz-sensitive
+// TimeStr display field, not asserted here). This is now true BECAUSE the
+// dmesg parser requires an explicit offset in its input (--time-format=iso)
+// rather than because Go defaults an offset-less layout to UTC — that
+// default was the bug (C3): it silently treated the LOCAL time dmesg -T
+// printed as if it were already UTC, correct only by coincidence on a
+// UTC-local host. See TestParseDmesgLine_ChronologicalInterleavingUnderNonUTCTZ
+// (timeline_linux_tz_test.go) for the direct demonstration.
 
 func TestParseJournalLine_Levels(t *testing.T) {
 	// PRIORITY <= 3 is CRIT (emerg/alert/crit/err), 4+ is WARN.
@@ -228,8 +234,18 @@ func TestDecodeJournalMessage_ByteArrayCapped(t *testing.T) {
 	}
 }
 
+// C3: dmesg lines now come in the primary `-x --time-format=iso` shape
+// ("kern  :err   : 2025-06-04T10:30:00.000000+0000 message") — an explicit
+// UTC offset dmesg computes itself, correct regardless of this test
+// process's own timezone — rather than the old `-T` ctime-bracket shape
+// ("kern  :err   : [Wed Jun  4 10:30:00 2025] message"), which carried no
+// offset at all and silently parsed as UTC regardless of what the text
+// actually represented. See TestParseDmesgLine_ChronologicalInterleavingUnderNonUTCTZ
+// (timeline_linux_tz_test.go) for the direct demonstration of that bug and
+// TestParseDmesgLine_MonotonicFallback below for the busybox/no-flags shape.
 func TestParseDmesgLine(t *testing.T) {
-	epoch := time.Unix(0, 0) // everything is after epoch
+	epoch := time.Unix(0, 0)    // everything is after epoch
+	bootTime := time.Unix(0, 0) // unused by the ISO path this test exercises
 	tests := []struct {
 		name      string
 		line      string
@@ -240,41 +256,41 @@ func TestParseDmesgLine(t *testing.T) {
 		{
 			// kernel err level → CRIT (the `dmesg -x` decoded prefix drives severity).
 			name:      "ext4 error (err level) is CRIT",
-			line:      "kern  :err   : [Wed Jun  4 10:30:00 2025] EXT4-fs (sda1): error reading block",
+			line:      "kern  :err   : 2025-06-04T10:30:00.000000+0000 EXT4-fs (sda1): error reading block",
 			wantLevel: "CRIT", wantUnit: "EXT4-fs",
 		},
 		{
 			// The bug fix: a warn-level message containing "failed"/"error" must stay
 			// WARN, not get keyword-escalated to CRIT (regulatory.db is benign noise).
 			name:      "warn-level 'failed' stays WARN (not keyword-escalated)",
-			line:      "kern  :warn  : [Wed Jun  4 10:30:00 2025] regulatory: Direct firmware load for regulatory.db failed with error -2",
+			line:      "kern  :warn  : 2025-06-04T10:30:00.000000+0000 regulatory: Direct firmware load for regulatory.db failed with error -2",
 			wantLevel: "WARN",
 		},
 		{
 			// Benign-by-platform err: arm64/ACPI cloud guests log this at err on every
 			// boot (no device-tree). Must downgrade to INFO, not a timeline CRIT.
 			name:      "arm64 of_root PCI err is benign → INFO",
-			line:      "kern  :err   : [Wed Jun  4 10:30:00 2025] PCI: OF: of_root node is NULL, cannot create PCI host bridge node",
+			line:      "kern  :err   : 2025-06-04T10:30:00.000000+0000 PCI: OF: of_root node is NULL, cannot create PCI host bridge node",
 			wantLevel: "INFO",
 		},
 		{
 			// Benign-by-platform err: VMs/boards log the PIIX4 SMBus base-address
 			// message at err on every boot (unset by firmware). Downgrade to INFO.
 			name:      "PIIX4 SMBus uninitialized err is benign → INFO",
-			line:      "kern  :err   : [Wed Jun  4 10:30:00 2025] piix4_smbus 0000:00:07.3: SMBus base address uninitialized - upgrade BIOS or use force_addr=0xaddr",
+			line:      "kern  :err   : 2025-06-04T10:30:00.000000+0000 piix4_smbus 0000:00:07.3: SMBus base address uninitialized - upgrade BIOS or use force_addr=0xaddr",
 			wantLevel: "INFO",
 		},
 		{
 			// Benign-by-environment err: systemd-nsresourced logs this at err in any
 			// container (no securityfs mount) and on minimal hosts; BPF LSM is optional.
 			name:      "bpf-lsm securityfs err is benign → INFO",
-			line:      "kern  :err   : [Wed Jun  4 10:30:00 2025] systemd-nsresourced[123]: bpf-lsm support not available, as securityfs is not mounted.",
+			line:      "kern  :err   : 2025-06-04T10:30:00.000000+0000 systemd-nsresourced[123]: bpf-lsm support not available, as securityfs is not mounted.",
 			wantLevel: "INFO",
 		},
 		{
 			// Guard: a real PCI err (not on the benign list) still CRITs.
 			name:      "real PCI err stays CRIT",
-			line:      "kern  :err   : [Wed Jun  4 10:30:00 2025] PCI: Fatal: bus configuration error",
+			line:      "kern  :err   : 2025-06-04T10:30:00.000000+0000 PCI: Fatal: bus configuration error",
 			wantLevel: "CRIT",
 		},
 		{
@@ -283,33 +299,35 @@ func TestParseDmesgLine(t *testing.T) {
 			// the catastrophe-keyword escalation must win over the benign downgrade,
 			// not the other way around, even though isBenignKernelErr also matches.
 			name:      "catastrophe keyword co-occurring with a benign substring stays CRIT",
-			line:      "kern  :warn  : [Wed Jun  4 10:30:00 2025] kernel panic - smbus base address uninitialized triggered watchdog reset",
+			line:      "kern  :warn  : 2025-06-04T10:30:00.000000+0000 kernel panic - smbus base address uninitialized triggered watchdog reset",
 			wantLevel: "CRIT",
 		},
 		{
-			name:      "two-digit day, warn",
-			line:      "kern  :warn  : [Wed Jun 04 10:30:00 2025] usb 1-1: device descriptor read",
+			// A nonzero UTC offset (not just +0000) must parse correctly — the
+			// whole point of the fix (C3).
+			name:      "non-UTC offset in the timestamp itself",
+			line:      "kern  :warn  : 2025-06-04T03:30:00.000000-0700 usb 1-1: device descriptor read",
 			wantLevel: "WARN", wantUnit: "usb 1-1",
 		},
 		{
 			// Catastrophe keyword overrides upward even at warn level: the OOM killer
 			// header has no literal "oom" token, so "out of memory" catches it.
 			name:      "kernel OOM line is CRIT even at warn level",
-			line:      "kern  :warn  : [Wed Jun  4 10:30:00 2025] Out of memory: Killed process 123",
+			line:      "kern  :warn  : 2025-06-04T10:30:00.000000+0000 Out of memory: Killed process 123",
 			wantLevel: "CRIT",
 		},
 		{
 			name:      "explicit oom-killer mention is CRIT",
-			line:      "kern  :warn  : [Wed Jun  4 10:30:00 2025] oom-killer: gfp_mask=0x100",
+			line:      "kern  :warn  : 2025-06-04T10:30:00.000000+0000 oom-killer: gfp_mask=0x100",
 			wantLevel: "CRIT",
 		},
-		{"no bracket", "kernel: just a message", true, "", ""},
-		{"no closing bracket", "kern  :err   : [Wed Jun  4 10:30:00 2025 missing", true, "", ""},
-		{"bad timestamp", "kern  :err   : [not a timestamp] some message", true, "", ""},
+		{"no facility:level separator", "kernel just a message with no colon-space", true, "", ""},
+		{"malformed timestamp", "kern  :err   : not-a-timestamp some message", true, "", ""},
+		{"empty line", "", true, "", ""},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {
-			ev := parseDmesgLine(tt.line, epoch)
+			ev := parseDmesgLine(tt.line, epoch, bootTime)
 			if tt.wantNil {
 				if ev != nil {
 					t.Fatalf("expected nil, got %+v", ev)
@@ -332,13 +350,68 @@ func TestParseDmesgLine(t *testing.T) {
 	}
 }
 
+// TestParseDmesgLine_MonotonicFallback covers the fallback bare-`dmesg`
+// shape (busybox, or a util-linux predating --time-format=iso): a raw
+// monotonic offset with no facility:level decoding, anchored to bootTime.
+func TestParseDmesgLine_MonotonicFallback(t *testing.T) {
+	epoch := time.Unix(0, 0)
+	bootTime := time.Date(2025, 6, 4, 8, 0, 0, 0, time.UTC) // host booted 08:00 UTC
+
+	t.Run("offset anchored to boot time", func(t *testing.T) {
+		// 9000s after boot (08:00 UTC) = 10:30:00 UTC.
+		ev := parseDmesgLine("[ 9000.123456] EXT4-fs (sda1): error reading block", epoch, bootTime)
+		if ev == nil {
+			t.Fatal("expected event, got nil")
+		}
+		want := time.Date(2025, 6, 4, 10, 30, 0, 0, time.UTC).Unix()
+		if ev.TimestampUnix != want {
+			t.Errorf("TimestampUnix = %d, want %d", ev.TimestampUnix, want)
+		}
+		// No facility:level decoding available in this shape — severity
+		// falls back to WARN (no catastrophe keyword present here).
+		if ev.Level != "WARN" {
+			t.Errorf("Level = %q, want WARN (no -x decoding in the fallback shape)", ev.Level)
+		}
+	})
+
+	t.Run("catastrophe keyword still escalates with no facility:level available", func(t *testing.T) {
+		ev := parseDmesgLine("[ 9000.123456] Out of memory: Killed process 123", epoch, bootTime)
+		if ev == nil || ev.Level != "CRIT" {
+			t.Errorf("got %+v, want a CRIT event", ev)
+		}
+	})
+
+	t.Run("malformed offset is nil", func(t *testing.T) {
+		if ev := parseDmesgLine("[not-a-number] message", epoch, bootTime); ev != nil {
+			t.Errorf("expected nil, got %+v", ev)
+		}
+	})
+
+	t.Run("no closing bracket is nil", func(t *testing.T) {
+		if ev := parseDmesgLine("[9000.123456 missing bracket", epoch, bootTime); ev != nil {
+			t.Errorf("expected nil, got %+v", ev)
+		}
+	})
+}
+
 func TestParseDmesgLine_BeforeSince(t *testing.T) {
-	// Events older than the window are dropped.
+	// Events older than the window are dropped — both shapes.
 	future := time.Unix(4_000_000_000, 0) // year 2096
-	ev := parseDmesgLine("[Wed Jun  4 10:30:00 2025] EXT4-fs: error", future)
-	if ev != nil {
-		t.Errorf("event before 'since' should be dropped, got %+v", ev)
-	}
+	bootTime := time.Unix(0, 0)
+
+	t.Run("ISO shape", func(t *testing.T) {
+		ev := parseDmesgLine("kern  :err   : 2025-06-04T10:30:00.000000+0000 EXT4-fs: error", future, bootTime)
+		if ev != nil {
+			t.Errorf("event before 'since' should be dropped, got %+v", ev)
+		}
+	})
+
+	t.Run("monotonic fallback shape", func(t *testing.T) {
+		ev := parseDmesgLine("[ 9000.123456] EXT4-fs: error", future, bootTime)
+		if ev != nil {
+			t.Errorf("event before 'since' should be dropped, got %+v", ev)
+		}
+	})
 }
 
 func TestExtractKernelSubsystem(t *testing.T) {
@@ -555,7 +628,8 @@ func TestTimelineCollector_Collect_TallyAndSort(t *testing.T) {
 		b.PutFile("/proc/loadavg", []byte("0.10 0.20 0.30 1/200 999\n"))
 		b.PutCmd("journalctl", []string{"--no-pager", "--output=json",
 			"--since", since.Format("2006-01-02 15:04:05"), "--priority=warning"}, lines, 0)
-		b.PutCmdNotFound("dmesg", []string{"-T"})
+		b.PutCmdNotFound("dmesg", []string{"-x", "--time-format", "iso", "--level=err,warn,crit,emerg,alert"})
+		b.PutCmdNotFound("dmesg", nil)
 	})
 	c := NewTimelineCollector(2)
 	result, err := c.Collect(context.Background())
@@ -598,7 +672,8 @@ func TestTimelineCollector_Collect_CapAt200(t *testing.T) {
 		b.PutFile("/proc/loadavg", []byte("0.10 0.20 0.30 1/200 999\n"))
 		b.PutCmd("journalctl", []string{"--no-pager", "--output=json",
 			"--since", since.Format("2006-01-02 15:04:05"), "--priority=warning"}, strings.Join(lines, "\n"), 0)
-		b.PutCmdNotFound("dmesg", []string{"-T"})
+		b.PutCmdNotFound("dmesg", []string{"-x", "--time-format", "iso", "--level=err,warn,crit,emerg,alert"})
+		b.PutCmdNotFound("dmesg", nil)
 	})
 	c := NewTimelineCollector(2)
 	result, err := c.Collect(context.Background())
@@ -672,11 +747,11 @@ func TestCollectJournalEvents_CapAt500(t *testing.T) {
 func TestCollectDmesgEvents(t *testing.T) {
 	since := time.Unix(0, 0)
 	out := strings.Join([]string{
-		"kern  :err   : [Wed Jun  4 10:30:00 2025] EXT4-fs (sda1): error reading block",
-		"kern  :warn  : [Wed Jun  4 10:30:00 2025] usb 1-1: device descriptor read",
+		"kern  :err   : 2025-06-04T10:30:00.000000+0000 EXT4-fs (sda1): error reading block",
+		"kern  :warn  : 2025-06-04T10:30:00.000000+0000 usb 1-1: device descriptor read",
 	}, "\n")
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutCmd("dmesg", []string{"-T", "-x", "--level=err,warn,crit,emerg,alert"}, out, 0)
+		b.PutCmd("dmesg", []string{"-x", "--time-format", "iso", "--level=err,warn,crit,emerg,alert"}, out, 0)
 	})
 	events, err := collectDmesgEvents(context.Background(), since)
 	if err != nil {
@@ -684,6 +759,30 @@ func TestCollectDmesgEvents(t *testing.T) {
 	}
 	if len(events) != 2 {
 		t.Fatalf("got %d events, want 2: %+v", len(events), events)
+	}
+}
+
+// TestCollectDmesgEvents_PlainFallback is C3's stated fallback: a dmesg
+// build supporting neither -x nor --time-format (busybox — Alpine and other
+// non-systemd hosts) errors on the primary invocation; collectDmesgEvents
+// must retry with the bare, always-supported form and still surface real
+// events, anchored to bootTime via /proc/uptime rather than dropped.
+func TestCollectDmesgEvents_PlainFallback(t *testing.T) {
+	since := time.Unix(0, 0)
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutFile("/proc/uptime", []byte("9000.00 8000.00\n")) // boot 9000s ago
+		b.PutCmdNotFound("dmesg", []string{"-x", "--time-format", "iso", "--level=err,warn,crit,emerg,alert"})
+		b.PutCmd("dmesg", nil, "[ 100.000000] EXT4-fs (sda1): error reading block\n", 0)
+	})
+	events, err := collectDmesgEvents(context.Background(), since)
+	if err != nil {
+		t.Fatalf("unexpected error: %v", err)
+	}
+	if len(events) != 1 {
+		t.Fatalf("got %d events, want 1: %+v", len(events), events)
+	}
+	if events[0].Source != "dmesg" || events[0].Unit != "EXT4-fs" {
+		t.Errorf("got %+v, want an EXT4-fs dmesg event", events[0])
 	}
 }
 
@@ -920,13 +1019,13 @@ func TestDeduplicateEvents_LongMessage(t *testing.T) {
 // dmesg lines must be capped at exactly 500 events.
 func TestCollectDmesgEvents_CapAt500(t *testing.T) {
 	since := time.Unix(0, 0)
-	line := "kern  :err   : [Wed Jun  4 10:30:00 2025] repeated error message"
+	line := "kern  :err   : 2025-06-04T10:30:00.000000+0000 repeated error message"
 	lines := make([]string, 600)
 	for i := range lines {
 		lines[i] = line
 	}
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutCmd("dmesg", []string{"-T", "-x", "--level=err,warn,crit,emerg,alert"}, strings.Join(lines, "\n"), 0)
+		b.PutCmd("dmesg", []string{"-x", "--time-format", "iso", "--level=err,warn,crit,emerg,alert"}, strings.Join(lines, "\n"), 0)
 	})
 	events, err := collectDmesgEvents(context.Background(), since)
 	if err != nil {

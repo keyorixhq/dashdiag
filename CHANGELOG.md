@@ -52,6 +52,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   genuinely empty, fully-readable one. A new shared helper (`globChecked`)
   distinguishes the two; any other collector hitting the same
   `filepath.Glob` shape gets the fix by using it.
+- `dsd timeline`'s dmesg/journal event merge could order events wrongly on
+  any non-UTC host: `dmesg -T`'s timestamp text carries no UTC offset (it's
+  the kernel's local wall-clock rendering), and Go's parser silently
+  defaulted the offset-less layout to UTC — invisible in UTC-only
+  environments, where local time IS UTC and the bug produced a
+  coincidentally correct result. Now reads `dmesg -x --time-format iso`
+  (an explicit offset dmesg computes itself), with a fallback to raw
+  monotonic offsets anchored to boot time for a dmesg build supporting
+  neither flag (busybox, or a util-linux predating `--time-format=iso`).
 
 ## [2.0.3] - 2026-08-25
 

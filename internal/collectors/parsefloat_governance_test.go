@@ -205,5 +205,6 @@ var parseFloatGateExemptions = map[string]string{
 	"internal/collectors/thermal_notlinux.go:130": "same TempPlausible downstream guard as :83",
 	"internal/collectors/logs_linux.go:243":       "kmsg lookback-window boundary; a NaN/Inf timestamp makes the window filter a no-op (extra/missing log lines), not a verdict false-OK",
 	"internal/collectors/logs_linux.go:272":       "kmsg entry timestamp, same shape as :243",
+	"internal/collectors/timeline_linux.go:506":   "dmesg monotonic-offset fallback (C3); a NaN/Inf offset makes ts.Before(since) unpredictable, dropping or keeping one event from the fallback-only path — a display/completeness quirk on an already-degraded (busybox/no-time-format) source, not a verdict false-OK, same shape as logs_linux.go's kmsg lookback boundary above",
 	"internal/collectors/ipmi_linux.go:129":       "sensor.Value is display-only — the health verdict for this sensor comes from ipmitool's own Status string field, never from Value numerically",
 }
