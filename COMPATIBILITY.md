@@ -91,18 +91,41 @@ Stable fields per insight: `level`, `check`, `message`, `hints`, `details`.
   **exact text is not** — do not parse them.
 - `details`, when present, has a stable envelope (`type`, `title`, `columns`,
   `rows`, `kv`, `note`) and a stable set of `type` discriminators.
+- `unverified` (added in this release) is `true` when `level` reflects a
+  downgrade because the underlying data could NOT be read/measured this run
+  (permission denied, an unreadable file, a collector error) — not a genuine
+  "nothing wrong here" finding. Additive, `omitempty`: existing consumers
+  validating against the frozen schema are unaffected when it's absent.
 
 ### 4. Exit codes
 
+**Changed in this release** — a new code (3) was added; 0/1/2 keep their
+existing meaning unchanged. Previously, a tool-internal failure (a panic, a
+config load error, every collector erroring) had no distinct signal and
+could read as exit 0 (looked healthy) or collide with exit 1 (looked like an
+ordinary WARN) — see BUGS.md/CHANGELOG.md for the specific defect this
+closes. Anything gating on exit code should treat `>= 1` as "look at it" and
+`== 3` as "the tool itself did not produce a verdict" (config/policy error,
+zero collectors ran, an unrecovered panic in a collector) rather than a
+finding about the host.
+
 | Code | Meaning |
 |------|---------|
-| `0`  | OK — no WARN or CRIT findings |
-| `1`  | WARN — at least one WARN, no CRIT |
-| `2`  | CRIT — at least one CRIT |
+| `0`  | OK — all checks ran, nothing found |
+| `1`  | WARN — at least one WARN or CRIT finding, or one or more checks could not determine something (an `unverified` insight) with no CRIT present |
+| `2`  | CRIT — at least one CRIT finding |
+| `3`  | **New.** UNKNOWN — no meaningful verdict at all: an unparseable `--policy` file, zero collectors ran, or another fatal error before any check ran. Matches the Nagios plugin spec's reserved `UNKNOWN` code; `dsd health --nagios` already followed this convention and previously just never produced it. |
 
-`--json` always exits with the code matching `verdict`. These mappings are stable.
-Monitoring integrations (`--nagios`) follow the Nagios convention (0/1/2) and are
-likewise stable.
+`--json`'s `verdict` field only ever reads `OK`/`WARN`/`CRIT` (a `checks[].status`
+of `ERROR`, or any `unverified` insight, forces `verdict` to at least `WARN`
+when it would otherwise read `OK` — see `counts.errored`/`counts.unverified`
+to distinguish these from a genuine WARN finding without iterating
+`insights[]`). Exit code 3 is a command-level failure (the process couldn't
+produce a report at all) and has no corresponding `verdict` value. These
+mappings, including the new code, are stable going forward.
+Monitoring integrations (`--nagios`) follow the Nagios convention (0/1/2/3)
+and are likewise stable — 3 there has always been reserved, per Nagios's own
+spec, even though this dsd version is the first to ever produce it.
 
 ### 5. The `--blob` / `decode` round-trip
 

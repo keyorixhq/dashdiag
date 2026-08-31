@@ -12,6 +12,15 @@ type NetworkdConfigInfo struct {
 	Detected        bool                 `json:"detected"`
 	TotalFiles      int                  `json:"total_files"`
 	UnreadableFiles []NetworkdConfigFile `json:"unreadable_files,omitempty"`
+	// ConfigDirUnreadable is true when /etc/systemd/network itself could not
+	// be read (a non-world-readable directory, e.g. 0750 root:systemd-network
+	// on some hardened images) — distinct from TotalFiles==0/UnreadableFiles
+	// being empty, which also means "genuinely no files here". Without this,
+	// filepath.Glob's own permission-error swallowing (it returns an empty,
+	// nil-error result on a directory it can't read) makes the two
+	// indistinguishable — a permission audit reporting "0 unreadable files"
+	// because it could not even see the files to audit.
+	ConfigDirUnreadable bool `json:"config_dir_unreadable,omitempty"`
 	// FailedLinks are managed links whose networkd SETUP (AdministrativeState)
 	// is "failed" — networkd tried to apply their config and could not. A bad
 	// .network directive, a conflicting address/route, or the unreadable-file

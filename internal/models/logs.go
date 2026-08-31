@@ -31,6 +31,15 @@ type LogsInfo struct {
 	JournalSizeGB float64  `json:"journal_size_gb"`
 	CrashLoops    []string `json:"crash_loops"`
 	NeedsRoot     bool     `json:"needs_root,omitempty"`
+	// KmsgUnreadable is true when /dev/kmsg could not be opened THIS run —
+	// derived from the actual open error, not from os.Getuid(). NeedsRoot is
+	// a euid proxy: it fires on every non-root run whether or not the read
+	// would have succeeded, and (the gap this closes) stays false on a ROOT
+	// run where something other than plain uid blocks the read — a
+	// seccomp/LSM policy inside a container, for instance. Without this,
+	// that root-but-still-blocked case reports OOMKills/Segfaults at their
+	// zero value with no caveat at all, identical to a genuinely quiet host.
+	KmsgUnreadable bool `json:"kmsg_unreadable,omitempty"`
 
 	// Journal health
 	// JournalCorrupt reflects corruption found in an ARCHIVED (rotated, *.journal~)

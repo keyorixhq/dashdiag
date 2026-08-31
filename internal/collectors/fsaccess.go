@@ -203,6 +203,36 @@ func glob(pattern string) ([]string, error) {
 	return capDirEntries(m), nil
 }
 
+// globChecked is glob() extended to distinguish "genuinely no matches" from
+// "the pattern's directory could not be read". filepath.Glob (which glob()
+// wraps) silently swallows a permission-denied error on the pattern's base
+// directory as a nil-error EMPTY result — per the stdlib doc, "The only
+// possible returned error is ErrBadPattern" — so a caller checking only
+// len(matches)==0 cannot tell a genuinely empty, readable directory from one
+// it was denied access to. That conflation is a real bug shape found by
+// name across this codebase (NetworkdConfigCollector's permission audit: a
+// non-world-readable /etc/systemd/network reports a clean 0/0 file audit
+// instead of "couldn't scan").
+//
+// Only consults ReadDir when matches come back empty — a nonempty result
+// already proves the directory was readable, so the extra call is skipped
+// on the common case. dirUnreadable is true only for a genuine permission
+// error, not for a directory that simply doesn't exist (ENOENT is a normal
+// "not present" case, distinct from "couldn't verify").
+func globChecked(pattern string) (matches []string, dirUnreadable bool, err error) {
+	matches, err = glob(pattern)
+	if err != nil {
+		return nil, false, err
+	}
+	if len(matches) > 0 {
+		return matches, false, nil
+	}
+	if _, dirErr := readDirNames(filepath.Dir(pattern)); dirErr != nil && errors.Is(dirErr, os.ErrPermission) {
+		return matches, true, nil
+	}
+	return matches, false, nil
+}
+
 // openFile reads path via the active source and returns an io.ReadCloser,
 // capped at maxCappedFileBytes (tail-preserving — see capFileBytes). Same
 // before-read size probe as readFile — see statSizeHint / errFileTooLarge.

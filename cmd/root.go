@@ -203,7 +203,7 @@ func printUsageWithoutNetworkFlag(cmd *cobra.Command) {
 
 func Execute() {
 	if err := rootCmd.Execute(); err != nil {
-		os.Exit(1)
+		os.Exit(exitCodeForExecuteError(err))
 	}
 	// Apply the worst-severity exit code recorded by standalone subcommands
 	// (BUG-022). Done after Execute() returns so command defers (progress

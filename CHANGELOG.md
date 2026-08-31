@@ -9,6 +9,50 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ---
 
+## [Unreleased]
+
+### Changed
+
+- **Exit code contract**: added a new exit code, `3` (UNKNOWN), reserved for
+  when the tool itself could not produce a verdict at all (an unparseable
+  `--policy` file, or another fatal error before any check ran) — distinct
+  from `0`/`1`/`2`, which are unchanged and keep describing the health
+  verdict. Matches the Nagios plugin spec's reserved `UNKNOWN` code, which
+  `dsd health --nagios` always claimed to follow but never actually
+  produced. See COMPATIBILITY.md.
+- `dsd health --json`'s `insights[]` now carries an `unverified` field
+  (additive) and `counts.unverified` tallies how many — the internal signal
+  already existed (baseline diffing already used it) but never reached the
+  public JSON contract, so a machine consumer had no way to see "this check
+  couldn't determine something" distinct from a genuine clean/WARN/CRIT
+  finding without also inferring it from `counts.errored`.
+
+### Fixed
+
+- A run where every check either errored or hit an `unverified` state (data
+  present but the specific measurement failed — permission denied, an
+  unreadable file, a collector error) could previously exit `0`, reading as
+  a clean, healthy host. The exit code, the `--json` `verdict` field, and
+  `--nagios`'s status line now all floor at WARN when any check could not be
+  determined, matching the existing precedent for a collector that errors
+  outright.
+- A panicking collector (a bug in a single collector's parsing logic) could
+  previously crash the entire `dsd health` process, discarding every other
+  collector's already-good results. It's now recovered and surfaces as an
+  ordinary per-collector error, same as a timeout.
+- `/dev/kmsg` unreadability was previously inferred from `os.Getuid() != 0`
+  alone — a root run where the kernel ring buffer is blocked for another
+  reason (a seccomp/LSM policy inside a container, for instance) reported
+  zero OOM kills/segfaults with no caveat, identical to a genuinely quiet
+  host. Now derived from the actual read result.
+- `NetworkdConfigCollector`'s systemd-networkd config-file permission audit
+  could report a clean "0 unreadable files" on a permission-denied
+  `/etc/systemd/network` (e.g. a hardened 0750 directory) — `filepath.Glob`
+  silently treats a directory it can't read as "no matches", identical to a
+  genuinely empty, fully-readable one. A new shared helper (`globChecked`)
+  distinguishes the two; any other collector hitting the same
+  `filepath.Glob` shape gets the fix by using it.
+
 ## [2.0.3] - 2026-08-25
 
 ### Fixed

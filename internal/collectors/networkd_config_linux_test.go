@@ -4,6 +4,7 @@ package collectors
 
 import (
 	"context"
+	"fmt"
 	"os"
 	"testing"
 	"time"
@@ -152,6 +153,48 @@ func TestNetworkdConfigCollector_Collect_StatFails(t *testing.T) {
 	}
 	if len(info.UnreadableFiles) != 0 {
 		t.Errorf("UnreadableFiles = %+v, want empty (stat failed → file not classified)", info.UnreadableFiles)
+	}
+}
+
+// networkdDirUnreadableSource simulates a real permission-denied
+// /etc/systemd/network — Glob returns an empty, nil-error result (matching
+// filepath.Glob's actual swallow-the-permission-error behavior) while ReadDir
+// reports the real os.ErrPermission, exactly like a live 0750
+// root:systemd-network directory. Embeds a Bundle-backed *source.Replay so
+// `systemctl is-active systemd-networkd` can still be seeded normally.
+type networkdDirUnreadableSource struct {
+	*source.Replay
+}
+
+func (networkdDirUnreadableSource) Glob(string) ([]string, error) { return nil, nil }
+func (networkdDirUnreadableSource) ReadDir(string) ([]string, error) {
+	return nil, fmt.Errorf("readdir /etc/systemd/network: %w", os.ErrPermission)
+}
+
+// TestNetworkdConfigCollector_Collect_DirUnreadable is the shared-glob-fix
+// regression test: previously, a permission-denied config directory (glob()
+// silently swallowing the error, same as filepath.Glob) reported a clean
+// TotalFiles=0/UnreadableFiles=nil audit — indistinguishable from a
+// genuinely empty, fully-readable directory, and the exact opposite of what
+// this collector exists to catch. It must now set ConfigDirUnreadable and
+// must NOT fabricate a zero-file "all clear".
+func TestNetworkdConfigCollector_Collect_DirUnreadable(t *testing.T) {
+	b := source.NewBundle()
+	b.PutCmd("systemctl", []string{"is-active", "systemd-networkd"}, "active\n", 0)
+	prev := SetSource(networkdDirUnreadableSource{Replay: source.NewReplay(b)})
+	t.Cleanup(func() { SetSource(prev) })
+
+	c := NewNetworkdConfigCollector()
+	raw, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.NetworkdConfigInfo)
+	if !info.ConfigDirUnreadable {
+		t.Error("expected ConfigDirUnreadable=true for a permission-denied config directory, got false")
+	}
+	if info.TotalFiles != 0 || len(info.UnreadableFiles) != 0 {
+		t.Errorf("expected no fabricated file counts on an unreadable directory, got TotalFiles=%d UnreadableFiles=%+v", info.TotalFiles, info.UnreadableFiles)
 	}
 }
 

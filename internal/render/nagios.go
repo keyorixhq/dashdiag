@@ -52,28 +52,47 @@ func NagiosLine(results []runner.Result, insights []models.Insight) (string, int
 		}
 	}
 
+	// C1: the same false-OK shape, a different source — a collector can run
+	// WITHOUT error and still be unable to determine the specific thing it
+	// checks (C2: /dev/kmsg unreadable for a reason other than non-root).
+	// That produces an Unverified insight, not a Result.Err, so the failed[]
+	// loop above never sees it. Insights already at CRIT/WARN are excluded —
+	// they're already counted in crit[]/warn[] above and must not be
+	// double-listed here.
+	var unverified []string
+	unverifiedSeen := map[string]bool{}
+	for _, ins := range insights {
+		if ins.Unverified && ins.Level != "CRIT" && ins.Level != "WARN" && !unverifiedSeen[ins.Check] {
+			unverifiedSeen[ins.Check] = true
+			unverified = append(unverified, ins.Check)
+		}
+	}
+
 	switch {
 	case len(crit) > 0:
 		detail := fmt.Sprintf("%d critical", len(crit))
 		if len(warn) > 0 {
 			detail += fmt.Sprintf(", %d warning", len(warn))
 		}
-		if len(failed) > 0 {
-			detail += fmt.Sprintf(", %d check(s) failed to run", len(failed))
+		if n := len(failed) + len(unverified); n > 0 {
+			detail += fmt.Sprintf(", %d check(s) failed to run", n)
 		}
 		all := append(append([]string{}, crit...), warn...)
 		all = append(all, failed...)
+		all = append(all, unverified...)
 		return fmt.Sprintf("DASHDIAG CRITICAL - %s: %s", detail, strings.Join(all, ", ")), 2
 	case len(warn) > 0:
 		detail := fmt.Sprintf("%d warning", len(warn))
 		all := append([]string{}, warn...)
-		if len(failed) > 0 {
-			detail += fmt.Sprintf(", %d check(s) failed to run", len(failed))
+		if n := len(failed) + len(unverified); n > 0 {
+			detail += fmt.Sprintf(", %d check(s) failed to run", n)
 			all = append(all, failed...)
+			all = append(all, unverified...)
 		}
 		return fmt.Sprintf("DASHDIAG WARNING - %s: %s", detail, strings.Join(all, ", ")), 1
-	case len(failed) > 0:
-		return fmt.Sprintf("DASHDIAG WARNING - %d check(s) failed to run: %s", len(failed), strings.Join(failed, ", ")), 1
+	case len(failed)+len(unverified) > 0:
+		all := append(append([]string{}, failed...), unverified...)
+		return fmt.Sprintf("DASHDIAG WARNING - %d check(s) failed to run: %s", len(all), strings.Join(all, ", ")), 1
 	default:
 		return "DASHDIAG OK - all checks passed", 0
 	}

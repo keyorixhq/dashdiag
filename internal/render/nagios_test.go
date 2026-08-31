@@ -117,6 +117,33 @@ func TestNagiosLine(t *testing.T) {
 		}
 	})
 
+	// C1: a collector can run without error and still be unable to determine
+	// the specific thing it checks (C2: /dev/kmsg unreadable for a reason
+	// other than non-root) — that's an Unverified INFO insight, not a
+	// Result.Err, so the internal-render-03-03 fix above (which only looks at
+	// r.Err) never sees it. Same false-OK shape, different source.
+	t.Run("an unverified check with no other findings is WARNING, not OK", func(t *testing.T) {
+		ins := []models.Insight{{Level: "INFO", Check: "Logs", Message: "kmsg unreadable", Unverified: true}}
+		line, code := NagiosLine(res, ins)
+		if code != 1 || !strings.HasPrefix(line, "DASHDIAG WARNING") {
+			t.Fatalf("got %q code=%d, want WARNING exit 1", line, code)
+		}
+		if !strings.Contains(line, "Logs") {
+			t.Errorf("unverified check name not surfaced: %q", line)
+		}
+	})
+
+	t.Run("an unverified check alongside a CRIT stays CRITICAL", func(t *testing.T) {
+		ins := []models.Insight{
+			{Level: "CRIT", Check: "Disk"},
+			{Level: "INFO", Check: "Logs", Message: "kmsg unreadable", Unverified: true},
+		}
+		line, code := NagiosLine(res, ins)
+		if code != 2 || !strings.HasPrefix(line, "DASHDIAG CRITICAL") {
+			t.Fatalf("got %q code=%d, want CRITICAL exit 2 (an unverified check must not outrank a real CRIT)", line, code)
+		}
+	})
+
 	t.Run("a repeated collector failure is deduped by name", func(t *testing.T) {
 		failedRes := []runner.Result{
 			{Name: "Disk", Err: errors.New("boom")},

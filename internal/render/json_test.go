@@ -142,6 +142,81 @@ func TestRenderJSON_ErroredDoesNotOverrideRealVerdict(t *testing.T) {
 	}
 }
 
+// TestRenderJSON_UnverifiedInsightRaisesVerdict is C1's JSON-surface
+// counterpart to TestRenderJSON_ErroredCountsField: a collector can run
+// without error and still be unable to determine a specific check (C2:
+// /dev/kmsg unreadable for a reason other than non-root) — that produces an
+// Unverified insight, not a Result.Err, so the existing Counts.Errored path
+// never sees it. Without this, a run where every check hit exactly this
+// shape reports Verdict "OK" — a confident "healthy" from a run that
+// determined nothing.
+func TestRenderJSON_UnverifiedInsightRaisesVerdict(t *testing.T) {
+	results := []runner.Result{
+		{Name: "Logs", Data: models.LogsInfo{}},
+	}
+	insights := []models.Insight{
+		{Check: "Logs", Level: "INFO", Message: "kmsg unreadable", Unverified: true},
+	}
+	data, err := RenderJSON(results, insights)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out JSONOutput
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatalf("output is not valid JSON: %v", err)
+	}
+	if out.Verdict != "WARN" {
+		t.Errorf("verdict = %q, want WARN (an Unverified insight must not report OK)", out.Verdict)
+	}
+	if out.Counts.Unverified != 1 {
+		t.Errorf("Counts.Unverified = %d, want 1", out.Counts.Unverified)
+	}
+	if len(out.Insights) != 1 || !out.Insights[0].Unverified {
+		t.Errorf("Insights[0].Unverified not serialized true — the signal must reach the public JSON contract, not just stay internal: %+v", out.Insights)
+	}
+}
+
+// TestRenderJSON_UnverifiedDoesNotOverrideRealVerdict mirrors
+// TestRenderJSON_ErroredDoesNotOverrideRealVerdict: the unverified->WARN
+// floor must only fire when the insight-only verdict would otherwise be OK —
+// a genuine CRIT/WARN elsewhere must never be masked.
+func TestRenderJSON_UnverifiedDoesNotOverrideRealVerdict(t *testing.T) {
+	cases := []struct {
+		name        string
+		insights    []models.Insight
+		wantVerdict string
+	}{
+		{"unverified only -> WARN", []models.Insight{
+			{Check: "Logs", Level: "INFO", Unverified: true},
+		}, "WARN"},
+		{"unverified + WARN insight -> stays WARN", []models.Insight{
+			{Check: "Disk", Level: "WARN", Message: "filling up"},
+			{Check: "Logs", Level: "INFO", Unverified: true},
+		}, "WARN"},
+		{"unverified + CRIT insight -> stays CRIT, not downgraded", []models.Insight{
+			{Check: "Disk", Level: "CRIT", Message: "full"},
+			{Check: "Logs", Level: "INFO", Unverified: true},
+		}, "CRIT"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			results := []runner.Result{{Name: "Logs", Data: models.LogsInfo{}}}
+			data, err := RenderJSON(results, tc.insights)
+			if err != nil {
+				t.Fatal(err)
+			}
+			var out JSONOutput
+			if err := json.Unmarshal(data, &out); err != nil {
+				t.Fatalf("output is not valid JSON: %v", err)
+			}
+			if out.Verdict != tc.wantVerdict {
+				t.Errorf("verdict = %q, want %q", out.Verdict, tc.wantVerdict)
+			}
+		})
+	}
+}
+
 // TestRenderJSON_ErroredCountsField_NoErrors confirms Errored stays 0 (and is
 // omitted from the JSON via omitempty) when nothing failed — must not
 // introduce noise for the common healthy-run case.

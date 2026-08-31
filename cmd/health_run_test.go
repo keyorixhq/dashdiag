@@ -409,6 +409,34 @@ func TestPrintHealthDiffNotice(t *testing.T) {
 	}
 }
 
+// TestPrintHealthResults_ZeroResultsIsUnknown is C1's defensive floor: if the
+// runner produced zero results at all (no collector ever ran — in practice
+// buildHealthCollectors always registers a fixed base set, so this shouldn't
+// happen on a live run, but nothing upstream mechanically guarantees it),
+// that is "no meaningful verdict", not a clean host. It must exit 3
+// (UNKNOWN), never 0 — a run that determined nothing must not render as OK.
+func TestPrintHealthResults_ZeroResultsIsUnknown(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	newCmd := func() *cobra.Command {
+		c := &cobra.Command{}
+		f := c.Flags()
+		f.Bool("layered", false, "")
+		f.Bool("diff", false, "")
+		f.Bool("explain", false, "")
+		f.Bool("fix", false, "")
+		return c
+	}
+	snap := &baseline.Snapshot{Hostname: "h", Timestamp: time.Now()}
+
+	var exitCode int
+	captureStdout(t, func() {
+		exitCode, _ = printHealthResults(newCmd(), platform.ContainerContext{}, output.ModePlain, nil, nil, snap, time.Second, false)
+	})
+	if exitCode != 3 {
+		t.Errorf("zero results should yield exit code 3 (UNKNOWN), got %d", exitCode)
+	}
+}
+
 // TestPrintHealthResults covers the printHealthResults orchestrator: it
 // wires CorrelateDeep + printHealthMainOutput + PrintSummary + baseline save
 // together, and its noticeW routing (stdout for human/plain, stderr for

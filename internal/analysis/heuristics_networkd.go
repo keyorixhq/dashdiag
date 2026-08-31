@@ -26,6 +26,19 @@ func checkNetworkdConfig(info models.NetworkdConfigInfo) []models.Insight {
 	}
 	var out []models.Insight
 
+	// The shared-glob-fix regression (globChecked in the collector): a
+	// permission-denied /etc/systemd/network reports TotalFiles==0 with no
+	// unreadable files — byte-identical to a genuinely empty, fully-readable
+	// directory. ConfigDirUnreadable is the only signal telling those apart;
+	// without disclosing it, this exact permission-audit collector would
+	// silently claim "audited, clean" on a directory it never actually saw.
+	if info.ConfigDirUnreadable {
+		out = append(out, unverifiedInsight("INFO", nwdCatNetworkd,
+			"could not read /etc/systemd/network — permission-file audit skipped this run",
+			[]string{"to inspect: ls -la /etc/systemd/network"},
+		))
+	}
+
 	// cmd-04-05 and its untagged siblings in this file (found sweeping for
 	// the same pattern): file paths and link names below are spliced
 	// unescaped into copy-pasteable shell hints; validate each before use,

@@ -53,6 +53,20 @@ func RunAll(ctx context.Context, collectors []Collector) <-chan Result {
 			// process exits — bounded, and far better than hanging everything.)
 			done := make(chan Result, 1)
 			go func() {
+				// A panicking collector (nil deref on an unexpected parse
+				// result, index out of range, etc.) must not take down the
+				// whole run — Go's default unhandled-panic behavior kills the
+				// entire process, which would silently drop every other
+				// collector's already-good results and exit with a status
+				// that collides with a real CRIT. Recovering here turns it
+				// into an ordinary Result.Err, exactly like a timeout, so it
+				// flows through analysis.ApplyThresholds into an Unverified
+				// insight the same way any other collector failure does.
+				defer func() {
+					if rec := recover(); rec != nil {
+						done <- Result{Name: c.Name(), Err: fmt.Errorf("collector %s panicked: %v", c.Name(), rec)}
+					}
+				}()
 				data, err := c.Collect(tctx)
 				done <- Result{Name: c.Name(), Data: data, Err: err}
 			}()

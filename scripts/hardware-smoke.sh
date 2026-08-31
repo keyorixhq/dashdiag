@@ -132,8 +132,14 @@ else
 fi
 
 # ── HEALTH EXIT CONTRACT ──────────────────────────────────────────────────────
+# 0=OK, 1=WARN, 2=CRIT, 3=UNKNOWN (tool itself failed to produce a verdict —
+# COMPATIBILITY.md). A real hardware smoke run should stay in 0-2; exit 3
+# here would mean the run itself is untrustworthy, not merely CRIT, so it's
+# checked and reported distinctly rather than folded into "in contract".
 if ssh_run "$REMOTE_BIN health >/dev/null 2>&1; ec=\$?; [ \$ec -le 2 ]"; then
   ok "dsd health exit code in 0-2"
+elif ssh_run "$REMOTE_BIN health >/dev/null 2>&1; [ \$? -eq 3 ]"; then
+  bad "dsd health exited 3 (UNKNOWN) — the tool did not produce a verdict at all"
 else
   bad "dsd health exit code out of contract"
 fi

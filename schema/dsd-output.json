@@ -50,6 +50,10 @@
         "errored": {
           "type": "integer",
           "description": "Number of checks[] entries with status \"ERROR\" (the collector itself failed to run) — distinct from the CRIT/WARN/INFO insight tallies above, since a failed collector typically produces only an INFO-level insight and never raises verdict/warn/crit on its own"
+        },
+        "unverified": {
+          "type": "integer",
+          "description": "Number of insights with unverified=true — a check that ran without error but could not determine the specific thing it checks (permission denied, an unreadable file, a read that failed). Distinct from errored: the collector succeeded, one measurement inside it didn't. Its level is usually a downgraded INFO, which (like errored) never raises verdict/warn/crit on its own — see the verdict field's own description."
         }
       }
     },
@@ -115,6 +119,10 @@
             "items": {
               "type": "string"
             }
+          },
+          "unverified": {
+            "type": "boolean",
+            "description": "True when level reflects a downgrade because the underlying data could NOT be read/measured this run (permission denied, an unreadable file, a collector error) — not a genuine 'nothing wrong here' finding. Consumers that diff two runs must not treat a transition into or out of an unverified insight as an improvement."
           },
           "details": {
             "type": "object",
