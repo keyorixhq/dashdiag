@@ -129,8 +129,9 @@ chmod +x ~/proj/dashdiag/scripts/fuzz-continuous.sh
 FUZZTIME=15m REPO_DIR=~/proj/dashdiag ~/proj/dashdiag/scripts/fuzz-continuous.sh
 ```
 
-44+ targets (growing over time — discovered dynamically, not a fixed number)
-× 15m ≈ 11+ hours per rotation, though since each target now re-syncs to
+55+ targets as of 2026-09 (growing over time — discovered dynamically via
+scripts/fuzz-discover.sh, not a fixed number) × 15m ≈ 14+ hours per rotation,
+though since each target now re-syncs to
 `origin/main` individually rather than once per rotation, "rotation" is a
 looser concept than it used to be — see the per-target sync note below.
 Shrink `FUZZTIME` for faster rotations if you'd rather trade depth-per-target

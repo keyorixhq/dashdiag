@@ -6,7 +6,9 @@
 # Deliberately does NOT hardcode a target list: `make test-fuzz` hardcoded one
 # and silently missed 18 of 44 real FuzzXxx functions for months before anyone
 # noticed. This script re-discovers every fuzz target across the whole module
-# on every rotation via `go test -list`, so it can't go stale the same way.
+# on every rotation via scripts/fuzz-discover.sh (`go test -list` under the
+# hood — the SAME mechanism the Makefile and CI use), so it can't go stale
+# the same way, and can't quietly drift from what CI runs either.
 #
 # Intended host: a dedicated, disposable Linux box (LXC/VM), not a dev
 # machine — every rotation force-syncs to origin/main and wipes untracked
@@ -41,15 +43,11 @@ sync_repo() {
 }
 
 # Every FuzzXxx function across the module, paired with its package. Cheap
-# (a few seconds per rotation, not per target) since it only lists, never runs.
+# (a few seconds per rotation, not per target) since it only lists, never
+# runs. Delegates to scripts/fuzz-discover.sh — the same discovery the
+# Makefile and CI use — rather than a second inline implementation.
 discover_targets() {
-  local pkg names name
-  while read -r pkg; do
-    names=$(go test -list '^Fuzz' "$pkg" 2>/dev/null | grep -E '^Fuzz' || true)
-    for name in $names; do
-      echo "${name}:${pkg}"
-    done
-  done < <(go list ./... 2>/dev/null)
+  "$REPO_DIR/scripts/fuzz-discover.sh" all
 }
 
 # A crash reproducer lands in testdata/fuzz/<Func>/ automatically — that's Go's

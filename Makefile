@@ -142,84 +142,30 @@ cover:
 test-integration:
 	go test -tags integration -race -count=1 -timeout 120s ./...
 
-.PHONY: test-fuzz
+.PHONY: test-fuzz test-fuzz-linux test-fuzz-all
 # SSDLC Layer 2 (ADR-0007): per-release fuzzing of parsers, prioritised by
 # THREAT_MODEL_CLI.md §5 (partially-attacker-influenced inputs). Does NOT hide
 # failures — a crash or false-OK violation must fail the target (a fuzz run that
 # swallows crashes is itself a false-OK). FUZZTIME overridable: make test-fuzz FUZZTIME=2m
+#
+# Targets are DISCOVERED (scripts/fuzz-discover.sh via `go list`+`go test
+# -list`), never hardcoded here. A hardcoded list in this file once silently
+# missed 18 of 44 real FuzzXxx functions for months, then — after a second
+# hardcoded list (test-fuzz-linux) was bolted on next to it instead of
+# replacing the pattern — a further 5 (docs/CONTINUOUS_FUZZING.md).
+#
+# test-fuzz / test-fuzz-linux keep their existing local meaning (the
+# portable/macOS-safe subset vs. the //go:build linux subset); test-fuzz-all
+# runs everything this host's toolchain can see (all 55 on Linux, the
+# portable 24 on macOS — see scripts/fuzz-discover.sh's own header for why
+# `all` still varies by host while `portable`/`linux` don't).
 FUZZTIME ?= 30s
 test-fuzz:
-	@echo "→ Fuzz tests ($(FUZZTIME) each) — Ctrl-C to stop early"
-	@set -e; \
-	go test -run=NONE -fuzz='^FuzzParseLoadAvg$$'        -fuzztime=$(FUZZTIME) ./internal/collectors/; \
-	go test -run=NONE -fuzz='^FuzzParseMeminfo$$'        -fuzztime=$(FUZZTIME) ./internal/collectors/; \
-	go test -run=NONE -fuzz='^FuzzParseVMStat$$'         -fuzztime=$(FUZZTIME) ./internal/collectors/; \
-	go test -run=NONE -fuzz='^FuzzParseDiskstats$$'      -fuzztime=$(FUZZTIME) ./internal/collectors/; \
-	go test -run=NONE -fuzz='^FuzzParseFileNr$$'         -fuzztime=$(FUZZTIME) ./internal/collectors/; \
-	go test -run=NONE -fuzz='^FuzzParseProcStat$$'       -fuzztime=$(FUZZTIME) ./internal/collectors/; \
-	go test -run=NONE -fuzz='^FuzzParseVGs$$'            -fuzztime=$(FUZZTIME) ./internal/collectors/; \
-	go test -run=NONE -fuzz='^FuzzParseLVs$$'            -fuzztime=$(FUZZTIME) ./internal/collectors/; \
-	go test -run=NONE -fuzz='^FuzzParseLVMFloat$$'       -fuzztime=$(FUZZTIME) ./internal/collectors/; \
-	go test -run=NONE -fuzz='^FuzzParseSteamOSChannel$$' -fuzztime=$(FUZZTIME) ./internal/collectors/; \
-	go test -run=NONE -fuzz='^FuzzApplyRAUCJSON$$'       -fuzztime=$(FUZZTIME) ./internal/collectors/; \
-	go test -run=NONE -fuzz='^FuzzApplyRAUCText$$'       -fuzztime=$(FUZZTIME) ./internal/collectors/; \
-	go test -run=NONE -fuzz='^FuzzParseHealth$$'         -fuzztime=$(FUZZTIME) ./internal/fleet/; \
-	go test -run=NONE -fuzz='^FuzzParseProcStatComm$$'   -fuzztime=$(FUZZTIME) ./internal/drilldown/; \
-	go test -run=NONE -fuzz='^FuzzParseMountFromMessage$$' -fuzztime=$(FUZZTIME) ./internal/drilldown/; \
-	go test -run=NONE -fuzz='^FuzzParseUnitFromMessage$$' -fuzztime=$(FUZZTIME) ./internal/drilldown/; \
-	go test -run=NONE -fuzz='^FuzzParseOSRelease$$'      -fuzztime=$(FUZZTIME) ./internal/platform/; \
-	go test -run=NONE -fuzz='^FuzzCompareDpkg$$'         -fuzztime=$(FUZZTIME) ./internal/cvedata/; \
-	go test -run=NONE -fuzz='^FuzzDecode$$'              -fuzztime=$(FUZZTIME) ./internal/share/; \
-	go test -run=NONE -fuzz='^FuzzLoadTarball$$'         -fuzztime=$(FUZZTIME) ./internal/source/; \
-	go test -run=NONE -fuzz='^FuzzLoad$$'                -fuzztime=$(FUZZTIME) ./internal/source/; \
-	go test -run=NONE -fuzz='^FuzzReadAll$$'             -fuzztime=$(FUZZTIME) ./internal/store/
-	@echo "✅ all portable fuzz harnesses passed"
-	@echo "→ Linux-only parser harnesses (skipped on $(shell go env GOOS)):"
-	@echo "   FuzzParseMDStat, FuzzParseNVMeSmartLog, FuzzParseLVMRaid,"
-	@echo "   FuzzParseSMARTHealth, FuzzParseSMARTAttributes, FuzzParseFailedUnits,"
-	@echo "   FuzzParseUnitShow, FuzzParseBlame, FuzzParseDurationMs,"
-	@echo "   FuzzParseJournalLines, FuzzParseZFSVdevErrors, FuzzParseZFSCount,"
-	@echo "   FuzzParseMDArrayCounts, FuzzParseRecoveryPct, FuzzParseDRBDSyncLine,"
-	@echo "   FuzzParseSystemdTime, FuzzParseSSHDuration, FuzzParseHVBalloonMaxMB,"
-	@echo "   FuzzParseAzureStorageProfile, FuzzParseAzureScheduledEvents,"
-	@echo "   FuzzENASRDActive, FuzzParseOOMEvents, FuzzParseNVMeTemp,"
-	@echo "   FuzzParseDPMSclk, FuzzParseMiB, FuzzParseNvidiaSMILine,"
-	@echo "   FuzzApplySATASmartJSON — run on Linux/CI"
-
-.PHONY: test-fuzz-linux
-# Linux-tagged parser harnesses (raid_linux/nvme_linux/lvm_linux). Run on a
-# Linux host or in CI; they don't compile on macOS by design.
+	@scripts/run-fuzz-targets.sh portable $(FUZZTIME)
 test-fuzz-linux:
-	@set -e; \
-	go test -run=NONE -fuzz='^FuzzParseMDStat$$'           -fuzztime=$(FUZZTIME) ./internal/collectors/; \
-	go test -run=NONE -fuzz='^FuzzParseNVMeSmartLog$$'     -fuzztime=$(FUZZTIME) ./internal/collectors/; \
-	go test -run=NONE -fuzz='^FuzzParseLVMRaid$$'          -fuzztime=$(FUZZTIME) ./internal/collectors/; \
-	go test -run=NONE -fuzz='^FuzzParseSMARTHealth$$'      -fuzztime=$(FUZZTIME) ./internal/collectors/; \
-	go test -run=NONE -fuzz='^FuzzParseSMARTAttributes$$'  -fuzztime=$(FUZZTIME) ./internal/collectors/; \
-	go test -run=NONE -fuzz='^FuzzParseFailedUnits$$'      -fuzztime=$(FUZZTIME) ./internal/collectors/; \
-	go test -run=NONE -fuzz='^FuzzParseUnitShow$$'         -fuzztime=$(FUZZTIME) ./internal/collectors/; \
-	go test -run=NONE -fuzz='^FuzzParseBlame$$'            -fuzztime=$(FUZZTIME) ./internal/collectors/; \
-	go test -run=NONE -fuzz='^FuzzParseDurationMs$$'       -fuzztime=$(FUZZTIME) ./internal/collectors/; \
-	go test -run=NONE -fuzz='^FuzzParseJournalLines$$'     -fuzztime=$(FUZZTIME) ./internal/collectors/; \
-	go test -run=NONE -fuzz='^FuzzParseZFSVdevErrors$$'    -fuzztime=$(FUZZTIME) ./internal/collectors/; \
-	go test -run=NONE -fuzz='^FuzzParseZFSCount$$'         -fuzztime=$(FUZZTIME) ./internal/collectors/; \
-	go test -run=NONE -fuzz='^FuzzParseMDArrayCounts$$'    -fuzztime=$(FUZZTIME) ./internal/collectors/; \
-	go test -run=NONE -fuzz='^FuzzParseRecoveryPct$$'      -fuzztime=$(FUZZTIME) ./internal/collectors/; \
-	go test -run=NONE -fuzz='^FuzzParseDRBDSyncLine$$'     -fuzztime=$(FUZZTIME) ./internal/collectors/; \
-	go test -run=NONE -fuzz='^FuzzParseSystemdTime$$'      -fuzztime=$(FUZZTIME) ./internal/collectors/; \
-	go test -run=NONE -fuzz='^FuzzParseSSHDuration$$'      -fuzztime=$(FUZZTIME) ./internal/collectors/; \
-	go test -run=NONE -fuzz='^FuzzParseHVBalloonMaxMB$$'   -fuzztime=$(FUZZTIME) ./internal/collectors/; \
-	go test -run=NONE -fuzz='^FuzzParseAzureStorageProfile$$' -fuzztime=$(FUZZTIME) ./internal/collectors/; \
-	go test -run=NONE -fuzz='^FuzzParseAzureScheduledEvents$$' -fuzztime=$(FUZZTIME) ./internal/collectors/; \
-	go test -run=NONE -fuzz='^FuzzENASRDActive$$'          -fuzztime=$(FUZZTIME) ./internal/collectors/; \
-	go test -run=NONE -fuzz='^FuzzParseOOMEvents$$'        -fuzztime=$(FUZZTIME) ./internal/collectors/; \
-	go test -run=NONE -fuzz='^FuzzParseNVMeTemp$$'         -fuzztime=$(FUZZTIME) ./internal/collectors/; \
-	go test -run=NONE -fuzz='^FuzzParseDPMSclk$$'          -fuzztime=$(FUZZTIME) ./internal/collectors/; \
-	go test -run=NONE -fuzz='^FuzzParseMiB$$'              -fuzztime=$(FUZZTIME) ./internal/collectors/; \
-	go test -run=NONE -fuzz='^FuzzParseNvidiaSMILine$$'    -fuzztime=$(FUZZTIME) ./internal/collectors/; \
-	go test -run=NONE -fuzz='^FuzzApplySATASmartJSON$$'    -fuzztime=$(FUZZTIME) ./internal/collectors/; \
-	go test -run=NONE -fuzz='^FuzzParseUbuntuOVAL$$'      -fuzztime=$(FUZZTIME) ./internal/cvedata/
-	@echo "✅ all Linux fuzz harnesses passed"
+	@scripts/run-fuzz-targets.sh linux $(FUZZTIME)
+test-fuzz-all:
+	@scripts/run-fuzz-targets.sh all $(FUZZTIME)
 
 .PHONY: test-contract
 test-contract:
