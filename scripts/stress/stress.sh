@@ -131,8 +131,9 @@ cleanup_all() {
     done
 
     if [ -n "$CLEANUP_TC_IFACE" ]; then
-        tc qdisc del dev "$CLEANUP_TC_IFACE" root 2>/dev/null && \
-            info "tc rules removed from $CLEANUP_TC_IFACE" || true
+        if tc qdisc del dev "$CLEANUP_TC_IFACE" root 2>/dev/null; then
+            info "tc rules removed from $CLEANUP_TC_IFACE"
+        fi
         CLEANUP_TC_IFACE=""
     fi
 
@@ -147,8 +148,9 @@ cleanup_all() {
     systemctl start systemd-resolved 2>/dev/null || true
 
     if [ -n "$CLEANUP_GATEWAY_RESTORE" ]; then
-        eval "$CLEANUP_GATEWAY_RESTORE" 2>/dev/null && \
-            info "Default gateway restored" || true
+        if eval "$CLEANUP_GATEWAY_RESTORE" 2>/dev/null; then
+            info "Default gateway restored"
+        fi
         CLEANUP_GATEWAY_RESTORE=""
     fi
 
@@ -563,7 +565,7 @@ test_net_dns() {
         sleep 1  # let the stub fully stop before dsd attempts DNS resolution
         info "DNS will fail (stub at 127.0.0.53 not responding) — running dsd health..."
         assert_status "DNS failure" "Network" "WARN_OR_CRIT"
-        systemctl start systemd-resolved 2>/dev/null && info "systemd-resolved restarted" || true
+        if systemctl start systemd-resolved 2>/dev/null; then info "systemd-resolved restarted"; fi
     else
         # Non-systemd-resolved: replace /etc/resolv.conf directly
         local backup="/tmp/resolv.conf.dsd.$$"
