@@ -15,6 +15,30 @@ function across the module on each rotation (via `go test -list`, not a
 hardcoded list — it can't go stale the same way), and it's meant to run forever
 on a dedicated always-on box instead of depending on a human's memory.
 
+## Where fuzzing runs
+
+There are three sites. Don't assume pve01 is the only one — an agent reading
+this doc has already twice concluded that and reasoned wrongly about release
+risk from it.
+
+| Site | What it runs | Cadence | Self-discovering? | Findings surface as |
+|---|---|---|---|---|
+| **GitHub Actions** (`.github/workflows/fuzz.yml`) | Every `FuzzXxx` target (55 as of 2026-09), split across 2 shards via `scripts/run-fuzz-targets.sh all` | Weekly (Monday 02:00 UTC) + `workflow_dispatch` | Yes — `scripts/fuzz-discover.sh`, same mechanism as pve01 | CI job failure on the `Fuzz` workflow; the crash reproducer is uploaded as a build artifact (`fuzz-crashes-shard<N>-<run>`), not auto-opened as a PR |
+| **pve01** (CT 220 `dashdiag-fuzz`, 192.168.10.33) | Every `FuzzXxx` target, one rotation at a time, `FUZZTIME=15m` each | Continuous (systemd, `Restart=always`) | Yes — `scripts/fuzz-discover.sh` via `scripts/fuzz-continuous.sh` | Auto-opened/updated PR on `fuzz/corpus-updates` (see "What a crash looks like from the outside" below) |
+| **VCD tenant rig** | `TODO(andrei)` | `TODO(andrei)` | `TODO(andrei)` | `TODO(andrei)` |
+
+**pve01 is currently unreachable** (as of 2026-09-02): the box is in Andrei's
+Valencia apartment and he's away for a week or more. Don't assume its rotation
+is progressing during that window — GitHub Actions is the only site confirmed
+running.
+
+**VCD tenant rig**: Andrei has fuzz infrastructure for dashdiag and keyorix in
+a VMware Cloud Director tenant, not otherwise documented in this repo. Details
+weren't available to fill in this table — VPN access to that tenant was down
+when this section was written (2026-09-02). Ask Andrei directly rather than
+inferring from the other two rigs' shape; VCD's setup may differ (e.g. it may
+also cover keyorix, not just dashdiag). Fill in the row above once confirmed.
+
 ## How Go's fuzz corpus actually behaves here (read this before wondering why nothing shows up in `git status`)
 
 A fuzzing run reports "new interesting: N" constantly — that's coverage-increasing
