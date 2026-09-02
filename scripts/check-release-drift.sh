@@ -24,6 +24,11 @@ GRACE_HOURS="${GRACE_HOURS:-4}"
 # between v2.x tags so far: 5 days) with margin for a slow month.
 LOOKBACK_DAYS="${LOOKBACK_DAYS:-30}"
 REPO="${REPO:-keyorixhq/dashdiag}"
+# Optional push notification (e.g. ntfy) on drift — silent no-op when unset.
+# Same pattern as scripts/fuzz-continuous.sh's FUZZ_NOTIFY_URL: a red
+# scheduled workflow only helps if a human actually sees it, and GitHub's
+# scheduled-failure email is easy to miss or filter.
+NOTIFY_URL="${DRIFT_NOTIFY_URL:-}"
 
 now_epoch=$(date -u +%s)
 grace_seconds=$((GRACE_HOURS * 3600))
@@ -31,6 +36,12 @@ lookback_seconds=$((LOOKBACK_DAYS * 86400))
 
 drift=0
 checked=0
+
+notify() {
+  if [[ -n "$NOTIFY_URL" ]]; then
+    curl -fsS -m 10 -d "$*" "$NOTIFY_URL" >/dev/null 2>&1 || true
+  fi
+}
 
 # Capture before looping (see CONTRIBUTING.md's "guards must fail loudly"
 # rule): a bare assignment IS covered by set -e, so a git for-each-ref
@@ -81,12 +92,14 @@ done <<<"$tags_output"
 
 if (( checked == 0 )); then
   echo "No tags matched pattern '${TAG_PATTERN}' within the last ${LOOKBACK_DAYS} days — nothing to check." >&2
+  notify "Release drift check: no tags matched pattern '${TAG_PATTERN}' — nothing was checked."
   exit 1
 fi
 
 echo
 if (( drift == 1 )); then
   echo "Release drift detected — see DRIFT lines above." >&2
+  notify "Release drift detected in ${REPO} — see the workflow run for DRIFT lines."
   exit 1
 fi
 
