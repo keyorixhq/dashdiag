@@ -78,7 +78,7 @@ simulate_bond() {
     ip link set bond0 up
 
     echo "→ Verifying /proc/net/bonding/bond0 exists..."
-    cat /proc/net/bonding/bond0 | head -5
+    head -5 /proc/net/bonding/bond0
 
     echo ""
     echo "✅ bond0 created — now run: sudo dsd health"
@@ -140,10 +140,10 @@ simulate_pressure() {
 
 clean() {
     echo "→ Cleaning up simulated hardware..."
-    ip link del bond0 2>/dev/null && echo "  removed bond0" || true
-    ip link del dummy0 2>/dev/null && echo "  removed dummy0" || true
-    ip link del dummy1 2>/dev/null && echo "  removed dummy1" || true
-    rmmod dummy 2>/dev/null && echo "  unloaded dummy module" || true
+    if ip link del bond0 2>/dev/null; then echo "  removed bond0"; fi
+    if ip link del dummy0 2>/dev/null; then echo "  removed dummy0"; fi
+    if ip link del dummy1 2>/dev/null; then echo "  removed dummy1"; fi
+    if rmmod dummy 2>/dev/null; then echo "  unloaded dummy module"; fi
     echo "✅ Done"
 }
 

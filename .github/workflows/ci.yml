@@ -508,11 +508,24 @@ jobs:
               /opt/dsd/bin/dsd --version
             '
 
-  # Static lint of the install front door — cheap guard against the shell-scripting
-  # bug class that produced the #123 P0 (a stdout/stderr mix-up that aborted every
-  # install). shellcheck is preinstalled on GitHub ubuntu runners. Deliberately NOT
-  # gated on the docs_only skip above — this runs in seconds, so gating it would
-  # add complexity for no measurable savings.
+  # Static lint of every tracked shell script — cheap guard against the shell-
+  # scripting bug class that produced the #123 P0 (a stdout/stderr mix-up that
+  # aborted every install). shellcheck is preinstalled on GitHub ubuntu
+  # runners. Deliberately NOT gated on the docs_only skip above — this runs
+  # in seconds, so gating it would add complexity for no measurable savings.
+  #
+  # File list is DISCOVERED (`git ls-files '*.sh'`), never hardcoded — a
+  # hardcoded list here once covered only 6 of ~29 tracked .sh files (found
+  # 2026-09, same drift class as the fuzz target lists fixed in #1055: a
+  # static list in a workflow silently stops covering new files).
+  #
+  # Job name deliberately kept as "Shellcheck install.sh" (not renamed to
+  # reflect the now-broader scope) — branch protection's required status
+  # checks match by this exact string; renaming it here would silently make
+  # the required check un-satisfiable (confirmed live: it happened once,
+  # blocking merge with mergeStateStatus=BLOCKED despite every check green).
+  # Renaming it for real needs a branch-protection settings update in the
+  # same change, not a drive-by here.
   shellcheck:
     name: Shellcheck install.sh
     runs-on: ubuntu-24.04
@@ -520,7 +533,7 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - run: shellcheck install.sh scripts/check-nonroot-invariant.sh scripts/alpine-smoke.sh scripts/check-replay-fidelity.sh scripts/container-honesty-smoke.sh scripts/fuzz-continuous.sh
+      - run: git ls-files '*.sh' | xargs shellcheck
 
   # Non-root invariant guard for the recurring "non-root false verdict" bug class
   # (BUG-064/066/067/070). A privileged tool (btrfs/nvme/nft/sshd -T/…) emits
