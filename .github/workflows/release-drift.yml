@@ -1,0 +1,33 @@
+name: Release Drift Check
+
+# Guards against a tag that never turned into a published, signed release.
+# v2.0.1-v2.1.0 were briefly (and wrongly) believed to have silently failed
+# to publish — a stale read of the releases page, not a real incident — but
+# the gap it would have caught is real: a tag pushed while a required secret
+# is missing, or a runner-image change breaks the release job, leaves no
+# release and nothing today notices. Runs
+# scripts/check-release-drift.sh, which compares recent `v*` tags against
+# `gh release view` and fails if any tag past the grace window has no
+# published, non-draft, non-prerelease release carrying checksums.txt.minisig.
+
+on:
+  schedule:
+    - cron: '11 6 * * *' # daily, offset from the weekly Monday jobs
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  drift-check:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Check for tags without a published, signed release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: scripts/check-release-drift.sh

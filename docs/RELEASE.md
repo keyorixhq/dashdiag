@@ -67,6 +67,25 @@ git push origin v1.2.3
 # CI pipeline triggers automatically
 ```
 
+**Then confirm it actually published — don't assume it did.** The tag push only
+*triggers* `release.yml`; it doesn't guarantee the run finished or that GitHub
+ended up with a release. Wait for the workflow to complete
+(`gh run watch` on the run it kicked off, or `gh run list --workflow=release.yml
+--limit 1`), then check the release itself:
+
+```bash
+gh release list --limit 5                     # v1.2.3 should be there, and Latest
+gh release view v1.2.3 --json isDraft,isPrerelease,assets \
+  --jq '{isDraft, isPrerelease, hasSig: ([.assets[].name] | any(. == "checksums.txt.minisig"))}'
+# expect: {"isDraft": false, "isPrerelease": false, "hasSig": true}
+```
+
+A release missing `checksums.txt.minisig` is a quieter failure than a missing
+release — `dsd update`/`install.sh` fail closed on it, so users are silently
+stuck rather than warned. `.github/workflows/release-drift.yml` runs this same
+check daily so a missed publish doesn't sit unnoticed for days, but don't rely
+on the schedule when you're the one who just pushed the tag — check now.
+
 The CI pipeline (`.github/workflows/release.yml`) — **what actually runs today**
 (updated 2026-07-06, activated in v1.17.2):
 1. ✅ Runs full test suite (`go test -race`)
