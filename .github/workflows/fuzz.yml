@@ -1,5 +1,20 @@
 name: Fuzz
 
+# Targets are DISCOVERED (scripts/fuzz-discover.sh, via `go list` + `go test
+# -list`), never hardcoded in this file — a hardcoded Makefile list once
+# silently missed 18 of 44 real FuzzXxx functions for months, then a further
+# 5 after a second hardcoded list was added alongside it instead of
+# replacing the pattern (docs/CONTINUOUS_FUZZING.md).
+#
+# Wall-clock arithmetic (why 2 shards, not 1 job or more): 55 targets ×
+# FUZZTIME=5m ≈ 275 target-minutes total. A single discovering job would run
+# them serially — ~275min, roughly double the old (pre-discovery) ~140min
+# wall-clock. Splitting the discovered list evenly across 2 parallel shards
+# (scripts/run-fuzz-targets.sh's shard-index/shard-count args, index-parity —
+# not a hardcoded per-job list) puts ~27-28 targets × 5m ≈ 135-140min in each
+# shard, run in parallel → wall-clock ≈ 140min, unchanged from before this
+# change despite now covering all 55 targets instead of 50.
+
 on:
   schedule:
     - cron: '0 2 * * 1'  # Monday 02:00 UTC — weekly corpus mutation run
@@ -9,17 +24,21 @@ permissions:
   contents: read
 
 jobs:
-  fuzz-portable:
-    name: Fuzz portable targets
+  fuzz:
+    name: Fuzz (shard ${{ matrix.shard }}/2)
     runs-on: ubuntu-24.04
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26'
           cache: true
-      - name: Run portable fuzz targets
-        run: make test-fuzz FUZZTIME=5m
+      - name: Run discovered fuzz targets (shard ${{ matrix.shard }}/2)
+        run: scripts/run-fuzz-targets.sh all 5m ${{ matrix.shard }} 2
       # Go's native fuzzer writes a newly-found crash's minimized repro into
       # testdata/fuzz/<Func>/ — the SAME directory committed seed corpus
       # entries live in, with an indistinguishable content-hash filename. An
@@ -45,38 +64,6 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: fuzz-crashes-portable-${{ github.run_id }}
-          path: /tmp/fuzz-crashes
-          if-no-files-found: ignore
-
-  fuzz-linux:
-    name: Fuzz Linux-only targets
-    runs-on: ubuntu-24.04
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with:
-          go-version: '1.26'
-          cache: true
-      - name: Run Linux-only fuzz targets
-        run: make test-fuzz-linux FUZZTIME=5m
-      # See the "Stage newly-discovered crash inputs" step in fuzz-portable
-      # above for why this can't be a plain **/testdata/fuzz/** glob.
-      - name: Stage newly-discovered crash inputs
-        if: failure()
-        run: |
-          mkdir -p /tmp/fuzz-crashes
-          git status --porcelain --untracked-files=all \
-            | awk '$1 == "??" {print $2}' \
-            | grep '/testdata/fuzz/' \
-            | while IFS= read -r f; do
-                mkdir -p "/tmp/fuzz-crashes/$(dirname "$f")"
-                cp "$f" "/tmp/fuzz-crashes/$f"
-              done
-      - name: Upload crash inputs
-        if: failure()
-        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
-        with:
-          name: fuzz-crashes-linux-${{ github.run_id }}
+          name: fuzz-crashes-shard${{ matrix.shard }}-${{ github.run_id }}
           path: /tmp/fuzz-crashes
           if-no-files-found: ignore
