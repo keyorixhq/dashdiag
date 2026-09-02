@@ -518,8 +518,16 @@ jobs:
   # hardcoded list here once covered only 6 of ~29 tracked .sh files (found
   # 2026-09, same drift class as the fuzz target lists fixed in #1055: a
   # static list in a workflow silently stops covering new files).
+  #
+  # Job name deliberately kept as "Shellcheck install.sh" (not renamed to
+  # reflect the now-broader scope) — branch protection's required status
+  # checks match by this exact string; renaming it here would silently make
+  # the required check un-satisfiable (confirmed live: it happened once,
+  # blocking merge with mergeStateStatus=BLOCKED despite every check green).
+  # Renaming it for real needs a branch-protection settings update in the
+  # same change, not a drive-by here.
   shellcheck:
-    name: Shellcheck (all tracked *.sh)
+    name: Shellcheck install.sh
     runs-on: ubuntu-24.04
     permissions:
       contents: read
