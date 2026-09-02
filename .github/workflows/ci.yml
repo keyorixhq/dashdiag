@@ -508,19 +508,24 @@ jobs:
               /opt/dsd/bin/dsd --version
             '
 
-  # Static lint of the install front door — cheap guard against the shell-scripting
-  # bug class that produced the #123 P0 (a stdout/stderr mix-up that aborted every
-  # install). shellcheck is preinstalled on GitHub ubuntu runners. Deliberately NOT
-  # gated on the docs_only skip above — this runs in seconds, so gating it would
-  # add complexity for no measurable savings.
+  # Static lint of every tracked shell script — cheap guard against the shell-
+  # scripting bug class that produced the #123 P0 (a stdout/stderr mix-up that
+  # aborted every install). shellcheck is preinstalled on GitHub ubuntu
+  # runners. Deliberately NOT gated on the docs_only skip above — this runs
+  # in seconds, so gating it would add complexity for no measurable savings.
+  #
+  # File list is DISCOVERED (`git ls-files '*.sh'`), never hardcoded — a
+  # hardcoded list here once covered only 6 of ~29 tracked .sh files (found
+  # 2026-09, same drift class as the fuzz target lists fixed in #1055: a
+  # static list in a workflow silently stops covering new files).
   shellcheck:
-    name: Shellcheck install.sh
+    name: Shellcheck (all tracked *.sh)
     runs-on: ubuntu-24.04
     permissions:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      - run: shellcheck install.sh scripts/check-nonroot-invariant.sh scripts/alpine-smoke.sh scripts/check-replay-fidelity.sh scripts/container-honesty-smoke.sh scripts/fuzz-continuous.sh
+      - run: git ls-files '*.sh' | xargs shellcheck
 
   # Non-root invariant guard for the recurring "non-root false verdict" bug class
   # (BUG-064/066/067/070). A privileged tool (btrfs/nvme/nft/sshd -T/…) emits

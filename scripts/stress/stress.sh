@@ -264,9 +264,10 @@ test_cpu() {
         pass "Load > cores*0.7 — CPU=$baseline_cpu ✓"
         return
     fi
-    local cores=$(nproc)
-    local baseline_load=$(awk '{print $1}' /proc/loadavg)
-    local threshold=$(echo "$cores * 0.7" | bc)
+    local cores baseline_load threshold
+    cores=$(nproc)
+    baseline_load=$(awk '{print $1}' /proc/loadavg)
+    threshold=$(echo "$cores * 0.7" | bc)
 
     if awk "BEGIN{exit !($baseline_load >= $threshold)}"; then
         info "Baseline load $baseline_load already exceeds threshold — skipping spinners"
@@ -333,7 +334,8 @@ test_swap() {
         info "Enable: fallocate -l 2G /swapfile && chmod 600 /swapfile && mkswap /swapfile && swapon /swapfile"
         return
     }
-    local free_mb=$(free -m | awk '/^Mem:/{print $7}')
+    local free_mb
+    free_mb=$(free -m | awk '/^Mem:/{print $7}')
     local alloc=$(( free_mb * 150 / 100 ))
     info "Allocating ${alloc}MB to force paging (150% of ${free_mb}MB free)"
     python3 -c "
@@ -397,9 +399,10 @@ PYEOF
 
 test_disk() {
     hdr "TEST: Disk space (fill to 83%)"
-    local pct=$(df / | awk 'NR==2{gsub(/%/,"",$5); print $5}')
-    local total=$(df -m / | awk 'NR==2{print $2}')
-    local avail=$(df -m / | awk 'NR==2{print $4}')
+    local pct total avail
+    pct=$(df / | awk 'NR==2{gsub(/%/,"",$5); print $5}')
+    total=$(df -m / | awk 'NR==2{print $2}')
+    avail=$(df -m / | awk 'NR==2{print $4}')
     info "Currently ${pct}% used, ${avail}MB free"
     if [ "$pct" -ge 82 ]; then
         assert_status "Already at ${pct}%" "Disk" "WARN_OR_CRIT"; return
@@ -594,7 +597,11 @@ test_net_gateway() {
     ip route add default via "$gw" dev "$iface" 2>/dev/null || true
     CLEANUP_GATEWAY_RESTORE=""
     sleep 2
-    timeout 10 ping -c 1 8.8.8.8 2>/dev/null && info "Connectivity restored" || warn "Connectivity check timed out — route restored but internet may be slow"
+    if timeout 10 ping -c 1 8.8.8.8 2>/dev/null; then
+        info "Connectivity restored"
+    else
+        warn "Connectivity check timed out — route restored but internet may be slow"
+    fi
 }
 
 # ─────────────────────────────────────────────────────────────────────────────

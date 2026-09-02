@@ -17,7 +17,7 @@ hdr()  { echo -e "\n${BOLD}━━━ $* ━━━${RESET}"; return 0; }
 
 run_dsd() { "$DSD" "$@" 2>/dev/null || true; return 0; }
 exit_code() {
-    "$DSD" health "$@" > /dev/null 2>&1
+    "$DSD" health > /dev/null 2>&1
     echo ${?}
     return 0
 }
@@ -158,7 +158,8 @@ hdr "TEST 9: Baseline system"
 sleep 1
 "$DSD" health --diff > /dev/null 2>&1 || true
 BASELINE_DIR="$HOME/.dsd/baselines"
-if ls "$BASELINE_DIR"/*.json 2>/dev/null | head -1 | grep -q .; then
+baseline_json_files=("$BASELINE_DIR"/*.json)
+if [ -e "${baseline_json_files[0]}" ]; then
     pass "Baseline file created in ~/.dsd/baselines/"
 else
     fail "No baseline files found in ~/.dsd/baselines/"

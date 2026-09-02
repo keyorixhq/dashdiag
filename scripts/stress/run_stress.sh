@@ -19,7 +19,7 @@ DSD_BIN="${DSD_BIN:-/tmp/dsd}"
 STRESS="${STRESS_SCRIPT:-/tmp/stress.sh}"
 TEST="${1:-all}"
 
-RED='\033[0;31m'; GREEN='\033[0;32m'; CYAN='\033[0;36m'
+RED='\033[0;31m'; CYAN='\033[0;36m'
 BOLD='\033[1m'; RESET='\033[0m'
 
 echo -e "${BOLD}"
