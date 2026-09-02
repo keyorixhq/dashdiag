@@ -604,6 +604,20 @@ deferred by choice.** No open, un-actioned SSDLC gap remains.
   or a materially higher false-positive rate, respectively) — not
   oversights, don't re-litigate without a new reason.
 
+### install.sh — `refuse_symlinked_prefix()` TOCTOU (2026-09, adversarial shell/CI review)
+
+Not fixed, deliberately deferred — found during a shell/CI-scoped code review, PLAUSIBLE not
+CONFIRMED (not reproduced). `refuse_symlinked_prefix()`'s `-L` symlink check and the
+`mkdir`/`mv` that act on `$PREFIX`/`$INSTALL_DIR` afterward are not atomic, leaving a narrow
+check-then-act window. Needs a local attacker, a non-default `--prefix` whose parent directory
+is already attacker-writable, and precise timing; the default `/usr/local` path is root-owned
+and unreachable to this race. Residual hardening of an already-closed class (the `-L` check
+itself exists because a related symlink bug — install-script-02, see the code's own comment —
+was found and partly fixed here before), not a new hole. Low priority; revisit if install.sh's
+threat model changes (e.g. `--prefix` becomes more commonly user-supplied) or if someone wants
+to close it properly (would need a helper that opens/creates atomically rather than check-then-act,
+which POSIX sh doesn't offer cleanly).
+
 ---
 
 ## Candidate features (gated on a real request)
