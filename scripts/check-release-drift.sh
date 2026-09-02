@@ -32,6 +32,15 @@ lookback_seconds=$((LOOKBACK_DAYS * 86400))
 drift=0
 checked=0
 
+# Capture before looping (see CONTRIBUTING.md's "guards must fail loudly"
+# rule): a bare assignment IS covered by set -e, so a git for-each-ref
+# failure aborts here with its real error, instead of `done < <(...)` — whose
+# exit status set -e can't see — silently handing the loop whatever tags
+# printed before it died. A mid-stream failure would otherwise just look
+# like "fewer tags to check," not an error, in a script whose entire job is
+# noticing exactly that shape of problem.
+tags_output=$(git for-each-ref "refs/tags/${TAG_PATTERN}" --format='%(refname:short) %(creatordate:unix)')
+
 while IFS=' ' read -r tag created_epoch; do
   [[ -z "$tag" ]] && continue
 
@@ -68,7 +77,7 @@ while IFS=' ' read -r tag created_epoch; do
   else
     echo "OK    $tag"
   fi
-done < <(git for-each-ref "refs/tags/${TAG_PATTERN}" --format='%(refname:short) %(creatordate:unix)')
+done <<<"$tags_output"
 
 if (( checked == 0 )); then
   echo "No tags matched pattern '${TAG_PATTERN}' within the last ${LOOKBACK_DAYS} days — nothing to check." >&2

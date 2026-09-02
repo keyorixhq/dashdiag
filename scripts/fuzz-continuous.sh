@@ -141,7 +141,16 @@ rotation=0
 while true; do
   rotation=$((rotation + 1))
   sync_repo
-  mapfile -t targets < <(discover_targets)
+  # Capture before looping, and check the exit status explicitly — this rig
+  # is the one consumer of fuzz-discover.sh that branch protection does not
+  # cover (it force-syncs straight to origin/main), so a discover_targets
+  # failure here can't rely on a PR check catching it. `mapfile -t targets <
+  # <(discover_targets)` would hide that failure from `set -e` entirely (a
+  # process substitution's exit status is invisible to it) and silently
+  # mapfile whatever partial output printed before fuzz-discover.sh died —
+  # exactly the same "fewer targets, no error" shape this rig exists to avoid.
+  raw_targets=$(discover_targets) || { alert "discover_targets failed on $(hostname) — fuzz-discover.sh could not enumerate targets, rotation $rotation aborted"; exit 1; }
+  mapfile -t targets <<<"$raw_targets"
   alert "rotation $rotation: fuzzing ${#targets[@]} targets, ${FUZZTIME} each"
   for entry in "${targets[@]}"; do
     # Re-sync before EVERY target, not just once per rotation. A rotation

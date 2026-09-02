@@ -123,6 +123,15 @@ CI will fail any PR that contains unsigned commits.
 - [ ] No new dependencies without discussion in PR description
 - [ ] If this PR changes a security boundary (input parsing/validation, sanitization, auth, signing/verification), `docs/THREAT_MODEL.md` is updated in the same commit
 
+## Guards must fail loudly
+
+Any script whose job is to check, verify, discover, or compare must exit
+non-zero when it cannot perform the check — never report success on a
+partial result. Concretely: capture command output into a variable rather
+than piping through `< <(...)`, which `set -e` does not cover; don't
+`2>/dev/null` a command whose failure changes the answer; and assert the
+result count is non-zero before succeeding.
+
 ## Testing
 
 ```bash
