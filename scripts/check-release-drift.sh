@@ -76,7 +76,8 @@ notify() {
 # doesn't. Requires GNU sort; this script only runs in CI on ubuntu-24.04
 # (see .github/workflows/release-drift.yml), where that's guaranteed.
 version_ge() {
-  [[ "$(printf '%s\n%s\n' "$1" "$2" | sort -V | tail -1)" == "$1" ]]
+  local a="$1" b="$2"
+  [[ "$(printf '%s\n%s\n' "$a" "$b" | sort -V | tail -1)" == "$a" ]]
 }
 
 # Capture before looping (see CONTRIBUTING.md's "guards must fail loudly"
