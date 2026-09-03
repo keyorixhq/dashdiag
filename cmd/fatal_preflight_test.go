@@ -42,3 +42,21 @@ func TestFatalPreflightNilIsNil(t *testing.T) {
 		t.Errorf("fatalPreflight(nil) = %v, want nil", err)
 	}
 }
+
+// TestFatalPreflightErrorUnwraps confirms fatalPreflightError.Unwrap() exposes
+// the original cause to errors.Is/errors.As, not just exitCodeForExecuteError's
+// own errors.As(&fatalPreflightError{}) match (which never needs to unwrap
+// past the wrapper itself). A caller checking the underlying cause — e.g.
+// errors.Is(err, os.ErrNotExist) on a fatal preflight config-load failure —
+// depends on this.
+func TestFatalPreflightErrorUnwraps(t *testing.T) {
+	inner := errors.New("boom")
+	wrapped := fatalPreflight(inner)
+
+	if got := errors.Unwrap(wrapped); got != inner {
+		t.Errorf("errors.Unwrap(fatalPreflight(inner)) = %v, want %v", got, inner)
+	}
+	if !errors.Is(wrapped, inner) {
+		t.Errorf("errors.Is(fatalPreflight(inner), inner) = false, want true")
+	}
+}

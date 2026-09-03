@@ -134,6 +134,29 @@ exit 0
 	}
 }
 
+// TestScpDestination covers scpDestination's own defensive re-check directly
+// -- both branches are unreachable in the normal Run/runHost flow (ValidateHost
+// already rejects any host containing '/' or a bare ':' before scp() is ever
+// called), but the re-check exists specifically so a future ValidateHost
+// regression fails loudly right here instead of quietly building an unsafe
+// destination string. See scpDestination's own doc comment.
+func TestScpDestination(t *testing.T) {
+	if _, err := scpDestination("attacker.com/evil", "/tmp/x"); err == nil {
+		t.Error(`scpDestination(host containing "/") = nil error, want rejection`)
+	}
+	if _, err := scpDestination("attacker.com:2222", "/tmp/x"); err == nil {
+		t.Error(`scpDestination(host containing a bare ':') = nil error, want rejection`)
+	}
+
+	dest, err := scpDestination("host1", "/tmp/x")
+	if err != nil {
+		t.Fatalf("scpDestination(valid host) = %v, want nil", err)
+	}
+	if dest != "host1:/tmp/x" {
+		t.Errorf("scpDestination(valid host) = %q, want %q", dest, "host1:/tmp/x")
+	}
+}
+
 // TestSCP_Failure confirms a failing scp process returns a non-nil error.
 func TestSCP_Failure(t *testing.T) {
 	dir := t.TempDir()
