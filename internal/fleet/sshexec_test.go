@@ -100,6 +100,40 @@ func TestSCP_Success(t *testing.T) {
 	}
 }
 
+// TestSCP_BracketedIPv6BuildsCorrectDestination proves the structural
+// ValidateHost rewrite's IPv6 case (the one most likely to break a
+// legitimate deploy) actually reaches scp with the exact destination string
+// scp itself expects -- "[addr]:path", brackets intact -- not silently
+// mangled by scpDestination's own '/'/':' re-check.
+func TestSCP_BracketedIPv6BuildsCorrectDestination(t *testing.T) {
+	dir := t.TempDir()
+	argvFile := filepath.Join(dir, "argv.txt")
+	writeFakeBin(t, dir, "scp", `echo "$@" > `+argvFile+`
+exit 0
+`)
+	t.Setenv("PATH", dir)
+
+	local := filepath.Join(t.TempDir(), "dsd")
+	if err := os.WriteFile(local, []byte("binary"), 0o755); err != nil {
+		t.Fatalf("writing local bin: %v", err)
+	}
+
+	if err := ValidateHost("[2001:db8::1]"); err != nil {
+		t.Fatalf("ValidateHost(bracketed IPv6) = %v, want nil", err)
+	}
+	if err := scp(context.Background(), Options{ConnectTimeout: 5 * time.Second}, local, "[2001:db8::1]", "/tmp/dsd-fleet"); err != nil {
+		t.Fatalf("scp error = %v, want nil", err)
+	}
+
+	argv, err := os.ReadFile(argvFile)
+	if err != nil {
+		t.Fatalf("reading captured argv: %v", err)
+	}
+	if !strings.Contains(string(argv), "[2001:db8::1]:/tmp/dsd-fleet") {
+		t.Errorf("scp argv = %q, want it to contain the bracketed destination %q", argv, "[2001:db8::1]:/tmp/dsd-fleet")
+	}
+}
+
 // TestSCP_Failure confirms a failing scp process returns a non-nil error.
 func TestSCP_Failure(t *testing.T) {
 	dir := t.TempDir()
