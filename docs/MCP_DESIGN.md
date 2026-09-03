@@ -152,9 +152,21 @@ EXISTING pipeline — UNCHANGED:
   straight through to the existing redaction (see the `capture-sanitize-redaction`
   limits — lookup keys still survive; documented, not re-litigated here).
 - **Prompt-injection posture.** The server returns data, never executes
-  agent-supplied commands. There is no `bash`-style tool. The worst an adversarial
-  bundle/path can do is what the existing replay/capture code already guards
-  against (cross-platform refusal #426, plausibility gates, etc.).
+  agent-supplied commands. There is no `bash`-style tool. Tool ARGUMENTS,
+  though, are a different story from the transport: `out_path`/`bundle_path`/
+  etc. are LLM-generated from context the model has read, which can include
+  prompt-injected content the operator never typed — a path argument is only
+  as trustworthy as the least trustworthy document the calling agent has
+  ingested this session. `safeBundlePath` (cmd/mcp.go) accordingly constrains
+  every capture/replay/diff path to resolve under the server's current
+  working directory by default, bounding a steered `out_path` to the same
+  directory tree the agent's other file tools can already reach, rather than
+  treating it as an arbitrary-file-write primitive. `--allow-absolute-paths`
+  opts an operator back into the old unconstrained behavior as an explicit,
+  human-set startup choice. See `docs/THREAT_MODEL.md`'s "MCP out_path"
+  section for the full writeup (found and fixed 2026-09; the earlier revision
+  of this bullet claimed the existing replay/capture guards were sufficient
+  — they weren't the relevant control for this specific risk).
 
 ---
 
