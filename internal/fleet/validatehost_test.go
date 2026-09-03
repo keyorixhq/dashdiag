@@ -72,6 +72,24 @@ func TestValidateHost_AcceptsLegitimate(t *testing.T) {
 	}
 }
 
+// TestValidateHost_RejectsMalformedBracketedIPv6 covers
+// validateBracketedIPv6's three error branches directly — none of
+// TestValidateHost_RejectsSlashAndBareColon's cases start with '[', so none
+// of them route into this helper at all.
+func TestValidateHost_RejectsMalformedBracketedIPv6(t *testing.T) {
+	bad := []string{
+		"[fe80::1",      // unterminated: no closing ']'
+		"[]",            // too short after stripping brackets (len < 3)
+		"[not-an-ip]",   // well-bracketed but not a parseable address
+		"[192.168.1.1]", // parses, but is IPv4 -- brackets are IPv6-only
+	}
+	for _, h := range bad {
+		if err := ValidateHost(h); err == nil {
+			t.Errorf("ValidateHost(%q) = nil, want rejection", h)
+		}
+	}
+}
+
 // TestRun_InvalidHostNeverReachesSSH confirms a bad host short-circuits to an
 // ERROR result instead of being shelled out.
 func TestRun_InvalidHostNeverReachesSSH(t *testing.T) {

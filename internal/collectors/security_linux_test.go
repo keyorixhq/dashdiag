@@ -67,6 +67,89 @@ func TestParseSudoersFileFullEscalationFlagged(t *testing.T) {
 	}
 }
 
+// TestParseSudoersFileDefaultsDirectives covers the CIS 5.3.2/5.3.3/5.3.5
+// Defaults-directive branches in parseSudoersFile, previously untested: use_pty,
+// logfile=, and both timestamp_timeout= outcomes (a non-negative value is
+// recorded in minutes; a negative value means "never expires").
+func TestParseSudoersFileDefaultsDirectives(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sudoers")
+	content := "Defaults use_pty\n" +
+		"Defaults logfile=/var/log/sudo.log\n" +
+		"Defaults timestamp_timeout=15\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info := &models.SecurityInfo{}
+	parseSudoersFile(path, info)
+
+	if !info.SudoDefaultsPTY {
+		t.Error("Defaults use_pty should set SudoDefaultsPTY")
+	}
+	if !info.SudoDefaultsLogfile {
+		t.Error("Defaults logfile= should set SudoDefaultsLogfile")
+	}
+	if info.SudoTimestampMins != 15 {
+		t.Errorf("timestamp_timeout=15 should set SudoTimestampMins=15, got %d", info.SudoTimestampMins)
+	}
+	if info.SudoTimestampNever {
+		t.Error("a non-negative timestamp_timeout must not set SudoTimestampNever")
+	}
+}
+
+// TestParseSudoersFileTimestampNeverExpires covers timestamp_timeout='s
+// negative-value branch separately: SudoTimestampMins and SudoTimestampNever
+// are mutually exclusive outcomes of the same directive, so one test case
+// can't hit both.
+func TestParseSudoersFileTimestampNeverExpires(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sudoers")
+	content := "Defaults timestamp_timeout=-1\n"
+	if err := os.WriteFile(path, []byte(content), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	info := &models.SecurityInfo{}
+	parseSudoersFile(path, info)
+
+	if !info.SudoTimestampNever {
+		t.Error("timestamp_timeout=-1 should set SudoTimestampNever")
+	}
+	if info.SudoTimestampMins != 0 {
+		t.Errorf("a never-expiring timestamp should leave SudoTimestampMins at 0, got %d", info.SudoTimestampMins)
+	}
+}
+
+// TestParseSudoersFileUnreadablePrimarySignalsUnverified covers
+// parseSudoersFile's SudoersUnreadable branch: the primary sudoers file
+// exists (statFile succeeds) but can't be opened (permission denied) — CIS
+// rules need to distinguish this from "no NOPASSWD entries found" rather
+// than silently reading as clean.
+func TestParseSudoersFileUnreadablePrimarySignalsUnverified(t *testing.T) {
+	dir := t.TempDir()
+	path := filepath.Join(dir, "sudoers")
+	if err := os.WriteFile(path, []byte("ALL ALL=(ALL) NOPASSWD: ALL\n"), 0o000); err != nil {
+		t.Fatal(err)
+	}
+	if f, err := os.Open(path); err == nil {
+		f.Close()
+		t.Skip("running as root — cannot test EACCES because root bypasses permission bits")
+	}
+
+	prevPath := sudoersPath
+	sudoersPath = path
+	t.Cleanup(func() { sudoersPath = prevPath })
+
+	info := &models.SecurityInfo{}
+	parseSudoersFile(path, info)
+
+	if !info.SudoersUnreadable {
+		t.Error("an unreadable primary sudoers file should set SudoersUnreadable")
+	}
+	if len(info.SudoNopasswd) != 0 {
+		t.Errorf("an unreadable file must not report any NOPASSWD entries, got %v", info.SudoNopasswd)
+	}
+}
+
 // Characterization tests for previously-uncovered pure parsers in
 // security_linux.go. They lock in current behavior so the parser-hardening work
 // (BUG-024..035 class) can continue without silent regressions. No external

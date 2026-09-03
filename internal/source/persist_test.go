@@ -628,3 +628,57 @@ func TestSavePermissionsAreRestrictive(t *testing.T) {
 	checkMode(filepath.Join(dir, "files", "blobs", "0000"), 0o600)
 	checkMode(filepath.Join(dir, "commands", "blobs", "0000.out"), 0o600)
 }
+
+// TestWriteBlobNoFollowRefusesSymlink covers writeBlobNoFollow's ELOOP branch
+// directly: a symlink pre-planted at the target path must be refused, not
+// followed. Latent-only in production today (Save's sole caller always uses a
+// private 0700 os.MkdirTemp dir nothing else can plant a symlink into — see
+// writeBlobNoFollow's own doc comment), but the helper is unexported and
+// otherwise only reachable through Save's happy/permission-denied paths,
+// which never exercise this branch.
+func TestWriteBlobNoFollowRefusesSymlink(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+
+	target := filepath.Join(dir, "real-target")
+	if err := os.WriteFile(target, []byte("do not overwrite me"), 0o600); err != nil {
+		t.Fatalf("seeding symlink target: %v", err)
+	}
+	linkPath := filepath.Join(dir, "blob")
+	if err := os.Symlink(target, linkPath); err != nil {
+		t.Fatalf("os.Symlink: %v", err)
+	}
+
+	err := writeBlobNoFollow(linkPath, []byte("attacker data"), 0o600)
+	if err == nil {
+		t.Fatal("writeBlobNoFollow should refuse to write through a symlink")
+	}
+
+	got, readErr := os.ReadFile(target)
+	if readErr != nil {
+		t.Fatalf("reading target after refused write: %v", readErr)
+	}
+	if string(got) != "do not overwrite me" {
+		t.Errorf("symlink target was modified despite refusal: %q", got)
+	}
+}
+
+// TestWriteBlobNoFollowSuccess covers the plain create-and-write path (no
+// symlink, no pre-existing file) — the other branch writeBlobNoFollow has
+// besides the ELOOP refusal above.
+func TestWriteBlobNoFollowSuccess(t *testing.T) {
+	t.Parallel()
+	dir := t.TempDir()
+	path := filepath.Join(dir, "blob")
+
+	if err := writeBlobNoFollow(path, []byte("hello"), 0o600); err != nil {
+		t.Fatalf("writeBlobNoFollow: %v", err)
+	}
+	got, err := os.ReadFile(path)
+	if err != nil {
+		t.Fatalf("reading written blob: %v", err)
+	}
+	if string(got) != "hello" {
+		t.Errorf("blob content = %q, want %q", got, "hello")
+	}
+}
