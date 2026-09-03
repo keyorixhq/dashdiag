@@ -44,6 +44,8 @@ import (
 
 func init() {
 	rootCmd.AddCommand(mcpCmd)
+	mcpCmd.Flags().Bool("allow-absolute-paths", false,
+		"allow dsd_capture/dsd_replay/dsd_diff paths outside the current working directory (default: constrained to CWD)")
 }
 
 var mcpCmd = &cobra.Command{
@@ -66,8 +68,11 @@ See docs/MCP_DESIGN.md for architecture, security model, and non-goals.`,
 	// Suppress the version/platform line that runE's PersistentPreRun emits,
 	// but still apply --network (mcp reaches the live collector pipeline via
 	// dsd_health/dsd_capture, so the gate is not cosmetic here).
-	PersistentPreRun: func(cmd *cobra.Command, _ []string) { applyNetworkPolicy(cmd) },
-	RunE:             runMCP,
+	PersistentPreRun: func(cmd *cobra.Command, _ []string) {
+		applyNetworkPolicy(cmd)
+		mcpAllowAbsolutePaths, _ = cmd.Flags().GetBool("allow-absolute-paths")
+	},
+	RunE: runMCP,
 }
 
 // ── input/output structs (drive JSON Schema auto-generation by MCP SDK) ───
@@ -112,10 +117,36 @@ type mcpDiffInput struct {
 	CurrentPath  string `json:"current_path"  jsonschema:"path to the current (after) bundle"`
 }
 
-// safeBundlePath rejects paths that contain traversal sequences. MCP is
-// stdio-only and the caller is a trusted local process, so we allow any
-// absolute or relative path — we only block ".." components that could escape
-// an expected directory.
+// mcpAllowAbsolutePaths opts out of safeBundlePath's default CWD-subtree
+// constraint. Set once at server startup (mcpCmd's PersistentPreRun) from
+// --allow-absolute-paths; read on every tool call for the life of the
+// process — never mutated after startup, so no synchronization is needed
+// despite the MCP SDK dispatching tool calls concurrently (see
+// mcpPipelineMu's doc comment on that concurrency model).
+var mcpAllowAbsolutePaths bool
+
+// safeBundlePath rejects paths that contain traversal sequences, and — unless
+// --allow-absolute-paths was passed to `dsd mcp` — rejects any path that
+// doesn't resolve under the current working directory.
+//
+// The CWD constraint exists because "MCP is stdio-only and the caller is a
+// trusted local process" (this comment's own claim, until 2026-09) is true
+// of the TRANSPORT but not of the ARGUMENTS: in agentic use, out_path is
+// LLM-generated from context the model has read, which can include
+// prompt-injected content the operator never typed. A path arg is exactly
+// as trustworthy as the least trustworthy document the calling agent has
+// ingested this session — treating it as operator-typed input (the
+// tolerant, "any absolute path is fine" policy this function used to have)
+// makes out_path an arbitrary-file-write primitive steerable by a document
+// the agent happened to read, not a path the human running the agent chose.
+// Constraining writes/reads to the CWD subtree by default bounds the blast
+// radius to the same directory tree the agent's other file tools can
+// already reach; --allow-absolute-paths restores the old behavior for
+// operators who want it (e.g. a fixed capture-archive directory outside the
+// project tree), as an explicit, human-set startup choice rather than a
+// per-call default. See docs/THREAT_MODEL.md, "MCP out_path" for the full
+// writeup and docs/MCP_DESIGN.md's "Security & privilege model" for how
+// this fits the server's other guarantees.
 func safeBundlePath(raw string) (string, error) {
 	if raw == "" {
 		return "", fmt.Errorf("path must not be empty")
@@ -123,6 +154,21 @@ func safeBundlePath(raw string) (string, error) {
 	cleaned := filepath.Clean(raw)
 	if strings.Contains(cleaned, "..") {
 		return "", fmt.Errorf("path must not contain traversal sequences")
+	}
+	if mcpAllowAbsolutePaths {
+		return cleaned, nil
+	}
+
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", fmt.Errorf("resolving current working directory: %w", err)
+	}
+	abs := cleaned
+	if !filepath.IsAbs(abs) {
+		abs = filepath.Join(cwd, abs)
+	}
+	if abs != cwd && !strings.HasPrefix(abs, cwd+string(filepath.Separator)) {
+		return "", fmt.Errorf("path %q resolves outside the current working directory (%s) -- pass --allow-absolute-paths to dsd mcp to permit paths outside it", raw, cwd)
 	}
 	return cleaned, nil
 }

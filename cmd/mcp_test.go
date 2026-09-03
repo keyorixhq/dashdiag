@@ -31,6 +31,109 @@ import (
 // caller's context can be told apart from anything else that might be on it.
 type ctxProbeKey struct{}
 
+// tempDirUnderCWD returns a fresh, uniquely-named temp directory created as
+// a subdirectory of the actual process CWD, unlike t.TempDir() (which
+// creates one under the OS temp root, unrelated to CWD). Several toolCapture
+// tests below need this: safeBundlePath now constrains out_path to resolve
+// under CWD by default (cmd-09-02, reversed 2026-09 — see safeBundlePath's
+// doc comment), and those tests exercise unrelated behavior (context
+// forwarding, mcpPipelineMu serialization, sanitize/identifiers), not path
+// safety itself, so t.Chdir or mutating mcpAllowAbsolutePaths would be the
+// wrong fix — both are unsafe to use from a parallel test (shared
+// process-wide state), and several of these tests are parallel on purpose
+// (see TestToolCaptureIdentifiersImpliesSanitize's doc comment on the CI
+// time budget that depends on it). os.MkdirTemp's uniqueness guarantee
+// makes this safe under -race with no shared state and no CWD change.
+func tempDirUnderCWD(t *testing.T) string {
+	t.Helper()
+	dir, err := os.MkdirTemp(".", "mcptest-*")
+	if err != nil {
+		t.Fatalf("MkdirTemp: %v", err)
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(dir) })
+	return dir
+}
+
+// TestSafeBundlePath_ConstrainsToCWDByDefault and
+// TestSafeBundlePath_AllowAbsolutePathsOptsOut assert safeBundlePath's
+// current, DECIDED behaviour (cmd-09-02, revisited and reversed 2026-09 —
+// see safeBundlePath's own doc comment and docs/THREAT_MODEL.md's "MCP
+// out_path" section for why the CWD constraint exists). Formerly a WONT_FIX
+// spec test (cmd/wontfix_spec_test.go, removed when the decision reversed);
+// these two replace it.
+//
+// Neither calls t.Parallel(): both read/mutate the package-level
+// mcpAllowAbsolutePaths, which every other test in this package implicitly
+// relies on defaulting to false. Go runs every non-parallel test's full
+// body — including any t.Cleanup restore — to completion before a
+// t.Parallel() test's deferred body resumes, so staying non-parallel is
+// what keeps this mutation from racing a concurrently-executing parallel
+// test's own safeBundlePath call.
+
+func TestSafeBundlePath_ConstrainsToCWDByDefault(t *testing.T) {
+	mcpAllowAbsolutePaths = false
+	dir := t.TempDir()
+	t.Chdir(dir)
+	cwd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+
+	cases := []struct {
+		name    string
+		raw     string
+		wantErr bool
+	}{
+		{"relative path inside cwd is allowed", "bundle.tar.gz", false},
+		{"relative path in a subdirectory is allowed", "sub/bundle.tar.gz", false},
+		{"absolute path under cwd is allowed", filepath.Join(cwd, "bundle.tar.gz"), false},
+		{"absolute path outside cwd is rejected", "/etc/passwd", true},
+		{"absolute path in a sibling tree is rejected", filepath.Join(filepath.Dir(cwd), "elsewhere", "bundle.tar.gz"), true},
+		{"traversal escaping cwd is rejected", "../escape.tar.gz", true},
+		{"empty path is rejected", "", true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := safeBundlePath(c.raw)
+			if c.wantErr && err == nil {
+				t.Errorf("safeBundlePath(%q) = nil error, want an error (outside CWD must be rejected by default)", c.raw)
+			}
+			if !c.wantErr && err != nil {
+				t.Errorf("safeBundlePath(%q) = %v, want nil — path resolves under CWD", c.raw, err)
+			}
+		})
+	}
+}
+
+func TestSafeBundlePath_AllowAbsolutePathsOptsOut(t *testing.T) {
+	mcpAllowAbsolutePaths = true
+	t.Cleanup(func() { mcpAllowAbsolutePaths = false })
+
+	cases := []struct {
+		name    string
+		raw     string
+		wantErr bool
+	}{
+		{"absolute path outside any expected dir is allowed", "/etc/passwd", false},
+		{"absolute path with deep unrelated tree is allowed", "/var/lib/somewhere/else/bundle.tar.gz", false},
+		{"relative path is allowed", "bundle.tar.gz", false},
+		{"traversal component is rejected", "../etc/passwd", true},
+		{"traversal component mid-path is rejected", "a/../../b", true},
+		{"empty path is rejected", "", true},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			_, err := safeBundlePath(c.raw)
+			if c.wantErr && err == nil {
+				t.Errorf("safeBundlePath(%q) = nil error, want an error (traversal/empty must still be rejected with --allow-absolute-paths)", c.raw)
+			}
+			if !c.wantErr && err != nil {
+				t.Errorf("safeBundlePath(%q) = %v, want nil — --allow-absolute-paths restores the old accepted-risk behaviour", c.raw, err)
+			}
+		})
+	}
+}
+
 // TestToolCaptureRequiresOutPath verifies that toolCapture returns an error
 // when out_path is empty rather than writing to an unpredictable location.
 func TestToolCaptureRequiresOutPath(t *testing.T) {
@@ -41,6 +144,41 @@ func TestToolCaptureRequiresOutPath(t *testing.T) {
 	}
 	if !strings.Contains(err.Error(), "dsd_capture") || !strings.Contains(err.Error(), "out_path") {
 		t.Errorf("unexpected error message: %q", err.Error())
+	}
+}
+
+// TestToolCapture_RejectsOutsideCWD is the integration counterpart to
+// TestSafeBundlePath_ConstrainsToCWDByDefault: proves the real dsd_capture
+// tool handler — not just safeBundlePath in isolation — refuses a
+// steered out_path pointing outside the server's CWD, and critically that
+// NOTHING gets written anywhere before the rejection (an agentic caller
+// only gets to inspect the error, never a bundle_path to a file that
+// landed somewhere unexpected).
+func TestToolCapture_RejectsOutsideCWD(t *testing.T) {
+	// No t.Parallel(): asserts a negative (no file appears anywhere), which
+	// a concurrently-running parallel toolCapture test legitimately writing
+	// its own bundle elsewhere doesn't threaten, but keeping this
+	// synchronous keeps the "did nothing get created" check simple to trust.
+	mcpAllowAbsolutePaths = false
+	dir := tempDirUnderCWD(t)
+	outside := filepath.Join(t.TempDir(), "escaped.tar.gz") // OS temp root, not under CWD
+
+	_, _, err := toolCapture(context.Background(), &mcp.CallToolRequest{}, mcpCaptureInput{OutPath: outside})
+	if err == nil {
+		t.Fatal("expected an error for an out_path outside CWD, got nil")
+	}
+	if !strings.Contains(err.Error(), "current working directory") {
+		t.Errorf("error should explain the CWD constraint, got: %q", err.Error())
+	}
+	if _, statErr := os.Stat(outside); !os.IsNotExist(statErr) {
+		t.Errorf("a bundle was written to the rejected path %q despite the error", outside)
+	}
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		t.Fatalf("ReadDir(%q): %v", dir, err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("expected the CWD-local scratch dir %q to stay empty, found %d entr(y/ies)", dir, len(entries))
 	}
 }
 
@@ -57,7 +195,7 @@ func TestToolCaptureRequiresOutPath(t *testing.T) {
 // its 180s CI budget.
 func TestToolCaptureIdentifiersImpliesSanitize(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
+	dir := tempDirUnderCWD(t)
 	out := filepath.Join(dir, "out.tar.gz")
 
 	realHost, hostErr := os.Hostname()
@@ -97,7 +235,7 @@ func TestToolCaptureIdentifiersImpliesSanitize(t *testing.T) {
 // human — not a bundle_path with no indication the contents are raw.
 func TestToolCaptureUnsanitizedDisclosesNote(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
+	dir := tempDirUnderCWD(t)
 	out := filepath.Join(dir, "out.tar.gz")
 
 	_, result, err := toolCapture(context.Background(), &mcp.CallToolRequest{},
@@ -200,7 +338,7 @@ func TestToolCapture_ForwardsCallerContext(t *testing.T) {
 		return nil, nil, nil, 0
 	}
 
-	dir := t.TempDir()
+	dir := tempDirUnderCWD(t)
 	out := filepath.Join(dir, "out.tar.gz")
 	callerCtx := context.WithValue(context.Background(), ctxProbeKey{}, "toolCapture-caller")
 	if _, _, err := toolCapture(callerCtx, &mcp.CallToolRequest{}, mcpCaptureInput{OutPath: out}); err != nil {
@@ -233,7 +371,7 @@ func TestToolReplayRequiresBundlePath(t *testing.T) {
 // error (not a panic or nil) when the named bundle does not exist on disk.
 func TestToolReplayNonexistentBundle(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
+	dir := tempDirUnderCWD(t)
 	_, _, err := toolReplay(context.Background(), &mcp.CallToolRequest{},
 		mcpReplayInput{BundlePath: filepath.Join(dir, "nonexistent.tar.gz")})
 	if err == nil {
@@ -262,7 +400,7 @@ func TestToolDiffRequiresBothPaths(t *testing.T) {
 // error when the baseline bundle does not exist.
 func TestToolDiffNonexistentBundle(t *testing.T) {
 	t.Parallel()
-	dir := t.TempDir()
+	dir := tempDirUnderCWD(t)
 	_, _, err := toolDiff(context.Background(), &mcp.CallToolRequest{}, mcpDiffInput{
 		BaselinePath: filepath.Join(dir, "a.tar.gz"),
 		CurrentPath:  filepath.Join(dir, "b.tar.gz"),
@@ -339,7 +477,7 @@ func TestToolDiffRedactsSecretShapedMessage(t *testing.T) {
 // contending for mcpPipelineMu at the moment it TryLocks, which a sibling
 // parallel test also calling a tool handler would defeat.
 func TestMCPPipelineMu_SerializesToolCapture(t *testing.T) {
-	dir := t.TempDir()
+	dir := tempDirUnderCWD(t)
 	out := filepath.Join(dir, "out.tar.gz")
 
 	done := make(chan struct{})

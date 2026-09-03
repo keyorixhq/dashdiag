@@ -3,7 +3,7 @@
 This document covers the trust boundaries in dsd where external or
 attacker-influenceable data crosses into dsd's own code — as opposed to the
 collectors, which are covered by the "false-OK" correctness-bug sweeps
-tracked in `BUGS.md`. It is scoped to four surfaces, chosen because they are
+tracked in `BUGS.md`. It is scoped to five surfaces, chosen because they are
 the only places dsd processes data it did not itself just read live off the
 local host:
 
@@ -11,6 +11,7 @@ local host:
 2. Capture sanitization (`dsd capture --sanitize`, `dsd sanitize`, `--identifiers`)
 3. The self-updater and release-signing chain (`dsd update`)
 4. Fleet host validation (`dsd fleet`)
+5. MCP tool path arguments (`dsd mcp`)
 
 For each surface: what's trusted today, what's verified, and what residual
 risk remains. This is not a full enterprise DFD — dsd is a single static
@@ -236,6 +237,48 @@ operator runs without inspecting every entry.
 produced the scp defect is gone — every character-level exception (`/`, a
 bare `:`, `-oProxyCommand=`) is now a structural rejection rather than an
 allowlist gap waiting to be found the same way this one was.
+
+## 5. MCP out_path — `dsd mcp`
+
+**What crosses the boundary:** `out_path`/`bundle_path`/`baseline_path`/
+`current_path` arguments to the four MCP tools (`dsd_capture`, `dsd_replay`,
+`dsd_diff`), validated by `cmd/mcp.go`'s `safeBundlePath`.
+
+**Stated trust assumption before this fix:** "MCP is stdio-only and the
+caller is a trusted local process" — true of the transport, but the
+assumption was extended to the tool ARGUMENTS too: any absolute or relative
+path was allowed, the only rejection was a `..` traversal component. Closed
+WONT_FIX under that reasoning (cmd-09-02, 2026-08).
+
+**Why the assumption didn't hold (found 2026-09, revisited):** in agentic
+use, `out_path` is not operator-typed — it's LLM-generated from whatever
+context the model has read that session, which can include prompt-injected
+content from a document, a web page, or output from another tool the agent
+ran. The transport being trusted-local doesn't make the argument
+operator-chosen. Treating an LLM-generated path as trustworthy as a
+human-typed one made `out_path` an arbitrary-file-write primitive (and
+`bundle_path`/`baseline_path`/`current_path` an arbitrary-file-read one)
+steerable by any document the agent happened to ingest, not by the person
+running the agent.
+
+**Fixed:** `safeBundlePath` now constrains every path to resolve under the
+MCP server's current working directory by default — the same directory tree
+the agent's other file tools (read, write, edit) can already reach, so this
+doesn't grant a steered path any capability beyond what the agent's ordinary
+toolset already has. `--allow-absolute-paths` (a `dsd mcp` startup flag, not
+a per-call argument — a deliberate, human-set choice, not something a
+tool-call argument can flip) restores the old unconstrained behavior for
+operators who want it, e.g. a fixed capture-archive directory outside the
+project tree. The `..`-traversal rejection is unconditional in both modes.
+
+**Residual gaps:** an operator who runs `dsd mcp --allow-absolute-paths`
+restores the full original risk — an explicit, documented opt-out, not a
+silent one. `bundle_path`/`baseline_path`/`current_path` (the read side) get
+the same CWD constraint as `out_path` (the write side) for consistency, even
+though an arbitrary-file-read is lower severity than an arbitrary-file-write
+— reading `/etc/shadow`'s content into a tool response an agent might then
+echo back is still a real disclosure risk, not just a defensive-symmetry
+choice.
 
 ## Known documentation drift found while researching this doc
 
