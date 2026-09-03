@@ -38,7 +38,11 @@ off the local host — bundle ingestion, sanitization guarantees/limits, and the
 self-update trust chain.
 
 ### What DashDiag never does
-- Writes to system directories (`/etc`, `/var`, `/sys`, `/proc`)
+- Writes to system directories (`/etc`, `/var`, `/sys`, `/proc`) — one opt-in
+  exception: `dsd hook install`'s "systemd timer" option writes
+  `/etc/systemd/system/dsd-health.{timer,service}`, and only if the operator
+  selects it and has (or is granted via `sudo`) the privilege to do so. Every
+  other install/update path stays under `~/.dsd/`.
 - Runs as a daemon or background service
 - Opens listening network ports
 - Modifies system configuration
@@ -47,22 +51,22 @@ self-update trust chain.
 ### Network egress — stated guarantee, not just an omission
 
 Core diagnostics (`dsd health`, `dsd security`, `dsd disk`, etc.) make **zero
-outbound network calls** — every collector reads local files/`/proc`/`/sys` or
-execs a local tool. The only code paths that ever dial out are explicit,
-operator-opted-in subcommands, each scoped to what it needs and nothing more:
+outbound network calls by default** — every collector reads local
+files/`/proc`/`/sys` or execs a local tool. Every code path that can dial out
+on its own initiative is gated behind one policy,
+`platform.NetworkAllowed()`, which defaults to false; a separate, smaller set
+of commands (`dsd fleet`, `dsd tls --endpoint`, `dsd update`) dial out
+ungated because the network action IS the command the operator just typed,
+naming the target themselves.
 
-- `dsd fleet` — SSH to hosts the operator names, to run `dsd health --json` remotely.
-- `dsd update` / the passive version nudge — HTTPS to the GitHub releases API only.
-- `dsd tls --endpoint <host:port>` — a TLS handshake against an endpoint the operator specifies.
-- `dsd cve` / package-manager-backed security scans — queries the distro's
-  already-configured package repos (same network access `apt`/`dnf`/`zypper`
-  already have), not a dsd-operated service.
-- `dsd capture --share` — not yet implemented (see above); when it ships, it
-  will be the one path that sends a capture off-host, and only when invoked.
-
-No telemetry, no phone-home, no background connections. This list is the
-concrete claim behind "read-only local CLI tool" above — verifiable by
-`strace -f -e trace=network` on any plain `dsd health` run.
+**[PRIVACY.md's "Network calls" section](PRIVACY.md#network-calls)** is the
+authoritative full list of every call site in both categories — this file
+doesn't attempt to enumerate them, so it can't fall out of sync as new
+gated collectors are added. No telemetry, no phone-home, no background
+connections: with the default left alone (no `--network`,
+`DSD_ALLOW_NETWORK` unset), dsd makes zero outbound calls of any kind —
+verifiable with `strace -f -e trace=network` on a plain `dsd health` run
+that doesn't pass `--network`.
 
 ## Verifying a Release
 
