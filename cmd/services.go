@@ -305,7 +305,7 @@ func printSystemdHealth(info *models.ServicesDeepInfo, mode output.OutputMode) {
 			printLine(mode, "warn", svcSectionUserUnits,
 				fmt.Sprintf("%d failed", len(info.UserUnits.Failed)))
 			for _, u := range info.UserUnits.Failed {
-				fmt.Printf("     %s\n", u.Name)
+				fmt.Printf("     %s\n", output.SanitizeControl(u.Name))
 				for _, line := range u.LastLogLines {
 					fmt.Printf("       → %s\n", truncate(output.SanitizeControl(line), 100))
 				}
@@ -317,8 +317,8 @@ func printSystemdHealth(info *models.ServicesDeepInfo, mode output.OutputMode) {
 	if human && len(info.FailedUnits) > 0 {
 		fmt.Fprintln(os.Stdout, "\nNext:")
 		for _, u := range info.FailedUnits {
-			fmt.Printf("  → systemctl status %s\n", u.Name)
-			fmt.Printf("  → journalctl -u %s -n 50 --no-pager\n", u.Name)
+			fmt.Printf("  → systemctl status %s\n", output.SanitizeControl(u.Name))
+			fmt.Printf("  → journalctl -u %s -n 50 --no-pager\n", output.SanitizeControl(u.Name))
 		}
 	}
 }
