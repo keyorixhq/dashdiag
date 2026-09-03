@@ -11,6 +11,63 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.2.0] - 2026-09-03
+
+### Added
+
+- `dsd mcp --allow-absolute-paths`: opts out of the new default CWD
+  constraint on `dsd_capture`/`dsd_replay`/`dsd_diff` path arguments (see
+  Security below), for operators who want the previous behavior — e.g. a
+  fixed capture-archive directory outside the project tree.
+
+### Fixed
+
+- `dsd fleet`: a host token containing `/` or a bare `:` could make `scp`
+  misinterpret its destination — a host of `/tmp/evil` was silently copied
+  to the *orchestrating* machine instead of any remote host (no network
+  call, no error), and `attacker.com:/tmp/x` could redirect an upload to a
+  host never listed in `--hosts-file`. `ValidateHost` now parses
+  `[user@]host` structurally instead of via a character allowlist; IPv6
+  literals must now be bracketed (`[2001:db8::1]`, optionally `%zone`).
+- Six write sites (`dsd hook install`'s GitHub Actions/SSH-login
+  generators, `dsd health --report`'s markdown/HTML output,
+  `dsd inventory --out`, an internal capture-bundle blob writer) used a
+  plain file write that follows an existing symlink at the destination
+  instead of refusing it — exploitable only from a shared/multi-tenant
+  working directory, where another local user could pre-plant a symlink to
+  redirect the write. All now refuse to write through a symlink. A new
+  build-time check prevents a future call site from reintroducing this
+  class.
+- `install.sh`'s symlink-attack guard (`--prefix`) is now re-checked
+  immediately before each privileged step instead of only once, narrowing
+  (not eliminating — no atomic check-then-act primitive exists in portable
+  POSIX sh) the window between the check and the actual write; a redundant
+  `chmod` in the sudo-install fallback was also removed.
+
+### Security
+
+- `dsd mcp`'s `dsd_capture`/`dsd_replay`/`dsd_diff` path arguments
+  (`out_path`, `bundle_path`, `baseline_path`, `current_path`) now default
+  to resolving under the server's current working directory. In agentic
+  use these arguments are LLM-generated from context that can include
+  prompt-injected content, so treating any absolute path as trustworthy
+  made `out_path` an arbitrary-file-write primitive steerable by a
+  document the agent happened to read, not by the operator. Use
+  `--allow-absolute-paths` to restore the previous behavior.
+- Bumped `golang.org/x/crypto` to v0.56.0, fixing two upstream DoS
+  advisories (`GO-2026-6354`, `GO-2026-6355`) in `x/crypto/ssh`. Not
+  reachable from dsd's own code (dsd shells out to the system `ssh`/`scp`
+  binaries rather than importing `x/crypto/ssh`), but taken as a
+  supply-chain hygiene fix regardless.
+
+### Breaking Changes
+
+- `dsd mcp`'s `out_path`/`bundle_path`/`baseline_path`/`current_path`
+  arguments no longer accept a path outside the server's current working
+  directory by default (see Security above) — pass `--allow-absolute-paths`
+  to `dsd mcp` at startup to restore the previous behavior. No change to
+  the CLI flag surface, JSON schema, or exit codes elsewhere.
+
 ## [2.1.0] - 2026-08-31
 
 ### Changed
