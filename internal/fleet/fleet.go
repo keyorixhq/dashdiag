@@ -9,7 +9,9 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"net/netip"
 	"os/exec"
+	"regexp"
 	"sort"
 	"strconv"
 	"strings"
@@ -98,12 +100,36 @@ type remoteHealth struct {
 	} `json:"insights"`
 }
 
-// ValidateHost rejects host tokens that ssh/scp would reinterpret as options or
-// that contain shell/whitespace metacharacters. This is the primary guard for
-// trust boundary B (THREAT_MODEL_CLI.md F-1): a host entry like
-// "-oProxyCommand=..." is parsed by ssh as a flag, not a hostname, yielding
-// local command execution from a poisoned hosts list. Accepts the documented
-// [user@]host form (letters, digits, dot, dash, colon for IPv6, @, _, /).
+// hostLabelRe matches one dot-separated label of a hostname or ~/.ssh/config
+// Host alias, or an ssh username: letters, digits, dash, underscore,
+// non-empty. Underscore isn't valid in a strict DNS label but is common in
+// real Host aliases (an existing, intentionally-accepted case — see
+// TestValidateHost_AcceptsLegitimate) and carries none of the risk '/' and a
+// bare ':' do, so it stays allowed here.
+var hostLabelRe = regexp.MustCompile(`^[A-Za-z0-9_][A-Za-z0-9_-]*$`)
+
+// ValidateHost rejects host tokens that ssh/scp would reinterpret as options,
+// or whose shape ssh/scp's own argument grammar could reinterpret in a way
+// the operator never intended. This is the primary guard for the fleet host
+// trust boundary (docs/THREAT_MODEL.md, "Fleet host validation"): a host
+// entry like "-oProxyCommand=..." is parsed by ssh as a flag, yielding local
+// command execution from a poisoned hosts list.
+//
+// The [user@]host form is validated STRUCTURALLY, not by a character
+// allowlist — a character class can't express "a colon is fine inside IPv6
+// brackets but not as a bare separator," and that gap was a real, reproduced
+// defect. scp resolves local-vs-remote by scanning its destination argument
+// left-to-right for the first ':'; a '/' before that point forces a LOCAL
+// path interpretation regardless of what follows, so a host of "/tmp/evil"
+// silently copies the binary onto the orchestrating machine instead of any
+// remote host — no network call, no error, just a deploy that quietly went
+// nowhere. And because the FIRST ':' wins, a host like
+// "attacker.com:/tmp/x" turns "host+\":\"+remotePath" into
+// "attacker.com:/tmp/x:/opt/dsd/dsd-fleet" — scp uploads to attacker.com, a
+// host the operator never listed, from one poisoned line in a --hosts-file.
+// Neither is closeable by allowing or forbidding a single character in
+// isolation; only a structural parse of what "one host" is allowed to look
+// like closes both without also breaking real IPv6 literals.
 func ValidateHost(host string) error {
 	if host == "" {
 		return fmt.Errorf("empty host")
@@ -111,14 +137,50 @@ func ValidateHost(host string) error {
 	if strings.HasPrefix(host, "-") {
 		return fmt.Errorf("host %q starts with '-' (would be read as an ssh option)", host)
 	}
-	for _, r := range host {
-		switch {
-		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
-		case r == '.' || r == '-' || r == ':' || r == '@' || r == '_' || r == '/' || r == '%':
-			// dot/dash: hostnames; colon/%: IPv6 (incl. zone id); @: user@host; _,/: ssh config aliases
-		default:
-			return fmt.Errorf("host %q contains invalid character %q", host, r)
+	if strings.Contains(host, "/") {
+		return fmt.Errorf("host %q contains '/' -- scp reads a '/' before the first ':' as a local path, not a remote host", host)
+	}
+
+	addr := host
+	if i := strings.IndexByte(host, '@'); i >= 0 {
+		user := host[:i]
+		addr = host[i+1:]
+		if !hostLabelRe.MatchString(user) {
+			return fmt.Errorf("host %q has an invalid user %q before '@'", host, user)
 		}
+	}
+
+	if strings.HasPrefix(addr, "[") {
+		return validateBracketedIPv6(host, addr)
+	}
+	if strings.Contains(addr, ":") {
+		return fmt.Errorf("host %q contains a bare ':' -- an IPv6 literal must be bracketed, e.g. \"[%s]\"", host, addr)
+	}
+	if addr == "" {
+		return fmt.Errorf("host %q has an empty address after '@'", host)
+	}
+	for _, label := range strings.Split(addr, ".") {
+		if !hostLabelRe.MatchString(label) {
+			return fmt.Errorf("host %q is not a valid hostname or IPv4 literal", host)
+		}
+	}
+	return nil
+}
+
+// validateBracketedIPv6 checks addr is a well-formed "[ipv6]" or
+// "[ipv6%zone]" literal -- the only shape a bare ':' is permitted in, and
+// the shape scp itself expects for an IPv6 destination.
+func validateBracketedIPv6(host, addr string) error {
+	if !strings.HasSuffix(addr, "]") || len(addr) < 3 {
+		return fmt.Errorf("host %q has an unterminated '[' -- an IPv6 literal must be fully bracketed", host)
+	}
+	inner := addr[1 : len(addr)-1]
+	parsed, err := netip.ParseAddr(inner)
+	if err != nil {
+		return fmt.Errorf("host %q is not a valid bracketed IPv6 literal: %w", host, err)
+	}
+	if !parsed.Is6() {
+		return fmt.Errorf("host %q brackets an IPv4 address -- brackets are for IPv6 literals only", host)
 	}
 	return nil
 }
@@ -379,9 +441,35 @@ func sshRun(ctx context.Context, opts Options, host, cmd string) ([]byte, error)
 	return stdout.buf.Bytes(), err
 }
 
+// scpDestination builds scp's destination argument, "host:remotePath". This
+// is the one place this package must remember scp's own parsing rule (see
+// ValidateHost's doc comment for the full exploit shape): scp decides
+// local-vs-remote by scanning the argument left-to-right for the first ':',
+// and a '/' before that point forces a local-path interpretation regardless
+// of what follows. ValidateHost already guarantees every host reaching this
+// function contains neither '/' nor a bare (unbracketed) ':', which is what
+// makes host+":"+remotePath safe to build literally — this re-check exists
+// so a future change to ValidateHost's grammar can't silently reopen that
+// gap without a loud, immediate failure right where the unsafe string would
+// otherwise get built, instead of a quiet misdirected upload discovered
+// later (or never).
+func scpDestination(host, remotePath string) (string, error) {
+	if strings.Contains(host, "/") {
+		return "", fmt.Errorf("internal error: scp destination host %q contains '/' -- ValidateHost should have rejected this", host)
+	}
+	if !strings.HasPrefix(host, "[") && strings.Contains(host, ":") {
+		return "", fmt.Errorf("internal error: scp destination host %q contains a bare ':' -- ValidateHost should have rejected this", host)
+	}
+	return host + ":" + remotePath, nil
+}
+
 func scp(ctx context.Context, opts Options, localPath, host, remotePath string) error {
+	dest, err := scpDestination(host, remotePath)
+	if err != nil {
+		return err
+	}
 	scpArgs := append([]string{"-q"}, sshBaseArgs(opts)...)
-	scpArgs = append(scpArgs, "--", localPath, host+":"+remotePath)
+	scpArgs = append(scpArgs, "--", localPath, dest)
 	// Same rationale as sshRun above: WaitDelay yes, PATH-trust/locale no —
 	// scp must resolve via the operator's own $PATH for the same reason ssh
 	// does, and there is no output here to locale-parse at all.
