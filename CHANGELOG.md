@@ -68,6 +68,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   to `dsd mcp` at startup to restore the previous behavior. No change to
   the CLI flag surface, JSON schema, or exit codes elsewhere.
 
+> **Note:** the LAN-only hardware smoke test (`scripts/hardware-smoke.sh`,
+> real SMART/thermal/battery sanity checks against the pve01 bare-metal
+> testbed) was not run for this release — the testbed was unreachable while
+> the maintainer was traveling. This release's changes (fleet host
+> validation, symlink-follow write-site hardening, MCP path constraint,
+> `x/crypto` bump) don't touch hardware collector paths, but per
+> `docs/RELEASE.md`, noted explicitly here rather than left silent.
+
 ## [2.1.0] - 2026-08-31
 
 ### Changed
