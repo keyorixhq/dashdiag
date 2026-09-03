@@ -607,23 +607,39 @@ deferred by choice.** No open, un-actioned SSDLC gap remains.
 ### install.sh — `refuse_symlinked_prefix()` TOCTOU (2026-09, adversarial shell/CI review)
 
 PLAUSIBLE not CONFIRMED (not reproduced), narrowed 2026-09 — not eliminated, and not claimed
-to be. `refuse_symlinked_prefix()`'s `-L` symlink check and the `mkdir`/`mv`/`chmod` that act on
+to be. `refuse_symlinked_prefix()`'s `-L` symlink check and the `mkdir`/`mv` that act on
 `$PREFIX`/`$INSTALL_DIR` afterward were never atomic, and can't be made so in portable POSIX sh —
 there's no atomic "open/create this path only if it isn't a symlink" primitive available here.
 What changed: `install_binary()` now re-checks immediately before each privileged step instead of
 once at the top, and — once `$INSTALL_DIR` is confirmed real — `cd`s into it ONCE and addresses
 the binary by relative name from then on, so a symlink swap of the path after that point can't
-redirect the `mv`/`chmod` the way re-deriving `"$INSTALL_DIR/$BINARY"` as a fresh string each time
-could. The sudo fallback's `mkdir`, `mv`, and `chmod` — previously three separate sudo calls, each
-re-walking the path — are now one `sudo sh -c 'cd ... && mv ... && chmod ...'` invocation, closing
-the same gap under root's privilege. The window that remains: between the check and the `cd`. Still
-needs a local attacker, a non-default `--prefix` whose parent directory is already
-attacker-writable, and precise timing; the default `/usr/local` path stays unreachable to it.
+redirect the `mv` the way re-deriving `"$INSTALL_DIR/$BINARY"` as a fresh string each time could.
+The sudo fallback's `mkdir` and `mv` — previously three separate sudo calls including a `chmod` —
+are now one `sudo sh -c 'cd ... && mv ...'` invocation, closing the same gap under root's
+privilege; the `chmod` was dropped separately (2026-09) as a redundant privileged operation once
+resolve-once `cd` already closed the window it used to help with (see below). The window that
+remains: between the check and the `cd`. Still needs a local attacker, a non-default `--prefix`
+whose parent directory is already attacker-writable, and precise timing; the default `/usr/local`
+path stays unreachable to it.
+
+**Severity is not uniform across the two branches this race can land in.** If the window is won
+during the non-sudo attempt, the attacker redirects a write the *invoking user* could have made
+anyway — no privilege gained. If it's won during the sudo fallback (the `sudo mkdir`/
+`sudo sh -c 'cd ... && mv ...'` pair), the attacker gets a **root-privileged** `cd`+`mv` pointed at
+a location of their choosing — a materially worse outcome (arbitrary-location write as root) than
+the user-level case, even though the precondition (a non-default `--prefix` whose parent is
+already attacker-writable) and the exploitation difficulty are otherwise identical. Not fixed
+further here — same PLAUSIBLE/unconfirmed/low-priority status — just recorded so the two branches
+aren't treated as equally severe if this is revisited.
+
 Verified: a symlinked `--prefix` and a symlinked `$PREFIX/bin` are both still refused (exit 1,
 nothing written through the symlink), and a normal install to a real, non-default prefix is
-unaffected — all via a script-level test harness exercising `install_binary()` directly. Low
-priority; revisit if install.sh's threat model changes (e.g. `--prefix` becomes more commonly
-user-supplied).
+unaffected — all via a script-level test harness exercising `install_binary()` directly. Dropping
+the sudo-path `chmod` was separately verified not to leave a non-executable binary: TMPFILE is
+already `chmod +x`'d before `install_binary` runs, and a real cross-device `mv` (tested via a
+tmpfs→overlayfs move under GNU coreutils, not just same-filesystem) preserves the exec bit through
+its copy-fallback path. Low priority; revisit if install.sh's threat model changes (e.g. `--prefix`
+becomes more commonly user-supplied).
 
 ---
 

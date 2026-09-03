@@ -295,12 +295,17 @@ install_binary() {
         fi
     fi
 
-    # Fall back to sudo. cd/mv/chmod run as a single root-privileged
-    # subshell (one sudo invocation, not three) so the same resolve-once
-    # pattern holds under root's own privilege too -- root cd's into
-    # INSTALL_DIR ONCE, then mv and chmod both address the binary by
-    # relative name, closing the gap where the original code re-walked
-    # "$DEST" as a fresh path for chmod after already having done so for mv.
+    # Fall back to sudo. cd/mv run as a single root-privileged subshell (one
+    # sudo invocation, not three) so the same resolve-once pattern holds
+    # under root's own privilege too -- root cd's into INSTALL_DIR ONCE,
+    # then mv addresses the binary by relative name, closing the gap where
+    # the original code re-walked "$DEST" as a fresh path for a separate
+    # chmod after already having done so for mv. No chmod here at all now:
+    # TMPFILE was already made executable (see the chmod +x below, before
+    # install_binary is ever called), and mv on the same filesystem
+    # preserves that mode bit -- a separate chmod was redundant, not
+    # defense in depth, since it added a second privileged operation
+    # without closing any window the resolve-once cd hadn't already closed.
     # Positional args, not string interpolation, so none of these values can
     # break out of the inline script even if they contained shell
     # metacharacters.
@@ -308,7 +313,7 @@ install_binary() {
     refuse_symlinked_prefix
     sudo mkdir -p "$INSTALL_DIR"
     refuse_symlinked_prefix
-    sudo sh -c 'cd "$1" && mv "$2" "$3" && chmod +x "$3"' _ "$INSTALL_DIR" "$TMPFILE" "$BINARY"
+    sudo sh -c 'cd "$1" && mv "$2" "$3"' _ "$INSTALL_DIR" "$TMPFILE" "$BINARY"
     success "Installed dsd ${VERSION} -> ${DEST}"
 }
 
