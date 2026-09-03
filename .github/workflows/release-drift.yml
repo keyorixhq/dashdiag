@@ -30,4 +30,5 @@ jobs:
       - name: Check for tags without a published, signed release
         env:
           GH_TOKEN: ${{ github.token }}
+          DRIFT_NOTIFY_URL: ${{ secrets.DRIFT_NOTIFY_URL }}
         run: scripts/check-release-drift.sh
