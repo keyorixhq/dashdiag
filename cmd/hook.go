@@ -1,10 +1,12 @@
 package cmd
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 
 	"github.com/spf13/cobra"
 
@@ -185,7 +187,16 @@ func installSSHHook(dryRun bool) {
 		fmt.Println()
 		return
 	}
-	f, err := os.OpenFile(filepath.Clean(path), os.O_APPEND|os.O_WRONLY|os.O_CREATE, 0644) // #nosec G302 G304 -- shell RC files (.bashrc, .zshrc) must be world-readable; path comes from internal home-dir detection, not user input
+	// O_NOFOLLOW: same shared-working-directory symlink-follow threat as
+	// installPreDeploy/installGitHook (a fixed, predictable path another
+	// local user could pre-plant a symlink at) — append-only and O_CREATE
+	// don't make that safe on their own, since a symlink target still gets
+	// appended to rather than the intended path.
+	f, err := os.OpenFile(filepath.Clean(path), os.O_APPEND|os.O_WRONLY|os.O_CREATE|syscall.O_NOFOLLOW, 0644) // #nosec G302 G304 -- shell RC files (.bashrc, .zshrc) must be world-readable; path comes from internal home-dir detection, not user input
+	if errors.Is(err, syscall.ELOOP) {
+		fmt.Fprintf(os.Stderr, "error: refusing to write through a symlink at %s\n", path)
+		return
+	}
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: could not write %s: %v\n", path, err)
 		return
@@ -271,7 +282,12 @@ func installGitHubActions(dryRun bool) {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return
 	}
-	if err := os.WriteFile(path, []byte(githubWorkflow), 0644); err != nil { // #nosec G306 -- CI workflow files are world-readable by convention
+	// writeFileNoFollow, not os.WriteFile: same CWD-relative, predictable-path
+	// symlink-follow threat as installPreDeploy/installGitHook above (a
+	// shared/reused working directory, another local user pre-planting a
+	// symlink at this fixed path) — this site was simply missed when that
+	// fix landed on its siblings.
+	if err := writeFileNoFollow(path, []byte(githubWorkflow), 0644); err != nil { // #nosec G306 -- CI workflow files are world-readable by convention
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return
 	}

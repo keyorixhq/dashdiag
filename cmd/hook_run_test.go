@@ -198,6 +198,36 @@ func TestInstallSSHHookOpenError(t *testing.T) {
 	}
 }
 
+// TestInstallSSHHookRefusesSymlink guards installSSHHook's append-open: same
+// shared-working-directory symlink hazard as the write sites above, at
+// whichever of ~/.zshrc or ~/.bashrc shellRCPath resolves to. O_APPEND alone
+// doesn't help here — a symlink still gets appended to, just at the
+// attacker-chosen target instead of the intended file.
+func TestInstallSSHHookRefusesSymlink(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+
+	victim := filepath.Join(t.TempDir(), "victim.rc")
+	if err := os.WriteFile(victim, []byte("original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(victim, filepath.Join(home, ".bashrc")); err != nil {
+		t.Fatal(err)
+	}
+
+	errOut := captureStderr(t, func() { installSSHHook(false) })
+	if !strings.Contains(errOut, "symlink") {
+		t.Errorf("expected an error refusing to write through the symlink, got:\n%s", errOut)
+	}
+	data, err := os.ReadFile(victim) //nolint:gosec // test-controlled path
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "original" {
+		t.Errorf("victim file was appended to: %q", data)
+	}
+}
+
 // TestInstallPreDeployMkdirError exercises installPreDeploy's MkdirAll-error
 // branch: a plain file named "scripts" blocks directory creation.
 func TestInstallPreDeployMkdirError(t *testing.T) {
@@ -307,6 +337,47 @@ func TestInstallGitHookRefusesSymlink(t *testing.T) {
 	}
 
 	errOut := captureStderr(t, func() { installGitHook(false) })
+	if errOut == "" {
+		t.Error("expected an error refusing to write through the symlink")
+	}
+	data, err := os.ReadFile(victim) //nolint:gosec // test-controlled path
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "original" {
+		t.Errorf("victim file was overwritten: %q", data)
+	}
+}
+
+// TestInstallGitHubActionsRefusesSymlink is installGitHubActions'
+// counterpart to TestInstallPreDeployRefusesSymlink/
+// TestInstallGitHookRefusesSymlink — same hazard, same fix, at
+// .github/workflows/dsd-health.yml. This site was plain os.WriteFile until
+// now: proves the writeFileNoFollow fix actually closes it, not just that
+// the sibling sites already did.
+func TestInstallGitHubActionsRefusesSymlink(t *testing.T) {
+	dir := t.TempDir()
+	oldWd, err := os.Getwd()
+	if err != nil {
+		t.Fatalf("Getwd: %v", err)
+	}
+	if err := os.Chdir(dir); err != nil {
+		t.Fatalf("Chdir: %v", err)
+	}
+	t.Cleanup(func() { _ = os.Chdir(oldWd) })
+
+	if err := os.MkdirAll(filepath.Join(dir, ".github", "workflows"), 0o750); err != nil {
+		t.Fatalf("MkdirAll .github/workflows: %v", err)
+	}
+	victim := filepath.Join(t.TempDir(), "victim.yml")
+	if err := os.WriteFile(victim, []byte("original"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(victim, filepath.Join(dir, ".github", "workflows", "dsd-health.yml")); err != nil {
+		t.Fatal(err)
+	}
+
+	errOut := captureStderr(t, func() { installGitHubActions(false) })
 	if errOut == "" {
 		t.Error("expected an error refusing to write through the symlink")
 	}
