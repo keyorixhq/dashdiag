@@ -247,6 +247,25 @@ signature_unenforced() {
 # this: an unprivileged attacker can't plant a symlink there in the first
 # place. -L (not -e) specifically detects "is a symlink", independent of
 # whether the link target exists, is a directory, or is dangling.
+#
+# Residual window (2026-09, code review, PLAUSIBLE not reproduced -- see
+# BACKLOG.md): this check-then-act cannot be made fully atomic in portable
+# POSIX sh -- there is no atomic "open/create this path only if it isn't a
+# symlink" primitive available here. Be honest about what install_binary
+# below actually narrows, not eliminates: (a) it re-checks immediately
+# before each privileged step rather than once at the top of the function,
+# so a swap has to land in one specific gap instead of anywhere across the
+# whole install; (b) once INSTALL_DIR is confirmed real, install_binary
+# `cd`s into it ONCE and addresses the binary by bare relative name from
+# then on -- the shell's cwd is pinned to that directory's inode at cd time,
+# so a symlink swap of the INSTALL_DIR *path* after the cd can no longer
+# redirect the mv/chmod that follow, unlike re-deriving
+# "$INSTALL_DIR/$BINARY" as a fresh path string for each operation (which is
+# what this function used to do). The window that remains: between this
+# check and the cd. Exploiting it still needs a local attacker, a
+# non-default --prefix whose parent directory is already attacker-writable,
+# and precise timing; the default --prefix (/usr/local) stays unreachable to
+# it, per the paragraph above.
 refuse_symlinked_prefix() {
     if [ -L "$PREFIX" ]; then
         die "${PREFIX} is a symlink -- refusing to install through it (possible symlink attack). Pass a real directory via --prefix."
@@ -263,18 +282,33 @@ install_binary() {
     DEST="${INSTALL_DIR}/${BINARY}"
     refuse_symlinked_prefix
 
-    # Try without sudo first
-    if mkdir -p "$INSTALL_DIR" 2>/dev/null && mv "$TMPFILE" "$DEST" 2>/dev/null; then
-        success "Installed dsd ${VERSION} -> ${DEST}"
-        return
+    # Try without sudo first. Re-check right before use (see
+    # refuse_symlinked_prefix's comment), then resolve INSTALL_DIR once via
+    # cd and address the binary by relative name inside it, rather than
+    # re-walking "$INSTALL_DIR/$BINARY" as a path string that a symlink swap
+    # could have since redirected.
+    if mkdir -p "$INSTALL_DIR" 2>/dev/null; then
+        refuse_symlinked_prefix
+        if ( cd "$INSTALL_DIR" 2>/dev/null && mv "$TMPFILE" "$BINARY" 2>/dev/null ); then
+            success "Installed dsd ${VERSION} -> ${DEST}"
+            return
+        fi
     fi
 
-    # Fall back to sudo
+    # Fall back to sudo. cd/mv/chmod run as a single root-privileged
+    # subshell (one sudo invocation, not three) so the same resolve-once
+    # pattern holds under root's own privilege too -- root cd's into
+    # INSTALL_DIR ONCE, then mv and chmod both address the binary by
+    # relative name, closing the gap where the original code re-walked
+    # "$DEST" as a fresh path for chmod after already having done so for mv.
+    # Positional args, not string interpolation, so none of these values can
+    # break out of the inline script even if they contained shell
+    # metacharacters.
     info "Installing to ${DEST} (requires sudo)..."
     refuse_symlinked_prefix
     sudo mkdir -p "$INSTALL_DIR"
-    sudo mv "$TMPFILE" "$DEST"
-    sudo chmod +x "$DEST"
+    refuse_symlinked_prefix
+    sudo sh -c 'cd "$1" && mv "$2" "$3" && chmod +x "$3"' _ "$INSTALL_DIR" "$TMPFILE" "$BINARY"
     success "Installed dsd ${VERSION} -> ${DEST}"
 }
 
