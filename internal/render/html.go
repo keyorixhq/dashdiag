@@ -39,7 +39,7 @@ func GenerateHTMLReport(snap *baseline.Snapshot, insights []models.Insight, elap
 	filename := fmt.Sprintf("dsd-report-%s-%s.html", baseline.SafeHostname(snap.Hostname), timestamp)
 	path := filepath.Join(".", filename)
 
-	if err := os.WriteFile(path, []byte(html), 0o644); err != nil { //nolint:gosec // report file, world-readable intentional
+	if err := writeReportFileNoFollow(path, []byte(html), 0o644); err != nil { //nolint:gosec // report file, world-readable intentional
 		return "", fmt.Errorf("writing report: %w", err)
 	}
 	return path, nil

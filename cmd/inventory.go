@@ -92,7 +92,12 @@ func runInventory(cmd *cobra.Command, _ []string) error {
 
 	outFile, _ := cmd.Flags().GetString("out")
 	if outFile != "" {
-		if err := os.WriteFile(outFile, []byte(out), 0o644); err != nil { //nolint:gosec // inventory is non-sensitive technical facts
+		// writeFileNoFollow, not os.WriteFile: same symlink-follow hardening as
+		// dsd health --out (cmd/root.go's createOutFile) -- this site predates
+		// that fix and was simply missed. Mode stays 0o644 (not createOutFile's
+		// 0o600): inventory output is non-sensitive technical facts, not a full
+		// diagnostic capture, so the world-readable default is unchanged.
+		if err := writeFileNoFollow(outFile, []byte(out), 0o644); err != nil { //nolint:gosec // inventory is non-sensitive technical facts
 			return err
 		}
 		fmt.Fprintf(os.Stderr, "wrote inventory to %s\n", outFile)

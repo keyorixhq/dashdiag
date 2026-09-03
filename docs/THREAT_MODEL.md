@@ -3,14 +3,15 @@
 This document covers the trust boundaries in dsd where external or
 attacker-influenceable data crosses into dsd's own code — as opposed to the
 collectors, which are covered by the "false-OK" correctness-bug sweeps
-tracked in `BUGS.md`. It is scoped to four surfaces, chosen because they are
+tracked in `BUGS.md`. It is scoped to five surfaces, chosen because they are
 the only places dsd processes data it did not itself just read live off the
 local host:
 
 1. Bundle ingestion (`dsd replay`, `dsd diff`, `dsd migrate certify`)
 2. Capture sanitization (`dsd capture --sanitize`, `dsd sanitize`, `--identifiers`)
 3. The self-updater and release-signing chain (`dsd update`)
-4. MCP tool path arguments (`dsd mcp`)
+4. Fleet host validation (`dsd fleet`)
+5. MCP tool path arguments (`dsd mcp`)
 
 For each surface: what's trusted today, what's verified, and what residual
 risk remains. This is not a full enterprise DFD — dsd is a single static
@@ -188,7 +189,56 @@ offline secret.
 **Assessment:** no gaps found in the code path itself. The design is
 fail-closed, atomic, and has no bypass surface.
 
-## 4. MCP out_path — `dsd mcp`
+## 4. Fleet host validation — `dsd fleet`
+
+**What crosses the boundary:** a list of host tokens, typically from
+`--hosts-file` — a file that may be checked into a shared repo, generated
+from inventory tooling, or otherwise assembled by someone other than the
+operator running `dsd fleet` at that moment. `internal/fleet.ValidateHost`
+is what stands between that list and `exec.CommandContext("ssh"/"scp", ...)`.
+
+**Stated trust assumption today:** each line is a hostname the operator (or
+their inventory system) named. The realistic adversarial case isn't a
+malicious operator — it's a poisoned line in a shared file that a legitimate
+operator runs without inspecting every entry.
+
+**What's mitigated:**
+- **Option injection** — a host starting with `-` (e.g.
+  `-oProxyCommand=...`) would be parsed by ssh as a flag, not a hostname,
+  yielding local command execution. Rejected outright, and `sshRun`/`scp`
+  additionally pass `--` before the host argument as defense in depth.
+- **scp local/remote path confusion (found 2026-09, adversarial code
+  review, reproduced live).** `ValidateHost` previously allowed both `/` and
+  a bare `:` in a host token. scp resolves local-vs-remote by scanning its
+  destination argument left-to-right for the first `:`; a `/` before that
+  point forces a LOCAL-path interpretation regardless of what follows. A
+  host of `/tmp/evil` therefore made `scp` silently copy the trusted binary
+  onto the *orchestrating* machine instead of any remote host — no network
+  call, no error, a deploy that just quietly went nowhere. Worse: because
+  the FIRST `:` wins, a host of `attacker.com:/tmp/x` turned the destination
+  `host+":"+remotePath` into `attacker.com:/tmp/x:/opt/dsd/dsd-fleet` — scp
+  uploaded to `attacker.com`, a host the operator never listed, from one
+  poisoned line in a `--hosts-file`. **Fixed:** `ValidateHost` now parses
+  `[user@]host` structurally instead of via a character allowlist — `/` is
+  rejected outright, and a bare `:` is only accepted inside a bracketed
+  IPv6 literal (`[2001:db8::1]`, optionally with a `%zone`, validated via
+  `net/netip`), the one shape scp itself expects for IPv6. `scp()` also
+  re-checks host for `/` and a bare `:` immediately before building the
+  destination string, so a future change to `ValidateHost`'s grammar can't
+  silently reopen this gap without an immediate, loud failure at the one
+  place the unsafe string would otherwise get built.
+- **Remote command injection** — `validateRemoteCmd` rejects shell
+  metacharacters in `--remote-cmd` before it's handed to the remote shell.
+- **Host key trust** — fleet does not override `StrictHostKeyChecking`
+  unless the operator opts in (`AcceptNewHostKeys`); by default it falls
+  through to the operator's own `~/.ssh/config`.
+
+**Residual gaps:** none identified. The character-allowlist shape that
+produced the scp defect is gone — every character-level exception (`/`, a
+bare `:`, `-oProxyCommand=`) is now a structural rejection rather than an
+allowlist gap waiting to be found the same way this one was.
+
+## 5. MCP out_path — `dsd mcp`
 
 **What crosses the boundary:** `out_path`/`bundle_path`/`baseline_path`/
 `current_path` arguments to the four MCP tools (`dsd_capture`, `dsd_replay`,

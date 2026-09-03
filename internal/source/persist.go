@@ -1,10 +1,12 @@
 package source
 
 import (
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
+	"syscall"
 )
 
 // On-disk index records (files/index.json, commands/index.json).
@@ -49,6 +51,30 @@ type statfsIndexEntry struct {
 	Err      string     `json:"err,omitempty"`
 }
 
+// writeBlobNoFollow writes a Save() blob to a deterministic path
+// (files/blobs/%04d, commands/blobs/%04d.out/.err), refusing to follow an
+// existing symlink there. Latent today, not exploitable: Save's sole caller
+// (SaveTarball) always passes a private os.MkdirTemp(0o700) dir, so nothing
+// else can plant a symlink at these paths before Save runs. Fixed anyway for
+// consistency with every other predictable-path writer in the codebase
+// (cmd/root.go's createOutFile, cmd/writefile.go's writeFileNoFollow,
+// internal/render/writefile.go's writeReportFileNoFollow) — Save is exported
+// and has no control over what directory a future caller points it at.
+func writeBlobNoFollow(path string, data []byte, perm os.FileMode) error {
+	f, err := os.OpenFile(path, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|syscall.O_NOFOLLOW, perm) // #nosec G304 -- O_NOFOLLOW blocks symlink-follow
+	if errors.Is(err, syscall.ELOOP) {
+		return fmt.Errorf("refusing to write through a symlink at %q", path)
+	}
+	if err != nil {
+		return err
+	}
+	if _, err := f.Write(data); err != nil {
+		_ = f.Close()
+		return err
+	}
+	return f.Close()
+}
+
 // Save writes the bundle to dir in the raw-v1 layout (creating dir if needed).
 func (b *Bundle) Save(dir string) error {
 	b.mu.RLock()
@@ -79,7 +105,7 @@ func (b *Bundle) Save(dir string) error {
 		if !rec.notExist && rec.errText == "" {
 			blob := fmt.Sprintf("files/blobs/%04d", n)
 			n++
-			if err := os.WriteFile(filepath.Join(dir, blob), rec.data, 0o600); err != nil {
+			if err := writeBlobNoFollow(filepath.Join(dir, blob), rec.data, 0o600); err != nil {
 				return err
 			}
 			e.Blob = blob
@@ -111,13 +137,13 @@ func (b *Bundle) Save(dir string) error {
 		e := cmdIndexEntry{Argv: splitKey(key), Exit: rec.res.ExitCode, Absent: rec.absent, Err: rec.errText}
 		if len(rec.res.Stdout) > 0 {
 			e.StdoutBlob = fmt.Sprintf("commands/blobs/%04d.out", cn)
-			if err := os.WriteFile(filepath.Join(dir, e.StdoutBlob), rec.res.Stdout, 0o600); err != nil {
+			if err := writeBlobNoFollow(filepath.Join(dir, e.StdoutBlob), rec.res.Stdout, 0o600); err != nil {
 				return err
 			}
 		}
 		if len(rec.res.Stderr) > 0 {
 			e.StderrBlob = fmt.Sprintf("commands/blobs/%04d.err", cn)
-			if err := os.WriteFile(filepath.Join(dir, e.StderrBlob), rec.res.Stderr, 0o600); err != nil {
+			if err := writeBlobNoFollow(filepath.Join(dir, e.StderrBlob), rec.res.Stderr, 0o600); err != nil {
 				return err
 			}
 		}
