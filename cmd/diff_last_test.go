@@ -34,6 +34,9 @@ func seedStore(t *testing.T, path string, entries []store.Entry) {
 // TestRunDiffFromStore_TooFewEntries: one stored entry → error.
 // Not parallel: uses t.Setenv.
 func TestRunDiffFromStore_TooFewEntries(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("StorePath() returns system path as root; test requires non-root")
+	}
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 
@@ -55,6 +58,9 @@ func TestRunDiffFromStore_TooFewEntries(t *testing.T) {
 // TestRunDiffFromStore_NoEntries: empty store → error.
 // Not parallel: uses t.Setenv.
 func TestRunDiffFromStore_NoEntries(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("StorePath() returns system path as root; test requires non-root")
+	}
 	dir := t.TempDir()
 	t.Setenv("HOME", dir) // StorePath() → dir/.dsd/store.jsonl (does not exist)
 
@@ -191,6 +197,9 @@ func TestStatusRank(t *testing.T) {
 // exercised at the renderStoreDiff layer directly. Not parallel: uses
 // t.Setenv.
 func TestRunDiffFromStore_Success_Human(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("StorePath() returns system path as root; test requires non-root")
+	}
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 
@@ -218,6 +227,9 @@ func TestRunDiffFromStore_Success_Human(t *testing.T) {
 // TestRunDiffFromStore_Success_JSON covers runDiffFromStore's --json branch
 // end to end.
 func TestRunDiffFromStore_Success_JSON(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("StorePath() returns system path as root; test requires non-root")
+	}
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 
@@ -250,6 +262,9 @@ func TestRunDiffFromStore_Success_JSON(t *testing.T) {
 // TestRunDiffFromStore_EmptyHostResolvesLocal covers the host=="" branch,
 // which falls back to os.Hostname() instead of the --host flag.
 func TestRunDiffFromStore_EmptyHostResolvesLocal(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("StorePath() returns system path as root; test requires non-root")
+	}
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 
@@ -283,6 +298,9 @@ func TestRunDiffFromStore_EmptyHostResolvesLocal(t *testing.T) {
 // successfully but fails on the first Read — same EISDIR trick used for
 // internal/store's own ReadAll error-path test.
 func TestRunDiffFromStore_ReadAllError(t *testing.T) {
+	if os.Getuid() == 0 {
+		t.Skip("StorePath() returns system path as root; test requires non-root")
+	}
 	dir := t.TempDir()
 	t.Setenv("HOME", dir)
 
