@@ -75,6 +75,12 @@ type Result struct {
 	Issues    []Issue       `json:"issues,omitempty"` // WARN/CRIT insights, for cross-host aggregation
 	Elapsed   time.Duration `json:"-"`
 	ElapsedMs int64         `json:"elapsed_ms"`
+	// CleanupError is set when --bin was used and the post-run removal of the
+	// uploaded remote binary failed — the run's health verdict above is still
+	// valid, but the remote may still carry the binary dsd copied there. See
+	// docs/product-claim-gaps-2026-09-02.md GAP-1: "no persistent agent" only
+	// holds if this is empty.
+	CleanupError string `json:"cleanup_error,omitempty"`
 }
 
 // Issue is a single WARN/CRIT insight from one host, retained so the fleet can
@@ -243,8 +249,9 @@ func runHost(ctx context.Context, host string, opts Options) Result {
 	defer cancel()
 
 	remoteCmd := opts.RemoteCmd
+	var remoteBin string
 	if opts.BinPath != "" {
-		remoteBin := strings.TrimRight(opts.RemoteBinDir, "/") + "/dsd-fleet"
+		remoteBin = strings.TrimRight(opts.RemoteBinDir, "/") + "/dsd-fleet"
 		if err := scp(hctx, opts, opts.BinPath, host, remoteBin); err != nil {
 			res.Error = "scp failed: " + firstLine(err.Error())
 			res.finalize(start)
@@ -260,6 +267,22 @@ func runHost(ctx context.Context, host string, opts Options) Result {
 	}
 
 	out, runErr := sshRun(hctx, opts, host, remoteCmd)
+
+	if remoteBin != "" {
+		// The binary landed on the remote via scp above — remove it now,
+		// unconditionally, whether the health run above succeeded, returned a
+		// WARN/CRIT exit, or failed/timed out. GAP-1
+		// (docs/product-claim-gaps-2026-09-02.md): "agentless" only holds if
+		// nothing dsd copies to a target outlives the run that put it there.
+		// Uses ctx (the caller's outer context), NOT hctx — hctx may already
+		// be exhausted by a wedged remote health command, and a slow remote
+		// must not also poison the cleanup attempt with an already-expired
+		// deadline.
+		if err := cleanupRemoteBin(ctx, opts, host, remoteBin); err != nil {
+			res.CleanupError = firstLine(err.Error())
+		}
+	}
+
 	// dsd health exits 1 on WARN and 2 on CRIT by design, so a non-zero exit is
 	// NOT a failure — the JSON is still on stdout. Parse it regardless; only a
 	// genuine SSH failure (no parseable output) marks the host unreachable.
@@ -273,6 +296,22 @@ func runHost(ctx context.Context, host string, opts Options) Result {
 	res.Error = sshFailureReason(runErr)
 	res.finalize(start)
 	return res
+}
+
+// cleanupGrace is added to ConnectTimeout for the cleanup ssh call's own
+// deadline — "rm -f" runs almost instantly once connected, but the budget
+// still needs room for the ssh handshake itself on a slow link.
+const cleanupGrace = 5 * time.Second
+
+// cleanupRemoteBin removes the binary uploaded for this run via a fresh SSH
+// connection. Best-effort — a host that's gone genuinely unreachable can't be
+// cleaned up any more than it could be scanned — but always attempted, and
+// its failure is reported (Result.CleanupError), never swallowed.
+func cleanupRemoteBin(ctx context.Context, opts Options, host, remoteBin string) error {
+	cctx, cancel := context.WithTimeout(ctx, opts.ConnectTimeout+cleanupGrace)
+	defer cancel()
+	_, err := sshRun(cctx, opts, host, "rm -f "+shellQuote(remoteBin))
+	return err
 }
 
 // shellQuote wraps s in single quotes for safe use inside a remote shell

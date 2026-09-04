@@ -586,6 +586,30 @@ jobs:
       - name: Assert non-root never escalates a verdict vs root
         run: DSD="$RUNNER_TEMP/dsd" ./scripts/check-nonroot-invariant.sh
 
+  # GAP-1 (docs/product-claim-gaps-2026-09-02.md): `dsd fleet --bin` uploads a
+  # binary to the target and must remove it after the run, on every path — the
+  # "no persistent agent" claim only holds if that's actually true. internal/
+  # fleet's own unit tests (sshexec_test.go) mock ssh/scp with a fake shell
+  # script — good for wiring, but can't prove the real remote file is gone.
+  # This job does: a real sshd container, a real `dsd fleet --bin` deploy over
+  # a real SSH connection (through a ~/.ssh/config Host alias, exactly how a
+  # real operator points fleet at a nonstandard port), then a `docker exec`
+  # into the SAME container asserting the uploaded binary is gone.
+  fleet-cleanup-invariant:
+    name: Fleet --bin cleanup invariant
+    needs: [preflight]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26' # floating minor, not go.mod's exact patch — see note below
+          cache: true
+      - name: Assert dsd fleet --bin removes the remote binary it uploads
+        run: ./scripts/check-fleet-cleanup.sh
+
   # Non-systemd / musl coverage. Every other job runs on ubuntu/debian/macOS
   # (systemd + glibc), so the musl + busybox + OpenRC surface is otherwise
   # untested in CI — yet dsd keeps hitting bugs there: DBus/journald phantom

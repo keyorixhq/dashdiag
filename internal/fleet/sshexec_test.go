@@ -242,17 +242,24 @@ exit 1
 
 // TestRunHost_BinPathSuccess drives the full BinPath branch: scp succeeds,
 // then runHost must invoke ssh with a chmod+run command built from the
-// shell-quoted remote path (RemoteBinDir default "/tmp" + "/dsd-fleet").
+// shell-quoted remote path (RemoteBinDir default "/tmp" + "/dsd-fleet"). The
+// fake ssh also handles the post-run cleanup invocation (GAP-1,
+// docs/product-claim-gaps-2026-09-02.md), recording it to a marker file so
+// the assertion below can confirm cleanup actually ran, not just that the
+// health call succeeded.
 func TestRunHost_BinPathSuccess(t *testing.T) {
 	dir := t.TempDir()
 	writeFakeBin(t, dir, "scp", `exit 0
 `)
+	cleanupMarker := filepath.Join(dir, "cleanup-ran")
 	// The fake ssh echoes back its final argv element (the remote command
 	// string) wrapped in the health JSON shape isn't practical from POSIX sh,
 	// so instead assert indirectly: succeed only if invoked with a command
 	// containing "dsd-fleet" and "health --json", proving runHost built the
-	// expected chmod+exec string.
+	// expected chmod+exec string. A SEPARATE case matches the cleanup call
+	// (rm -f .../dsd-fleet, no "health --json") and records it happened.
 	writeFakeBin(t, dir, "ssh", `case "$*" in
+  *"rm -f"*dsd-fleet*) : > `+cleanupMarker+`; exit 0 ;;
   *dsd-fleet*'health --json'*) echo '{"hostname":"web1","insights":[]}' ;;
   *) echo "unexpected argv: $*" >&2; exit 1 ;;
 esac
@@ -270,6 +277,75 @@ esac
 	}
 	if res.Worst != "OK" {
 		t.Errorf("runHost.Worst = %q, want OK", res.Worst)
+	}
+	if res.CleanupError != "" {
+		t.Errorf("runHost.CleanupError = %q, want empty", res.CleanupError)
+	}
+	if _, err := os.Stat(cleanupMarker); err != nil {
+		t.Errorf("cleanup (rm -f on the remote binary) was not invoked: %v", err)
+	}
+}
+
+// TestRunHost_CleansUpOnRemoteCommandFailure is GAP-1's core guarantee
+// (docs/product-claim-gaps-2026-09-02.md): the remote binary must be removed
+// even when the health command itself fails/errors on the remote — cleanup
+// must not be skipped just because the run it was cleaning up after didn't
+// go well.
+func TestRunHost_CleansUpOnRemoteCommandFailure(t *testing.T) {
+	dir := t.TempDir()
+	writeFakeBin(t, dir, "scp", `exit 0
+`)
+	cleanupMarker := filepath.Join(dir, "cleanup-ran")
+	writeFakeBin(t, dir, "ssh", `case "$*" in
+  *"rm -f"*dsd-fleet*) : > `+cleanupMarker+`; exit 0 ;;
+  *dsd-fleet*'health --json'*) echo "remote command exploded" >&2; exit 1 ;;
+  *) echo "unexpected argv: $*" >&2; exit 1 ;;
+esac
+`)
+	t.Setenv("PATH", dir)
+
+	local := filepath.Join(t.TempDir(), "dsd")
+	if err := os.WriteFile(local, []byte("binary"), 0o755); err != nil {
+		t.Fatalf("writing local bin: %v", err)
+	}
+
+	res := runHost(context.Background(), "web1", Options{BinPath: local}.withDefaults())
+	if res.Reachable {
+		t.Fatalf("runHost.Reachable = true, want false (remote command failed): %+v", res)
+	}
+	if _, err := os.Stat(cleanupMarker); err != nil {
+		t.Errorf("cleanup must still run when the remote health command fails: %v", err)
+	}
+}
+
+// TestRunHost_CleanupFailureReported covers the case cleanup itself can't
+// reach the remote (a fresh SSH connection for "rm -f" fails after the health
+// run already succeeded over the FIRST connection) — the health verdict must
+// still stand, but the caller must be told the binary might still be there,
+// not have the failure silently swallowed.
+func TestRunHost_CleanupFailureReported(t *testing.T) {
+	dir := t.TempDir()
+	writeFakeBin(t, dir, "scp", `exit 0
+`)
+	writeFakeBin(t, dir, "ssh", `case "$*" in
+  *"rm -f"*dsd-fleet*) echo "Connection reset by peer" >&2; exit 255 ;;
+  *dsd-fleet*'health --json'*) echo '{"hostname":"web1","insights":[]}' ;;
+  *) echo "unexpected argv: $*" >&2; exit 1 ;;
+esac
+`)
+	t.Setenv("PATH", dir)
+
+	local := filepath.Join(t.TempDir(), "dsd")
+	if err := os.WriteFile(local, []byte("binary"), 0o755); err != nil {
+		t.Fatalf("writing local bin: %v", err)
+	}
+
+	res := runHost(context.Background(), "web1", Options{BinPath: local}.withDefaults())
+	if !res.Reachable || res.Worst != "OK" {
+		t.Fatalf("runHost result = %+v, want reachable OK (cleanup failure must not mask the health verdict)", res)
+	}
+	if res.CleanupError == "" {
+		t.Error("runHost.CleanupError = \"\", want the cleanup ssh failure surfaced, not silently swallowed")
 	}
 }
 
