@@ -100,14 +100,20 @@ dsd fleet health web-01 web-02 db-01
 2. SSH into each host concurrently (goroutine per host)
 3. Copy dsd binary if not present (or use pre-installed version)
 4. Run: dsd health --json
-5. Collect JSON results
-6. Aggregate and render fleet summary
+5. Remove the copied binary (--bin only; a pre-installed one is left alone)
+6. Collect JSON results
+7. Aggregate and render fleet summary
 ```
 
 Each host needs only:
 - SSH access (key-based, no password)
 - Linux (any of the 14+ validated distros)
-- No agent, no daemon, nothing pre-installed (dsd copies itself)
+- No agent, no daemon, nothing left behind: a `--bin` deploy is removed via a
+  second SSH connection immediately after the run, on every path — success,
+  WARN/CRIT, or a failed/timed-out remote command (internal/fleet's
+  cleanupRemoteBin; see docs/product-claim-gaps-2026-09-02.md GAP-1). Cleanup
+  failure doesn't mask the health verdict but IS reported
+  (`Result.CleanupError` / `"cleanup_error"` in `--json`), never swallowed.
 
 ---
 

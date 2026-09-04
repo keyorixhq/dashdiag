@@ -42,3 +42,12 @@ BUG-008	./internal/collectors	TestApparmorModeFromPath_PermissionDenied_ViaSourc
 GAP-2-default	./cmd	TestRunCaptureRaw_DefaultWritesBundle	f55cb497	`dsd capture --raw` with no flags touched must sanitize by default
 GAP-2-equivalence	./cmd	TestSanitizeReplayEquivalence	f55cb497	a sanitized bundle must replay to the same verdicts as the raw one
 GAP-2-json-corruption	./internal/source	TestBundleSanitizeJSONArrayCredentialValueStaysValid	f55cb497	a JSON array element whose string value is itself "KEY=SECRET"-shaped must redact without corrupting the document
+
+# GAP-1 (docs/product-claim-gaps-2026-09-02.md): `dsd fleet --bin` must not
+# leave a persistent binary on a scanned target. The primary proof is
+# scripts/check-fleet-cleanup.sh (a real sshd container + real dsd fleet run +
+# docker exec verifying the file is gone) — not ledgered, since it isn't a
+# `go test` name; wired into ci.yml's fleet-cleanup-invariant job instead.
+GAP-1-cleanup-on-failure	./internal/fleet	TestRunHost_CleansUpOnRemoteCommandFailure	e960f7a9	the remote binary must be removed even when the remote health command fails
+GAP-1-cleanup-error-reported	./internal/fleet	TestRunHost_CleanupFailureReported	e960f7a9	a cleanup failure must be reported (CleanupError), never silently swallowed
+GAP-1-write-invariant	.	TestWriteCapableCallSitesAreOwnArtifactsOnly	e960f7a9	every write-capable call site outside internal/fleet must write only the operator's own output artifact
