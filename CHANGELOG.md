@@ -11,6 +11,67 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.3.0] - 2026-09-04
+
+### Added
+
+- `dsd capture --no-sanitize`: explicit opt-out for the new sanitize-by-default
+  behavior below, for the case that genuinely needs raw bytes.
+- `dsd fleet`'s per-host result gains `cleanup_error` (`--json`) /
+  `Result.CleanupError`: set when a `--bin` deploy's post-run binary removal
+  fails, so the failure is visible rather than silently swallowed. The
+  health verdict itself is never masked by a cleanup failure.
+
+### Fixed
+
+- `dsd fleet --bin` now removes the binary it uploads after every run —
+  success, WARN/CRIT, or a failed/timed-out remote command — via a fresh SSH
+  connection using the caller's own timeout budget, not the (possibly
+  already-exhausted) per-host run deadline. Previously the binary was left in
+  place on `/tmp` indefinitely; "no persistent agent" is now actually true
+  rather than merely defensible.
+- `internal/source`'s bundle sanitizer could corrupt a captured JSON document:
+  its line-scan secret-redaction pass ran on raw JSON text *before* the
+  JSON-structural pass, so a single-line array element whose string value was
+  itself `"KEY=SECRET"`-shaped (e.g. a container's `Env` array entry like
+  `POSTGRES_PASSWORD=...`) had its value-match swallow the value's closing
+  quote and the array's closing bracket, leaving invalid JSON. A downstream
+  collector re-parsing the corrupted document (e.g. Docker's container
+  inspection) silently lost data rather than erroring — found while building
+  the capture→sanitize→replay-both equivalence test below, replaying a
+  bundle captured from a real running container. The structural pass now
+  always runs first and is used exclusively whenever the document parses; the
+  line-scan pass only ever runs on genuinely non-JSON content.
+
+### Security
+
+- `dsd capture --raw`'s bundle — explicitly designed for sharing — now
+  defaults `--sanitize` to `true`. Previously an operator capturing a bundle
+  under time pressure with the documented command got every secret in the
+  bundle verbatim unless they remembered the flag; the common "run it, email
+  it" path is now safe by default. `sanitizeDisclosureNote`'s reporting of a
+  bundle's actual redaction state is unchanged on both paths.
+
+### Breaking Changes
+
+- `dsd capture --raw`'s default output is now sanitized (see Security above).
+  Scripts that relied on the previous unredacted-by-default behavior should
+  pass `--no-sanitize` explicitly. No change to the CLI flag surface's
+  shape, JSON schema, or exit codes.
+
+### Internal
+
+- Ported a closure-verification guard from the sibling Keyorix repo
+  (`scripts/check-closures.sh`, `docs/product-closures.tsv`): a ledger
+  mapping a product-claim closure to a named test, CI-enforced so a claimed
+  fix can't quietly regress without a red build. Not user-facing.
+
+**Hardware smoke test explicitly skipped this cycle** — pve01
+unreachable from the dev session at release time (network-level timeout, not
+an auth failure). Per docs/RELEASE.md: noted here rather than silently
+treated as passed; the hardware-collector code paths (SMART/thermal/battery)
+are unchanged from v2.2.0 in this release.
+
 ## [2.2.0] - 2026-09-03
 
 ### Added
