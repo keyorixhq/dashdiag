@@ -26,7 +26,8 @@ func newBareCaptureRawCmd() *cobra.Command {
 	c := &cobra.Command{}
 	f := c.Flags()
 	f.StringP("out", "o", "", "")
-	f.Bool("sanitize", false, "")
+	f.Bool("sanitize", true, "")
+	f.Bool("no-sanitize", false, "")
 	f.Bool("identifiers", false, "")
 	f.Bool("deep", false, "")
 	f.Bool("pkg", false, "")
@@ -34,6 +35,11 @@ func newBareCaptureRawCmd() *cobra.Command {
 	return c
 }
 
+// TestRunCaptureRaw_DefaultWritesBundle covers GAP-2's default flip
+// (docs/product-claim-gaps-2026-09-02.md): the bare command, with no flags
+// touched, must now sanitize — the whole point of the flip is that a bundle
+// captured under time pressure with the documented command is safe by
+// default, not opt-in.
 func TestRunCaptureRaw_DefaultWritesBundle(t *testing.T) {
 	dir := t.TempDir()
 	out := filepath.Join(dir, "bundle.tar.gz")
@@ -50,8 +56,33 @@ func TestRunCaptureRaw_DefaultWritesBundle(t *testing.T) {
 	if !strings.Contains(stderr, "Raw bundle written") {
 		t.Errorf("expected write confirmation on stderr, got: %q", stderr)
 	}
+	if !strings.Contains(stderr, "Sanitized") {
+		t.Errorf("default (no flags touched) should sanitize now, got: %q", stderr)
+	}
+	if strings.Contains(stderr, "NOTE: unredacted") {
+		t.Errorf("default should no longer warn unredacted, got: %q", stderr)
+	}
+}
+
+// TestRunCaptureRaw_NoSanitizeWritesRawBundle covers the opt-out this same gap
+// added: --no-sanitize must still produce the raw, unredacted bundle for the
+// case that genuinely needs raw bytes.
+func TestRunCaptureRaw_NoSanitizeWritesRawBundle(t *testing.T) {
+	dir := t.TempDir()
+	out := filepath.Join(dir, "bundle.tar.gz")
+	cmd := newBareCaptureRawCmd()
+	_ = cmd.Flags().Set("out", out)
+	_ = cmd.Flags().Set("no-sanitize", "true")
+	stderr := captureStderr(t, func() {
+		if err := runCaptureRaw(cmd); err != nil {
+			t.Fatalf("runCaptureRaw: %v", err)
+		}
+	})
+	if _, err := os.Stat(out); err != nil {
+		t.Errorf("expected bundle written at %s, got: %v", out, err)
+	}
 	if !strings.Contains(stderr, "unredacted") {
-		t.Errorf("without --sanitize, stderr should warn it's unredacted, got: %q", stderr)
+		t.Errorf("--no-sanitize should warn it's unredacted, got: %q", stderr)
 	}
 }
 

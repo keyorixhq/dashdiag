@@ -696,6 +696,44 @@ func TestBundleSanitizeJSONFile(t *testing.T) {
 	}
 }
 
+// TestBundleSanitizeJSONArrayCredentialValueStaysValid is the regression guard
+// for the JSON-corruption bug TestSanitizeReplayEquivalence (cmd package)
+// caught by replaying a real `docker inspect`-shaped bundle: a single-line
+// JSON array element whose STRING VALUE itself is "KEY=SECRET"-shaped (a
+// container's Env array entry, e.g. "POSTGRES_PASSWORD=hunter2") used to run
+// through the line-scan regex pass (secretRules[1]) BEFORE the JSON-structural
+// pass. That regex's value-match is `[^\r\n]*` — line-scoped, not
+// JSON-string-scoped — so on a single-line array it consumed the value's
+// closing quote and the array/object's closing `]`/`}` too, leaving invalid
+// JSON. redactSecretsAndJSON now tries the structural pass FIRST and only
+// falls back to the line-scan pass when the document doesn't parse as JSON,
+// so the regex never runs on top of syntactically valid JSON.
+func TestBundleSanitizeJSONArrayCredentialValueStaysValid(t *testing.T) {
+	b := NewBundle()
+	b.PutFile("/var/lib/docker/containers/x/config.json",
+		[]byte(`{"Config":{"Env":["PATH=/usr/bin","POSTGRES_PASSWORD=hunter2"]}}`))
+
+	rep := b.Sanitize(SanitizeOptions{})
+	if rep.TotalRedactions == 0 {
+		t.Fatal("expected the Env array's credential-shaped entry to be redacted")
+	}
+
+	fr, _ := b.getFile("/var/lib/docker/containers/x/config.json")
+	if !json.Valid(fr.data) {
+		t.Fatalf("sanitized JSON is no longer valid JSON: %s", fr.data)
+	}
+	got := string(fr.data)
+	if strings.Contains(got, "hunter2") {
+		t.Errorf("secret survived Bundle.Sanitize: %q", got)
+	}
+	if !strings.Contains(got, `"PATH=/usr/bin"`) {
+		t.Errorf("non-secret array entry dropped or corrupted: %q", got)
+	}
+	if !strings.Contains(got, "POSTGRES_PASSWORD=") {
+		t.Errorf("credential key name should survive redaction (value-only redaction): %q", got)
+	}
+}
+
 func TestRedactIdentifiers(t *testing.T) {
 	in := "gw 192.168.1.1 mac aa:bb:cc:dd:ee:ff host web01\n" +
 		"loopback 127.0.0.1 unspec 0.0.0.0 version 1.2.3.999\n" +

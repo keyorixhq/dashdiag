@@ -33,8 +33,9 @@ import (
 func init() {
 	captureCmd.Flags().Bool("raw", false, "capture a raw input bundle (every sysfs read + command output) for offline replay with `dsd replay`")
 	captureCmd.Flags().StringP("out", "o", "", "output path for the --raw bundle (default: dsd-raw-<host>-<timestamp>.tar.gz)")
-	captureCmd.Flags().Bool("sanitize", false, "best-effort redaction of common credentials (keys, passwords, tokens) from the bundle before writing — for safe sharing")
-	captureCmd.Flags().Bool("identifiers", false, "with --sanitize, also redact IPv4 addresses, MAC addresses, and the hostname (implies --sanitize)")
+	captureCmd.Flags().Bool("sanitize", true, "best-effort redaction of common credentials (keys, passwords, tokens) from the bundle before writing — for safe sharing (on by default; see --no-sanitize)")
+	captureCmd.Flags().Bool("no-sanitize", false, "write the raw, unredacted bundle — for the case that genuinely needs raw bytes; overrides --sanitize")
+	captureCmd.Flags().Bool("identifiers", false, "with --sanitize, also redact IPv4 addresses, MAC addresses, and the hostname (implies --sanitize, overrides --no-sanitize)")
 	captureCmd.Flags().Bool("deep", false, "also record the deep collectors (per-core CPU, smaps, cgroup slices, package integrity) so the bundle can `dsd replay --deep`")
 	captureCmd.Flags().Bool("pkg", false, "also record the package collector (updates/integrity) in the bundle")
 }
@@ -94,7 +95,11 @@ func runCaptureRaw(cmd *cobra.Command) error {
 	}
 
 	sanitize, _ := cmd.Flags().GetBool("sanitize")
+	noSanitize, _ := cmd.Flags().GetBool("no-sanitize")
 	identifiers, _ := cmd.Flags().GetBool("identifiers")
+	if noSanitize {
+		sanitize = false // explicit opt-out of the new sanitize-by-default
+	}
 	if identifiers {
 		sanitize = true // identifiers can't be redacted without the sanitize pass
 	}
