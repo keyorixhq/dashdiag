@@ -170,6 +170,31 @@ jobs:
           [ "$FAIL" -eq 0 ] && echo "✅ All PR commits carry Signed-off-by"
           exit $FAIL
 
+  # Not gated by docs_only: docs/product-closures.tsv IS classified as docs by
+  # the `changes` filter, but that is exactly the file this job exists to
+  # verify — gating it on docs_only would skip the one job that must run
+  # whenever the ledger itself changes. Ported from Keyorix's adr-numbers job,
+  # which gates its own analogous docs/adr-*.md check the same way. Cheap
+  # regardless (a handful of `go test -run` invocations), so always-on costs
+  # nothing on a code-only PR either.
+  closure-guard:
+    name: Product-claim closure guard
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26'
+          cache: true
+
+      - name: Self-test the closure guard (must be able to go red)
+        run: ./scripts/check-closures.sh --self-test
+
+      - name: Verify every product-claim closure names a passing test
+        run: ./scripts/check-closures.sh
+
   # needs: [changes, preflight] (not just [preflight]) + `if: always() && (...
   # == 'success' || ... == 'skipped')` — NOT a bare needs-cascade skip like the
   # other preflight-gated jobs below. A matrix job that's skipped at the job

@@ -1,0 +1,38 @@
+# Product-claim closure ledger. Verified by scripts/check-closures.sh, which
+# fails the build if a named test does not exist, skips, or fails.
+#
+# claim_id	package	proving_test	landed_commit	note
+#
+# landed_commit is INFORMATIONAL. This repo squash-merges (CLAUDE.md: `gh pr
+# merge --squash --delete-branch --admin`), so ancestry checks return false for
+# every correctly landed PR. Closure is verified by test, never by commit.
+#
+# claim_id reuses the BUG-NNN numbering from BUGS.md where the closure traces
+# to a testbed bug fix — cross-reference BUGS.md for the full narrative. A
+# single bug fix that needs two independent proving tests (e.g. a render-layer
+# assertion and the underlying analysis-layer assertion) gets one row per test,
+# suffixed by package.
+#
+# Seeded from the first eight testbed discoveries in BUGS.md (BUG-001..008).
+# Two are deliberately NOT rows here:
+#   BUG-003 (macOS `ioreg -l` hang) has a real proving test
+#     (TestBatteryCollector_Collect_NoBatteryService, battery_darwin_test.go)
+#     but that file is `//go:build darwin`, and this ledger's guard job
+#     (ci.yml `closure-guard`) runs on ubuntu-24.04 only — go test would
+#     report "no tests to run" there, the exact false-green shape this script
+#     exists to catch. Not ledgered until the guard also runs on a macOS
+#     runner. The macOS legs of the `test` job still exercise this test on
+#     every CI run — just not through this ledger.
+#   BUG-004 (efivarfs/pseudo-mount disk false positive) has NO proving test:
+#     TestReadMounts/TestReadMounts_FixtureFile only assert generic
+#     skipFSTypes membership against tmpfs/sysfs/proc fixture rows — no test
+#     fixture anywhere includes an efivarfs mount line, so the fix is
+#     unverified by anything that would fail if `skipFSTypes["efivarfs"]`
+#     were deleted.
+
+BUG-001	./internal/collectors	TestLoadAvgDarwin_LocaleCommaDecimal	d00db10	comma-decimal locale must not parse macOS load average as 0
+BUG-002	./internal/collectors	TestProcessesCollector_CollectDarwin	54f7906	macOS zombie detection must read the stat column, not comm, for process state
+BUG-005	./internal/collectors	TestProcessesCollector_Collect_Linux	6909b6d	hung-process detail (PID/wchan) must be captured at collection time, not re-derived later
+BUG-006	./internal/collectors	TestSwapCollector_Collect_SwapsAndZram	39573cd	ZramUsedPct must be populated, not left at its zero-default
+BUG-007	./internal/collectors	TestPingRTT_ICMPUnavailable_TCPSucceeds	15c217b	an unprivileged ICMP failure must fall back to TCP, not report the gateway unreachable
+BUG-008	./internal/collectors	TestApparmorModeFromPath_PermissionDenied_ViaSource	ab562ea	AppArmor read EACCES must report "unknown", not "disabled"
