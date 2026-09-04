@@ -209,19 +209,35 @@ func looksLikeJSON(data []byte) bool {
 // json.Unmarshal'd back by collectors. RedactJSONSecrets/redactJSONValue
 // decode-rewrite-remarshal instead, so the result is always valid JSON and
 // generalizes correctly to nested objects/arrays, unlike a regex.
+//
+// The JSON-structural pass is tried FIRST, on the untouched input, and its
+// result is used exclusively when the document parses — the regex pass never
+// runs on top of syntactically valid JSON. This is load-bearing, not
+// stylistic: secretRules[1]'s value-match is `[^\r\n]*` (line-scoped, not
+// JSON-string-scoped), so on a single-line JSON array element like
+// `"POSTGRES_PASSWORD=hunter2"` it doesn't stop at the value's closing quote —
+// it consumes the quote, the closing `]`/`}`, and everything else through
+// end-of-line, replacing all of it with the bare [REDACTED] marker and
+// leaving invalid JSON behind. redactJSONValue's leaf-string case already
+// runs this SAME regex pass on each decoded string in isolation (no
+// surrounding JSON syntax to swallow), so nothing is lost by skipping the
+// whole-document regex pass when the structural walk can run — this was
+// caught by TestSanitizeReplayEquivalence (cmd package) replaying a captured
+// `docker inspect`-shaped bundle whose Env array contained a
+// credential-shaped entry: the container silently vanished from the
+// collector's parsed result on the sanitized replay, because the value-side
+// corruption broke json.Unmarshal downstream.
 func redactSecretsAndJSON(data []byte) ([]byte, int) {
-	out, n := redactSecrets(data)
-	if !looksLikeJSON(out) {
-		return out, n
-	}
-	red, k, err := redactJSONSecretsCounted(out)
-	if err != nil {
+	if looksLikeJSON(data) {
+		if red, k, err := redactJSONSecretsCounted(data); err == nil {
+			return red, k
+		}
 		// Sniffed as JSON-shaped but didn't actually parse (e.g. a shell
-		// script or log line that happens to start with '{') — the regex
-		// pass above already ran, nothing more to do.
-		return out, n
+		// script or log line that happens to start with '{') — fall through
+		// to the line-scan regex pass below.
 	}
-	return red, n + k
+	out, n := redactSecrets(data)
+	return out, n
 }
 
 // SanitizeReport summarises what a Sanitize pass redacted.

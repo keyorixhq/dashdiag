@@ -127,16 +127,32 @@ hashes IPv4/MAC/hostname to stable placeholders.
 - Disk serial numbers — not handled.
 
 **Timing:** sanitization happens entirely in memory
-(`cmd/capture_raw.go:107` calls `Bundle.Sanitize()` before
-`SaveTarball()` at line 114) — there is no window where an unredacted bundle
+(`cmd/capture_raw.go:120` calls `Bundle.Sanitize()` before
+`SaveTarball()` at line 127) — there is no window where an unredacted bundle
 touches disk. `SaveTarball` writes with mode `0o600`.
+
+**Default:** `--sanitize` defaults to `true` as of the GAP-2 fix
+(docs/product-claim-gaps-2026-09-02.md) — a bundle captured with the bare
+documented command is redacted by default; `--no-sanitize` opts out for the
+case that genuinely needs raw bytes. Before this, the flag defaulted to
+`false`, so the common "run the documented command, email the result" path
+shipped unredacted by default.
 
 **Assessment:** this surface is already the most mature of the three — it's
 explicitly labeled "best-effort" in code and CLI output
-(`internal/source/sanitize.go:10-15`), has round-trip tests
+(`internal/source/sanitize.go:13-18`), has round-trip tests
 (`sanitize_roundtrip_test.go`), and its known gaps are disclosed rather than
 silent. The one concrete gap worth a ticket is IPv6 — everything else here is
-a documented tradeoff, not an oversight.
+a documented tradeoff, not an oversight. One real (non-tradeoff) gap was found
+and fixed alongside the default flip: the line-scan regex pass ran on raw JSON
+text BEFORE the JSON-structural pass, so a single-line JSON array element
+whose string VALUE was itself "KEY=SECRET"-shaped (e.g. a container's `Env`
+array entry) could have its value-match swallow the JSON's own closing quote/
+bracket, corrupting the document — silently dropping a container from a
+collector's parsed result on replay. Caught by a capture→sanitize→replay-both
+equivalence test against a real host, not by reasoning about the regex; fixed
+by trying the structural pass first and using it exclusively whenever the
+document parses.
 
 ## 3. Self-updater & release-signing chain — `dsd update`
 

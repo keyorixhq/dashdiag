@@ -36,3 +36,9 @@ BUG-005	./internal/collectors	TestProcessesCollector_Collect_Linux	6909b6d	hung-
 BUG-006	./internal/collectors	TestSwapCollector_Collect_SwapsAndZram	39573cd	ZramUsedPct must be populated, not left at its zero-default
 BUG-007	./internal/collectors	TestPingRTT_ICMPUnavailable_TCPSucceeds	15c217b	an unprivileged ICMP failure must fall back to TCP, not report the gateway unreachable
 BUG-008	./internal/collectors	TestApparmorModeFromPath_PermissionDenied_ViaSource	ab562ea	AppArmor read EACCES must report "unknown", not "disabled"
+
+# GAP-2 (docs/product-claim-gaps-2026-09-02.md): capture --raw's bundle
+# designed for sharing must be sanitized by default.
+GAP-2-default	./cmd	TestRunCaptureRaw_DefaultWritesBundle	f55cb497	`dsd capture --raw` with no flags touched must sanitize by default
+GAP-2-equivalence	./cmd	TestSanitizeReplayEquivalence	f55cb497	a sanitized bundle must replay to the same verdicts as the raw one
+GAP-2-json-corruption	./internal/source	TestBundleSanitizeJSONArrayCredentialValueStaysValid	f55cb497	a JSON array element whose string value is itself "KEY=SECRET"-shaped must redact without corrupting the document
