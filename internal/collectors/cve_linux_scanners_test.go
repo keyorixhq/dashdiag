@@ -301,21 +301,36 @@ func writeStagedOVAL(t *testing.T, home, content string) {
 	}
 }
 
-// NOTE: tryOVALFallback (unlike scanAllViaOVAL) cannot be exercised end-to-end
-// for the "Found=true, packages installed" branch in this test environment or
-// hermetically at all: cvedata.CheckCVEFromOVAL — the function tryOVALFallback
-// calls — ALWAYS parses via the RHEL-shaped rpminfo_test/object/state schema
-// and ALWAYS cross-references via cvedata.QueryInstalledRPM (a real `rpm -qa`
-// exec), regardless of the host's actual distro. There is no Ubuntu/Debian
-// dispatch in CheckCVEFromOVAL at all (contrast with ScanOVALPackages, which
-// DOES vendor-dispatch to ScanUbuntuOVALPackages/dpkg — see
-// TestScanAllViaOVAL_FoundWithRealInstalledPackage below). This looks like a
-// real product gap: a staged Ubuntu OVAL sidecar is consulted by the bulk
-// `dsd cve --oval-scan` path but silently ignored by the single-CVE
-// `dsd cve check <CVE-ID>` path on any non-RHEL/SUSE distro. Left unfixed here
-// — the fix belongs in internal/cvedata (CheckCVEFromOVAL needs the same
-// vendor dispatch ScanOVALPackages already has), which is a larger change
-// than this coverage pass's scope. Flagged in the task report.
+// TestTryOVALFallback_FoundWithRealInstalledPackage is the regression test for
+// the gap the surrounding NOTE comments used to describe: cvedata.CheckCVEFromOVAL
+// used to ALWAYS parse via the RHEL-shaped rpminfo_test/object/state schema and
+// ALWAYS cross-reference via cvedata.QueryInstalledRPM (a real `rpm -qa` exec),
+// regardless of the host's actual distro — so a staged Ubuntu/Debian OVAL
+// sidecar was silently ignored by the single-CVE `dsd cve check <CVE-ID>` path
+// (tryOVALFallback) even though the bulk `dsd cve --oval-scan` path
+// (scanAllViaOVAL, see TestScanAllViaOVAL_FoundWithRealInstalledPackage) already
+// vendor-dispatched correctly. CheckCVEFromOVAL now applies the same
+// detectOVALVendor dispatch scanAllViaOVAL always had, so this must find the
+// real "dpkg" package genuinely installed in the test container and report it
+// vulnerable, exactly like the bulk scan does.
+func TestTryOVALFallback_FoundWithRealInstalledPackage(t *testing.T) {
+	home := isolateCVEHome(t)
+	writeStagedOVAL(t, home, ubuntuOVALWithRealPkg)
+	withLookPathFixture(t, map[string]bool{}, func(b *source.Bundle) {
+		b.PutFile("/etc/os-release", []byte("ID=ubuntu\n"))
+	})
+
+	got := tryOVALFallback(context.Background(), "CVE-2024-1234")
+	if got == nil {
+		t.Fatal("expected a non-nil CVEResult when the staged OVAL feed matches an installed package")
+	}
+	if got.Status != models.CVEVulnerable {
+		t.Errorf("Status = %v, want CVEVulnerable", got.Status)
+	}
+	if len(got.AffectedPackages) != 1 || got.AffectedPackages[0].Name != "dpkg" {
+		t.Errorf("AffectedPackages = %+v, want [dpkg]", got.AffectedPackages)
+	}
+}
 
 // TestScanAllViaOVAL_ScanErrors guards the `err != nil` branch: a staged file
 // whose name has the ".xml.bz2" suffix (so FindOVALFile discovers it and

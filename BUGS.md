@@ -1649,6 +1649,31 @@ honest (K8s WARN→INFO non-root).
   standard `dsd update` already enforces for every subsequent update.
 **Commit:** (this PR)
 
+### BUG-101 — `dsd cve check <CVE-ID> --oval` silently ignored a staged Ubuntu/Debian OVAL feed
+**Found:** test-coverage sweep on `internal/collectors/cve_linux.go`'s OVAL fallback path
+  (`tryOVALFallback`), flagged in a test comment rather than filed live — the existing test suite
+  already demonstrated it (`TestScanAllViaOVAL_FoundWithRealInstalledPackage` passed against the
+  bulk-scan path while the single-CVE path had no equivalent).
+**Root cause:** `cvedata.CheckCVEFromOVAL` — the function backing the single-CVE `dsd cve check
+  <CVE-ID> --oval` path — always parsed the staged file via the RHEL/SUSE rpminfo_test/object/state
+  schema and always cross-referenced findings via `QueryInstalledRPM` (a real `rpm -qa` exec),
+  regardless of the host's actual distro. `ScanOVALPackages` (the bulk `--oval-scan` path) already
+  vendor-dispatched to `ScanUbuntuOVALPackages`/dpkg for Ubuntu/Debian feeds via
+  `sniffOVALVendor`/`isUbuntuOVAL`; `CheckCVEFromOVAL` had no equivalent dispatch. A staged
+  Ubuntu/Debian OVAL sidecar was therefore silently ignored by the single-CVE path — it always
+  reported "not found in feed," regardless of the feed's actual content — while the bulk scan
+  correctly found and reported the same CVEs.
+**Fix:** factored the bulk scan's vendor sniff into a shared `detectOVALVendor` (`oval_rhel.go`),
+  used by both `ScanOVALPackages` and `CheckCVEFromOVAL` so the two paths can never disagree about
+  which parser owns a feed. Added `checkCVEFromUbuntuOVAL` (`oval_debian.go`), which reuses
+  `parseUbuntuOVALVersionAware` and the same version-aware dpkg suppression logic as
+  `ScanUbuntuOVALPackages` (factored into a shared `ubuntuEntryMatches` helper) but narrows to the
+  single CVE the caller asked about instead of returning every vulnerable CVE.
+  `TestTryOVALFallback_FoundWithRealInstalledPackage` (`internal/collectors/cve_linux_scanners_test.go`)
+  is the regression test — it stages an Ubuntu OVAL feed referencing `dpkg` (genuinely installed in
+  the Debian-family test container) and confirms `tryOVALFallback` now reports it vulnerable.
+**Commit:** (this PR)
+
 ### BUG-098 — cold dnf metadata cache → CVE/Packages scan swallows a real Critical CVE
 **Found:** live, first-ever dsd pass on Oracle Linux 9.7 on a free-tier OCI Ampere A1 instance
   (`aarch64`, UEK 6.12). A cold-cache `dsd health --packages --cve` reported

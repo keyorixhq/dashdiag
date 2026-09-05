@@ -369,9 +369,42 @@ func QueryInstalledDPKG(ctx context.Context) ([]InstalledPackage, error) {
 // fixing"), the package is flagged if installed: conservative, matches prior
 // behaviour, avoids a false-OK on a CVE with no fix yet.
 func ScanUbuntuOVALPackages(ctx context.Context, ovalPath string) ([]OVALCVSSResult, error) {
+	entries, installed, err := loadUbuntuOVALAndInstalled(ctx, ovalPath)
+	if err != nil {
+		return nil, err
+	}
+
+	var results []OVALCVSSResult
+	for _, entry := range entries {
+		allComponents, vulnerable := ubuntuEntryMatches(entry, installed)
+		if len(vulnerable) == 0 {
+			continue
+		}
+		installedNames := make([]string, len(vulnerable))
+		for i, v := range vulnerable {
+			installedNames[i] = v.name
+		}
+		results = append(results, OVALCVSSResult{
+			CVEID:      entry.cveID,
+			CVSS3:      entry.cvss,
+			Severity:   entry.severity,
+			State:      "Affected",
+			Components: allComponents,
+			Installed:  installedNames,
+		})
+	}
+
+	sortOVALResults(results)
+	return results, nil
+}
+
+// loadUbuntuOVALAndInstalled parses ovalPath and queries installed dpkg
+// packages — the shared first half of ScanUbuntuOVALPackages (bulk scan) and
+// checkCVEFromUbuntuOVAL (single-CVE check).
+func loadUbuntuOVALAndInstalled(ctx context.Context, ovalPath string) ([]ubuntuVulnEntry, map[string]string, error) {
 	f, err := os.Open(ovalPath) // #nosec G304
 	if err != nil {
-		return nil, fmt.Errorf("opening OVAL: %w", err)
+		return nil, nil, fmt.Errorf("opening OVAL: %w", err)
 	}
 	defer f.Close() //nolint:errcheck
 
@@ -382,51 +415,85 @@ func ScanUbuntuOVALPackages(ctx context.Context, ovalPath string) ([]OVALCVSSRes
 
 	entries, err := parseUbuntuOVALVersionAware(boundDecompressed(r))
 	if err != nil {
-		return nil, err
+		return nil, nil, err
 	}
 
 	pkgs, err := QueryInstalledDPKG(ctx)
 	if err != nil {
-		return nil, fmt.Errorf("querying installed packages: %w", err)
+		return nil, nil, fmt.Errorf("querying installed packages: %w", err)
 	}
 	installed := make(map[string]string, len(pkgs)) // name (lower) → EVR
 	for _, p := range pkgs {
 		installed[strings.ToLower(p.Name)] = p.EVR
 	}
+	return entries, installed, nil
+}
 
-	var results []OVALCVSSResult
-	for _, entry := range entries {
-		var allComponents []string
-		var installedMatches []string
-		for _, pkg := range entry.pkgs {
-			allComponents = append(allComponents, pkg.name)
-			installedEVR, ok := installed[strings.ToLower(pkg.name)]
-			if !ok || installedEVR == "" || installedEVR == "(none)" {
-				// Not installed, or in config-files/half-installed dpkg state.
-				// Treat identically to "package absent" — do not suppress the CVE.
-				continue
-			}
-			// Version-aware: if a fixed version is known AND the installed
-			// version is already at or past it, the CVE is patched on this host.
-			// Guard: an empty fixedIn (no published fix) → always report.
-			if pkg.fixedIn != "" && CompareDpkg(installedEVR, pkg.fixedIn) >= 0 {
-				continue // already patched
-			}
-			installedMatches = append(installedMatches, pkg.name)
-		}
-		if len(installedMatches) == 0 {
+// ubuntuVulnerableMatch is a package from an OVAL entry found both installed
+// and not yet patched against the entry's CVE.
+type ubuntuVulnerableMatch struct {
+	name      string
+	installed string
+	fixedIn   string
+}
+
+// ubuntuEntryMatches evaluates entry's packages against the installed dpkg
+// map (name lower → EVR) and returns (all named components, currently
+// vulnerable installed packages). Shared by ScanUbuntuOVALPackages and
+// checkCVEFromUbuntuOVAL so both apply identical version-aware suppression —
+// see ScanUbuntuOVALPackages's doc comment for the suppression rule.
+func ubuntuEntryMatches(entry ubuntuVulnEntry, installed map[string]string) (allComponents []string, vulnerable []ubuntuVulnerableMatch) {
+	for _, pkg := range entry.pkgs {
+		allComponents = append(allComponents, pkg.name)
+		installedEVR, ok := installed[strings.ToLower(pkg.name)]
+		if !ok || installedEVR == "" || installedEVR == "(none)" {
+			// Not installed, or in config-files/half-installed dpkg state.
+			// Treat identically to "package absent" — do not suppress the CVE.
 			continue
 		}
-		results = append(results, OVALCVSSResult{
-			CVEID:      entry.cveID,
-			CVSS3:      entry.cvss,
-			Severity:   entry.severity,
-			State:      "Affected",
-			Components: allComponents,
-			Installed:  installedMatches,
+		if pkg.fixedIn != "" && CompareDpkg(installedEVR, pkg.fixedIn) >= 0 {
+			continue // already patched
+		}
+		vulnerable = append(vulnerable, ubuntuVulnerableMatch{
+			name: pkg.name, installed: installedEVR, fixedIn: pkg.fixedIn,
 		})
 	}
+	return allComponents, vulnerable
+}
 
-	sortOVALResults(results)
-	return results, nil
+// checkCVEFromUbuntuOVAL is CheckCVEFromOVAL's Ubuntu/Debian counterpart: the
+// RHEL/SUSE path's rpminfo_test/object/state criteria walk and QueryInstalledRPM
+// cross-reference don't apply to a dpkg-based host, so this parses the
+// Ubuntu/Debian OVAL schema directly (parseUbuntuOVALVersionAware, the same
+// parser ScanUbuntuOVALPackages uses) and narrows to the single CVE the caller
+// asked about, rather than returning every vulnerable CVE.
+func checkCVEFromUbuntuOVAL(ctx context.Context, ovalPath, cveID string) (*OVALResult, error) {
+	entries, installed, err := loadUbuntuOVALAndInstalled(ctx, ovalPath)
+	if err != nil {
+		return nil, fmt.Errorf("loading OVAL: %w", err)
+	}
+
+	result := &OVALResult{CVE: cveID}
+	var matched *ubuntuVulnEntry
+	for i := range entries {
+		if entries[i].cveID == cveID {
+			matched = &entries[i]
+			break
+		}
+	}
+	if matched == nil {
+		return result, nil // Found stays false: no definition for this CVE
+	}
+	result.Found = true
+	result.Severity = matched.severity
+
+	_, vulnerable := ubuntuEntryMatches(*matched, installed)
+	for _, v := range vulnerable {
+		result.Packages = append(result.Packages, OVALPackageMatch{
+			Name:      v.name,
+			Installed: v.installed,
+			FixedIn:   v.fixedIn,
+		})
+	}
+	return result, nil
 }
