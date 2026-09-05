@@ -51,3 +51,4 @@ GAP-2-json-corruption	./internal/source	TestBundleSanitizeJSONArrayCredentialVal
 GAP-1-cleanup-on-failure	./internal/fleet	TestRunHost_CleansUpOnRemoteCommandFailure	e960f7a9	the remote binary must be removed even when the remote health command fails
 GAP-1-cleanup-error-reported	./internal/fleet	TestRunHost_CleanupFailureReported	e960f7a9	a cleanup failure must be reported (CleanupError), never silently swallowed
 GAP-1-write-invariant	.	TestWriteCapableCallSitesAreOwnArtifactsOnly	e960f7a9	every write-capable call site outside internal/fleet must write only the operator's own output artifact
+BUG-101	./internal/collectors	TestTryOVALFallback_FoundWithRealInstalledPackage	2f8acf5e	single-CVE OVAL check (dsd cve check --oval) now vendor-dispatches to Ubuntu/Debian parsing, matching the bulk --oval-scan path
