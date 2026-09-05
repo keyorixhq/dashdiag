@@ -4,6 +4,9 @@ package collectors
 
 import (
 	"context"
+	"os"
+	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -233,6 +236,61 @@ func TestKmsgRecords_LiveClosureUnavailable(t *testing.T) {
 	// KmsgUnreadable, replacing the euid-only proxy.
 	if err == nil {
 		t.Error("expected a non-nil error when /dev/kmsg's OpenFile fails, got nil")
+	}
+}
+
+// withKmsgPath points readKmsgLive's os.OpenFile call at path for the
+// duration of the test, restoring the real /dev/kmsg constant on cleanup.
+func withKmsgPath(t *testing.T, path string) {
+	t.Helper()
+	prev := kmsgPath
+	kmsgPath = path
+	t.Cleanup(func() { kmsgPath = prev })
+}
+
+// TestReadKmsgLive_DrainsUntilEOF exercises the actual read loop, which
+// TestKmsgRecords_LiveClosureUnavailable cannot: /dev/kmsg doesn't exist in
+// the test environment, so that test only ever reaches the OpenFile-failure
+// branch. A regular file stands in for the ring buffer here — Read on a
+// regular file returns (0, io.EOF) once exhausted, which the loop treats
+// identically to a real device's EAGAIN ("ring buffer exhausted"), so this
+// hits the same code path a live drain would.
+func TestReadKmsgLive_DrainsUntilEOF(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "kmsg")
+	content := "6,123,1000000,-;kernel: test message one\n7,124,2000000,-;kernel: test message two"
+	if err := os.WriteFile(path, []byte(content), 0o644); err != nil {
+		t.Fatalf("write kmsg fixture: %v", err)
+	}
+	withKmsgPath(t, path)
+
+	got, err := readKmsgLive(context.Background())
+	if err != nil {
+		t.Fatalf("readKmsgLive: unexpected error %v", err)
+	}
+	if !strings.Contains(got, "test message one") || !strings.Contains(got, "test message two") {
+		t.Errorf("readKmsgLive = %q, want both fixture records present", got)
+	}
+}
+
+// TestReadKmsgLive_CtxDoneStopsBeforeReading covers the ctx.Done() select
+// branch: a context cancelled before the loop starts must return immediately
+// with whatever was accumulated so far (nothing, here), never attempting a
+// Read.
+func TestReadKmsgLive_CtxDoneStopsBeforeReading(t *testing.T) {
+	path := filepath.Join(t.TempDir(), "kmsg")
+	if err := os.WriteFile(path, []byte("6,1,1,-;kernel: should not be read\n"), 0o644); err != nil {
+		t.Fatalf("write kmsg fixture: %v", err)
+	}
+	withKmsgPath(t, path)
+
+	ctx, cancel := context.WithCancel(context.Background())
+	cancel()
+	got, err := readKmsgLive(ctx)
+	if err != nil {
+		t.Fatalf("readKmsgLive: unexpected error %v", err)
+	}
+	if got != "" {
+		t.Errorf("readKmsgLive with pre-cancelled ctx = %q, want empty", got)
 	}
 }
 
