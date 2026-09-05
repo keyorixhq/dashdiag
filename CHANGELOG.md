@@ -11,6 +11,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- `dsd cve check <CVE-ID> --oval`'s single-CVE lookup always parsed a staged
+  OVAL feed with the RHEL/SUSE rpminfo schema and cross-referenced it via
+  `rpm -qa`, regardless of the host's actual distro. A staged Ubuntu/Debian
+  OVAL feed was therefore silently ignored — the command always reported the
+  CVE as "not found in feed" — even though the bulk `dsd cve --oval-scan`
+  path already vendor-dispatched correctly and found the same CVE. Both paths
+  now share a single vendor-detection helper (`detectOVALVendor`), so they
+  can no longer disagree about which parser owns a feed. (BUG-101)
+
 ## [2.3.0] - 2026-09-04
 
 ### Added

@@ -132,6 +132,17 @@ type ovalEVR struct {
 //	RHEL/Rocky:    https://www.redhat.com/security/data/oval/
 func CheckCVEFromOVAL(ctx context.Context, ovalPath string, cveID string) (*OVALResult, error) {
 	cveID = strings.ToUpper(strings.TrimSpace(cveID))
+
+	// Ubuntu/Debian OVAL feeds use a different XML schema (no rpminfo_test/
+	// object/state criteria tree) and are cross-referenced via dpkg, not rpm —
+	// same vendor dispatch ScanOVALPackages already applies for the bulk scan.
+	// Without this, a staged Ubuntu/Debian feed was silently parsed as if it
+	// were RHEL-shaped, found no matching definition, and always reported
+	// "not found" regardless of the feed's actual content.
+	if detectOVALVendor(ovalPath) == "ubuntu" {
+		return checkCVEFromUbuntuOVAL(ctx, ovalPath, cveID)
+	}
+
 	result := &OVALResult{CVE: cveID}
 
 	oval, err := loadOVAL(ovalPath)

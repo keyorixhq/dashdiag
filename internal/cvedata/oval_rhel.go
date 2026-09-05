@@ -204,28 +204,43 @@ type OVALCVSSResult struct {
 }
 
 // ScanOVALPackages parses an OVAL file and cross-references with installed
-// packages. It detects the vendor (RHEL, Ubuntu/Debian, or SUSE) by sniffing
-// the file CONTENT first, falling back to the path. Content wins because a
-// path-only guess silently routes a renamed SUSE feed (e.g. saved as
-// "oval.xml") to the RHEL parser, which finds nothing and reports a green
-// "no vulnerable packages" — the false-OK this dispatch exists to avoid.
+// packages, dispatching on detectOVALVendor.
 func ScanOVALPackages(ctx context.Context, ovalPath string) ([]OVALCVSSResult, error) {
-	switch sniffOVALVendor(ovalPath) {
+	switch detectOVALVendor(ovalPath) {
 	case "ubuntu":
 		return ScanUbuntuOVALPackages(ctx, ovalPath)
 	case "suse":
 		return ScanSUSEOVALPackages(ctx, ovalPath)
-	case "rhel":
+	default:
 		return scanRHELOVALPackages(ctx, ovalPath)
+	}
+}
+
+// detectOVALVendor tells which family an OVAL file belongs to — "ubuntu",
+// "suse", or "rhel" (the default) — sniffing the file CONTENT first and
+// falling back to the path when content is inconclusive. Content wins because
+// a path-only guess silently routes a renamed SUSE feed (e.g. saved as
+// "oval.xml") to the RHEL parser, which finds nothing and reports a green
+// "no vulnerable packages" — the false-OK this dispatch exists to avoid.
+// Shared by ScanOVALPackages (bulk scan) and CheckCVEFromOVAL (single-CVE
+// check) so the two paths never disagree about which parser owns a feed.
+func detectOVALVendor(ovalPath string) string {
+	switch sniffOVALVendor(ovalPath) {
+	case "ubuntu":
+		return "ubuntu"
+	case "suse":
+		return "suse"
+	case "rhel":
+		return "rhel"
 	}
 	// Content was inconclusive — fall back to the filename hint.
 	if isUbuntuOVAL(ovalPath) {
-		return ScanUbuntuOVALPackages(ctx, ovalPath)
+		return "ubuntu"
 	}
 	if isSUSEOVAL(ovalPath) {
-		return ScanSUSEOVALPackages(ctx, ovalPath)
+		return "suse"
 	}
-	return scanRHELOVALPackages(ctx, ovalPath)
+	return "rhel"
 }
 
 // sniffOVALVendor reads the head of an OVAL file (bzip2-aware) and returns

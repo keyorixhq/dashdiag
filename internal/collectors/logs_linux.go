@@ -17,8 +17,12 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/platform"
 )
 
+// kmsgPath is a var (not const) solely so tests can point readKmsgLive at a
+// regular file standing in for the real ring-buffer device — it is never
+// influenced by user input or config in production.
+var kmsgPath = "/dev/kmsg"
+
 const (
-	kmsgPath          = "/dev/kmsg"
 	journalRunPath    = "/run/log/journal"
 	journalVarPath    = "/var/log/journal"
 	crashLoopRestarts = 5
@@ -190,7 +194,7 @@ func kmsgRecords(ctx context.Context) ([]string, error) {
 // (partial-content, nil) same as before.
 func readKmsgLive(ctx context.Context) (string, error) {
 	// nosemgrep: dsd-collector-raw-fs-bypasses-source -- live-fetch closure of curSource().Cached("kmsg") in kmsgRecords; the RESULT is captured/replayed (/dev/kmsg is a non-blocking stream ReadFile can't model)
-	f, err := os.OpenFile(kmsgPath, os.O_RDONLY|syscall.O_NONBLOCK, 0) // #nosec G304 -- hardcoded /dev/kmsg constant
+	f, err := os.OpenFile(kmsgPath, os.O_RDONLY|syscall.O_NONBLOCK, 0) // #nosec G304 -- kmsgPath is a fixed internal path, only ever overridden by tests
 	if err != nil {
 		return "", err
 	}
