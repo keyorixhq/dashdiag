@@ -129,7 +129,13 @@ jobs:
   # schedule and trigger as govulncheck so a newly published CVE fires both.
   osv-scanner:
     needs: [changes]
-    if: needs.changes.outputs.docs_only != 'true'
+    # Not a required status check, and this scans dependency/config posture
+    # rather than the diff -- a finding is almost always already on main. Gated
+    # off pull_request 2026-09-09 to return a runner slot to the critical path
+    # (see codeql.yml's note for the measurement). Still runs on push:[main]
+    # and on the weekly schedule. `security` and `gitleaks` in this same
+    # workflow ARE required and deliberately keep running on every PR.
+    if: github.event_name != 'pull_request' && needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -179,7 +185,13 @@ jobs:
   trivy-misconfig:
     name: Trivy (GH Actions misconfigs)
     needs: [changes]
-    if: needs.changes.outputs.docs_only != 'true'
+    # Not a required status check, and this scans dependency/config posture
+    # rather than the diff -- a finding is almost always already on main. Gated
+    # off pull_request 2026-09-09 to return a runner slot to the critical path
+    # (see codeql.yml's note for the measurement). Still runs on push:[main]
+    # and on the weekly schedule. `security` and `gitleaks` in this same
+    # workflow ARE required and deliberately keep running on every PR.
+    if: github.event_name != 'pull_request' && needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-24.04
     permissions:
       contents: read

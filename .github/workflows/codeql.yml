@@ -10,8 +10,19 @@ name: CodeQL
 on:
   push:
     branches: [main]
-  pull_request:
-    branches: [main]
+  # pull_request trigger removed 2026-09-09. This scans a property of the
+  # repository, not of the diff, and is NOT a required status check (verified
+  # against branch protection), so removing it cannot leave a required check
+  # pending. push:[main] plus the weekly schedule below keeps the same
+  # practical detection window: a finding here is almost always already on
+  # main.
+  #
+  # The reason is slot pressure, not the scan itself. A DashDiag PR fires 34
+  # check-runs against the Free plan's account-wide ceiling of 20 concurrent
+  # jobs, and run 34154261743 measured the consequence: 21 CI jobs totalling
+  # 24.9 min of compute, longest job 6.3 min, yet 22.8 min of wall clock --
+  # roughly 1x parallelism. The critical-path job (Test (ubuntu-24.04))
+  # waited 16.5 min to start and then ran 6.3 min.
   schedule:
     - cron: '41 9 * * 1' # weekly, offset from the other security jobs
 
