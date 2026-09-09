@@ -92,6 +92,34 @@ jobs:
       pull-requests: read # to list the PR's changed files
     outputs:
       docs_only: ${{ steps.filter.outputs.docs_only }}
+      # True when every changed file is in a category VERIFIED to contain no Go
+      # source and to be read by no Go build/test/lint/smoke step. An allowlist,
+      # not a denylist, deliberately: a new top-level directory added later and
+      # not listed here simply keeps this false, so the full suite runs. A
+      # denylist would default to skipping an unrecognised directory and
+      # silently under-test it.
+      #
+      # Verified 2026-09-09 rather than assumed, because two obvious-looking
+      # candidates turned out to be wrong in opposite directions:
+      #
+      #   * .github/ LOOKS unsafe -- 16 test lines mention it -- but every one
+      #     is cmd/hook_run_test.go building a .github/workflows/dsd-health.yml
+      #     fixture under t.TempDir() to exercise `dsd hook run`. None reads
+      #     this repo's own .github/. Safe.
+      #   * scripts/ LOOKS safe -- no .go files, and most references are
+      #     comments -- but fuzz_coverage_test.go:97 actually EXECUTES
+      #     scripts/fuzz-discover.sh and asserts on its output. So scripts/ is
+      #     allowlisted with that one file short-circuited below.
+      #
+      # Also verified: no go:embed directives anywhere in cmd/ or internal/, so
+      # nothing outside the Go tree is baked into the binary; and Makefile is
+      # referenced only in comments, never read by a test.
+      #
+      # Deliberately NOT included: fixtures/, testdata/, schema/, packaging/,
+      # install.sh, go.mod, go.sum, go.work (test data and dependency state --
+      # any of these can change a test outcome), and ci.yml itself (it defines
+      # this gate, so a change to it must always run the full suite).
+      go_unaffected: ${{ steps.filter.outputs.go_unaffected }}
     steps:
       - id: filter
         env:
@@ -99,7 +127,10 @@ jobs:
         run: |
           set -euo pipefail
           if [ "${{ github.event_name }}" != "pull_request" ]; then
-            echo "docs_only=false" >> "$GITHUB_OUTPUT"
+            {
+              echo "docs_only=false"
+              echo "go_unaffected=false"
+            } >> "$GITHUB_OUTPUT"
             exit 0
           fi
           changed=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
@@ -111,6 +142,19 @@ jobs:
             echo "docs_only=false" >> "$GITHUB_OUTPUT"
           else
             echo "docs_only=true" >> "$GITHUB_OUTPUT"
+          fi
+
+          # go_unaffected: see the output's own comment above for why each
+          # entry is here and why four plausible-looking ones are not.
+          # Two files short-circuit to false regardless of what else matched:
+          # ci.yml defines this gate, and scripts/fuzz-discover.sh is executed
+          # by fuzz_coverage_test.go.
+          if echo "$changed" | grep -qxE '(\.github/workflows/ci\.yml|scripts/fuzz-discover\.sh)'; then
+            echo "go_unaffected=false" >> "$GITHUB_OUTPUT"
+          elif [ -z "$changed" ] || echo "$changed" | grep -vE '^(\.github/|hack/|bug-reports/|scripts/|docs/|Makefile$|TRIAGE\.md$|COLLECTOR-SWEEP\.md$|DEFECT-CLASSES\.md$|README\.md$|CONTRIBUTING\.md$|CHANGELOG\.md$|COMPATIBILITY\.md$|GETTING_STARTED\.md$|PRIVACY\.md$|SECURITY\.md$|BACKLOG\.md$|BUGS\.md$|LICENSE$|DCO$|\.gitignore$|\.gitattributes$|osv-scanner\.toml$)' > /dev/null; then
+            echo "go_unaffected=false" >> "$GITHUB_OUTPUT"
+          else
+            echo "go_unaffected=true" >> "$GITHUB_OUTPUT"
           fi
 
   # Fast compile gate — runs before every job that builds Go code.  A compile
@@ -125,7 +169,7 @@ jobs:
   preflight:
     name: Preflight (compile gate)
     needs: [changes]
-    if: needs.changes.outputs.docs_only != 'true'
+    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.go_unaffected != 'true'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -211,7 +255,21 @@ jobs:
   test:
     name: Test (${{ matrix.os }})
     needs: [changes, preflight]
-    if: always() && (needs.preflight.result == 'success' || needs.preflight.result == 'skipped')
+    # Was: always() && (preflight succeeded || preflight was SKIPPED).
+    # That `|| skipped` clause made this job opt OUT of the docs-only gate:
+    # on a docs-only PR preflight skips, so the condition was true and these
+    # ran anyway. Verified on PR #1077 (CHANGELOG.md only, run 33907548061):
+    # ten jobs correctly skipped while all four Test legs and both install
+    # smokes ran -- including Test (ubuntu-24.04), the 6.3-minute
+    # critical-path job. The gate was skipping the cheap jobs and running the
+    # expensive ones.
+    #
+    # The `|| skipped` was presumably defending the four required Test
+    # contexts against blocking a merge. It is not needed: a job skipped by
+    # an `if:` still reports a check-run, and branch protection treats a
+    # skipped required check as satisfied. Plain `needs:` handling now does
+    # the right thing -- if preflight skips, so do these.
+    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.go_unaffected != 'true'
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
@@ -416,7 +474,21 @@ jobs:
   install-smoke:
     name: Install one-liner (${{ matrix.platform }})
     needs: [changes, preflight]
-    if: always() && (needs.preflight.result == 'success' || needs.preflight.result == 'skipped')
+    # Was: always() && (preflight succeeded || preflight was SKIPPED).
+    # That `|| skipped` clause made this job opt OUT of the docs-only gate:
+    # on a docs-only PR preflight skips, so the condition was true and these
+    # ran anyway. Verified on PR #1077 (CHANGELOG.md only, run 33907548061):
+    # ten jobs correctly skipped while all four Test legs and both install
+    # smokes ran -- including Test (ubuntu-24.04), the 6.3-minute
+    # critical-path job. The gate was skipping the cheap jobs and running the
+    # expensive ones.
+    #
+    # The `|| skipped` was presumably defending the four required Test
+    # contexts against blocking a merge. It is not needed: a job skipped by
+    # an `if:` still reports a check-run, and branch protection treats a
+    # skipped required check as satisfied. Plain `needs:` handling now does
+    # the right thing -- if preflight skips, so do these.
+    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.go_unaffected != 'true'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
