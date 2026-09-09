@@ -8,8 +8,38 @@ name: SonarCloud
 on:
   push:
     branches: [main]
+  # paths-ignore is applied ONLY to pull_request, deliberately. The `changes`
+  # job it replaces emitted docs_only=false for every non-PR event, so push
+  # and schedule ran the analysis unconditionally; putting paths-ignore on
+  # push too would silently change that. This is a job-count change, not a
+  # coverage change.
+  #
+  # Safe here and NOT safe in ci.yml or security.yml: a workflow that
+  # paths-ignore skips never creates its check-runs at all, and branch
+  # protection waits forever on a REQUIRED check that was never created.
+  # Nothing this workflow produces is required (verified against branch
+  # protection: 18 required contexts, none of them from here), so skipping
+  # the whole workflow is equivalent to skipping its jobs. ci.yml and
+  # security.yml both carry required checks and keep their `changes` jobs
+  # for exactly that reason.
   pull_request:
     branches: [main]
+    paths-ignore:
+      # Exactly the allowlist the deleted `changes` job matched on. paths-ignore
+      # means "run unless EVERY changed file matches", which is the same
+      # predicate docs_only computed, one layer earlier and without a job.
+      - 'README.md'
+      - 'CONTRIBUTING.md'
+      - 'CHANGELOG.md'
+      - 'COMPATIBILITY.md'
+      - 'GETTING_STARTED.md'
+      - 'PRIVACY.md'
+      - 'SECURITY.md'
+      - 'BACKLOG.md'
+      - 'BUGS.md'
+      - 'LICENSE'
+      - 'DCO'
+      - 'docs/**'
   schedule:
     - cron: '0 9 * * 1' # Monday 09:00 UTC — same cadence as security.yml
 
@@ -30,40 +60,13 @@ jobs:
   # job (keep the allowlist in sync there; not a required branch-protection
   # check today, but gated for consistency and runner-time savings). Only
   # gates pull_request events; push/schedule always run the full analysis.
-  changes:
-    name: Detect docs-only diff
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      pull-requests: read # to list the PR's changed files
-    outputs:
-      docs_only: ${{ steps.filter.outputs.docs_only }}
-    steps:
-      - id: filter
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          if [ "${{ github.event_name }}" != "pull_request" ]; then
-            echo "docs_only=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          changed=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
-            --paginate --jq '.[].filename')
-          if [ -z "$changed" ] || echo "$changed" | grep -vE '^(README\.md|CONTRIBUTING\.md|CHANGELOG\.md|COMPATIBILITY\.md|GETTING_STARTED\.md|PRIVACY\.md|SECURITY\.md|BACKLOG\.md|BUGS\.md|LICENSE|DCO|docs/)' > /dev/null; then
-            echo "docs_only=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "docs_only=true" >> "$GITHUB_OUTPUT"
-          fi
-
   sonarcloud:
-    needs: [changes]
     # Dependabot-triggered pull_request runs don't get repository Actions
     # secrets (GitHub withholds them unless SONAR_TOKEN is separately
     # registered as a Dependabot secret) — the scan would just fail on
     # "Not authorized". Skip here; push-to-main still runs the full scan
     # once the bump is merged.
-    if: needs.changes.outputs.docs_only != 'true' && github.actor != 'dependabot[bot]'
+    if: github.actor != 'dependabot[bot]'
     runs-on: ubuntu-24.04
     permissions:
       contents: read
