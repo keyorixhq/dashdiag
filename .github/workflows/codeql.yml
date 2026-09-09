@@ -10,8 +10,38 @@ name: CodeQL
 on:
   push:
     branches: [main]
+  # paths-ignore is applied ONLY to pull_request, deliberately. The `changes`
+  # job it replaces emitted docs_only=false for every non-PR event, so push
+  # and schedule ran the analysis unconditionally; putting paths-ignore on
+  # push too would silently change that. This is a job-count change, not a
+  # coverage change.
+  #
+  # Safe here and NOT safe in ci.yml or security.yml: a workflow that
+  # paths-ignore skips never creates its check-runs at all, and branch
+  # protection waits forever on a REQUIRED check that was never created.
+  # Nothing this workflow produces is required (verified against branch
+  # protection: 18 required contexts, none of them from here), so skipping
+  # the whole workflow is equivalent to skipping its jobs. ci.yml and
+  # security.yml both carry required checks and keep their `changes` jobs
+  # for exactly that reason.
   pull_request:
     branches: [main]
+    paths-ignore:
+      # Exactly the allowlist the deleted `changes` job matched on. paths-ignore
+      # means "run unless EVERY changed file matches", which is the same
+      # predicate docs_only computed, one layer earlier and without a job.
+      - 'README.md'
+      - 'CONTRIBUTING.md'
+      - 'CHANGELOG.md'
+      - 'COMPATIBILITY.md'
+      - 'GETTING_STARTED.md'
+      - 'PRIVACY.md'
+      - 'SECURITY.md'
+      - 'BACKLOG.md'
+      - 'BUGS.md'
+      - 'LICENSE'
+      - 'DCO'
+      - 'docs/**'
   schedule:
     - cron: '41 9 * * 1' # weekly, offset from the other security jobs
 
@@ -32,36 +62,8 @@ jobs:
   # gates pull_request events; push/schedule always run the full analysis —
   # the schedule trigger exists specifically to catch a newly published CodeQL
   # query on unchanged code, so it must never be skipped.
-  changes:
-    name: Detect docs-only diff
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: read
-      pull-requests: read # to list the PR's changed files
-    outputs:
-      docs_only: ${{ steps.filter.outputs.docs_only }}
-    steps:
-      - id: filter
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          if [ "${{ github.event_name }}" != "pull_request" ]; then
-            echo "docs_only=false" >> "$GITHUB_OUTPUT"
-            exit 0
-          fi
-          changed=$(gh api "repos/${{ github.repository }}/pulls/${{ github.event.pull_request.number }}/files" \
-            --paginate --jq '.[].filename')
-          if [ -z "$changed" ] || echo "$changed" | grep -vE '^(README\.md|CONTRIBUTING\.md|CHANGELOG\.md|COMPATIBILITY\.md|GETTING_STARTED\.md|PRIVACY\.md|SECURITY\.md|BACKLOG\.md|BUGS\.md|LICENSE|DCO|docs/)' > /dev/null; then
-            echo "docs_only=false" >> "$GITHUB_OUTPUT"
-          else
-            echo "docs_only=true" >> "$GITHUB_OUTPUT"
-          fi
-
   analyze:
     name: Analyze (go)
-    needs: [changes]
-    if: needs.changes.outputs.docs_only != 'true'
     runs-on: ubuntu-24.04
     permissions:
       security-events: write # upload findings to code scanning
