@@ -20,6 +20,9 @@ FUZZTIME="${FUZZTIME:-15m}"
 NOTIFY_URL="${FUZZ_NOTIFY_URL:-}"
 CORPUS_BRANCH="${CORPUS_BRANCH:-fuzz/corpus-updates}"
 REMOTE="${REMOTE:-origin}"
+# How many times to retry a failed fetch, and the base backoff between tries.
+FETCH_RETRIES="${FETCH_RETRIES:-5}"
+FETCH_BACKOFF="${FETCH_BACKOFF:-10}"
 
 cd "$REPO_DIR"
 
@@ -49,7 +52,25 @@ case "$FUZZ_LOG_DIR/" in
 esac
 
 sync_repo() {
-  git fetch "$REMOTE" main -q
+  # A failed fetch must NEVER take the service down. Under the old code a single
+  # `git fetch` failure (a DNS blip, a brief network drop — routine on the vCD
+  # tenant) exited the script under `set -e`; systemd's Restart then relaunched
+  # it, and with a per-target fetch a flaky network turned into a restart loop
+  # that fuzzed almost nothing for days. Retry with backoff, and if the fetch
+  # still fails, reset to whatever origin/main we already have and fuzz that
+  # (stale main is far better than no fuzzing) rather than exiting.
+  local i
+  for ((i = 1; i <= FETCH_RETRIES; i++)); do
+    if git fetch "$REMOTE" main -q 2>/dev/null; then
+      break
+    fi
+    if [[ "$i" -eq FETCH_RETRIES ]]; then
+      log "fetch of $REMOTE/main still failing after $FETCH_RETRIES attempts — fuzzing the existing checkout instead of exiting"
+      break
+    fi
+    log "fetch of $REMOTE/main failed (attempt $i/$FETCH_RETRIES) — retrying in $((FETCH_BACKOFF * i))s"
+    sleep "$((FETCH_BACKOFF * i))"
+  done
   git checkout main -q
   git reset --hard "$REMOTE/main" -q
   git clean -fd -q
@@ -204,8 +225,20 @@ while true; do
     # script, and the log must already be safe (and queued for GitHub) by then.
     runlog_finish "$status"
     if [[ "$status" -ne 0 ]]; then
-      alert "CRASH: $name ($pkg) on $(hostname), exit $status — log at $RUNLOG_FINAL. Reproduce with: go test -run=$name $pkg"
-      publish_crashers "$name" "$pkg" "$RUNLOG_FINAL" # commit the reproducer immediately, don't wait for end of rotation
+      # A non-zero exit is only a CRASH if Go actually wrote a reproducer into
+      # testdata/fuzz/. Most non-zero exits are NOT crashes: a `context deadline
+      # exceeded` at the end of -fuzztime (a Go fuzzing harness flake), an
+      # out-of-memory kill, or a build/network failure — 34 of the 37 CRASH
+      # alerts this rig raised in 2026-07/08 were the end-of-fuzztime flake, and
+      # the loud alert on every one of them trained everyone to ignore it. Only
+      # a real reproducer gets the alert + PR; everything else is a quiet logged
+      # failure (runlog has already queued its log to the tracking issue).
+      if [[ -n "$(git status --porcelain -- '*/testdata/fuzz/*')" ]]; then
+        alert "CRASH: $name ($pkg) on $(hostname), exit $status — reproducer written, log at $RUNLOG_FINAL. Reproduce with: go test -run=$name $pkg"
+        publish_crashers "$name" "$pkg" "$RUNLOG_FINAL" # commit the reproducer immediately, don't wait for end of rotation
+      else
+        log "$name exited $status with no reproducer (timeout/OOM/build/network) — logged to the tracking issue, not a crash"
+      fi
     fi
     runlog_post_pending
   done

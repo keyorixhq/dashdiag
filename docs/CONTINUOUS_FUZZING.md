@@ -25,19 +25,24 @@ risk from it.
 |---|---|---|---|---|
 | **GitHub Actions** (`.github/workflows/fuzz.yml`) | Every `FuzzXxx` target (55 as of 2026-09), split across 2 shards via `scripts/run-fuzz-targets.sh all` | Weekly (Monday 02:00 UTC) + `workflow_dispatch` | Yes — `scripts/fuzz-discover.sh`, same mechanism as pve01 | CI job failure on the `Fuzz` workflow; the crash reproducer is uploaded as a build artifact (`fuzz-crashes-shard<N>-<run>`), not auto-opened as a PR |
 | **pve01** (CT 220 `dashdiag-fuzz`, 192.168.10.33) | Every `FuzzXxx` target, one rotation at a time, `FUZZTIME=15m` each | Continuous (systemd, `Restart=always`) | Yes — `scripts/fuzz-discover.sh` via `scripts/fuzz-continuous.sh` | Auto-opened/updated PR on `fuzz/corpus-updates` (see "What a crash looks like from the outside" below), plus every failing run's log on the `fuzz rig: failing-run logs` issue (see "Run logs") |
-| **VCD tenant rig** | `TODO(andrei)` | `TODO(andrei)` | `TODO(andrei)` | `TODO(andrei)` |
+| **VCD tenant rig** (VM `dashdiag-fuzz`, reached via a bastion) | Every `FuzzXxx` target, one at a time, `FUZZTIME=15m` each | Continuous (systemd `dashdiag-fuzz.service`, `Restart=always`) | Yes — `scripts/fuzz-discover.sh` via `scripts/fuzz-continuous.sh` | Auto-opened/updated PR on `fuzz/corpus-updates` on a real reproducer, plus every failing run's log on the `fuzz rig: failing-run logs` issue |
 
 **pve01 is currently unreachable** (as of 2026-09-02): the box is in Andrei's
 Valencia apartment and he's away for a week or more. Don't assume its rotation
 is progressing during that window — GitHub Actions is the only site confirmed
 running.
 
-**VCD tenant rig**: Andrei has fuzz infrastructure for dashdiag and keyorix in
-a VMware Cloud Director tenant, not otherwise documented in this repo. Details
-weren't available to fill in this table — VPN access to that tenant was down
-when this section was written (2026-09-02). Ask Andrei directly rather than
-inferring from the other two rigs' shape; VCD's setup may differ (e.g. it may
-also cover keyorix, not just dashdiag). Fill in the row above once confirmed.
+**VCD tenant rig** (confirmed 2026-09-11): a VMware Cloud Director tenant runs
+two separate always-on VMs — one for dashdiag (`dashdiag-fuzz`) and one for
+keyorix (`keyorix-fuzz`) — each reachable only through a bastion host, not
+directly. The dashdiag VM runs this exact `scripts/fuzz-continuous.sh` under
+`dashdiag-fuzz.service`; the keyorix VM runs `scripts/fuzzing/run-rotation.sh`
+from the keyorix repo. It replaced an earlier single `vcd-fuzz` VM. The tenant
+is temporary (weeks-scale VMware resources), which is why every failing run's
+log is also copied off the box to the tracking issue (see "Run logs") — when
+the tenant expires, anything only on the box is lost. Connection details
+(bastion address, host IPs, credentials) are operational and kept out of the
+repo; ask Andrei.
 
 ## How Go's fuzz corpus actually behaves here (read this before wondering why nothing shows up in `git status`)
 
