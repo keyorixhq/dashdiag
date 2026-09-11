@@ -24,7 +24,7 @@ risk from it.
 | Site | What it runs | Cadence | Self-discovering? | Findings surface as |
 |---|---|---|---|---|
 | **GitHub Actions** (`.github/workflows/fuzz.yml`) | Every `FuzzXxx` target (55 as of 2026-09), split across 2 shards via `scripts/run-fuzz-targets.sh all` | Weekly (Monday 02:00 UTC) + `workflow_dispatch` | Yes — `scripts/fuzz-discover.sh`, same mechanism as pve01 | CI job failure on the `Fuzz` workflow; the crash reproducer is uploaded as a build artifact (`fuzz-crashes-shard<N>-<run>`), not auto-opened as a PR |
-| **pve01** (CT 220 `dashdiag-fuzz`, 192.168.10.33) | Every `FuzzXxx` target, one rotation at a time, `FUZZTIME=15m` each | Continuous (systemd, `Restart=always`) | Yes — `scripts/fuzz-discover.sh` via `scripts/fuzz-continuous.sh` | Auto-opened/updated PR on `fuzz/corpus-updates` (see "What a crash looks like from the outside" below) |
+| **pve01** (CT 220 `dashdiag-fuzz`, 192.168.10.33) | Every `FuzzXxx` target, one rotation at a time, `FUZZTIME=15m` each | Continuous (systemd, `Restart=always`) | Yes — `scripts/fuzz-discover.sh` via `scripts/fuzz-continuous.sh` | Auto-opened/updated PR on `fuzz/corpus-updates` (see "What a crash looks like from the outside" below), plus every failing run's log on the `fuzz rig: failing-run logs` issue (see "Run logs") |
 | **VCD tenant rig** | `TODO(andrei)` | `TODO(andrei)` | `TODO(andrei)` | `TODO(andrei)` |
 
 **pve01 is currently unreachable** (as of 2026-09-02): the box is in Andrei's
@@ -78,6 +78,48 @@ Only crash reproducers, automatically, as a PR:
   built and when it's reached — the script checks the target still exists
   (`go test -list`) immediately before fuzzing it and skips it quietly if not,
   rather than mistaking "target no longer exists" for a crash.
+
+## Run logs
+
+Every run of every target gets its own log file, and none is ever overwritten
+or pruned (`scripts/fuzz-runlog.sh`). Until 2026-09 the rig wrote to
+`/tmp/fuzz-<Target>.log`, which the same target's next run overwrote and a
+reboot wiped: the VCD rig raised 37 `CRASH` alerts between July and August and
+only one log survived long enough to be read, so the other 36 could never be
+sorted into real bug vs. harness flake.
+
+```
+$FUZZ_LOG_DIR/                       default ~/fuzz-logs — must be OUTSIDE the checkout
+  <Target>/
+    20260911T101636Z_6c2ac753ab12_4711_exit0.log.gz   start time, commit, pid, exit status
+    20260911T134001Z_6c2ac753ab12_4711_exit1.log.gz
+    latest.log.gz -> newest finished run
+  .pending-post/                     failing runs not yet copied to GitHub
+  .tracking-issue                    number of the GitHub issue they go to
+```
+
+Each log starts and ends with `# key: value` lines — host, target, package,
+full commit, Go version, fuzztime, start, finish, duration, exit status — so a
+log still makes sense after it's been copied somewhere else. Read one with
+`zcat`, or `zless <Target>/latest.log.gz`. The `fuzz: elapsed` progress lines
+that make up most of a log compress very well; a year of continuous fuzzing is
+on the order of 100 MB.
+
+**The box itself is not "forever".** pve01 has been unreachable for weeks at a
+time and the VCD tenant is temporary, so every run that exits non-zero is
+*also* posted as a comment on a single tracking issue in this repo, titled
+`fuzz rig: failing-run logs` (created on first use). The comment carries the
+log's header, the first `FAIL`/`panic:` line, and the log's last 50 KB with the
+progress lines removed. That happens whether or not the run produced a
+`testdata/fuzz` reproducer — the runs that didn't are exactly the ones that
+used to vanish.
+
+Posting is queued. If GitHub can't be reached, or the token lacks the Issues
+permission, the log stays in `.pending-post/` and is retried after each later
+target, up to 5 at a time, and once at startup. A queue that isn't draining
+shows up in the journal as `runlog: ... still queued`. Set
+`FUZZ_POST_FAILURES=0` to keep logs on the box only. To start a fresh tracking
+issue, close the old one and delete `$FUZZ_LOG_DIR/.tracking-issue`.
 
 ## Provisioning the rig (pve01)
 
@@ -138,8 +180,9 @@ git clone https://github.com/keyorixhq/dashdiag.git ~/proj/dashdiag
 **Auth (do this step yourself, on the box, not through an assistant session)** —
 same discipline as the minisign key: a repo-scoped credential should never pass
 through a chat session. Create a **fine-grained PAT** scoped only to
-`keyorixhq/dashdiag` with Contents (read/write) and Pull requests (read/write),
-then:
+`keyorixhq/dashdiag` with Contents (read/write), Pull requests (read/write)
+and Issues (read/write) — Issues is for the failing-run log comments (see "Run
+logs"); without it those stay queued on the box — then:
 
 ```sh
 gh auth login --with-token < token.txt
@@ -187,6 +230,9 @@ Environment=FUZZTIME=15m
 # "go: command not found". Confirmed live on the pve01 rig (CT 220).
 Environment=PATH=/usr/local/go/bin:/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin
 # Optional: Environment=FUZZ_NOTIFY_URL=https://ntfy.sh/your-topic-here
+# Optional: Environment=FUZZ_LOG_DIR=/root/fuzz-logs  (the default is $HOME/fuzz-logs;
+#           anywhere outside the checkout — sync_repo's `git clean` would delete it)
+# Optional: Environment=FUZZ_POST_FAILURES=0          (keep failing-run logs off GitHub)
 ExecStart=/root/proj/dashdiag/scripts/fuzz-continuous.sh
 Restart=always
 RestartSec=30
@@ -230,6 +276,13 @@ Fix the parser, confirm the same command passes, and merge the PR — the
 reproducer is now a permanent regression test alongside the existing seed
 corpus.
 
+Every failing run — with or without a reproducer — also adds a comment to the
+`fuzz rig: failing-run logs` issue with its log. A comment with no matching
+PR is a run that exited non-zero without writing a reproducer: a timeout
+(`context deadline exceeded` at the end of `-fuzztime` is a known Go fuzzing
+harness flake), an out-of-memory kill, or a build failure. The log in the
+comment says which.
+
 ## Pausing / stopping
 
 ```sh
@@ -238,6 +291,7 @@ systemctl disable dashdiag-fuzz  # stop it starting on boot
 pct stop 220                     # or just stop the whole container
 ```
 
-Nothing about this rig is stateful in a way that requires draining or backup
-before stopping — the build cache is disposable, and anything worth keeping is
-already a merged/mergeable PR.
+The build cache is disposable. The one thing worth keeping is
+`$FUZZ_LOG_DIR`: failing runs' logs are already on the tracking issue once
+`.pending-post/` is empty, but passing runs' logs exist only on the box — copy
+the directory off before destroying it if you want them.
