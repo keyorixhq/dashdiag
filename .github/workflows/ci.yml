@@ -264,12 +264,18 @@ jobs:
     # critical-path job. The gate was skipping the cheap jobs and running the
     # expensive ones.
     #
-    # The `|| skipped` was presumably defending the four required Test
-    # contexts against blocking a merge. It is not needed: a job skipped by
-    # an `if:` still reports a check-run, and branch protection treats a
-    # skipped required check as satisfied. Plain `needs:` handling now does
-    # the right thing -- if preflight skips, so do these.
-    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.go_unaffected != 'true'
+    # The `|| skipped` was defending the required per-OS contexts from
+    # blocking a merge, but it opted the whole job out of the diff-gate. The
+    # right split is: keep the JOB running (so the matrix expands and every
+    # required per-OS context reports), and gate each STEP on preflight having
+    # actually run and passed. A job-level skip is NOT safe here: branch
+    # protection treats a skipped required check as satisfied only for
+    # non-matrix jobs -- a skipped matrix job posts one check-run under the
+    # unexpanded name ("Test (${{ matrix.os }})") and the required per-OS
+    # contexts ("Test (ubuntu-24.04)" ...) never report, blocking the merge
+    # forever. preflight is skipped on a docs-/go-unaffected diff, so the
+    # steps no-op in ~2s per cell while each context still reports green.
+    if: ${{ !cancelled() && needs.preflight.result != 'failure' }}
     runs-on: ${{ matrix.os }}
     permissions:
       contents: read
@@ -280,16 +286,16 @@ jobs:
 
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        if: needs.changes.outputs.docs_only != 'true'
+        if: needs.preflight.result == 'success'
 
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        if: needs.changes.outputs.docs_only != 'true'
+        if: needs.preflight.result == 'success'
         with:
           go-version: '1.26' # floating minor, not go.mod's exact patch — see note below
           cache: true
 
       - name: Format check
-        if: needs.changes.outputs.docs_only != 'true'
+        if: needs.preflight.result == 'success'
         run: |
           if [ -n "$(gofmt -l .)" ]; then
             echo "Files need formatting:"
@@ -298,15 +304,15 @@ jobs:
           fi
 
       - name: Vet
-        if: needs.changes.outputs.docs_only != 'true'
+        if: needs.preflight.result == 'success'
         run: go vet ./...
 
       - name: Test with race detector
-        if: needs.changes.outputs.docs_only != 'true'
+        if: needs.preflight.result == 'success'
         run: go test -race -count=1 -timeout 300s ./...
 
       - name: Coverage floor (≥96%)
-        if: needs.changes.outputs.docs_only != 'true' && matrix.os == 'ubuntu-24.04'
+        if: needs.preflight.result == 'success' && matrix.os == 'ubuntu-24.04'
         run: |
           go test -race -coverprofile=coverage.out -covermode=atomic ./...
           TOTAL=$(go tool cover -func=coverage.out | grep '^total:' | awk '{print $3}' | tr -d '%')
@@ -483,12 +489,18 @@ jobs:
     # critical-path job. The gate was skipping the cheap jobs and running the
     # expensive ones.
     #
-    # The `|| skipped` was presumably defending the four required Test
-    # contexts against blocking a merge. It is not needed: a job skipped by
-    # an `if:` still reports a check-run, and branch protection treats a
-    # skipped required check as satisfied. Plain `needs:` handling now does
-    # the right thing -- if preflight skips, so do these.
-    if: needs.changes.outputs.docs_only != 'true' && needs.changes.outputs.go_unaffected != 'true'
+    # The `|| skipped` was defending the required per-OS contexts from
+    # blocking a merge, but it opted the whole job out of the diff-gate. The
+    # right split is: keep the JOB running (so the matrix expands and every
+    # required per-OS context reports), and gate each STEP on preflight having
+    # actually run and passed. A job-level skip is NOT safe here: branch
+    # protection treats a skipped required check as satisfied only for
+    # non-matrix jobs -- a skipped matrix job posts one check-run under the
+    # unexpanded name ("Test (${{ matrix.os }})") and the required per-OS
+    # contexts ("Test (ubuntu-24.04)" ...) never report, blocking the merge
+    # forever. preflight is skipped on a docs-/go-unaffected diff, so the
+    # steps no-op in ~2s per cell while each context still reports green.
+    if: ${{ !cancelled() && needs.preflight.result != 'failure' }}
     runs-on: ubuntu-24.04
     permissions:
       contents: read
@@ -498,15 +510,15 @@ jobs:
         platform: [linux/amd64, linux/arm64]
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-        if: needs.changes.outputs.docs_only != 'true'
+        if: needs.preflight.result == 'success'
 
       # arm64 needs emulation on an amd64 runner.
       - name: Set up QEMU
-        if: needs.changes.outputs.docs_only != 'true' && matrix.platform != 'linux/amd64'
+        if: needs.preflight.result == 'success' && matrix.platform != 'linux/amd64'
         uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4
 
       - name: Install via install.sh in a clean container (curl, default prefix)
-        if: needs.changes.outputs.docs_only != 'true'
+        if: needs.preflight.result == 'success'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -525,7 +537,7 @@ jobs:
       # minimal images. Arch-independent script logic, so amd64-only to skip slow
       # emulated arm64.
       - name: Install via wget-only path (no curl on the box)
-        if: needs.changes.outputs.docs_only != 'true' && matrix.platform == 'linux/amd64'
+        if: needs.preflight.result == 'success' && matrix.platform == 'linux/amd64'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -545,7 +557,7 @@ jobs:
       # then assert: default => non-zero exit AND nothing installed; --no-verify =>
       # installs. Without this guard the old silent skip-and-continue could regress.
       - name: Install fails closed when it cannot verify (and --no-verify overrides)
-        if: needs.changes.outputs.docs_only != 'true' && matrix.platform == 'linux/amd64'
+        if: needs.preflight.result == 'success' && matrix.platform == 'linux/amd64'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -569,7 +581,7 @@ jobs:
       # refuse to install rather than silently fall back to checksum-only.
       # Default behaviour (no flag) must still succeed on the same box.
       - name: Install --require-signature fails closed without minisign
-        if: needs.changes.outputs.docs_only != 'true' && matrix.platform == 'linux/amd64'
+        if: needs.preflight.result == 'success' && matrix.platform == 'linux/amd64'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
@@ -590,7 +602,7 @@ jobs:
       # main() read the prefix positionally, so `--prefix` landed in ./--prefix/bin.
       # Guard the documented form so it can't silently regress again.
       - name: Install with documented --prefix flag (custom root)
-        if: needs.changes.outputs.docs_only != 'true' && matrix.platform == 'linux/amd64'
+        if: needs.preflight.result == 'success' && matrix.platform == 'linux/amd64'
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
