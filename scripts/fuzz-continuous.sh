@@ -35,6 +35,19 @@ alert() {
   fi
 }
 
+# Per-run logs under $FUZZ_LOG_DIR (default ~/fuzz-logs), gzipped and never
+# overwritten, and a GitHub tracking-issue copy of every failing run's log —
+# see the header of that file for why. Sourced once, at startup.
+# shellcheck source=scripts/fuzz-runlog.sh
+source "$REPO_DIR/scripts/fuzz-runlog.sh"
+# sync_repo's `git clean -fd` would delete logs kept inside the checkout.
+case "$FUZZ_LOG_DIR/" in
+  "$(pwd -P)/"*)
+    echo "FUZZ_LOG_DIR=$FUZZ_LOG_DIR is inside the checkout $(pwd -P) — sync_repo would delete it; point it elsewhere" >&2
+    exit 1
+    ;;
+esac
+
 sync_repo() {
   git fetch "$REMOTE" main -q
   git checkout main -q
@@ -94,7 +107,8 @@ publish_crashers() {
   # Build PR title/body and comment text with crash context when available.
   if [[ -n "$func" && -n "$pkg" && -n "$logfile" ]]; then
     reproduce_cmd="go test -run=^${func}\$ ${pkg}"
-    summary="$(grep -m8 -E 'FAIL|panic:|--- FAIL|Fatalf|\.go:[0-9]+' "$logfile" | head -c 1500 || true)"
+    # zgrep: the run log has already been gzipped by runlog_finish.
+    summary="$(zgrep -m8 -E 'FAIL|panic:|--- FAIL|Fatalf|\.go:[0-9]+' "$logfile" | head -c 1500 || true)"
     pr_title="fuzz(crash): $func — crash reproducer"
     pr_body="## Fuzz crash: \`$func\`
 
@@ -136,6 +150,9 @@ Reproduce: \`$reproduce_cmd\`"
 
   git checkout main -q
 }
+
+# Flush failing-run logs a previous process queued but could not post.
+runlog_post_pending
 
 rotation=0
 while true; do
@@ -179,11 +196,18 @@ while true; do
       log "$name no longer exists in $pkg (renamed/removed since rotation start) — skipping"
       continue
     fi
-    logfile="/tmp/fuzz-$(echo "$name" | tr -cd 'A-Za-z0-9_').log"
-    if ! go test -run=NONE -fuzz="^${name}\$" -fuzztime="$FUZZTIME" "$pkg" > "$logfile" 2>&1; then
-      alert "CRASH: $name ($pkg) on $(hostname) — log at $logfile. Reproduce with: go test -run=$name $pkg"
-      publish_crashers "$name" "$pkg" "$logfile" # commit the reproducer immediately, don't wait for end of rotation
+    runlog_start "$name" "$pkg" "$FUZZTIME"
+    status=0
+    go test -run=NONE -fuzz="^${name}\$" -fuzztime="$FUZZTIME" "$pkg" >>"$RUNLOG" 2>&1 || status=$?
+    # Seal and queue the log BEFORE anything that talks to the network:
+    # publish_crashers pushes under `set -e`, so a failed push exits the
+    # script, and the log must already be safe (and queued for GitHub) by then.
+    runlog_finish "$status"
+    if [[ "$status" -ne 0 ]]; then
+      alert "CRASH: $name ($pkg) on $(hostname), exit $status — log at $RUNLOG_FINAL. Reproduce with: go test -run=$name $pkg"
+      publish_crashers "$name" "$pkg" "$RUNLOG_FINAL" # commit the reproducer immediately, don't wait for end of rotation
     fi
+    runlog_post_pending
   done
   publish_crashers # safety net — no-op if the loop above already published
   alert "rotation $rotation complete"
