@@ -515,7 +515,7 @@ jobs:
       # arm64 needs emulation on an amd64 runner.
       - name: Set up QEMU
         if: needs.preflight.result == 'success' && matrix.platform != 'linux/amd64'
-        uses: docker/setup-qemu-action@96fe6ef7f33517b61c61be40b68a1882f3264fb8 # v4
+        uses: docker/setup-qemu-action@1f40c72289eff860ee54a304f1438e3cff362e0a # v4
 
       - name: Install via install.sh in a clean container (curl, default prefix)
         if: needs.preflight.result == 'success'
