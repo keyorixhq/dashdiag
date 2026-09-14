@@ -91,7 +91,7 @@ adversarial-adjacent, even if not actively malicious.
   validation — a collector parser that only sees real tool output today
   would, on replay, see arbitrary bytes a bundle author chose to record. This
   is the same class of bug the fuzzing rig already hunts for on *live* tool
-  output (`scripts/fuzz-continuous.sh`); a hostile bundle is just another way
+  output (the fuzz-harness runner `fuzz-runner.sh`); a hostile bundle is just another way
   to reach the same parsers with adversarial input, and the fuzz corpus is
   the right existing tool to extend here rather than building new defenses.
 

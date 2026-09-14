@@ -51,7 +51,7 @@ REPO="${REPO:-keyorixhq/dashdiag}"
 RELEASE_PROCESS_START="v0.6.0"
 SIGNING_EPOCH="v1.17.2"
 # Optional push notification (e.g. ntfy) on drift — silent no-op when unset.
-# Same pattern as scripts/fuzz-continuous.sh's FUZZ_NOTIFY_URL: a red
+# Same pattern as the fuzz rig runner's NOTIFY_URL: a red
 # scheduled workflow only helps if a human actually sees it, and GitHub's
 # scheduled-failure email is easy to miss or filter.
 NOTIFY_URL="${DRIFT_NOTIFY_URL:-}"
