@@ -12,10 +12,22 @@ on:
 permissions:
   contents: read
 env:
-  FUZZTIME: 90s   # per fuzz target
+  # Per fuzz target. This is a BRIEF regression smoke — the committed corpus is
+  # replayed in the first moment of each run (that is the actual regression
+  # signal), then a short new-input burst. Deep/continuous discovery is the
+  # dedicated rigs and the weekly fuzz.yml, NOT this per-PR gate. Keep this small:
+  # wall-clock here is (targets in changed packages) x FUZZTIME, run serially, and
+  # a dep bump fans out to every fuzz-target package (~55 targets), so 90s here was
+  # ~80 min per PR. 10s keeps the busiest package (internal/collectors, ~50 targets)
+  # near ~8 min while still replaying every committed seed.
+  FUZZTIME: 10s
 jobs:
   fuzz-changed:
     runs-on: ubuntu-24.04
+    # Hard cap so a target with no per-input deadline (dashdiag own targets don't
+    # use the fuzz-harness deadline lint) can never wedge a PR's CI for hours. Sized
+    # comfortably above the expected ~8-11 min worst case (dep-bump fan-out).
+    timeout-minutes: 20
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
