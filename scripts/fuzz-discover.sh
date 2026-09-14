@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # scripts/fuzz-discover.sh — single source of truth for "every FuzzXxx target
-# in this module." Used by scripts/fuzz-continuous.sh, the Makefile
+# in this module." Used by the Makefile
 # (test-fuzz / test-fuzz-linux / test-fuzz-all via scripts/run-fuzz-targets.sh),
 # and fuzz_coverage_test.go. A second, independent implementation of this
 # discovery is a second thing that can drift — which is exactly how

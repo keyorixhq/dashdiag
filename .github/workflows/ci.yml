@@ -643,9 +643,6 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - run: git ls-files '*.sh' | xargs shellcheck
-      # The fuzz rig's run-log library has no other CI coverage: it only runs on
-      # the rig itself. Fake go/gh, no network — a few seconds.
-      - run: bash scripts/fuzz-runlog_test.sh
 
   # Non-root invariant guard for the recurring "non-root false verdict" bug class
   # (BUG-064/066/067/070). A privileged tool (btrfs/nvme/nft/sshd -T/…) emits

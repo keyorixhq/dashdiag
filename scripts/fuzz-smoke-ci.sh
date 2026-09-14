@@ -2,7 +2,7 @@
 # CI fuzz smoke — discovers every FuzzXxx target and runs each for FUZZTIME
 # (default 30s) using the existing corpus. Intended to run on every PR so a
 # broken fuzz target fails the gate rather than silently disappearing from the
-# continuous rig's rotation (scripts/fuzz-continuous.sh handles the long runs).
+# continuous rig's rotation (the fuzz-harness runner handles the long runs).
 #
 # This is a targeted sanity check, not a corpus-building session. No corpus
 # files are committed; a crash reproducer lands in testdata/fuzz/<Func>/ via
