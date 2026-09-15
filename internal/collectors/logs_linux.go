@@ -342,11 +342,11 @@ func extractParenthesized(s string) string {
 	if open < 0 {
 		return ""
 	}
-	close := strings.IndexByte(s[open:], ')')
-	if close < 0 {
+	closeIdx := strings.IndexByte(s[open:], ')')
+	if closeIdx < 0 {
 		return ""
 	}
-	return strings.TrimSpace(s[open+1 : open+close])
+	return strings.TrimSpace(s[open+1 : open+closeIdx])
 }
 
 // extractBracketProc extracts the process name before "[pid]" in kernel messages.

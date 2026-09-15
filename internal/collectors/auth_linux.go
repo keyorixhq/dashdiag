@@ -98,11 +98,11 @@ func (c *AuthCollector) Collect(ctx context.Context) (interface{}, error) {
 		}
 		return sorted[i].k < sorted[j].k
 	})
-	max := 5
-	if len(sorted) < max {
-		max = len(sorted)
+	topN := 5
+	if len(sorted) < topN {
+		topN = len(sorted)
 	}
-	for _, s := range sorted[:max] {
+	for _, s := range sorted[:topN] {
 		info.TopSources = append(info.TopSources, models.FailedLoginSource{
 			Source: s.k,
 			Count:  s.v,

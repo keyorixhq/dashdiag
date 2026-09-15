@@ -158,16 +158,16 @@ func printLogsJSON(info *models.LogsInfo) {
 
 // formatAgeMin renders minutes as "Xm ago" (<60m), "Xh ago" (<24h), or
 // "Xd ago" (>=24h). Returns "" when the age is unknown (negative).
-func formatAgeMin(min int) string {
+func formatAgeMin(ageMin int) string {
 	switch {
-	case min < 0:
+	case ageMin < 0:
 		return ""
-	case min < 60:
-		return fmt.Sprintf("%dm ago", min)
-	case min < 1440:
-		return fmt.Sprintf("%dh ago", min/60)
+	case ageMin < 60:
+		return fmt.Sprintf("%dm ago", ageMin)
+	case ageMin < 1440:
+		return fmt.Sprintf("%dh ago", ageMin/60)
 	default:
-		return fmt.Sprintf("%dd ago", min/1440)
+		return fmt.Sprintf("%dd ago", ageMin/1440)
 	}
 }
 

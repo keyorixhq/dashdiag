@@ -93,8 +93,8 @@ func parseZpoolList(out string) map[string]models.ZFSPool {
 		pool.FragPct = parseZFSInt(strings.TrimSuffix(fields[3], "%"))
 		// cap%: "45%" or "-"
 		capStr := strings.TrimSuffix(fields[4], "%")
-		if cap, ok := parseFiniteFloat(capStr); ok {
-			pool.UsedPct = cap // cap is more accurate than computed
+		if capPct, ok := parseFiniteFloat(capStr); ok {
+			pool.UsedPct = capPct // capPct is more accurate than computed
 		}
 		pool.ScrubAgeDays = -1 // default: never scrubbed
 		pools[pool.Name] = pool

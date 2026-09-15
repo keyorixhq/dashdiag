@@ -38,23 +38,23 @@ func validateWatchInterval(d time.Duration) error {
 // externally-supplied content (a pasted blob, a remote snapshot, a piped
 // capture) where the source is not trusted just because a human ran the
 // command — a huge or maliciously large input must fail fast, not OOM dsd.
-func readCapped(r io.Reader, max int64) ([]byte, error) {
-	data, err := io.ReadAll(io.LimitReader(r, max+1))
+func readCapped(r io.Reader, maxBytes int64) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(r, maxBytes+1))
 	if err != nil {
 		return nil, err
 	}
-	if int64(len(data)) > max {
-		return nil, fmt.Errorf("input exceeds maximum size of %d bytes", max)
+	if int64(len(data)) > maxBytes {
+		return nil, fmt.Errorf("input exceeds maximum size of %d bytes", maxBytes)
 	}
 	return data, nil
 }
 
 // readCappedFile is readCapped for a file path.
-func readCappedFile(path string, max int64) ([]byte, error) {
+func readCappedFile(path string, maxBytes int64) ([]byte, error) {
 	f, err := os.Open(path) // #nosec G304 -- operator-supplied path
 	if err != nil {
 		return nil, err
 	}
 	defer func() { _ = f.Close() }()
-	return readCapped(f, max)
+	return readCapped(f, maxBytes)
 }

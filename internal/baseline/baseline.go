@@ -190,13 +190,13 @@ func LoadBaseline(path string) (*Snapshot, error) {
 
 // readCappedFile reads path fully into memory, rejecting it up front via
 // Stat if it exceeds max — an oversized file is never read at all.
-func readCappedFile(path string, max int64) ([]byte, error) {
+func readCappedFile(path string, maxBytes int64) ([]byte, error) {
 	fi, err := os.Stat(path)
 	if err != nil {
 		return nil, err
 	}
-	if fi.Size() > max {
-		return nil, fmt.Errorf("file %q is %d bytes, exceeds %d byte limit", path, fi.Size(), max)
+	if fi.Size() > maxBytes {
+		return nil, fmt.Errorf("file %q is %d bytes, exceeds %d byte limit", path, fi.Size(), maxBytes)
 	}
 	return os.ReadFile(path) // #nosec G304 -- caller-provided path, size-checked above
 }
@@ -204,13 +204,13 @@ func readCappedFile(path string, max int64) ([]byte, error) {
 // readCappedReader reads at most max+1 bytes from r and errors if the stream
 // didn't end within that bound — used for stdin, which has no Stat-able size
 // up front the way a named file does.
-func readCappedReader(r io.Reader, max int64) ([]byte, error) {
-	data, err := io.ReadAll(io.LimitReader(r, max+1))
+func readCappedReader(r io.Reader, maxBytes int64) ([]byte, error) {
+	data, err := io.ReadAll(io.LimitReader(r, maxBytes+1))
 	if err != nil {
 		return nil, err
 	}
-	if int64(len(data)) > max {
-		return nil, fmt.Errorf("input exceeds %d byte limit", max)
+	if int64(len(data)) > maxBytes {
+		return nil, fmt.Errorf("input exceeds %d byte limit", maxBytes)
 	}
 	return data, nil
 }

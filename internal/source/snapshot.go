@@ -117,8 +117,8 @@ func fromSnapshotWithLimits(tarballPath string, maxEntries int, maxTotalBytes in
 }
 
 func ingestSnapshotFile(b *Bundle, base, content string) {
-	if real, ok := directCopy[base]; ok {
-		b.putFile(real, []byte(content), nil)
+	if realPath, ok := directCopy[base]; ok {
+		b.putFile(realPath, []byte(content), nil)
 		return
 	}
 	if !sectionHeader.MatchString(firstLine(content)) && !strings.Contains(content, "\n=====") {

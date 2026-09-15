@@ -289,12 +289,12 @@ func decodeJournalMessage(raw json.RawMessage) string {
 // truncateMessage caps a message at 140 runes (not bytes) so a multi-byte rune is
 // never split into invalid UTF-8 at the boundary.
 func truncateMessage(s string) string {
-	const max = 140
+	const maxLen = 140
 	r := []rune(s)
-	if len(r) <= max {
+	if len(r) <= maxLen {
 		return s
 	}
-	return string(r[:max]) + "…"
+	return string(r[:maxLen]) + "…"
 }
 
 // deduplicateEvents collapses identical unit+level events within the same minute.
@@ -676,7 +676,7 @@ func parseSarLoadLine(line, today string) *models.LoadSpike {
 
 // filterTopEvents keeps CRIT events plus a sample of WARN/INFO to stay under cap.
 // Prioritises CRIT, then most recent WARN entries.
-func filterTopEvents(events []models.TimelineEvent, cap int) []models.TimelineEvent {
+func filterTopEvents(events []models.TimelineEvent, maxEvents int) []models.TimelineEvent {
 	var crits, warns []models.TimelineEvent
 	for _, e := range events {
 		if e.Level == "CRIT" {
@@ -686,7 +686,7 @@ func filterTopEvents(events []models.TimelineEvent, cap int) []models.TimelineEv
 		}
 	}
 	result := crits
-	remaining := cap - len(crits)
+	remaining := maxEvents - len(crits)
 	if remaining > 0 && len(warns) > 0 {
 		// Take most recent WARNs
 		start := len(warns) - remaining
