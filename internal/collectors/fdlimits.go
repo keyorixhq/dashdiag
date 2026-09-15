@@ -28,7 +28,7 @@ func (c *FDLimitsCollector) Name() string           { return "FDLimits" }
 func (c *FDLimitsCollector) Timeout() time.Duration { return 1 * time.Second }
 
 // parseFileNr parses /proc/sys/fs/file-nr: "open_fds  unused_fds  max_fds"
-func parseFileNr(r io.Reader) (open, max uint64, err error) {
+func parseFileNr(r io.Reader) (open, maxFDs uint64, err error) {
 	scanner := bufio.NewScanner(r)
 	if !scanner.Scan() {
 		return 0, 0, fmt.Errorf("empty file-nr")
@@ -41,11 +41,11 @@ func parseFileNr(r io.Reader) (open, max uint64, err error) {
 	if err != nil {
 		return 0, 0, fmt.Errorf("parsing open count: %w", err)
 	}
-	max, err = strconv.ParseUint(fields[2], 10, 64)
+	maxFDs, err = strconv.ParseUint(fields[2], 10, 64)
 	if err != nil {
 		return 0, 0, fmt.Errorf("parsing max count: %w", err)
 	}
-	return open, max, scanner.Err()
+	return open, maxFDs, scanner.Err()
 }
 
 // parseSoftLimit finds the "Max open files" soft limit in /proc/PID/limits.
@@ -154,15 +154,15 @@ func (c *FDLimitsCollector) collectLinux(ctx context.Context) (*models.FDInfo, e
 	if err != nil {
 		return nil, fmt.Errorf("opening file-nr: %w", err)
 	}
-	open, max, err := parseFileNr(f)
+	open, maxFDs, err := parseFileNr(f)
 	_ = f.Close()
 	if err != nil {
 		return nil, fmt.Errorf("parsing file-nr: %w", err)
 	}
 
-	info := &models.FDInfo{OpenCount: open, MaxCount: max}
-	if max > 0 {
-		info.UsedPct = float64(open) / float64(max) * 100
+	info := &models.FDInfo{OpenCount: open, MaxCount: maxFDs}
+	if maxFDs > 0 {
+		info.UsedPct = float64(open) / float64(maxFDs) * 100
 	}
 
 	// The per-process scan is wall-clock-bounded (the ctx budget below) and walks a
@@ -254,9 +254,9 @@ func (c *FDLimitsCollector) collectDarwin(ctx context.Context) (*models.FDInfo, 
 	if err != nil {
 		return &models.FDInfo{}, nil
 	}
-	max, err := strconv.ParseUint(strings.TrimSpace(out), 10, 64)
+	maxFDs, err := strconv.ParseUint(strings.TrimSpace(out), 10, 64)
 	if err != nil {
 		return &models.FDInfo{}, nil
 	}
-	return &models.FDInfo{MaxCount: max}, nil
+	return &models.FDInfo{MaxCount: maxFDs}, nil
 }

@@ -171,9 +171,9 @@ func parseNVMeSmartLog(out string, dev *models.NVMeDevice) bool {
 func parseNVMeTemp(s string) float64 {
 	// Try to find Kelvin value in parentheses
 	open := strings.LastIndex(s, "(")
-	close := strings.LastIndex(s, " K)")
-	if open >= 0 && close > open {
-		kelvinStr := strings.TrimSpace(s[open+1 : close])
+	closeIdx := strings.LastIndex(s, " K)")
+	if open >= 0 && closeIdx > open {
+		kelvinStr := strings.TrimSpace(s[open+1 : closeIdx])
 		if k, err := strconv.ParseFloat(kelvinStr, 64); err == nil && k > 0 && !math.IsInf(k, 0) {
 			return k - 273.15
 		}

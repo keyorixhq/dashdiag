@@ -203,9 +203,9 @@ func parseTCPCounters(info *models.NetworkInfo) {
 	maxData, err2 := readFile("/proc/sys/net/netfilter/nf_conntrack_max")
 	if err1 == nil && err2 == nil {
 		count, _ := strconv.Atoi(strings.TrimSpace(string(countData)))
-		max, _ := strconv.Atoi(strings.TrimSpace(string(maxData)))
-		if max > 0 {
-			info.ConntrackUsedPct = float64(count) / float64(max) * 100
+		maxConn, _ := strconv.Atoi(strings.TrimSpace(string(maxData)))
+		if maxConn > 0 {
+			info.ConntrackUsedPct = float64(count) / float64(maxConn) * 100
 		}
 	}
 }

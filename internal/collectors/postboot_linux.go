@@ -170,9 +170,9 @@ func priorBootPanic(ctx context.Context) (panicked bool, hint string, checked bo
 }
 
 func truncatePanic(s string) string {
-	const max = 160
-	if len(s) > max {
-		return s[:max] + "…"
+	const maxLen = 160
+	if len(s) > maxLen {
+		return s[:maxLen] + "…"
 	}
 	return s
 }

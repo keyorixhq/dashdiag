@@ -236,9 +236,9 @@ func shortenProcessName(cmd string) string {
 }
 
 func truncate40(s string) string {
-	const max = 40
-	if len(s) <= max {
+	const maxLen = 40
+	if len(s) <= maxLen {
 		return s
 	}
-	return s[:max-1] + "…"
+	return s[:maxLen-1] + "…"
 }

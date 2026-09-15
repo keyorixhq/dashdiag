@@ -59,7 +59,7 @@ func logoDataURI(logo string) (template.URL, error) {
 	// Reject plain http:// — breaks the self-contained single-file invariant and
 	// leaks report opens to the logo host. Only https:// is allowed as a URL.
 	if strings.HasPrefix(logo, "http://") {
-		return "", fmt.Errorf("http:// logo URLs are not supported; use https:// or a local file path")
+		return "", fmt.Errorf("http:// logo URLs are not supported; use https:// or a local file path") // NOSONAR — this branch REJECTS http:// input, it never dials out over it
 	}
 	if strings.HasPrefix(logo, "https://") {
 		if !isSafeAttrURI(logo) {

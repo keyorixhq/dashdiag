@@ -437,7 +437,7 @@ func collectIntelGPUs() []models.GPUDevice {
 // parseDPMSclk parses an amdgpu pp_dpm_sclk table. Lines look like
 // "0: 200Mhz" / "2: 1600Mhz *"; the '*' marks the active level. Returns the
 // current clock (the active line) and the maximum clock across all levels.
-func parseDPMSclk(data string) (cur, max int) {
+func parseDPMSclk(data string) (cur, maxMHz int) {
 	for _, line := range strings.Split(data, "\n") {
 		line = strings.TrimSpace(line)
 		if line == "" {
@@ -453,14 +453,14 @@ func parseDPMSclk(data string) (cur, max int) {
 				}
 			}
 		}
-		if mhz > max {
-			max = mhz
+		if mhz > maxMHz {
+			maxMHz = mhz
 		}
 		if active {
 			cur = mhz
 		}
 	}
-	return cur, max
+	return cur, maxMHz
 }
 
 // detectMesaVersion parses `glxinfo -B` for the Mesa version in the OpenGL

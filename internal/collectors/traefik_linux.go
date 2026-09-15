@@ -41,7 +41,7 @@ func detectTraefik(ctx context.Context) (base string, ov *traefikOverview) {
 		if !dialReachable("tcp", "127.0.0.1:"+port, 200*time.Millisecond) {
 			continue
 		}
-		for _, scheme := range []string{"http://", "https://"} {
+		for _, scheme := range []string{"http://", "https://"} { // NOSONAR — probing a loopback-only Traefik API; api.insecure dashboards default to plain HTTP on 127.0.0.1
 			b := scheme + "127.0.0.1:" + port
 			body, code, err := promHTTPGet(ctx, b+"/api/overview")
 			if err != nil || code != http.StatusOK {

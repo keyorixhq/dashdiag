@@ -23,12 +23,12 @@ type Collector interface {
 // truncates. Slicing a string by byte (s[:n]) can cut a multi-byte UTF-8 rune in
 // half and emit invalid UTF-8 in a verdict/report line; converting to runes
 // first never does. Returns s unchanged when it already fits.
-func truncateRunes(s string, max int) string {
+func truncateRunes(s string, maxRunes int) string {
 	r := []rune(s)
-	if len(r) <= max {
+	if len(r) <= maxRunes {
 		return s
 	}
-	return string(r[:max]) + "…"
+	return string(r[:maxRunes]) + "…"
 }
 
 // runCmd runs an external command with LC_ALL=C and LANG=C so numeric output
