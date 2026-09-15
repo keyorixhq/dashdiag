@@ -11,6 +11,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.3.2] - 2026-09-14
+
+### Security
+
+- Bump `github.com/modelcontextprotocol/go-sdk` 1.7.0 → 1.8.0, hardening the
+  `dsd mcp` stdio server against malformed/oversized client input: JSON-RPC
+  frames are now length-capped (`StdioTransport.MaxLineLength`), JSON nested
+  past 1000 levels is rejected before the parser recurses, every buffered
+  decode path is bounded, and several decode-path panic conditions are fixed.
+  `dsd mcp` is a local, same-user stdio server, so exposure is low, but the
+  bounds close the resource-exhaustion surface regardless. (#1088)
+
+### Changed
+
+- Bump `golang.org/x/sync` 0.22.0 → 0.23.0. (#1088)
+
+## [2.3.1] - 2026-09-05
+
 ### Fixed
 
 - `dsd cve check <CVE-ID> --oval`'s single-CVE lookup always parsed a staged
