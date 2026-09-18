@@ -23,9 +23,10 @@ package cmd
 // returns a non-empty result set — asserted once up front so the no-panic oracle can never
 // pass vacuously against a pipeline that silently produced nothing.
 //
-// Oracle 3 (metamorphic "no verdict flip") is a planned follow-up slice (see
-// spec-dashdiag-whole-bundle-replay-fuzzer): it needs a provably verdict-neutral mutation
-// set per seam. This target ships oracles 1+2 (broad, sound) first.
+// Oracle 3 (metamorphic "no verdict flip") shipped separately as
+// FuzzWholeBundleReplayVerdictFlip (replay_wholebundle_verdictflip_fuzz_test.go) — its own
+// six-seam baseline bundle and provably verdict-neutral mutation set per seam, mirroring
+// this file's oracles 1+2 (broad, sound) with a correctness invariant instead.
 
 import (
 	"testing"
