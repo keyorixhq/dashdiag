@@ -153,6 +153,14 @@ func (b *Bundle) getFile(path string) (fileRec, bool) {
 // path, so a raw bundle carries both the inputs and the report they produced.
 func (b *Bundle) PutFile(path string, data []byte) { b.putFile(path, data, nil) }
 
+// PutCached seeds a Cached()-backed lookup (e.g. lookPath's "lookpath/<tool>"
+// key, or any other collectors.curSource().Cached() probe) for Replay.Cached,
+// mirroring PutFile. Lets a test/fuzz harness resolve a tool's $PATH — or any
+// other cached computed value — without touching the real filesystem or
+// environment. Routes through the same cacheKey() namespace Cached() itself
+// looks up under, so callers never need to know that key's internal shape.
+func (b *Bundle) PutCached(key string, data []byte) { b.putFile(cacheKey(key), data, nil) }
+
 // PutDir seeds dir's entry names for Replay.ReadDir, mirroring PutFile — lets a
 // test build a fixture bundle for a collector that lists a directory (e.g. cron
 // spool dirs, /sys/class/... globs) without touching the real filesystem.
