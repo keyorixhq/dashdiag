@@ -51,6 +51,10 @@ var execAllowlistContract = map[string]toolRule{
 		{"list-units"},
 		{"list-timers"},
 	}},
+	"systemd-analyze": {prefixes: [][]string{
+		{"time"},                // systemd.go collectBootTimes
+		{"blame", "--no-pager"}, // systemd.go collectBootTimes, services_deep_linux.go
+	}},
 
 	// --- process / host introspection (structurally read-only binaries: no destructive verb exists for any of these) ---
 	"ps":    {prefixes: [][]string{{"aux"}, {"axo", "pid,ppid,stat,comm"}}}, // "aux" (init/detector.go), "axo ..." (processes.go zombie/hung-parent scan)
@@ -156,6 +160,9 @@ var execAllowlistContract = map[string]toolRule{
 	}},
 	"ufw": {prefixes: [][]string{{"status"}}},
 	"ss":  {prefixes: [][]string{{"-tulpn"}, {"-tlnp"}, {"-tnp", "--no-header"}}},
+
+	// --- SSH effective config (query only) ---
+	"sshd": {prefixes: [][]string{{"-T"}}}, // security_linux.go: effective sshd_config dump, root only
 	"nmcli": {prefixes: [][]string{
 		{"-t", "-f", "ACTIVE,SSID,SIGNAL,RATE,CHAN,BSSID", "dev", "wifi", "list"},
 		{"dev", "show"},
@@ -163,6 +170,10 @@ var execAllowlistContract = map[string]toolRule{
 	"networkctl": {prefixes: [][]string{{"list"}}},
 	"ping":       {prefixes: [][]string{{"-c", "5", "-i", "0.2", "-W", "1"}}}, // args continue with an optional "-I <srcIP>" then "<host>", both trailing
 	"route":      {prefixes: [][]string{{"-n", "get", "default"}}},
+	"ip": {prefixes: [][]string{
+		{"route", "get", wildcardToken}, // network_quick.go, dynamic destination IP
+		{"route", "show", "default"},    // steamos_linux.go
+	}},
 
 	// --- SELinux / AppArmor / audit (query only — remediation strings are display-only, never exec'd) ---
 	"getenforce": {prefixes: [][]string{{}}},                      // always called bare
@@ -207,6 +218,12 @@ var execAllowlistContract = map[string]toolRule{
 	"dmidecode": {prefixes: [][]string{{"-t", "memory"}, {"-s", "bios-version"}}},
 	"nc":        {prefixes: [][]string{{"-z"}}},                                                // port probe only
 	"grep":      {prefixes: [][]string{{"-E", "Failed password|Invalid user", wildcardToken}}}, // dynamic log path
+	"which":     {prefixes: [][]string{{"sshd"}, {"brew"}}},                                    // auth_linux.go presence check; packages_notlinux.go (darwin)
+	"last":      {prefixes: [][]string{{"-x", "-n", "20"}}},                                    // postboot_linux.go
+	"nvidia-smi": {prefixes: [][]string{
+		{"--query-gpu=index,name,temperature.gpu,utilization.gpu,memory.used,memory.total,power.draw,driver_version,power.limit", "--format=csv,noheader,nounits"},
+		{"--query-compute-apps=pid,used_memory,name", "--format=csv,noheader,nounits"},
+	}},
 
 	// --- macOS-only collectors (read-only query) ---
 	"sysctl": {prefixes: [][]string{
