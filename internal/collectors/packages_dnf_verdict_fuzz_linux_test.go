@@ -43,8 +43,8 @@ func FuzzCollectDNFVerdict(f *testing.F) {
 		// Gate: dnfHasUpdateRepo must return true so collectDNF reaches the parse
 		// loop (>=1 non-empty repolist line), else it early-returns and the oracle
 		// comparison would be vacuous — the audit's "silently vacuous" trap.
-		b.PutCmd("dnf", []string{"repolist", "--enabled", pkgFlagQ}, "baseos\nappstream\n", 0)
-		b.PutCmd("dnf", []string{"advisory", "list", flagSecurity, flagQuiet}, dnfOut, 0)
+		b.PutCmd("dnf", []string{"--cacheonly", "repolist", "--enabled", pkgFlagQ}, "baseos\nappstream\n", 0)
+		b.PutCmd("dnf", []string{"--cacheonly", "advisory", "list", flagSecurity, flagQuiet}, dnfOut, 0)
 
 		prev := SetSource(source.NewReplay(b))
 		t.Cleanup(func() { SetSource(prev) })

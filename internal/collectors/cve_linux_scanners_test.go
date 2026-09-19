@@ -108,7 +108,7 @@ func TestCheckCVE_DispatchesToZypper(t *testing.T) {
 func TestCheckCVE_DispatchesToDNF(t *testing.T) {
 	isolateCVEHome(t)
 	withLookPathFixture(t, map[string]bool{"dnf": true}, func(b *source.Bundle) {
-		b.PutCmd("dnf", []string{"advisory", "info", "--cve", "CVE-2024-1234", "--quiet"},
+		b.PutCmd("dnf", []string{"--cacheonly", "advisory", "info", "--cve", "CVE-2024-1234", "--quiet"},
 			"No advisory found for this CVE\n", 0)
 	})
 	res := CheckCVE(context.Background(), "CVE-2024-1234")
@@ -626,11 +626,10 @@ func TestScanAllApt_BothFail(t *testing.T) {
 
 func TestScanAllDNF_DNF5Success(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutCmdNotFound("dnf", []string{"makecache", "-q"})
-		b.PutCmd("dnf", []string{"advisory", "list", "--security", "--quiet"},
+		b.PutCmd("dnf", []string{"--cacheonly", "advisory", "list", "--security", "--quiet"},
 			"RHSA-2026:0001  Critical/Sec.  openssl-3.0.1-1.el10.x86_64\n"+
 				"RHSA-2026:0002  Important/Sec. curl-8.0.1-1.el10.x86_64\n", 0)
-		b.PutCmd("dnf", []string{"updateinfo", "info", "--security", "--quiet"},
+		b.PutCmd("dnf", []string{"--cacheonly", "updateinfo", "info", "--security", "--quiet"},
 			"Update ID: RHSA-2026:0001\nCVEs: CVE-2026-1111\n", 0)
 	})
 	res := scanAllDNF(context.Background())
@@ -653,11 +652,10 @@ func TestScanAllDNF_DNF5Success(t *testing.T) {
 
 func TestScanAllDNF_DNF4Fallback(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutCmdNotFound("dnf", []string{"makecache", "-q"})
-		b.PutCmdNotFound("dnf", []string{"advisory", "list", "--security", "--quiet"})
-		b.PutCmd("dnf", []string{"updateinfo", "list", "security", "--quiet"},
+		b.PutCmdNotFound("dnf", []string{"--cacheonly", "advisory", "list", "--security", "--quiet"})
+		b.PutCmd("dnf", []string{"--cacheonly", "updateinfo", "list", "security", "--quiet"},
 			"RHSA-2026:0003  security  critical  package-1.2.3\n", 0)
-		b.PutCmdNotFound("dnf", []string{"updateinfo", "info", "--security", "--quiet"})
+		b.PutCmdNotFound("dnf", []string{"--cacheonly", "updateinfo", "info", "--security", "--quiet"})
 	})
 	res := scanAllDNF(context.Background())
 	if res.Total != 1 || len(res.Critical) != 1 {
@@ -671,12 +669,11 @@ func TestScanAllDNF_DNF4Fallback(t *testing.T) {
 // affected package) must be counted only once.
 func TestScanAllDNF_ModerateLowAndDedup(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutCmdNotFound("dnf", []string{"makecache", "-q"})
-		b.PutCmd("dnf", []string{"advisory", "list", "--security", "--quiet"},
+		b.PutCmd("dnf", []string{"--cacheonly", "advisory", "list", "--security", "--quiet"},
 			"RHSA-2026:0010  Moderate/Sec.  pkg-a-1.0-1.el10.x86_64\n"+
 				"RHSA-2026:0010  Moderate/Sec.  pkg-a-1.0-1.el10.x86_64\n"+ // duplicate advisory ID
 				"RHSA-2026:0011  Low/Sec.       pkg-b-2.0-1.el10.x86_64\n", 0)
-		b.PutCmdNotFound("dnf", []string{"updateinfo", "info", "--security", "--quiet"})
+		b.PutCmdNotFound("dnf", []string{"--cacheonly", "updateinfo", "info", "--security", "--quiet"})
 	})
 	res := scanAllDNF(context.Background())
 	if res.Total != 2 {
@@ -692,8 +689,7 @@ func TestScanAllDNF_ModerateLowAndDedup(t *testing.T) {
 
 func TestScanAllDNF_UpToDate(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutCmdNotFound("dnf", []string{"makecache", "-q"})
-		b.PutCmd("dnf", []string{"advisory", "list", "--security", "--quiet"}, "", 0)
+		b.PutCmd("dnf", []string{"--cacheonly", "advisory", "list", "--security", "--quiet"}, "", 0)
 	})
 	res := scanAllDNF(context.Background())
 	if res.ScanFailed {
@@ -706,24 +702,22 @@ func TestScanAllDNF_UpToDate(t *testing.T) {
 
 func TestScanAllDNF_BothFail_NotTimeout(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutCmdNotFound("dnf", []string{"makecache", "-q"})
-		b.PutCmdNotFound("dnf", []string{"advisory", "list", "--security", "--quiet"})
-		b.PutCmdNotFound("dnf", []string{"updateinfo", "list", "security", "--quiet"})
+		b.PutCmdNotFound("dnf", []string{"--cacheonly", "advisory", "list", "--security", "--quiet"})
+		b.PutCmdNotFound("dnf", []string{"--cacheonly", "updateinfo", "list", "security", "--quiet"})
 	})
 	res := scanAllDNF(context.Background())
 	if !res.ScanFailed {
 		t.Fatal("expected ScanFailed when both dnf queries fail")
 	}
-	if !strings.Contains(res.StatusReason, "no repo access") {
-		t.Errorf("StatusReason = %q, want a no-repo-access reason", res.StatusReason)
+	if !strings.Contains(res.StatusReason, "no cached dnf metadata") {
+		t.Errorf("StatusReason = %q, want a no-cached-metadata reason", res.StatusReason)
 	}
 }
 
 func TestScanAllDNF_BothFail_Timeout(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutCmdNotFound("dnf", []string{"makecache", "-q"})
-		b.PutCmdNotFound("dnf", []string{"advisory", "list", "--security", "--quiet"})
-		b.PutCmdNotFound("dnf", []string{"updateinfo", "list", "security", "--quiet"})
+		b.PutCmdNotFound("dnf", []string{"--cacheonly", "advisory", "list", "--security", "--quiet"})
+		b.PutCmdNotFound("dnf", []string{"--cacheonly", "updateinfo", "list", "security", "--quiet"})
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel()
@@ -740,7 +734,7 @@ func TestScanAllDNF_BothFail_Timeout(t *testing.T) {
 
 func TestEnrichDNFAdvisoryWithCVEs_Populates(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutCmd("dnf", []string{"updateinfo", "info", "--security", "--quiet"},
+		b.PutCmd("dnf", []string{"--cacheonly", "updateinfo", "info", "--security", "--quiet"},
 			"Update ID: RHSA-2026:0001\nCVEs: CVE-2026-1111, CVE-2026-2222\n", 0)
 	})
 	result := &models.CVEAllResult{
@@ -758,7 +752,7 @@ func TestEnrichDNFAdvisoryWithCVEs_Populates(t *testing.T) {
 // across all four severity buckets (Important/Moderate/Low), not just Critical.
 func TestEnrichDNFAdvisoryWithCVEs_MultiCVEAndAllBuckets(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutCmd("dnf", []string{"updateinfo", "info", "--security", "--quiet"},
+		b.PutCmd("dnf", []string{"--cacheonly", "updateinfo", "info", "--security", "--quiet"},
 			"Update ID: RHSA-2026:0001\nCVEs: CVE-2026-1111\nCVEs: CVE-2026-2222\n"+
 				"Update ID: RHSA-2026:0002\nCVEs: CVE-2026-3333\n"+
 				"Update ID: RHSA-2026:0003\nCVEs: CVE-2026-4444\n"+
@@ -791,7 +785,7 @@ func TestEnrichDNFAdvisoryWithCVEs_MultiCVEAndAllBuckets(t *testing.T) {
 // TestEnrichDNFAdvisoryWithCVEs_FailsSetsSubscriptionNote already covers.
 func TestEnrichDNFAdvisoryWithCVEs_ParsedButNoCVEsMatched(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutCmd("dnf", []string{"updateinfo", "info", "--security", "--quiet"},
+		b.PutCmd("dnf", []string{"--cacheonly", "updateinfo", "info", "--security", "--quiet"},
 			"Update ID: RHSA-2026:0001\nSeverity: Critical\n", 0) // no CVEs: line at all
 		b.PutFile("/etc/os-release", []byte("ID=fedora\n"))
 	})
@@ -808,7 +802,7 @@ func TestEnrichDNFAdvisoryWithCVEs_ParsedButNoCVEsMatched(t *testing.T) {
 
 func TestEnrichDNFAdvisoryWithCVEs_FailsSetsSubscriptionNote(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutCmdNotFound("dnf", []string{"updateinfo", "info", "--security", "--quiet"})
+		b.PutCmdNotFound("dnf", []string{"--cacheonly", "updateinfo", "info", "--security", "--quiet"})
 		b.PutFile("/etc/os-release", []byte("ID=fedora\n"))
 	})
 	result := &models.CVEAllResult{}
