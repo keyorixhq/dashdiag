@@ -22,6 +22,9 @@ import (
 // If this test starts FAILING (the dial gets refused/blocked), the bypass has
 // been fixed — delete this test and the KV-TLS-OFFLINE-BYPASS entry together.
 func TestTLSEndpointBypassesOfflineGate(t *testing.T) {
+	if !knownViolations["KV-TLS-OFFLINE-BYPASS"] {
+		t.Fatal("KV-TLS-OFFLINE-BYPASS is not registered in knownViolations — either the bypass was fixed (delete this test) or the registry entry was removed without meaning to stop tolerating it (restore it)")
+	}
 	t.Setenv("DSD_OFFLINE", "1")
 
 	now := time.Now()

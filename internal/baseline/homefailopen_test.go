@@ -24,13 +24,17 @@ func TestHomeFailOpen_KnownViolations(t *testing.T) {
 		name string
 		fn   func() string
 		want string
+		kv   string
 	}{
-		{"baselineDir", baselineDir, filepath.Join(".dsd", "baselines")},
-		{"goldenDir", goldenDir, filepath.Join(".dsd", "golden")},
-		{"SecurityBaselinePath", SecurityBaselinePath, filepath.Join(".dsd", "security-baseline.json")},
+		{"baselineDir", baselineDir, filepath.Join(".dsd", "baselines"), "KV-HOME-FAILOPEN-BASELINE"},
+		{"goldenDir", goldenDir, filepath.Join(".dsd", "golden"), "KV-HOME-FAILOPEN-GOLDEN"},
+		{"SecurityBaselinePath", SecurityBaselinePath, filepath.Join(".dsd", "security-baseline.json"), "KV-HOME-FAILOPEN-SECBASELINE"},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
+			if !knownViolations[c.kv] {
+				t.Fatalf("%s is not registered in knownViolations — either the underlying fail-open was fixed (delete this case) or the registry entry was removed without meaning to stop tolerating it (restore it)", c.kv)
+			}
 			got := c.fn()
 			if filepath.IsAbs(got) {
 				t.Errorf("%s() = %q with $HOME unset — want a CWD-relative path (proving the known fail-open), got an absolute one instead: the underlying bug may have been fixed, in which case remove this case and its KV-* entry in cmd/knownviolations_test.go", c.name, got)
