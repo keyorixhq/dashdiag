@@ -5,9 +5,9 @@ report; I'll OK before filing"). **Not filed.** Awaiting OK.
 
 ---
 
-## 0. `dnf makecache` writes to disk and can hit the network, ungated by `DSD_OFFLINE` — the most severe finding in this campaign
+## 0. `dnf makecache` writes to disk and can hit the network, ungated by `DSD_OFFLINE`
 
-**Labels:** bug, high
+**Labels:** bug, medium
 
 **Body:**
 
@@ -40,13 +40,26 @@ outdated`, `flatpak list`, `fwupdmgr --version`/`get-upgrades`). Not a
 systemic pattern, a genuine one-off.
 
 **Air-gapped hang, measured** (pve01 CT 230, real mirror + `iptables ...
-DROP` to simulate a silently-firewalled network, not just "no route"):
-bare `dnf makecache` took ~120.8s to give up on its own under a silent
-packet drop — `dnfWarmCache`'s 20s `context.WithTimeout` (force-killed via
-the same `platform.ExecWaitDelay` semantics every hardened exec site uses)
-is what actually bounds it to ~20s in practice, making that wrapper a real,
-load-bearing mitigation, not decorative. Still a silent 20s stall with
-nothing in the output indicating why.
+DROP` to simulate a silently-firewalled network, not just "no route"): bare
+`dnf makecache` took ~120.8s to give up on its own under a silent packet
+drop. `dnfWarmCache`'s 20s `context.WithTimeout` genuinely bounds *that
+call*, but a live `dsd health --packages --cve` run under the same blocked
+network took the full **~120s end-to-end**, not 20s — the follow-up `dnf
+advisory`/`updateinfo` query calls aren't independently timed out, so they
+inherit whatever's left of each collector's own `Timeout()` (50s for
+Packages, 130s for CVE) and burn most of it retrying. Still bounded, not an
+unbounded hang, just not bounded to 20s.
+
+**Verified: no false-OK.** The concern that mattered most — does the
+~120s timeout ever resolve to a silent "0 advisories, clean" verdict — is
+confirmed NOT to happen. The same live run's `CVE` and `Packages` checks
+both came back `status: "INFO"` (never `"OK"`) with explicit `scan_failed:
+true` / `status: "query-failed"` and a human-readable "...timed out...
+retry" message — dsd degrades honestly here, matching its established
+disclosure pattern elsewhere. One minor nit found in the process:
+`Packages.raw.checked` stays `true` on the failed path even though
+`status` correctly says `"query-failed"` — worth fixing alongside the rest
+(see draft fix item 4), not itself a live false-OK.
 
 Not caught live by this session's fuzzing (macOS + a Debian sandbox CT
 never reach dnf-gated code) — found by code review while building the exec
@@ -61,7 +74,8 @@ is empty/stale, report an honest "no cached package metadata — run `dnf
 makecache` as root to enable this check" finding rather than silently
 returning zero advisories as if the host were clean (the same
 false-OK-on-degrade class this project already guards other collectors
-against).
+against); and set `Packages.raw.checked = false` on the query-failed path
+(currently stays `true` even when `status` says `"query-failed"`).
 
 See `docs/findings/2026-09-19-FINDING-dnf-makecache-writes-and-network.md`.
 

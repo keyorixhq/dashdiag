@@ -1,7 +1,7 @@
 # FINDING: `dnf makecache` writes to disk and can trigger a real network fetch — violates the read-only and offline product promises
 
 **Date:** 2026-09-19
-**Severity:** High (product promise: read-only + offline) — **not a security vulnerability**. No attacker-controlled input reaches this path, no privilege boundary is crossed; the violation is dsd doing something it explicitly promises never to do, not an exploitable weakness.
+**Severity:** Medium (product promise: read-only + offline) — **not a security vulnerability**. No attacker-controlled input reaches this path, no privilege boundary is crossed; the violation is dsd doing something it explicitly promises never to do, not an exploitable weakness. Downgraded from an initial High: all three call paths are flag-gated (`--packages` / `--cve` / `dsd cve --all`, none default-on), and the stall is bounded (not an unbounded hang) end-to-end by each collector's own `Timeout()` — `PackagesCollector` at 50s, `CVEHealthCollector` at 130s — even though `dnfWarmCache`'s own 20s `context.WithTimeout` only bounds the warm-cache step itself, not the follow-up `dnf advisory`/`updateinfo` query calls that inherit whatever budget is left (see the corrected addendum below: a live `--cve` run under a blocked network took the full ~120s, not ~20s). Medium reflects "a real, avoidable promise violation with a bounded, opt-in blast radius," not "silently fires on every run" or "unbounded hang."
 **Status:** reported, not fixed (per fuzzing-campaign policy: report, don't fix)
 **Component:** `internal/collectors/packages_linux.go:844-865` (`dnfWarmCache`), reached from three call sites (see Scope below)
 
@@ -94,24 +94,27 @@ already written read-only/dry-run from the start.
 
 ## Air-gapped hang risk
 
-`dnfWarmCache`'s own 20-second `context.WithTimeout` bounds the worst case —
-`dnf makecache` on a host with no route to its configured repos will be
-force-killed at 20s (via `platform.ExecWaitDelay`'s force-kill-after-cancel
-semantics, same as every other hardened exec call site), not hang forever.
-That's a real mitigation already in place. The user-visible cost on an
-air-gapped host is still up to a 20-second stall on every `--packages`/
-`--cve`/`cve --all` invocation, silently — nothing in the collector's output
-indicates "was waiting on a dead network the whole time" versus "package
-scan is just slow."
+`dnfWarmCache`'s own 20-second `context.WithTimeout` bounds *that specific
+call* — `dnf makecache` itself will be force-killed at 20s (via
+`platform.ExecWaitDelay`'s force-kill-after-cancel semantics, same as every
+other hardened exec call site), not hang forever. That's a real mitigation
+already in place for the warm-cache step. It does NOT, however, bound the
+operator-visible total stall: the actual `dnf repolist`/`advisory`/
+`updateinfo` query calls that run after it (warm or not) have no timeout of
+their own and inherit whatever's left of the *collector's* `Timeout()` — 50s
+for `PackagesCollector`, 130s for `CVEHealthCollector`. Measured live (see
+the addendum below): a real `dsd health --packages --cve` run under a
+blocked network took the full **~120 seconds**, matching bare dnf's own
+natural give-up time, not 20s. Still bounded — not an infinite hang — but by
+the collector timeouts, not by `dnfWarmCache`'s wrapper.
 
-**Measured value**: attempted on pve01 CT 230 (installed `dnf` via apt on
-the Debian 13 base, configured a real Fedora mirror repo, then blocked
-egress). See the addendum at the bottom of this file for the actual timing
-result once that run completes — filed as a follow-up section rather than
-blocking this report, since CT 230 is a Debian host with `dnf` bolted on,
-not a native rpm/dnf distro, so the timing is indicative but not fully
-representative (a genuine RHEL/Fedora/Rocky host's dnf may have different
-retry/timeout tuning than the Debian-packaged build).
+**Measured live** on pve01 CT 230 (Debian 13 base with `dnf` installed via
+apt — a genuine RHEL/Fedora/Rocky host's dnf may tune retries/timeouts
+slightly differently, so treat the exact numbers as indicative, not
+authoritative, but the SHAPE of the result — bounded-but-long, and
+critically, no false-OK — should generalize). Full detail, including
+confirmation that dsd reports this honestly rather than as a false-clean
+result, is in the addendum at the bottom of this file.
 
 ## Draft fix (not applied)
 
@@ -139,6 +142,15 @@ Per your direction, the concrete shape rather than just "gate it":
    were clean. This is the same false-OK-on-degrade class the project's own
    `bugclass-index.md` already tracks for other collectors — a stale/empty
    cache must not read as "no vulnerabilities found."
+
+4. **Minor**: while verifying this finding live, `Packages.raw.checked`
+   stayed `true` even when `status: "query-failed"` — the user-facing
+   `status`/`status_reason` fields are correct and honest, but a consumer
+   reading only `checked`+`security_updates: 0` (skipping `status`) could
+   still misread a failed scan as "checked, found nothing." Worth setting
+   `checked: false` (or an equivalent) on the query-failed path in the same
+   change, not because it's a live false-OK today, but to remove the latent
+   footgun for any future/alternate renderer.
 
 This turns the whole `--packages`/`--cve --all` dnf path into something
 that: never writes, never touches the network, and never confuses "we
@@ -184,16 +196,78 @@ behave)**:
   (not the 150s cap), presumably its own internal per-mirror connect-timeout
   × retry-count product.
 
-**Conclusion**: bare `dnf makecache` under a real silent-drop firewall
-condition hangs for **~120 seconds** before dnf itself gives up. `dsd`'s own
-`dnfWarmCache` wraps the call in a 20-second `context.WithTimeout`, and
-`platform.ExecWaitDelay`'s force-kill-after-cancel semantics genuinely bound
-it to ~20s in practice (confirmed by code, not separately re-verified live
-in this pass since the mechanism is already exercised by every other
-hardened exec call site in the repo). **This makes the 20s wrapper a real,
-load-bearing mitigation, not decorative** — without it, an air-gapped
-`--packages`/`--cve --all` run would stall for two minutes, not twenty
-seconds. Still a real UX cost (a silent 20s stall with no indication of
-"why" in the output) and still, per the rest of this finding, a violation
-of the read-only/offline promises regardless of how well-bounded the delay
-is.
+**Conclusion (revised after the live `dsd` run below)**: bare `dnf
+makecache` under a real silent-drop firewall condition hangs for **~120
+seconds** before dnf itself gives up. `dnfWarmCache`'s own 20-second
+`context.WithTimeout` genuinely bounds *that specific call* — confirmed by
+code and consistent with the live run below — but that is NOT the same as
+bounding the operator-visible stall for `--packages`/`--cve` to 20s: the
+follow-up `dnf advisory`/`updateinfo`/`repolist` query calls that run after
+warm-cache (whether it succeeded, failed fast, or was force-killed) are not
+independently wrapped, so they inherit whatever's left of the *collector's*
+own `Timeout()` — 50s for `PackagesCollector`, 130s for `CVEHealthCollector`
+— and can themselves burn most of that budget retrying against the same
+unreachable network. See the live measurement immediately below: a real
+`dsd health --packages --cve` run under a blocked network took the full
+~120s, matching bare dnf's natural give-up time, not the 20s warm-cache
+bound alone. Still bounded (not an infinite hang, thanks to the collector
+timeouts), still a real UX cost, still a violation of the read-only/offline
+promises regardless of how well-bounded the delay is.
+
+## Live verification: does the ~120s stall also produce a false-OK verdict?
+
+The concern this section was written to rule out: does dsd, after a `dnf`
+query times out with no cached metadata, silently report "0 advisories /
+clean" — a false negative that would be strictly worse than the write+
+network side effect itself (an operator trusting a clean security scan that
+never actually ran)? **Verified NO — dsd degrades honestly.**
+
+Setup: pve01 CT 230, real dsd binary (cross-compiled, this session's HEAD),
+`dnf` detected as the package manager (present via apt, checked before
+`apt-get` in `detectPackageManager()`'s probe order so it wins on this
+Debian-with-dnf-bolted-on host — the underlying distro doesn't matter, only
+that `dnf` resolves). `/var/cache/dnf` cleared, `iptables -A OUTPUT -p tcp
+--dport 443/80 -j DROP` (silent drop, not reject), then `dsd health
+--packages --cve --json`.
+
+**Baseline (network up, for comparison)**: `CVE` → `status: "OK"`,
+`"no pending security advisories — system is up to date"`, `total: 0`.
+`Packages` → `status: "INFO"`, `"up to date"`, `checked: true`. (Genuinely
+clean per this test repo's actual advisory data, not itself suspicious.)
+
+**Blocked run**: `real 2m0.632s`, dsd exit code **2** (CRIT overall — from
+an unrelated `CPU Load/RunQueue` CRIT, itself an artifact of this small
+2-vCPU test container's run queue saturating under the concurrent dnf
+retry storm, not a dnf/CVE/Packages finding).
+
+```json
+{
+  "name": "CVE",
+  "status": "INFO",
+  "inline": "dnf advisory scan timed out — likely a cold metadata cache or slow mirror; retry",
+  "duration": "2m0.086306928s",
+  "raw": { "package_manager": "dnf", "total": 0, "scan_failed": true,
+           "status_reason": "dnf advisory scan timed out — likely a cold metadata cache or slow mirror; retry" }
+}
+{
+  "name": "Packages",
+  "status": "INFO",
+  "duration": "38.342925201s",
+  "raw": { "checked": true, "security_updates": 0, "package_manager": "dnf",
+           "status": "query-failed",
+           "status_reason": "dnf advisory/updateinfo scan timed out — likely a cold metadata cache or slow mirror; retry" }
+}
+```
+
+Both checks report `status: "INFO"` (never `"OK"`), both carry an explicit
+`scan_failed: true` / `status: "query-failed"` field, and both surface a
+human-readable `"...timed out... retry"` message rather than a bare `total:
+0`/`security_updates: 0` that could be misread as "checked, found nothing."
+This matches the codebase's established honest-degradation pattern
+(`needs_root`/`*_unreadable`/"couldn't measure") — **no verdict-integrity
+finding, no new `KV-*` entry, no headline change needed.** The one loose
+end: `Packages.raw.checked` stays `true` even though the query itself
+failed (`status: "query-failed"` is the field that actually carries the
+failure) — a minor internal-consistency nit worth a one-line mention in the
+draft fix below, not a user-facing false-OK (the `status`/`status_reason`
+fields a renderer would actually display are correct).
