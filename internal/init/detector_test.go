@@ -107,8 +107,8 @@ func TestDarwinProcessNames_Smoke(t *testing.T) {
 // package's swapRunCmd tests).
 func TestDarwinProcessNames_PsNotFound(t *testing.T) {
 	old := newPSCmd
-	newPSCmd = func(ctx context.Context) *exec.Cmd {
-		return exec.CommandContext(ctx, filepath.Join(t.TempDir(), "definitely-not-a-real-binary"), "aux")
+	newPSCmd = func(ctx context.Context) (*exec.Cmd, error) {
+		return exec.CommandContext(ctx, filepath.Join(t.TempDir(), "definitely-not-a-real-binary"), "aux"), nil
 	}
 	defer func() { newPSCmd = old }()
 
@@ -146,10 +146,10 @@ func TestDarwinProcessNamesBoundsHungPs(t *testing.T) {
 	}
 
 	oldNewPSCmd := newPSCmd
-	newPSCmd = func(ctx context.Context) *exec.Cmd {
+	newPSCmd = func(ctx context.Context) (*exec.Cmd, error) {
 		cmd := exec.CommandContext(ctx, fakePS, "aux")
 		cmd.WaitDelay = 100 * time.Millisecond // matches platform.ExecWaitDelay
-		return cmd
+		return cmd, nil
 	}
 	defer func() { newPSCmd = oldNewPSCmd }()
 	oldTimeout := psTimeout

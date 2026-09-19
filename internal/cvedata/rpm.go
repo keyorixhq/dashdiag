@@ -26,8 +26,13 @@ func QueryInstalledRPM(ctx context.Context) ([]InstalledPackage, error) {
 	if _, err := exec.LookPath(rpmPath); err != nil {
 		return nil, fmt.Errorf("rpm not available")
 	}
-	cmd := exec.CommandContext(ctx, rpmPath, "-qa", // NOSONAR — hardcoded binary
-		"--queryformat", "%{NAME} %{EPOCH}:%{VERSION}-%{RELEASE}\\n")
+	rpmArgs := []string{"-qa", "--queryformat", "%{NAME} %{EPOCH}:%{VERSION}-%{RELEASE}\\n"}
+	if platform.ExecHook != nil {
+		if err := platform.ExecHook(ctx, rpmPath, rpmArgs); err != nil {
+			return nil, err
+		}
+	}
+	cmd := exec.CommandContext(ctx, rpmPath, rpmArgs...) // NOSONAR — hardcoded binary
 	cmd.Env = platform.HardenedEnv()
 	cmd.WaitDelay = platform.ExecWaitDelay
 	out, err := cmd.Output()

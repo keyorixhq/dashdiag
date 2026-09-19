@@ -47,10 +47,15 @@ func localeSafeEnv() []string {
 // .Output() into []byte) rather than runCmd's string return. It keeps every
 // parsed command locale-safe by construction; the guard in exec_locale_test.go
 // enforces that collectors reach exec only through this / runCmd / runCmdTimeout.
-func localeSafeCmd(ctx context.Context, name string, args ...string) *exec.Cmd {
+func localeSafeCmd(ctx context.Context, name string, args ...string) (*exec.Cmd, error) {
+	if platform.ExecHook != nil {
+		if err := platform.ExecHook(ctx, name, args); err != nil {
+			return nil, err
+		}
+	}
 	cmd := exec.CommandContext(ctx, name, args...)
 	cmd.Env = localeSafeEnv()
-	return cmd
+	return cmd, nil
 }
 
 // activeSource is the system-input backend every collector reads through:
@@ -118,7 +123,13 @@ func ActiveSource() source.Source { return curSource() }
 // platform.ResolveTrustedTool (trusted system dirs, never the inherited $PATH,
 // since dsd routinely runs as root) before exec.
 func localeSafeExec(ctx context.Context, name string, args ...string) (source.Result, error) {
-	cmd := exec.CommandContext(ctx, platform.ResolveTrustedTool(name), args...)
+	resolved := platform.ResolveTrustedTool(name)
+	if platform.ExecHook != nil {
+		if err := platform.ExecHook(ctx, resolved, args); err != nil {
+			return source.Result{}, err
+		}
+	}
+	cmd := exec.CommandContext(ctx, resolved, args...)
 	cmd.Env = localeSafeEnv()
 	cmd.WaitDelay = platform.ExecWaitDelay // force-kill after context cancel
 	so, se := source.NewCapWriter(source.MaxCapturedOutput), source.NewCapWriter(source.MaxCapturedOutput)

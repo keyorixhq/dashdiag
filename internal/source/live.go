@@ -63,7 +63,13 @@ func (l Live) Run(ctx context.Context, name string, args ...string) (Result, err
 // name is resolved via platform.ResolveTrustedTool (trusted system dirs,
 // never the inherited $PATH) before exec — see internal/platform/trustedexec.go.
 func defaultExec(ctx context.Context, name string, args ...string) (Result, error) {
-	cmd := exec.CommandContext(ctx, platform.ResolveTrustedTool(name), args...)
+	resolved := platform.ResolveTrustedTool(name)
+	if platform.ExecHook != nil {
+		if err := platform.ExecHook(ctx, resolved, args); err != nil {
+			return Result{}, err
+		}
+	}
+	cmd := exec.CommandContext(ctx, resolved, args...)
 	so, se := NewCapWriter(MaxCapturedOutput), NewCapWriter(MaxCapturedOutput)
 	cmd.Stdout, cmd.Stderr = so, se
 	err := cmd.Run()

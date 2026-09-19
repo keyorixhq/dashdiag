@@ -274,7 +274,13 @@ func procComm(procRoot string, pid int) string {
 // parallel batch (same constraint as the t.Setenv("HOME") tests elsewhere in
 // this codebase).
 var runCmd = func(ctx context.Context, name string, args ...string) (string, error) {
-	cmd := exec.CommandContext(ctx, platform.ResolveTrustedTool(name), args...)
+	resolved := platform.ResolveTrustedTool(name)
+	if platform.ExecHook != nil {
+		if err := platform.ExecHook(ctx, resolved, args); err != nil {
+			return "", err
+		}
+	}
+	cmd := exec.CommandContext(ctx, resolved, args...)
 	cmd.Env = platform.HardenedEnv()
 	// subprocess-wrappers-06: force-kill after context cancel, same as
 	// collectors' localeSafeExec — without this, a wedged tool (a stuck
