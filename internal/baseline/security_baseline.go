@@ -58,16 +58,22 @@ func (d *SecurityDiff) HasChanges() bool {
 		len(d.AddedSSHFiles) > 0 || len(d.RemovedSSHFiles) > 0
 }
 
-// SecurityBaselinePath returns the path to the security baseline file.
-// ~/.dsd/security-baseline.json
-func SecurityBaselinePath() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".dsd", "security-baseline.json")
+// SecurityBaselinePath returns the path to the security baseline file
+// (~/.dsd/security-baseline.json), or an error if $HOME cannot be resolved.
+func SecurityBaselinePath() (string, error) {
+	home, err := resolveHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".dsd", "security-baseline.json"), nil
 }
 
 // SaveSecurityBaseline writes the baseline to disk atomically.
 func SaveSecurityBaseline(b *SecurityBaseline) error {
-	path := SecurityBaselinePath()
+	path, err := SecurityBaselinePath()
+	if err != nil {
+		return fmt.Errorf("resolving security baseline path: %w", err)
+	}
 	dir := filepath.Dir(path)
 	if err := os.MkdirAll(dir, 0750); err != nil {
 		return fmt.Errorf("creating dsd dir: %w", err)
@@ -92,7 +98,10 @@ func SaveSecurityBaseline(b *SecurityBaseline) error {
 // LoadSecurityBaseline reads the baseline from disk.
 // Returns nil, nil when no baseline exists yet.
 func LoadSecurityBaseline() (*SecurityBaseline, error) {
-	path := SecurityBaselinePath()
+	path, err := SecurityBaselinePath()
+	if err != nil {
+		return nil, fmt.Errorf("resolving security baseline path: %w", err)
+	}
 	data, err := os.ReadFile(filepath.Clean(path))
 	if err != nil {
 		if os.IsNotExist(err) {

@@ -64,9 +64,12 @@ var writeAndCloseFn = func(f *os.File, data []byte) error {
 	return f.Close()
 }
 
-func baselineDir() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".dsd", "baselines")
+func baselineDir() (string, error) {
+	home, err := resolveHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".dsd", "baselines"), nil
 }
 
 // SafeHostname strips path-unsafe characters from a hostname before it is used
@@ -89,26 +92,35 @@ func SafeHostname(h string) string {
 	return safe
 }
 
-func latestPath(hostname string) string {
-	dir := baselineDir()
+func latestPath(hostname string) (string, error) {
+	dir, err := baselineDir()
+	if err != nil {
+		return "", err
+	}
 	full := filepath.Join(dir, SafeHostname(hostname)+"-latest.json")
 	if !strings.HasPrefix(full, dir) {
-		return filepath.Join(dir, "unknown-host-latest.json")
+		return filepath.Join(dir, "unknown-host-latest.json"), nil
 	}
-	return full
+	return full, nil
 }
 
-func prevPath(hostname string) string {
-	dir := baselineDir()
+func prevPath(hostname string) (string, error) {
+	dir, err := baselineDir()
+	if err != nil {
+		return "", err
+	}
 	full := filepath.Join(dir, SafeHostname(hostname)+"-prev.json")
 	if !strings.HasPrefix(full, dir) {
-		return filepath.Join(dir, "unknown-host-prev.json")
+		return filepath.Join(dir, "unknown-host-prev.json"), nil
 	}
-	return full
+	return full, nil
 }
 
 func SaveBaseline(snap *Snapshot) error {
-	dir := baselineDir()
+	dir, err := baselineDir()
+	if err != nil {
+		return fmt.Errorf("resolving baseline dir: %w", err)
+	}
 	if err := os.MkdirAll(dir, 0750); err != nil {
 		return fmt.Errorf("creating baseline dir: %w", err)
 	}
@@ -134,9 +146,14 @@ func SaveBaseline(snap *Snapshot) error {
 		return err
 	}
 
-	latest := latestPath(snap.Hostname)
+	latest, err := latestPath(snap.Hostname)
+	if err != nil {
+		return fmt.Errorf("resolving latest path: %w", err)
+	}
 	if _, err := os.Stat(latest); err == nil {
-		_ = os.Rename(latest, prevPath(snap.Hostname))
+		if prev, prevErr := prevPath(snap.Hostname); prevErr == nil {
+			_ = os.Rename(latest, prev)
+		}
 	}
 
 	tmp2, err := os.CreateTemp(dir, ".latest-*.tmp")
@@ -174,7 +191,12 @@ func LoadBaseline(path string) (*Snapshot, error) {
 		// start of run N, -latest holds run N-1 and -prev holds run N-2, so the
 		// diff compared against TWO runs ago and showed nothing on the 2nd run.
 		hostname, _ := os.Hostname()
-		data, err = readCappedFile(latestPath(hostname), maxBaselineFileBytes)
+		var lp string
+		lp, err = latestPath(hostname)
+		if err != nil {
+			return nil, fmt.Errorf("resolving latest baseline path: %w", err)
+		}
+		data, err = readCappedFile(lp, maxBaselineFileBytes)
 	default:
 		data, err = readCappedFile(filepath.Clean(path), maxBaselineFileBytes)
 	}

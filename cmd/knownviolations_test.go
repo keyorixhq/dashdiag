@@ -19,21 +19,6 @@ type knownViolation struct {
 }
 
 var knownViolations = map[string]knownViolation{
-	"KV-HOME-FAILOPEN-BASELINE": {
-		ID:          "KV-HOME-FAILOPEN-BASELINE",
-		Issue:       "TBD — draft in STEP 2 report, bug/low",
-		Description: "internal/baseline/baseline.go:68 baselineDir() does not guard os.UserHomeDir()'s error; an unset/unresolvable $HOME makes baseline snapshot writes land at CWD-relative ./.dsd/baselines instead of failing closed.",
-	},
-	"KV-HOME-FAILOPEN-GOLDEN": {
-		ID:          "KV-HOME-FAILOPEN-GOLDEN",
-		Issue:       "TBD — draft in STEP 2 report, bug/low",
-		Description: "internal/baseline/golden.go:12 goldenDir() has the same unguarded os.UserHomeDir() fail-open as baseline.go:68, for `dsd`'s golden-baseline save path.",
-	},
-	"KV-HOME-FAILOPEN-SECBASELINE": {
-		ID:          "KV-HOME-FAILOPEN-SECBASELINE",
-		Issue:       "TBD — draft in STEP 2 report, bug/low",
-		Description: "internal/baseline/security_baseline.go:64 SecurityBaselinePath() has the same unguarded os.UserHomeDir() fail-open, for `dsd security --save-baseline`.",
-	},
 	"KV-TLS-OFFLINE-BYPASS": {
 		ID:          "KV-TLS-OFFLINE-BYPASS",
 		Issue:       "TBD — draft in STEP 2 report, bug/medium",
