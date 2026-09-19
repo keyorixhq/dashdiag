@@ -33,3 +33,28 @@ func TestNetworkAllowed(t *testing.T) {
 		})
 	}
 }
+
+func TestOfflineForced(t *testing.T) {
+	tests := []struct {
+		name    string
+		offline string
+		want    bool
+	}{
+		{"unset", "", false},
+		{"set to 1", "1", true},
+		{"set to any non-empty value", "true", true},
+	}
+	for _, tt := range tests {
+		t.Run(tt.name, func(t *testing.T) {
+			t.Setenv("DSD_OFFLINE", tt.offline)
+			// OfflineForced must not depend on DSD_ALLOW_NETWORK at all — it
+			// backs the networkFlagExempt category (tls --endpoint et al.),
+			// which is deliberately NOT gated by DSD_ALLOW_NETWORK/--network.
+			t.Setenv("DSD_ALLOW_NETWORK", "1")
+			if got := OfflineForced(); got != tt.want {
+				t.Errorf("OfflineForced() with DSD_OFFLINE=%q (DSD_ALLOW_NETWORK=1) = %v, want %v",
+					tt.offline, got, tt.want)
+			}
+		})
+	}
+}

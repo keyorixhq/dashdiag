@@ -1,9 +1,8 @@
 package cmd_test
 
 // knownviolations_test.go is the explicit, reviewed list of deviations the
-// read-only-invariant oracles (FuzzCommandAllowlist, the writes-contract
-// check inside it, and TestTLSEndpointBypassesOfflineGate in
-// internal/collectors) are told to tolerate instead of failing. Anything NOT
+// read-only-invariant oracles (FuzzCommandAllowlist and the writes-contract
+// check inside it) are told to tolerate instead of failing. Anything NOT
 // listed here that trips an oracle is FATAL — this file exists so a
 // tolerated deviation is a reviewed, keyed, one-line decision, never a silent
 // carve-out buried in oracle logic. Each entry is kept OPEN until the linked
@@ -33,11 +32,6 @@ var knownViolations = map[string]knownViolation{
 		ID:          "KV-HOME-FAILOPEN-SECBASELINE",
 		Issue:       "TBD — draft in STEP 2 report, bug/low",
 		Description: "internal/baseline/security_baseline.go:64 SecurityBaselinePath() has the same unguarded os.UserHomeDir() fail-open, for `dsd security --save-baseline`.",
-	},
-	"KV-TLS-OFFLINE-BYPASS": {
-		ID:          "KV-TLS-OFFLINE-BYPASS",
-		Issue:       "TBD — draft in STEP 2 report, bug/medium",
-		Description: "internal/collectors/tls_remote.go's CheckRemoteEndpoint (dsd tls --endpoint host:port) does not check platform.NetworkAllowed()/DSD_OFFLINE before dialing — the only remote-dialing code path in the repo that doesn't. FuzzCommandAllowlist never drives `dsd tls` (a live dial isn't safe to fuzz); TestTLSEndpointBypassesOfflineGate (internal/collectors/tls_remote_offline_test.go) demonstrates it deterministically against a loopback listener instead.",
 	},
 	"KV-PING-ROUTE-UNRESOLVED": {
 		ID:          "KV-PING-ROUTE-UNRESOLVED",
