@@ -80,11 +80,14 @@ var execAllowlistContract = map[string]toolRule{
 	},
 	"journalctl": {
 		prefixes: [][]string{
-			{"-u"},                 // per-unit log tail, many call sites (cron/k8s/steamos/drilldown/services_deep)
-			{"_COMM=sshd"},         // auth_linux.go
-			{"-k"},                 // kernel-ring-buffer tail (oom_linux.go, mte_linux.go)
-			{"--since=1 hour ago"}, // kernel_security.go
-			{"--user"},             // services_deep_linux.go, svcUserFlag
+			{"-u"},                   // per-unit log tail, many call sites (cron/k8s/steamos/drilldown/services_deep)
+			{"_COMM=sshd"},           // auth_linux.go
+			{"-k"},                   // kernel-ring-buffer tail (oom_linux.go, mte_linux.go)
+			{"--since=1 hour ago"},   // kernel_security.go
+			{"--user"},               // services_deep_linux.go, svcUserFlag
+			{"-p", "err"},            // logs_linux.go collectLogsSummary error count (dynamic --since)
+			{"-p", "warning"},        // logs_linux.go collectLogsSummary warning count (dynamic --since)
+			{"--since=24 hours ago"}, // security_linux.go parsePAMModuleFailures
 		},
 		// journalctl's real mutating/destructive surface — none of dsd's call
 		// sites use any of these, and a prefix as short as {"-u"} alone can't
@@ -130,8 +133,20 @@ var execAllowlistContract = map[string]toolRule{
 		{"-j", "updateinfo", "list", "--security"},
 		{"updateinfo", "info", "--security"},
 	}},
-	"debsecan":   {prefixes: [][]string{{"--cve", wildcardToken, "--format", "detail"}}},
-	"arch-audit": {prefixes: [][]string{{"--format", "%n %c %s"}, {"-u"}}},
+	"debsecan":            {prefixes: [][]string{{"--cve", wildcardToken, "--format", "detail"}}},
+	"arch-audit":          {prefixes: [][]string{{"--format", "%n %c %s"}, {"-u"}}},
+	"systemd-detect-virt": {prefixes: [][]string{{"-v"}}}, // logs_linux.go isVMVirtType gate
+	"pro": {prefixes: [][]string{
+		{"status", "--format", "json"},          // suseconnect_collector.go collectUbuntuPro
+		{"security-status", "--format", "json"}, // packages_linux.go checkESMUpdates
+	}},
+	"update-crypto-policies": {prefixes: [][]string{{"--show"}}}, // security_linux.go, Fedora crypto-policy fallback
+
+	// --- cloud-init (read-only status query) ---
+	"cloud-init": {prefixes: [][]string{
+		{"status", "--format=json"}, // cloudinit_linux.go
+		{"status"},                  // cloudinit_linux.go, old-cloud-init plain-text fallback
+	}},
 
 	// --- storage / RAID / filesystem (read-only query) ---
 	"smartctl": {prefixes: [][]string{{"-H"}, {"-A"}, {"--scan-open", "--json=c"}, {"-a"}}},
@@ -182,6 +197,7 @@ var execAllowlistContract = map[string]toolRule{
 	"auditctl":   {prefixes: [][]string{{"-l"}}},
 	"ausearch":   {prefixes: [][]string{{"-ts", "1hour ago", "--raw"}}},
 	"aa-status":  {prefixes: [][]string{{"--pretty-json"}, {}}},
+	"faillock":   {prefixes: [][]string{{"--user", wildcardToken}}}, // security_linux.go collectPAMLockedAccounts, dynamic username (may be empty)
 
 	// --- hypervisor / container (read-only) ---
 	"virsh": {prefixes: [][]string{

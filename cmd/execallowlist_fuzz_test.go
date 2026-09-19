@@ -259,9 +259,26 @@ func checkAllowlist(t *testing.T, traces []execTrace) {
 	}
 }
 
+// optionInjectionKnownCollision keys are (resolved-binary-basename, literal
+// token) pairs where the token is BOTH a real dsd CLI flag — parsed entirely
+// by cobra on dsd's own command line and never passed through to any
+// subprocess — and, coincidentally, a hardcoded literal argument dsd's source
+// passes to that binary for an unrelated reason. checkOptionInjection cannot
+// tell "this fuzzed seed token also happens to be a hardcoded literal
+// elsewhere in the binary" apart from a real injection since both look like
+// the same string reaching the same argv in flag position; this is a
+// hand-reviewed, string-collision-only carve-out (not a real deviation from
+// the read-only invariant, so it does not belong in knownViolations), keyed
+// tightly by binary so it can never mask an actual injected flag on a
+// different command.
+var optionInjectionKnownCollision = map[[2]string]string{
+	{"systemctl", "--plain"}: "logs_linux.go detectCrashLoops hardcodes `systemctl list-units --state=failed --no-legend --no-pager --plain`; dsd's own --plain output-format flag is consumed entirely by cobra and never reaches this or any other subprocess call.",
+}
+
 func checkOptionInjection(t *testing.T, traces []execTrace, fuzzedTokens map[string]bool) {
 	t.Helper()
 	for _, rec := range traces {
+		base := filepath.Base(rec.Name)
 		sawDoubleDash := false
 		for _, a := range rec.Args {
 			if a == "--" {
@@ -272,6 +289,9 @@ func checkOptionInjection(t *testing.T, traces []execTrace, fuzzedTokens map[str
 				continue
 			}
 			if strings.HasPrefix(a, "-") && !sawDoubleDash {
+				if _, known := optionInjectionKnownCollision[[2]string{base, a}]; known {
+					continue
+				}
 				t.Fatalf("OPTION INJECTION: fuzzed value %q reached %q in flag position (leading '-', no preceding '--') in args %v", a, rec.Name, rec.Args)
 			}
 		}
