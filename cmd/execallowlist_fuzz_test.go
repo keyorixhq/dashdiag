@@ -184,6 +184,9 @@ func argsHavePrefix(args, prefix []string) bool {
 		return false
 	}
 	for i, p := range prefix {
+		if p == wildcardToken {
+			continue // "*" matches any single token at this position
+		}
 		if args[i] != p {
 			return false
 		}
@@ -191,20 +194,54 @@ func argsHavePrefix(args, prefix []string) bool {
 	return true
 }
 
+// wildcardToken, used inside a prefix, matches exactly one arbitrary arg
+// token at that position — for the handful of real call sites with dynamic
+// content BEFORE the end of the prefix (a CVE ID between two fixed flags, a
+// bare dynamic boolean name). It never matches zero or multiple tokens, and
+// it never grants "anything after this point" — trailing args beyond the end
+// of a prefix are already unconstrained by argsHavePrefix, which is exactly
+// why denyAnywhere (below) exists for tools whose real invocations have
+// unbounded dynamic trailing content.
+const wildcardToken = "*"
+
+// argsContainAny reports whether any of denyAnywhere matches an arg,
+// checked independently of (and in addition to) prefix matching — closes
+// the gap a short/loose prefix leaves open for a tool whose real call sites
+// append a variable amount of trailing content after it (journalctl's
+// per-unit `-u` repeats, dmesg's optional trailing flags): a prefix match
+// alone can't rule out a mutating flag appended after the matched prefix,
+// but this can, independent of where in args it appears.
+//
+// Matching is by PREFIX, not exact equality: most GNU-style long flags
+// accept a `--flag=value` form (e.g. journalctl's `--vacuum-time=1s`) — an
+// exact-equality deny list checking for bare "--vacuum-time" would silently
+// miss it. strings.HasPrefix(a, d) catches both the bare and `=value` forms
+// for any denyAnywhere entry that is itself a flag name.
+func argsContainAny(args, denyAnywhere []string) string {
+	for _, a := range args {
+		for _, d := range denyAnywhere {
+			if strings.HasPrefix(a, d) {
+				return a
+			}
+		}
+	}
+	return ""
+}
+
 func checkAllowlist(t *testing.T, traces []execTrace) {
 	t.Helper()
 	for _, rec := range traces {
 		base := filepath.Base(rec.Name)
-		prefixes, known := execAllowlistContract[base]
+		rule, known := execAllowlistContract[base]
 		if !known {
 			t.Fatalf("ALLOWLIST: dsd attempted to execute %q (args=%v) — binary not in execAllowlistContract", rec.Name, rec.Args)
 		}
-		if prefixes == nil {
-			continue // nil == "any args" for this binary, see contract comments
+		if len(rule.prefixes) == 0 {
+			t.Fatalf("ALLOWLIST: %q has zero prefixes in execAllowlistContract — every binary must list at least one allowed shape (an empty []string{} prefix for a bare/no-arg invocation), there is no binary-level-only escape hatch", base)
 		}
 		matched := false
-		for _, pfx := range prefixes {
-			if pfx == nil || argsHavePrefix(rec.Args, pfx) {
+		for _, pfx := range rule.prefixes {
+			if argsHavePrefix(rec.Args, pfx) {
 				matched = true
 				break
 			}
@@ -215,6 +252,9 @@ func checkAllowlist(t *testing.T, traces []execTrace) {
 				hint = fmt.Sprintf(" (name-resolution gap tracked as %s)", kv)
 			}
 			t.Fatalf("ALLOWLIST: dsd executed %q with args %v — no allowed verb prefix matches%s", rec.Name, rec.Args, hint)
+		}
+		if bad := argsContainAny(rec.Args, rule.denyAnywhere); bad != "" {
+			t.Fatalf("ALLOWLIST: dsd executed %q with args %v — %q is a denied token for this binary even though a prefix matched (denyAnywhere)", rec.Name, rec.Args, bad)
 		}
 	}
 }
@@ -308,6 +348,9 @@ func checkWritesContract(t *testing.T, homeDir, cwdDir string, fuzzedTokens map[
 }
 
 func FuzzCommandAllowlist(f *testing.F) {
+	if testing.Short() {
+		f.Skip("skipping subprocess-based fuzz target in -short mode (pre-commit hook budget) — run explicitly with `go test -run FuzzCommandAllowlist ./cmd` or `-fuzz FuzzCommandAllowlist`")
+	}
 	bin := buildFuzzExecBinary(f)
 
 	f.Add("health"+argvSep+"--json", "LANG=C", []byte{})

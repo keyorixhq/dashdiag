@@ -5,6 +5,43 @@ report; I'll OK before filing"). **Not filed.** Awaiting OK.
 
 ---
 
+## 0. `dnf makecache` writes to disk and can hit the network — the most severe finding in this campaign
+
+**Labels:** bug, high
+
+**Body:**
+
+`dnfWarmCache` (`internal/collectors/packages_linux.go:844-865`) runs `dnf
+makecache -q` once per process on any rpm/dnf-based Linux host, explicitly
+to warm dnf's metadata cache before later `dnf repolist`/`dnf advisory`
+calls in the same run. `dnf makecache` is not a query verb: it writes to
+dnf's on-disk metadata cache (`/var/cache/dnf/` by default) and, if that
+cache is stale, performs a real outbound network fetch of repo metadata —
+unconditionally, not opt-in, not gated by `platform.NetworkAllowed()`/
+`DSD_OFFLINE` like every other network-capable path in the repo.
+
+Unlike this campaign's other findings (all narrow edge cases — unset
+`$HOME`, an explicit opt-in flag bypassing a policy), this one fires on
+every `dsd health`/`dsd security`/CVE-scan run on any Fedora/RHEL/Rocky/
+AlmaLinux/openSUSE-with-dnf host, as part of the default collector path —
+directly contradicting both "never modifies the system" and "never makes
+network calls from collectors."
+
+Not caught live by this session's fuzzing (macOS + a Debian sandbox CT
+never reach dnf-gated code) — found by code review while building the exec
+allowlist contract, and explicitly excluded from it (`dnf`'s allowlist
+entry has no `makecache` shape) so the oracle fails closed if a
+rpm-based fuzz/sandbox run (planned next, on OCI Oracle Linux) exercises it.
+
+Suggested fix: gate the warm-cache call behind `platform.NetworkAllowed()`
+(skip it entirely when network is disallowed, falling back to cold
+`repolist`/`advisory` calls), and/or reconsider whether populating dnf's
+on-disk cache is acceptable at all for a read-only diagnostic tool.
+
+See `docs/findings/2026-09-19-FINDING-dnf-makecache-writes-and-network.md`.
+
+---
+
 ## 1. `dsd tls --endpoint` bypasses `DSD_OFFLINE` / `platform.NetworkAllowed()`
 
 **Labels:** bug, medium
@@ -141,3 +178,98 @@ of a ~5-line duplicated block. `internal/collectors/collector.go`'s
 that composition can stay a thin wrapper around the new shared primitive.
 
 See `docs/findings/2026-09-19-FINDING-localesafecmd-path-trust-bypass.md`.
+
+---
+
+## 5. Pre-commit hook's `go test -short -timeout 60s ./...` step is stale — `cmd` package alone now takes ~90s
+
+**Labels:** chore, tooling
+
+**Body:**
+
+`.git/hooks/pre-commit` step 4 runs `go test -short -count=1 -timeout 60s
+./...` with a comment noting it was already bumped once ("the cmd package's
+test suite alone now regularly takes 30-36s even under -short, so a flat 30s
+ceiling here was failing on unrelated commits, not just slow ones"). As of
+2026-09-19, measured on a clean checkout with `-short`: the `cmd` package
+alone takes **~90s** (89.776s, `-timeout 180s` so it could actually finish
+and report a real number instead of being killed at 60s) — well over the
+current 60s ceiling.
+
+This is NOT this session's `FuzzCommandAllowlist` fuzz target: it now skips
+immediately under `testing.Short()` (0.02s) after this session added that
+guard specifically to keep it out of the pre-commit budget. The ~90s is 100%
+pre-existing, confirmed two ways: (1) timing a clean `git stash` before any
+of this session's changes were applied showed the same order-of-magnitude
+duration, and (2) this final re-measurement, with `FuzzCommandAllowlist`
+properly skipping, still shows ~90s. Most likely cause:
+`cmd/smoke_test.go`'s tests, each of which shells out via `go run
+github.com/keyorixhq/dashdiag/cmd/dsd ...` (a full recompile-and-run per
+test, not just a process spawn) and does NOT check `testing.Short()` to skip
+under `-short` — unlike some `cmd` package tests which already do.
+
+Suggested fix (either, or both):
+1. Make `cmd/smoke_test.go`'s slower cases skip under `testing.Short()`
+   (matching the pattern `TestHealthPlainExitCode`/`TestHealthJSONValid`/
+   `TestNetJSONValid` already use), and/or build the `dsd` binary once instead
+   of `go run`-ing it per test case.
+2. Raise the pre-commit hook's timeout to match what CI already uses (the
+   hook's own comment says CI was bumped 180s→300s for the same reason;
+   pre-commit's `-timeout 60s` was apparently never updated to match).
+
+Not filed as a blocker on today's fuzz-harness PR — that commit went in with
+an authorized one-time `--no-verify` after manually confirming `go test
+-short -timeout 180s ./...` passes clean.
+
+---
+
+## 6. `TestAllExecCallsResolveThroughTrustedWrapper` (and likely other repo-walking governance tests) doesn't skip nested git worktrees
+
+**Labels:** bug, tooling
+
+**Body:**
+
+`internal/collectors/exec_locale_test.go`'s `TestAllExecCallsResolveThroughTrustedWrapper`
+walks the module tree from the repo root looking for raw `exec.Command`/
+`exec.CommandContext` calls outside `execWrapperFiles`. Its walker
+(`exec_locale_test.go:83-92`) already has a `filepath.SkipDir` guard for a
+fixed set of directory names (`.scratch`, `.git`, `.claude`, `node_modules`,
+`vendor`, `dist`) — but that's an exact-name match, not a dot-prefix or
+nested-worktree check. A directory named `.claude-worktrees` (a distinct
+sibling name, not nested under `.claude`) doesn't match any entry, so the
+walker descends into it. A leftover worktree there (e.g. from a
+worktree-isolated subagent run) re-discovers the SAME exec call sites the
+outer repo already exempts, now under a different relative path like
+`.claude-worktrees/mutation-research/internal/baseline/since_deploy.go:34`
+instead of `internal/baseline/since_deploy.go:34`, and fails because the
+exemption map (`execWrapperFiles`, keyed by exact relative path) doesn't
+match the nested path.
+
+Reproduced 2026-09-19: a genuinely clean, detached-HEAD worktree at
+`.claude-worktrees/mutation-research` (matching `origin/main`, no unique
+commits) caused this test to fail with 10 false-positive violations, on an
+otherwise fully green tree. Removed via `git worktree remove
+.claude-worktrees/mutation-research && git worktree prune` as part of this
+session — but the underlying test gap remains, and will recur the next time
+any tool leaves a worktree directory inside the repo root.
+
+A more robust pattern already exists in this exact codebase:
+`write_capable_callsites_test.go`'s walker (`write_capable_callsites_test.go:97-100`)
+skips by dot-PREFIX, not exact name — `strings.HasPrefix(info.Name(), ".") ||
+info.Name() == "testdata"` — which would catch `.claude-worktrees` (and any
+other current or future dot-directory) generically, without needing a
+maintained exact-name list. Suggested fix: change
+`exec_locale_test.go:88-91`'s `switch d.Name() { case ".scratch", ".git",
+".claude", "node_modules", "vendor", "dist": ... }` to a dot-prefix check
+(plus keep `node_modules`/`vendor`/`dist` as explicit non-dot entries), or
+even more robustly, detect a nested worktree specifically by checking
+whether `<dir>/.git` is a regular file (a worktree's `.git` is a file
+containing `gitdir: ...`, not a directory — the real repo root's `.git` is
+already skipped by name) so a future non-dot-prefixed worktree location
+doesn't reopen the same gap. `parsefloat_governance_test.go` is naturally
+immune today (it only walks `internal/` and `cmd/`, not the repo root, so a
+root-level worktree directory is outside its scan entirely) — but that's a
+side effect of its narrower scope, not a deliberate guard, so it's worth
+confirming that stays true rather than assuming it.
+
+See the walker in `internal/collectors/exec_locale_test.go` (lines 83-92).
