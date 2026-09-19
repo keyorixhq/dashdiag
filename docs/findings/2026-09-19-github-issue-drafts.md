@@ -5,27 +5,48 @@ report; I'll OK before filing"). **Not filed.** Awaiting OK.
 
 ---
 
-## 0. `dnf makecache` writes to disk and can hit the network — the most severe finding in this campaign
+## 0. `dnf makecache` writes to disk and can hit the network, ungated by `DSD_OFFLINE` — the most severe finding in this campaign
 
 **Labels:** bug, high
 
 **Body:**
 
 `dnfWarmCache` (`internal/collectors/packages_linux.go:844-865`) runs `dnf
-makecache -q` once per process on any rpm/dnf-based Linux host, explicitly
-to warm dnf's metadata cache before later `dnf repolist`/`dnf advisory`
-calls in the same run. `dnf makecache` is not a query verb: it writes to
-dnf's on-disk metadata cache (`/var/cache/dnf/` by default) and, if that
-cache is stale, performs a real outbound network fetch of repo metadata —
-unconditionally, not opt-in, not gated by `platform.NetworkAllowed()`/
-`DSD_OFFLINE` like every other network-capable path in the repo.
+makecache -q` once per process on a dnf-based Linux host, explicitly to warm
+dnf's metadata cache before later `dnf repolist`/`dnf advisory` calls in the
+same run. `dnf makecache` is not a query verb: it writes to dnf's on-disk
+metadata cache (`/var/cache/dnf/` by default) and, if that cache is stale,
+performs a real outbound network fetch of repo metadata — and does so
+regardless of `platform.NetworkAllowed()`/`DSD_OFFLINE`, unlike every other
+network-capable path in the repo.
 
-Unlike this campaign's other findings (all narrow edge cases — unset
-`$HOME`, an explicit opt-in flag bypassing a policy), this one fires on
-every `dsd health`/`dsd security`/CVE-scan run on any Fedora/RHEL/Rocky/
-AlmaLinux/openSUSE-with-dnf host, as part of the default collector path —
-directly contradicting both "never modifies the system" and "never makes
-network calls from collectors."
+**Scope, corrected from the initial pass**: all three call paths reaching
+`dnfWarmCache` are opt-in/flag-gated, not default-on — `dsd health
+--packages` (default `false`), `dsd health --cve` (default `false`), and
+`dsd cve --all` (opt-in flag on an already-opt-in subcommand); `dsd cve
+<specific-CVE-ID>` does not reach it. So this isn't "dsd phones home on
+every run" — it's "an operator who explicitly asks for a read-only
+security/package scan gets an unadvertised write+network side effect that
+`DSD_OFFLINE` doesn't suppress," which still breaks the "one policy, one
+gate" invariant every other network path in the repo respects.
+
+**Swept for the same class across every other package manager DashDiag
+touches** (apt/apt-get update, zypper refresh/ref, yum makecache, pacman
+-Sy*, apk update, brew update, softwareupdate -l, port selfupdate, snap
+refresh, flatpak update, fwupdmgr refresh) — `dnf makecache` is the only
+real violation; everything else is either never invoked at all, or already
+a documented dry-run/read-only query (`apt-get -s upgrade`, `brew
+outdated`, `flatpak list`, `fwupdmgr --version`/`get-upgrades`). Not a
+systemic pattern, a genuine one-off.
+
+**Air-gapped hang, measured** (pve01 CT 230, real mirror + `iptables ...
+DROP` to simulate a silently-firewalled network, not just "no route"):
+bare `dnf makecache` took ~120.8s to give up on its own under a silent
+packet drop — `dnfWarmCache`'s 20s `context.WithTimeout` (force-killed via
+the same `platform.ExecWaitDelay` semantics every hardened exec site uses)
+is what actually bounds it to ~20s in practice, making that wrapper a real,
+load-bearing mitigation, not decorative. Still a silent 20s stall with
+nothing in the output indicating why.
 
 Not caught live by this session's fuzzing (macOS + a Debian sandbox CT
 never reach dnf-gated code) — found by code review while building the exec
@@ -33,10 +54,16 @@ allowlist contract, and explicitly excluded from it (`dnf`'s allowlist
 entry has no `makecache` shape) so the oracle fails closed if a
 rpm-based fuzz/sandbox run (planned next, on OCI Oracle Linux) exercises it.
 
-Suggested fix: gate the warm-cache call behind `platform.NetworkAllowed()`
-(skip it entirely when network is disallowed, falling back to cold
-`repolist`/`advisory` calls), and/or reconsider whether populating dnf's
-on-disk cache is acceptable at all for a read-only diagnostic tool.
+Draft fix: remove `dnfWarmCache` entirely; add `--cacheonly` to the actual
+read queries (`repolist`/`advisory`/`updateinfo`) so they answer from
+whatever's cached without ever touching the network or disk; when the cache
+is empty/stale, report an honest "no cached package metadata — run `dnf
+makecache` as root to enable this check" finding rather than silently
+returning zero advisories as if the host were clean (the same
+false-OK-on-degrade class this project already guards other collectors
+against).
+
+See `docs/findings/2026-09-19-FINDING-dnf-makecache-writes-and-network.md`.
 
 See `docs/findings/2026-09-19-FINDING-dnf-makecache-writes-and-network.md`.
 
