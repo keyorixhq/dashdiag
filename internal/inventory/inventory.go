@@ -244,7 +244,13 @@ var resolveRPM = platform.ResolveTrustedTool
 func countRPM() int {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
-	cmd := exec.CommandContext(ctx, resolveRPM("rpm"), "-qa") // NOSONAR — hardcoded binary
+	resolved := resolveRPM("rpm")
+	if platform.ExecHook != nil {
+		if err := platform.ExecHook(ctx, resolved, []string{"-qa"}); err != nil {
+			return 0
+		}
+	}
+	cmd := exec.CommandContext(ctx, resolved, "-qa") // NOSONAR — hardcoded binary
 	cmd.Env = platform.HardenedEnv()
 	cmd.WaitDelay = platform.ExecWaitDelay
 	out, err := cmd.Output()

@@ -415,7 +415,13 @@ func systemctlIsActiveWithLookup(unit string, lookup func(string) (string, error
 	// nothing parses stdout/stderr, so there's no locale-sensitive text to
 	// protect — add HardenedEnv() if this call site ever starts reading
 	// output.
-	cmd := exec.CommandContext(ctx, ResolveTrustedTool("systemctl"), "is-active", unit) // NOSONAR — hardcoded binary
+	resolved := ResolveTrustedTool("systemctl")
+	if ExecHook != nil {
+		if err := ExecHook(ctx, resolved, []string{"is-active", unit}); err != nil {
+			return false
+		}
+	}
+	cmd := exec.CommandContext(ctx, resolved, "is-active", unit) // NOSONAR — hardcoded binary
 	cmd.WaitDelay = ExecWaitDelay
 	return cmd.Run() == nil
 }

@@ -189,8 +189,8 @@ var parseFloatGateExemptions = map[string]string{
 	"internal/collectors/nvme_linux.go:177": "already guarded: err==nil && k>0 && !math.IsInf(k,0) in the same condition (k>0 rejects NaN too, since all NaN comparisons are false)",
 	"internal/collectors/nvme_linux.go:186": "already guarded: err==nil && !math.IsNaN(c) && !math.IsInf(c,0) in the same condition",
 
-	"internal/collectors/network_quick.go:440":    "ping RTT parse — a NaN/Inf RTT feeds a <100ms-style WARN threshold that fails loud (not a false-OK); low realistic attacker control (local ping output)",
-	"internal/collectors/network_quick.go:451":    "ping RTT parse, same shape as :440",
+	"internal/collectors/network_quick.go:443":    "ping RTT parse — a NaN/Inf RTT feeds a <100ms-style WARN threshold that fails loud (not a false-OK); low realistic attacker control (local ping output)",
+	"internal/collectors/network_quick.go:454":    "ping RTT parse, same shape as :443",
 	"internal/collectors/cpuinfo.go:57":           "cpu MHz — display-only field, no verdict threshold reads it",
 	"internal/collectors/pressure_linux.go:95":    "kernel-authored /proc/pressure/* value; a NaN PSI avg fails every WARN/CRIT threshold loud rather than false-OK",
 	"internal/collectors/postgres_linux.go:145":   "lag>=0 in the same condition rejects NaN and negative; +Inf slips through but only makes the >300s WARN/CRIT threshold fire, never a false-OK",

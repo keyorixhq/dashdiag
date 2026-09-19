@@ -31,11 +31,17 @@ var psTimeout = 5 * time.Second
 // (that's the whole point — see its doc comment), so a test fixture that
 // used to work by manipulating $PATH (t.Setenv("PATH", tempDir)) no longer
 // reaches a substitute binary that way; it must swap this var instead.
-var newPSCmd = func(ctx context.Context) *exec.Cmd {
-	cmd := exec.CommandContext(ctx, platform.ResolveTrustedTool("ps"), "aux") // NOSONAR — hardcoded binary
+var newPSCmd = func(ctx context.Context) (*exec.Cmd, error) {
+	resolved := platform.ResolveTrustedTool("ps")
+	if platform.ExecHook != nil {
+		if err := platform.ExecHook(ctx, resolved, []string{"aux"}); err != nil {
+			return nil, err
+		}
+	}
+	cmd := exec.CommandContext(ctx, resolved, "aux") // NOSONAR — hardcoded binary
 	cmd.Env = platform.HardenedEnv()
 	cmd.WaitDelay = platform.ExecWaitDelay // force-kill after context cancel
-	return cmd
+	return cmd, nil
 }
 
 // DetectServerProfile returns the best-guess server profile and whether the
@@ -104,7 +110,11 @@ func darwinProcessNames() ([]string, bool) {
 	// untrusted $PATH entry ahead of the real binary is a hijack vector) and
 	// force the C locale, same as collectors/baseline/drilldown's hardened
 	// exec. WaitDelay was already correct here.
-	out, err := newPSCmd(ctx).Output()
+	cmd, err := newPSCmd(ctx)
+	if err != nil {
+		return nil, false
+	}
+	out, err := cmd.Output()
 	if err != nil {
 		return nil, false
 	}

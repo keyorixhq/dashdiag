@@ -337,7 +337,14 @@ func ParseUbuntuOVAL(ovalPath string) (map[string]RHELCVERecord, error) {
 
 // QueryInstalledDPKG returns installed packages on Debian/Ubuntu via dpkg-query.
 func QueryInstalledDPKG(ctx context.Context) ([]InstalledPackage, error) {
-	cmd := exec.CommandContext(ctx, resolveDpkgQuery("dpkg-query"), "-W", "-f=${Package}\t${Version}\n") //nolint:gosec // G204: hardcoded binary // NOSONAR
+	resolved := resolveDpkgQuery("dpkg-query")
+	dpkgArgs := []string{"-W", "-f=${Package}\t${Version}\n"}
+	if platform.ExecHook != nil {
+		if err := platform.ExecHook(ctx, resolved, dpkgArgs); err != nil {
+			return nil, fmt.Errorf("dpkg-query failed: %w", err)
+		}
+	}
+	cmd := exec.CommandContext(ctx, resolved, dpkgArgs...) //nolint:gosec // G204: hardcoded binary // NOSONAR
 	cmd.Env = platform.HardenedEnv()
 	cmd.WaitDelay = platform.ExecWaitDelay
 	out, err := cmd.Output()

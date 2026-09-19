@@ -31,8 +31,15 @@ func DetectLastDeployTime() (time.Time, string, error) {
 		// PATH-trust "systemctl" (dsd routinely runs as root; an untrusted $PATH
 		// entry ahead of the real binary is a hijack vector), and force-kill on
 		// context cancel — the same three primitives collectors/drilldown use.
-		cmd := exec.CommandContext(ctx, platform.ResolveTrustedTool("systemctl"), "show", svc, //nolint:gosec // G204: hardcoded binary // NOSONAR
-			"--property=ActiveEnterTimestamp", "--value")
+		resolved := platform.ResolveTrustedTool("systemctl")
+		svcArgs := []string{"show", svc, "--property=ActiveEnterTimestamp", "--value"}
+		if platform.ExecHook != nil {
+			if err := platform.ExecHook(ctx, resolved, svcArgs); err != nil {
+				cancel()
+				continue
+			}
+		}
+		cmd := exec.CommandContext(ctx, resolved, svcArgs...) //nolint:gosec // G204: hardcoded binary // NOSONAR
 		cmd.Env = platform.HardenedEnv()
 		cmd.WaitDelay = platform.ExecWaitDelay
 		out, err := cmd.Output()

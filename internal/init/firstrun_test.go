@@ -150,8 +150,8 @@ func TestRunWizard_ProcessScanFailedMessage(t *testing.T) {
 	t.Setenv("HOME", dir)
 
 	old := newPSCmd
-	newPSCmd = func(ctx context.Context) *exec.Cmd {
-		return exec.CommandContext(ctx, filepath.Join(t.TempDir(), "definitely-not-a-real-binary"), "aux")
+	newPSCmd = func(ctx context.Context) (*exec.Cmd, error) {
+		return exec.CommandContext(ctx, filepath.Join(t.TempDir(), "definitely-not-a-real-binary"), "aux"), nil
 	}
 	defer func() { newPSCmd = old }()
 

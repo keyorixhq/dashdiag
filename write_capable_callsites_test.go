@@ -65,6 +65,11 @@ var writeCapableAllowlist = map[string]string{
 	"cmd/writefile.go": "writeFileNoFollow — shared helper for a predictable/fixed " +
 		"destination path (a hostname-derived report filename, a fixed hook script " +
 		"path); every caller passes an operator-named or operator-requested path.",
+	"cmd/dsd/fuzzexechook_dsdfuzzexec.go": "only compiles under `-tags dsdfuzzexec`, " +
+		"never a release/default build (go build ./... never includes it). Appends an " +
+		"exec-attempt trace to the path named by DSD_FUZZ_EXEC_TRACE — a fuzz-harness- " +
+		"controlled temp path set by cmd/execallowlist_fuzz_test.go, analogous to " +
+		"cmd/root.go's --out.",
 	"internal/baseline/baseline.go":          "dsd's own baseline/snapshot state under its state dir (atomic temp+rename).",
 	"internal/baseline/golden.go":            "dsd's own golden-snapshot state (atomic temp+rename).",
 	"internal/baseline/security_baseline.go": "dsd's own security-baseline state (atomic temp+rename).",
