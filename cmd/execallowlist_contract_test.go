@@ -88,6 +88,7 @@ var execAllowlistContract = map[string]toolRule{
 			{"-p", "err"},            // logs_linux.go collectLogsSummary error count (dynamic --since)
 			{"-p", "warning"},        // logs_linux.go collectLogsSummary warning count (dynamic --since)
 			{"--since=24 hours ago"}, // security_linux.go parsePAMModuleFailures
+			{"-t", "kernel"},         // security_linux.go collectAppArmorDenials (AppArmor-gated)
 		},
 		// journalctl's real mutating/destructive surface — none of dsd's call
 		// sites use any of these, and a prefix as short as {"-u"} alone can't
