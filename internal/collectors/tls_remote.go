@@ -6,11 +6,23 @@ import (
 	"bytes"
 	"context"
 	"crypto/tls"
+	"errors"
 	"net"
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/platform"
 )
+
+// errTLSEndpointOffline is returned by CheckRemoteEndpoint when DSD_OFFLINE is
+// set. `dsd tls --endpoint` is in cmd/root.go's networkFlagExempt list —
+// naming the endpoint on the command line is itself the opt-in, so
+// --network/DSD_ALLOW_NETWORK deliberately have no bearing here (see
+// PRIVACY.md "Network calls") — but DSD_OFFLINE's hard "go offline no matter
+// what" override must still be honored, the same as every other outbound call
+// site in the repo (platform.OfflineForced). This was KV-TLS-OFFLINE-BYPASS:
+// the only remote-dialing path that skipped this check.
+var errTLSEndpointOffline = errors.New("network access disabled (DSD_OFFLINE=1) — dsd tls --endpoint requires network access")
 
 // CheckRemoteEndpoint dials host:port over TLS, retrieves the peer certificate
 // chain, and returns CertInfo for each cert (leaf first).
@@ -22,7 +34,16 @@ import (
 // reach the captured host's endpoint). Each cert's ExpiresIn is computed at capture
 // time and frozen in the recording, so replay reproduces the captured host's view;
 // a recording gap surfaces as the dial error, never a live re-dial.
+//
+// The DSD_OFFLINE check is placed here, before the cachedJSON call, so a
+// disallowed run never reaches the dial at all — the same placement
+// cloudmeta_linux.go's imdsGet uses for its own gate. sourceIsReplaying short-
+// circuits it so `dsd replay` still serves a bundle recorded before this fix
+// existed, instead of fabricating an offline error over a captured result.
 func CheckRemoteEndpoint(ctx context.Context, endpoint string) ([]models.CertInfo, error) {
+	if platform.OfflineForced() && !sourceIsReplaying() {
+		return nil, errTLSEndpointOffline
+	}
 	var certs []models.CertInfo
 	if err := cachedJSON("tls-endpoint/"+endpoint, func() (any, error) {
 		return checkRemoteEndpointLive(ctx, endpoint)
