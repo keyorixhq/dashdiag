@@ -10,7 +10,6 @@ import (
 	"runtime"
 	"strconv"
 	"strings"
-	"sync"
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -28,6 +27,16 @@ const (
 	pkgCmdAptGet      = "apt-get"
 	pkgFlagNoColor    = "--no-color"
 	pkgFlagStatus     = "--status"
+	// dnfCacheOnly forces every dnf read-query call site to answer from
+	// whatever metadata is already cached, without ever refreshing it or
+	// touching the network. This is what makes those calls genuinely
+	// read-only/offline by construction — see
+	// docs/findings/2026-09-19-FINDING-dnf-makecache-writes-and-network.md.
+	// The old alternative (`dnf makecache` run once up front to warm the
+	// cache) has been removed entirely: it wrote to dnf's local cache and
+	// could trigger a real network fetch, violating the read-only/
+	// no-collector-network invariants outright.
+	dnfCacheOnly = "--cacheonly"
 )
 
 // PackagesCollector checks for available security updates.
@@ -292,20 +301,24 @@ func packageMetadataAgeDays(pm string) (int, bool) {
 func collectDNF(ctx context.Context) (*models.PackagesInfo, error) {
 	info := &models.PackagesInfo{Checked: true, PackageManager: "dnf"}
 
-	// BUG-098: warm the metadata cache ONCE, up front, so the repo gate check and
-	// the scan below both hit a warm cache instead of each independently racing a
-	// cold multi-repo sync (found on Oracle Linux's 6 default repos: the gate
-	// check alone could eat the scan's entire budget before the scan got a turn).
-	// Best-effort — a timeout/failure here just means the calls below pay the
-	// cold-sync cost themselves, same as before this fix.
-	dnfWarmCache(ctx)
-
-	// Check repos. Bounded so a still-cold sync here (warm-up above timed out or
-	// was itself slow) can't silently consume the rest of the collector budget
-	// before the scan below gets a chance to run.
+	// Check repos. --cacheonly (threaded through dnfHasUpdateRepo) means this never
+	// refreshes metadata or touches the network — it can only answer from whatever
+	// is already cached. Bounded so a slow/locked rpmdb can't silently consume the
+	// rest of the collector budget before the scan below gets a chance to run.
 	repoCtx, repoCancel := context.WithTimeout(ctx, 10*time.Second)
-	reposOk := dnfHasUpdateRepo(repoCtx)
+	reposOk, cacheUnavailable := dnfHasUpdateRepo(repoCtx)
 	repoCancel()
+	if cacheUnavailable {
+		// --cacheonly itself failed outright (not a timeout) — almost always means
+		// there is no local dnf metadata cache to read yet (fresh host, cache
+		// cleared), NOT that no repos are configured. Report that honestly instead
+		// of folding it into pkgNoSecurityRepo, which would be a misleading reason.
+		// Never silently fall through to a clean 0-updates verdict here — this is
+		// the "couldn't check" disclosure the removal of dnfWarmCache requires.
+		info.Status = pkgQueryFailed
+		info.StatusReason = "could not check: no cached dnf metadata available (dnf --cacheonly) — run 'dnf makecache' manually as root, then re-run dsd"
+		return info, nil
+	}
 	if !reposOk {
 		info.Status = pkgNoSecurityRepo
 		info.StatusReason = "no enabled dnf repositories found"
@@ -313,30 +326,31 @@ func collectDNF(ctx context.Context) (*models.PackagesInfo, error) {
 	}
 	info.HasSecurityRepo = true
 
-	// Cap the advisory query so a slow/cold RHUI mirror can't consume the whole
+	// Cap the advisory query so a slow/locked rpmdb can't consume the whole
 	// collector budget and starve the deep integrity sub-checks (rpm --verify,
-	// ldconfig) that run after it. The cap is generous (cold downloads measured at
-	// 6s live, but a slow region can spike higher) yet bounded, so a wedged mirror
-	// degrades to an honest "could not verify" instead of hanging the collector.
+	// ldconfig) that run after it. --cacheonly means this never blocks on the
+	// network — a wedged/missing cache degrades to an honest "could not verify"
+	// instead of hanging the collector.
 	scanCtx, scanCancel := context.WithTimeout(ctx, 18*time.Second)
 	defer scanCancel()
 	// Try DNF5 syntax first (Fedora 41+), fall back to DNF4 (RHEL/Rocky)
-	out, err := runCmd(scanCtx, "dnf", "advisory", "list", flagSecurity, flagQuiet)
+	out, err := runCmd(scanCtx, "dnf", dnfCacheOnly, "advisory", "list", flagSecurity, flagQuiet)
 	if err != nil {
 		// DNF4 fallback: RHEL/Rocky/older Fedora
-		out, err = runCmd(scanCtx, "dnf", cmdUpdateinfo, "list", pkgSevSecurity, flagQuiet)
+		out, err = runCmd(scanCtx, "dnf", dnfCacheOnly, cmdUpdateinfo, "list", pkgSevSecurity, flagQuiet)
 	}
 	if err != nil {
-		// The advisory query failed (broken plugin, transient dnf error, permission)
-		// — we did NOT learn there are 0 updates. Mark it so the verdict reports
-		// "couldn't verify" instead of a silent clean 0-updates OK (false-OK).
+		// The advisory query failed (broken plugin, transient dnf error, no cached
+		// metadata for --cacheonly to read) — we did NOT learn there are 0 updates.
+		// Mark it so the verdict reports "couldn't verify" instead of a silent
+		// clean 0-updates OK (false-OK).
 		info.Status = pkgQueryFailed
 		if scanCtx.Err() != nil {
-			// BUG-098: a cancelled/deadline-exceeded call is not "unavailable" —
-			// it's an honest "ran out of time," almost always a cold cache. Say so.
-			info.StatusReason = "dnf advisory/updateinfo scan timed out — likely a cold metadata cache or slow mirror; retry"
+			// A cancelled/deadline-exceeded call is an honest "ran out of time,"
+			// not "no cache" — say so distinctly.
+			info.StatusReason = "dnf advisory/updateinfo scan timed out — retry"
 		} else {
-			info.StatusReason = "dnf advisory/updateinfo unavailable"
+			info.StatusReason = "could not check: no cached dnf metadata available (dnf --cacheonly) — run 'dnf makecache' manually as root, then re-run dsd"
 		}
 		return info, nil
 	}
@@ -825,12 +839,20 @@ func zypperHasSecurityRepo(ctx context.Context) bool {
 	return false
 }
 
-// dnfHasUpdateRepo returns true when at least one enabled dnf repo is available.
-// Rocky Linux and RHEL ship security updates via baseos — no separate security repo needed.
-func dnfHasUpdateRepo(ctx context.Context) bool {
-	out, err := runCmd(ctx, "dnf", "repolist", "--enabled", pkgFlagQ)
+// dnfHasUpdateRepo reports whether at least one enabled dnf repo is available,
+// reading only dnf's existing local cache (--cacheonly — never refreshes
+// metadata or touches the network). Rocky Linux and RHEL ship security updates
+// via baseos — no separate security repo needed.
+//
+// Returns (hasRepo, cacheUnavailable): cacheUnavailable is true when the
+// --cacheonly query itself failed outright — almost always because there is no
+// local dnf metadata cache yet (fresh host, cache cleared), which is a
+// distinct condition from "repos are configured but none enabled" and must be
+// reported as such by the caller rather than folded into pkgNoSecurityRepo.
+func dnfHasUpdateRepo(ctx context.Context) (hasRepo, cacheUnavailable bool) {
+	out, err := runCmd(ctx, "dnf", dnfCacheOnly, "repolist", "--enabled", pkgFlagQ)
 	if err != nil {
-		return false
+		return false, true
 	}
 	lines := 0
 	for _, line := range strings.Split(out, "\n") {
@@ -838,30 +860,7 @@ func dnfHasUpdateRepo(ctx context.Context) bool {
 			lines++
 		}
 	}
-	return lines > 0
-}
-
-var dnfWarmCacheOnce sync.Once
-
-// dnfWarmCache runs a bounded `dnf makecache` once per process so later dnf
-// calls (the repo gate check, the advisory scan) hit warm metadata instead of
-// each independently paying a cold sync. Both the Packages and CVE collectors
-// call this concurrently; dnf's own lock file would serialize two overlapping
-// `makecache` processes anyway, but doing it explicitly with sync.Once avoids
-// two dnf processes actually racing for that lock — one being force-killed by
-// its own context deadline while it holds (or is waiting on) the lock is exactly
-// the kind of interaction that's hard to reason about, so just don't create it:
-// whichever collector calls this first does the real work, the second call
-// blocks until the first returns, then finds a warm cache and no-ops fast.
-// Best-effort — the callers below have their own bounded timeouts and will
-// honestly report "could not verify" / "timed out" if metadata genuinely can't
-// be fetched.
-func dnfWarmCache(_ context.Context) {
-	dnfWarmCacheOnce.Do(func() {
-		warmCtx, cancel := context.WithTimeout(context.Background(), 20*time.Second)
-		defer cancel()
-		_, _ = runCmd(warmCtx, "dnf", "makecache", pkgFlagQ)
-	})
+	return lines > 0, false
 }
 
 // checkSUSEMigrationRisks checks for packages known to cause boot failures
@@ -1009,7 +1008,7 @@ func pkgIntegrityDNF(ctx context.Context, pi *models.PackageIntegrity) {
 	// `dnf check` EXITS NON-ZERO when it finds broken deps (writing them to stdout),
 	// so capture stdout regardless of exit — runCmd would discard the findings and
 	// the check would read clean (false-OK).
-	out, dnfErr := runCmdOutput(dnfCtx, "dnf", "check", flagQuiet)
+	out, dnfErr := runCmdOutput(dnfCtx, "dnf", dnfCacheOnly, "check", flagQuiet)
 	// Mechanical-sweep finding (gap C, idiom 3): dnfErr is only ever non-nil
 	// for a genuine spawn failure (dnf absent, ctx cancelled) — never for a
 	// non-zero exit, which is exactly the signal `dnf check` uses to report

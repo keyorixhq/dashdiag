@@ -106,22 +106,31 @@ var execAllowlistContract = map[string]toolRule{
 	"rpm":        {prefixes: [][]string{{"-qa"}, {"-q"}}},
 	"dnf": {prefixes: [][]string{
 		{"--version"},
-		{"advisory", "list", "--security", "--quiet"},
-		{"advisory", "info", "--cve", wildcardToken, "--quiet"},
-		{"updateinfo", "list", "security", "--quiet"},
-		{"updateinfo", "list", "--security", "--quiet"},
-		{"updateinfo", "info", "--cve", wildcardToken, "--quiet"},
-		{"updateinfo", "info", "--security", "--quiet"},
-		{"repolist", "--enabled", "-q"},
-		{"check", "-q"},
-		// NOTE: "makecache" is DELIBERATELY absent — packages_linux.go's
-		// dnfWarmCache() calls `dnf makecache -q`, which writes to dnf's local
-		// metadata cache (and can trigger a real network fetch) — a genuine
-		// violation of the read-only/no-collector-network invariants this
-		// fuzzer exists to enforce. See
-		// docs/findings/2026-09-19-FINDING-dnf-makecache-writes-and-network.md.
-		// Left excluded on purpose so this oracle fails closed if that code
-		// path is ever exercised by a fuzzed/replayed run on an rpm host.
+		{"--cacheonly", "advisory", "list", "--security", "--quiet"},
+		{"--cacheonly", "advisory", "info", "--cve", wildcardToken, "--quiet"},
+		{"--cacheonly", "updateinfo", "list", "security", "--quiet"},
+		{"--cacheonly", "updateinfo", "info", "--cve", wildcardToken, "--quiet"},
+		{"--cacheonly", "updateinfo", "info", "--security", "--quiet"},
+		{"--cacheonly", "repolist", "--enabled", "-q"},
+		{"--cacheonly", "check", "--quiet"},
+		// NOTE: "makecache" can never appear here, under any prefix. Issue
+		// #1103: packages_linux.go's dnfWarmCache() used to call `dnf
+		// makecache -q` once per process to warm dnf's local metadata cache —
+		// a real disk write that could also trigger a genuine network fetch,
+		// a straight violation of the read-only/no-collector-network
+		// invariants this fuzzer exists to enforce. dnfWarmCache and its call
+		// sites have been REMOVED ENTIRELY (not merely left off this list):
+		// every dnf call above now leads with --cacheonly, which makes dnf
+		// answer only from whatever is already cached, never refreshing it
+		// or touching the network — so this oracle would fail closed on ANY
+		// dnf invocation that doesn't lead with --cacheonly (or is the bare
+		// --version detection probe), not just on a literal "makecache". See
+		// docs/findings/2026-09-19-FINDING-dnf-makecache-writes-and-network.md
+		// and internal/collectors/dnf_cacheonly_governance_test.go
+		// (TestDNFCallSitesUseCacheOnly), which mechanically proves via AST
+		// that dnfWarmCache doesn't exist and every dnf call site here is
+		// --cacheonly-qualified — the durable, code-level version of this
+		// list-level guarantee.
 	}},
 	"apt-get": {prefixes: [][]string{{"-s", "upgrade"}, {"--simulate", "upgrade"}, {"--simulate", "dist-upgrade"}}},
 	"zypper":  {prefixes: [][]string{{"--version"}, {"list-patches"}, {"search", "--installed-only"}, {"locks"}, {"repos"}}},

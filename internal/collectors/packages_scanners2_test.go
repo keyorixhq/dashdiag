@@ -59,9 +59,8 @@ func TestPackagesCollector_Collect_DNFHappyPath(t *testing.T) {
 		b.PutCmdNotFound("zypper", []string{"--version"})
 		b.PutCmd("dnf", []string{"--version"}, "dnf version 5.0\n", 0)
 		b.PutCmdNotFound("rpm", []string{"-q", "rpm"}) // rpmDBHealth: no rpm tool -> checked=false
-		b.PutCmdNotFound("dnf", []string{"makecache", "-q"})
-		b.PutCmd("dnf", []string{"repolist", "--enabled", "-q"}, "repo-id  repo-name\nbaseos   BaseOS\n", 0)
-		b.PutCmd("dnf", []string{"advisory", "list", "--security", "--quiet"},
+		b.PutCmd("dnf", []string{"--cacheonly", "repolist", "--enabled", "-q"}, "repo-id  repo-name\nbaseos   BaseOS\n", 0)
+		b.PutCmd("dnf", []string{"--cacheonly", "advisory", "list", "--security", "--quiet"},
 			"RHSA-2026:0001  Critical/Sec.  openssl-3.0.1-1.el10.x86_64\n", 0)
 	})
 	c := NewPackagesCollector()
@@ -89,9 +88,9 @@ func TestPackagesCollector_Collect_DNFShortAdvisoryLineSkipped(t *testing.T) {
 		b.PutCmdNotFound("zypper", []string{"--version"})
 		b.PutCmd("dnf", []string{"--version"}, "dnf version 5.0\n", 0)
 		b.PutCmdNotFound("rpm", []string{"-q", "rpm"})
-		b.PutCmd("dnf", []string{"repolist", "--enabled", "-q"}, "repo-id\nbaseos\n", 0)
+		b.PutCmd("dnf", []string{"--cacheonly", "repolist", "--enabled", "-q"}, "repo-id\nbaseos\n", 0)
 		// "short" has 1 field (<3) → must be skipped; the second line is a real advisory
-		b.PutCmd("dnf", []string{"advisory", "list", "--security", "--quiet"},
+		b.PutCmd("dnf", []string{"--cacheonly", "advisory", "list", "--security", "--quiet"},
 			"short\n"+
 				"RHSA-2026:0002  Critical/Sec.  curl-8.0.1-1.el10.x86_64\n", 0)
 	})
@@ -110,8 +109,8 @@ func TestPackagesCollector_Collect_DNFShortAdvisoryLineSkipped(t *testing.T) {
 // "moderate" severity case in the DNF advisory severity normaliser.
 func TestCollectDNF_ModerateAdvisory(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutCmd("dnf", []string{"repolist", "--enabled", "-q"}, "baseos\n", 0)
-		b.PutCmd("dnf", []string{"advisory", "list", "--security", "--quiet"},
+		b.PutCmd("dnf", []string{"--cacheonly", "repolist", "--enabled", "-q"}, "baseos\n", 0)
+		b.PutCmd("dnf", []string{"--cacheonly", "advisory", "list", "--security", "--quiet"},
 			"RHSA-2026:0010  Moderate/Sec.  curl-8.0.1-1.el10.x86_64\n", 0)
 	})
 	info, err := collectDNF(context.Background())
@@ -135,7 +134,7 @@ func TestCollectDNF_ModerateAdvisory(t *testing.T) {
 func TestCollectDNF_ScanContextTimeout(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		// repolist must succeed so we pass the "no repos" gate before the scan.
-		b.PutCmd("dnf", []string{"repolist", "--enabled", "-q"}, "baseos\n", 0)
+		b.PutCmd("dnf", []string{"--cacheonly", "repolist", "--enabled", "-q"}, "baseos\n", 0)
 		// advisory commands left unseeded → ErrNotRecorded → triggers err != nil
 	})
 	ctx, cancel := context.WithCancel(context.Background())
@@ -157,8 +156,8 @@ func TestPackagesCollector_Collect_DeepPopulatesIntegrity(t *testing.T) {
 		b.PutCmd("zypper", []string{"--version"}, "", 1)
 		b.PutCmd("dnf", []string{"--version"}, "dnf version 5.0\n", 0)
 		b.PutCmdNotFound("rpm", []string{"-q", "rpm"})
-		b.PutCmd("dnf", []string{"advisory", "list", "--security", "--quiet"}, "", 0)
-		b.PutCmdNotFound("dnf", []string{"check", "--quiet"})
+		b.PutCmd("dnf", []string{"--cacheonly", "advisory", "list", "--security", "--quiet"}, "", 0)
+		b.PutCmdNotFound("dnf", []string{"--cacheonly", "check", "--quiet"})
 		b.PutCmdNotFound("rpm", []string{"--verify", "bash", "coreutils", "systemd", "glibc", "openssl-libs"})
 		b.PutCmdNotFound("ldconfig", []string{"-p"})
 	})
@@ -711,7 +710,7 @@ func TestCheckSUSEMigrationRisks_None(t *testing.T) {
 
 func TestCollectPackageIntegrity_DNF(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutCmdNotFound("dnf", []string{"check", "--quiet"})
+		b.PutCmdNotFound("dnf", []string{"--cacheonly", "check", "--quiet"})
 		b.PutCmdNotFound("rpm", []string{"--verify", "bash", "coreutils", "systemd", "glibc", "openssl-libs"})
 		b.PutCmd("ldconfig", []string{"-p"}, "libc.so.6 (libc6,x86-64) => /lib/x86_64-linux-gnu/libc.so.6\n", 0)
 	})
@@ -735,7 +734,7 @@ func TestCollectPackageIntegrity_UnknownManagerStillRunsCrossDistroChecks(t *tes
 
 func TestPkgIntegrityDNF_Clean(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutCmd("dnf", []string{"check", "--quiet"}, "", 0)
+		b.PutCmd("dnf", []string{"--cacheonly", "check", "--quiet"}, "", 0)
 		b.PutCmd("rpm", []string{"--verify", "bash", "coreutils", "systemd", "glibc", "openssl-libs"}, "", 0)
 	})
 	pi := &models.PackageIntegrity{}
@@ -747,7 +746,7 @@ func TestPkgIntegrityDNF_Clean(t *testing.T) {
 
 func TestPkgIntegrityDNF_BrokenAndVerifyFailures(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutCmd("dnf", []string{"check", "--quiet"}, "package foo has unsatisfied dependency bar\n", 1)
+		b.PutCmd("dnf", []string{"--cacheonly", "check", "--quiet"}, "package foo has unsatisfied dependency bar\n", 1)
 		// rpm -V format: 8-char attribute string + space + 'c '(config)/blank + path.
 		// Position 9 (0-indexed) is the config-file marker; keep it non-'c' so the
 		// line is NOT skipped as an expected config-file modification.
@@ -766,7 +765,7 @@ func TestPkgIntegrityDNF_BrokenAndVerifyFailures(t *testing.T) {
 
 func TestPkgIntegrityDNF_VerifyTimedOut(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutCmd("dnf", []string{"check", "--quiet"}, "", 0)
+		b.PutCmd("dnf", []string{"--cacheonly", "check", "--quiet"}, "", 0)
 	})
 	ctx, cancel := context.WithCancel(context.Background())
 	cancel() // pre-cancel so rpmCtx.Err() != nil inside pkgIntegrityDNF

@@ -2,7 +2,17 @@
 
 **Date:** 2026-09-19
 **Severity:** Medium (product promise: read-only + offline) — **not a security vulnerability**. No attacker-controlled input reaches this path, no privilege boundary is crossed; the violation is dsd doing something it explicitly promises never to do, not an exploitable weakness. Downgraded from an initial High: all three call paths are flag-gated (`--packages` / `--cve` / `dsd cve --all`, none default-on), and the stall is bounded (not an unbounded hang) end-to-end by each collector's own `Timeout()` — `PackagesCollector` at 50s, `CVEHealthCollector` at 130s — even though `dnfWarmCache`'s own 20s `context.WithTimeout` only bounds the warm-cache step itself, not the follow-up `dnf advisory`/`updateinfo` query calls that inherit whatever budget is left (see the corrected addendum below: a live `--cve` run under a blocked network took the full ~120s, not ~20s). Medium reflects "a real, avoidable promise violation with a bounded, opt-in blast radius," not "silently fires on every run" or "unbounded hang."
-**Status:** reported, not fixed (per fuzzing-campaign policy: report, don't fix)
+**Status:** FIXED (2026-09-20, issue #1103). `dnfWarmCache` and its call sites
+have been removed entirely; every remaining `dnf` read-query call site now
+leads with `--cacheonly`, so dnf answers only from whatever is already
+cached and never refreshes it or touches the network. A cache-miss/failed
+`--cacheonly` query now surfaces an explicit "could not check: no cached
+dnf metadata" finding rather than a silent clean result. Regression-proofed
+by `internal/collectors/dnf_cacheonly_governance_test.go`
+(`TestDNFCallSitesUseCacheOnly`), which mechanically asserts via AST that
+`dnfWarmCache` no longer exists and every `dnf` call site is
+`--cacheonly`-qualified (or the bare `--version` detection probe). The rest
+of this document is preserved as the original investigation record.
 **Component:** `internal/collectors/packages_linux.go:844-865` (`dnfWarmCache`), reached from three call sites (see Scope below)
 
 ## Summary
@@ -159,13 +169,13 @@ didn't check" with "we checked and it's fine."
 ## Tracking
 
 No `KV-*` entry in `cmd/knownviolations_test.go` — unlike this campaign's
-other findings, this one is NOT tolerated by any oracle; `dnf`'s allowlist
-entry in `cmd/execallowlist_contract_test.go` has no `makecache` shape, so
-`FuzzCommandAllowlist`'s allowlist oracle fails closed (fatal) if this code
-path is ever exercised live. Red-proofed directly: `TestRedProof_DnfMakecacheFires`
-(scratch, not committed) confirmed `checkAllowlist` correctly rejects `dnf
+other findings, this one was never tolerated by any oracle; `dnf`'s allowlist
+entry in `cmd/execallowlist_contract_test.go` had no `makecache` shape, so
+`FuzzCommandAllowlist`'s allowlist oracle would have failed closed (fatal) if
+that code path were ever exercised live. Red-proofed directly: `TestRedProof_DnfMakecacheFires`
+(scratch, not committed) confirmed `checkAllowlist` correctly rejected `dnf
 makecache -q`. GitHub issue: see `docs/findings/2026-09-19-github-issue-drafts.md`
-(issue #0).
+(issue #0), filed as issue #1103 and fixed 2026-09-20 (see Status above).
 
 ---
 
