@@ -135,7 +135,21 @@ jobs:
             pkg="${entry%%|*}"; fn="${entry#*|}"
             if [ -z "$pkg" ] || [ -z "$fn" ]; then continue; fi
             echo "::group::fuzz $fn ($pkg) for $FUZZTIME"
-            go test "$pkg" -run='^$' -fuzz="^${fn}$" -fuzztime="$FUZZTIME"
+            out="$(mktemp)"
+            if ! go test "$pkg" -run='^$' -fuzz="^${fn}$" -fuzztime="$FUZZTIME" 2>&1 | tee "$out"; then
+              # Known Go fuzzing flake: a worker still busy when -fuzztime expires
+              # makes the run fail with a bare "context deadline exceeded" and NO
+              # reproducer (34 of 37 historical rig alerts were exactly this). A
+              # real hang or crash always writes a new file under testdata/fuzz/,
+              # so only tolerate the failure when none appeared.
+              if grep -q 'context deadline exceeded' "$out" \
+                && ! git status --porcelain --untracked-files=all | grep -q '/testdata/fuzz/'; then
+                echo "::warning::$fn: end-of-fuzztime 'context deadline exceeded' with no new reproducer (known Go fuzzing flake); not failing the shard"
+              else
+                echo "::endgroup::"
+                exit 1
+              fi
+            fi
             echo "::endgroup::"
           done
       # Go writes a new crash's minimized repro into testdata/fuzz/<Func>/ — the
