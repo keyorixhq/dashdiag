@@ -253,20 +253,38 @@ func installGitHook(dryRun bool) {
 }
 
 func installSystemdTimer(dryRun bool) {
-	timerPath := "/etc/systemd/system/dsd-health.timer"
-	svcPath := "/etc/systemd/system/dsd-health.service"
+	installSystemdTimerAt(dryRun, "/etc/systemd/system/dsd-health.timer", "/etc/systemd/system/dsd-health.service")
+}
+
+// installSystemdTimerAt does the real work of installSystemdTimer with the
+// unit paths as parameters so tests can point it at a t.TempDir() instead of
+// the real /etc/systemd/system.
+//
+// writeFileNoFollow, not os.WriteFile: same predictable-fixed-path
+// symlink-follow hazard as installPreDeploy/installGitHook/
+// installGitHubActions above. Root-owned parent directory doesn't make the
+// destination itself safe to trust blindly — a previous root process, a
+// packaging script, or a prior (possibly non-malicious) install could have
+// left a symlink at dsd-health.timer/.service pointing elsewhere, and an
+// unguarded root-privileged write through it silently clobbers whatever it
+// points at. This site was carved out of TestNoBareOSWriteFileInCmdOrRender's
+// exemption list on the theory that "unprivileged attacker can't plant a
+// symlink under /etc/systemd/system" makes it safe — that reasoning doesn't
+// cover the pre-existing-symlink/TOCTOU case above, so hook install gets the
+// same hardening as every sibling call site instead (GH #1106).
+func installSystemdTimerAt(dryRun bool, timerPath, svcPath string) {
 	if dryRun {
 		fmt.Printf("Would create %s (requires root)\n", timerPath)
 		fmt.Printf("Would create %s (requires root)\n\n", svcPath)
 		return
 	}
 	// 0644: systemd unit files in /etc/systemd/system/ are conventionally world-readable
-	if err := os.WriteFile(timerPath, []byte(systemdTimer), 0644); err != nil { // #nosec G306 -- systemd unit files in /etc/systemd/system/ are world-readable by convention
+	if err := writeFileNoFollow(timerPath, []byte(systemdTimer), 0644); err != nil { // #nosec G306 -- systemd unit files in /etc/systemd/system/ are world-readable by convention
 		fmt.Fprintf(os.Stderr, "error (may need sudo): %v\n", err)
 		fmt.Fprintln(os.Stderr, "  Run: sudo dsd hook install")
 		return
 	}
-	if err := os.WriteFile(svcPath, []byte(systemdService), 0644); err != nil { // #nosec G306 -- systemd unit files in /etc/systemd/system/ are world-readable by convention
+	if err := writeFileNoFollow(svcPath, []byte(systemdService), 0644); err != nil { // #nosec G306 -- systemd unit files in /etc/systemd/system/ are world-readable by convention
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 	}
 	fmt.Printf("✅ Systemd timer installed. Enable with: sudo systemctl enable --now dsd-health.timer\n")
