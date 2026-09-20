@@ -1,5 +1,6 @@
 #!/bin/bash
-# Pre-commit: fast checks only — target < 20 seconds
+# Pre-commit: fast checks only — gofmt/vet are near-instant; the -short test
+# run is the long pole (typically ~50-55s, hard-capped at 300s, see below)
 # Install: cp scripts/hooks/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
 
 set -e
@@ -44,10 +45,14 @@ fi
 echo "  ✅ go vet"
 
 # 4. Tests with -short flag — skips slow integration tests. Budget matches
-# CI's own bump (180s->300s, see ci.yml): the cmd package's test suite alone
-# now regularly takes 30-36s even under -short, so a flat 30s ceiling here
-# was failing on unrelated commits, not just slow ones.
-if ! go test -short -count=1 -timeout 60s ./... 2>&1; then
+# CI's own timeout (300s, see ci.yml `go test -race ... -timeout 300s`): the
+# cmd package's test suite alone now regularly takes 45-55s even under
+# -short (its every-subcommand-spawns-a-subprocess smoke tests already skip
+# under -short — see cmd/smoke_test.go — but the remaining ~1200 in-process
+# tests in that package are enough on their own to blow a 60s ceiling under
+# load), so a flat 60s ceiling here was intermittently killing the whole
+# `go test` run on unrelated commits, not just slow ones (issue #1108).
+if ! go test -short -count=1 -timeout 300s ./... 2>&1; then
     echo "❌ Tests failed"
     exit 1
 fi
