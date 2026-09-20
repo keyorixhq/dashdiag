@@ -214,6 +214,74 @@ jobs:
           [ "$FAIL" -eq 0 ] && echo "✅ All PR commits carry Signed-off-by"
           exit $FAIL
 
+  # Ported from Keyorix's base-branch-check job (keyorix#1569 finding /
+  # keyorix#1965's pre-push hook), adapted to this repo's own escape-hatch
+  # convention: Keyorix uses a `stacked-pr` PR LABEL; this uses the same two
+  # markers as scripts/hooks/pre-push's own base-branch check (branch name or
+  # commit trailer), so the local hook and this gate agree on what counts as
+  # a deliberate stack instead of requiring two different conventions.
+  #
+  # Why this exists: a PR based on a feature branch instead of main, once
+  # merged, lands its commits into THAT branch's history, not main's --
+  # GitHub still reports it "Merged" (the merge into the wrong base genuinely
+  # happened), so it looks done. Real instance: keyorix#1961, opened
+  # correctly against a feature branch and marked as a deliberate stack,
+  # still open against that base after the feature branch had already landed
+  # on main under a different PR -- its own commit never reached main.
+  #
+  # This gate and the pre-push hook cover DIFFERENT windows, and neither
+  # replaces the other:
+  #   - The hook runs at PUSH time, on the pusher's own machine, and only
+  #     WARNS (see CONTRIBUTING.md's "Guards must fail loudly" section for
+  #     why it's a deliberate exception) -- it can catch the base going stale
+  #     the moment before a merge, but only if something is pushed after that
+  #     happens, and only if the pusher has `gh`+`jq` available and sees the
+  #     warning.
+  #   - This gate runs on every PR push/sync, in CI, and HARD FAILS -- but it
+  #     only evaluates the base at the moment THIS WORKFLOW RUN executes. A
+  #     stacked PR that passes this check today and then sits open while its
+  #     base branch merges tomorrow will show a stale green check-run; the
+  #     gate does not re-run on its own just because the base changed, only
+  #     on the next push or PR sync to THIS branch.
+  # Together they raise the odds of catching the mistake at more points, but
+  # a stack that's merged without ever being pushed to again, or without CI
+  # re-running, after its base goes stale can still slip through either.
+  base-branch-check:
+    name: Base branch check
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - name: Assert PR base is main, unless the branch or latest commit marks it deliberate
+        env:
+          BASE_REF: ${{ github.base_ref }}
+          HEAD_REF: ${{ github.head_ref }}
+        run: |
+          set -euo pipefail
+          if [ "$BASE_REF" = "main" ]; then
+            echo "ok: base is main"
+            exit 0
+          fi
+          case "$HEAD_REF" in
+            stacked-on-*)
+              echo "ok: base is '$BASE_REF', but branch '$HEAD_REF' is explicitly marked as a deliberate stack -- allowed"
+              exit 0
+              ;;
+          esac
+          if git log -1 --format=%B HEAD | grep -qE '^Stacked-On:'; then
+            echo "ok: base is '$BASE_REF', but the latest commit carries a Stacked-On trailer -- allowed"
+            exit 0
+          fi
+          echo "::error::PR base is '$BASE_REF', not main, and neither the branch name nor the latest commit marks this as a deliberate stack."
+          echo "A PR based on a feature branch instead of main can show 'Merged' on GitHub"
+          echo "without its content ever reaching main -- see keyorix#1961 for a real instance."
+          echo "If this is a genuine stacked-PR review chain: name the branch 'stacked-on-...',"
+          echo "or add a 'Stacked-On: $BASE_REF' line to the latest commit's body. Otherwise,"
+          echo "retarget this PR at main."
+          exit 1
+
   # Not gated by docs_only: docs/product-closures.tsv IS classified as docs by
   # the `changes` filter, but that is exactly the file this job exists to
   # verify — gating it on docs_only would skip the one job that must run
