@@ -75,18 +75,63 @@ var execWrapperFiles = map[string]string{
 	"internal/fleet/fleet.go": "ssh/scp — deliberately not PATH-trust resolved, see wontfix_spec_test.go",
 }
 
-func TestAllExecCallsResolveThroughTrustedWrapper(t *testing.T) {
-	root := repoRootForGovernanceTest(t)
-	rawExec := regexp.MustCompile(`exec\.Command(Context)?\(`)
+// execLocaleWalkSkipDir reports whether the exec/locale governance walker
+// must not descend into a directory named name. Dot-prefixed directories are
+// skipped GENERICALLY — matching write_capable_callsites_test.go's
+// walker — rather than via an enumerated list of names, because an
+// enumerated list silently misses any dot-prefixed directory not already on
+// it. That gap is exactly how this test used to walk into nested git
+// worktrees: a worktree checkout carries its own full source tree (including
+// a go.mod-rooted internal/ package layout), and this repo's own agent
+// worktrees live under .claude/worktrees/<name> — but `git worktree add`
+// can just as well produce one at any other dot-prefixed path (a bare
+// `.git/worktrees/<name>` marker directory, a `.worktree-*` staging dir,
+// etc.) that an enumerated list would never anticipate. A worktree's
+// contents are a snapshot of some other (possibly half-finished, possibly
+// divergent) branch, not part of the source tree this test governs, so none
+// of it belongs in the scan regardless of what its directory happens to be
+// named — as long as it's dot-prefixed. node_modules/vendor/dist are also
+// never first-party source but aren't dot-prefixed, so they stay as an
+// explicit list.
+func execLocaleWalkSkipDir(name string) bool {
+	if strings.HasPrefix(name, ".") {
+		return true
+	}
+	switch name {
+	case "node_modules", "vendor", "dist":
+		return true
+	}
+	return false
+}
 
+// rawExecViolation is one non-exempt, non-test .go file containing an
+// unwrapped exec.Command/CommandContext call.
+type rawExecViolation struct {
+	rel  string
+	line int
+}
+
+var rawExecCallRe = regexp.MustCompile(`exec\.Command(Context)?\(`)
+
+// findRawExecViolations walks root — applying execLocaleWalkSkipDir to every
+// directory — and returns every non-test .go file (not in exempt) containing
+// a raw exec.Command/CommandContext call, plus the total number of .go files
+// examined (including exempted ones), so callers can sanity-check the walk
+// actually covered the tree it claims to. Factored out of
+// TestAllExecCallsResolveThroughTrustedWrapper so its own regression test
+// (TestExecLocaleWalkSkipsDotPrefixedDirectories) exercises this EXACT
+// walker against a fixture, rather than a reimplementation of it that could
+// silently drift from the real one.
+func findRawExecViolations(t *testing.T, root string, exempt map[string]string) ([]rawExecViolation, int) {
+	t.Helper()
 	var checked int
+	var violations []rawExecViolation
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
 			return err
 		}
 		if d.IsDir() {
-			switch d.Name() {
-			case ".scratch", ".git", ".claude", "node_modules", "vendor", "dist":
+			if execLocaleWalkSkipDir(d.Name()) {
 				return filepath.SkipDir
 			}
 			return nil
@@ -94,37 +139,112 @@ func TestAllExecCallsResolveThroughTrustedWrapper(t *testing.T) {
 		if !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
 			return nil
 		}
-		rel, err := filepath.Rel(root, path)
-		if err != nil {
+		rel, relErr := filepath.Rel(root, path)
+		if relErr != nil {
 			rel = path
 		}
-		if _, exempt := execWrapperFiles[rel]; exempt {
+		if _, ok := exempt[rel]; ok {
 			checked++
 			return nil
 		}
-		src, err := os.ReadFile(path)
-		if err != nil {
-			t.Errorf("read %s: %v", rel, err)
+		src, readErr := os.ReadFile(path)
+		if readErr != nil {
+			t.Errorf("read %s: %v", rel, readErr)
 			return nil
 		}
 		checked++
-		if loc := rawExec.FindIndex(src); loc != nil {
+		if loc := rawExecCallRe.FindIndex(src); loc != nil {
 			line := 1 + strings.Count(string(src[:loc[0]]), "\n")
-			t.Errorf("%s:%d calls exec.Command/CommandContext directly — route it through "+
-				"platform.ResolveTrustedTool (+ platform.HardenedEnv if stdout/stderr is parsed) "+
-				"so it isn't PATH-hijackable (dsd routinely runs as root) and, where relevant, "+
-				"locale-stable (see #82). If raw exec is genuinely required (a documented, "+
-				"considered exception — not the default), add the file to execWrapperFiles here "+
-				"with a justifying comment, same bar as internal/fleet/fleet.go's.", rel, line)
+			violations = append(violations, rawExecViolation{rel: rel, line: line})
 		}
 		return nil
 	})
 	if err != nil {
-		t.Fatalf("walking %s: %v", root, err)
+		t.Fatalf("walking %s for raw exec calls: %v", root, err)
 	}
+	return violations, checked
+}
+
+func TestAllExecCallsResolveThroughTrustedWrapper(t *testing.T) {
+	root := repoRootForGovernanceTest(t)
+	violations, checked := findRawExecViolations(t, root, execWrapperFiles)
+
 	if checked < 400 { // sanity: repo has ~556 non-test .go files as of writing
 		t.Fatalf("only checked %d files under %s — the walk is broken or root is wrong, "+
 			"this test would silently police nothing", checked, root)
+	}
+	for _, v := range violations {
+		t.Errorf("%s:%d calls exec.Command/CommandContext directly — route it through "+
+			"platform.ResolveTrustedTool (+ platform.HardenedEnv if stdout/stderr is parsed) "+
+			"so it isn't PATH-hijackable (dsd routinely runs as root) and, where relevant, "+
+			"locale-stable (see #82). If raw exec is genuinely required (a documented, "+
+			"considered exception — not the default), add the file to execWrapperFiles here "+
+			"with a justifying comment, same bar as internal/fleet/fleet.go's.", v.rel, v.line)
+	}
+}
+
+// TestExecLocaleWalkSkipsDotPrefixedDirectories is the regression proof for
+// #1109: TestAllExecCallsResolveThroughTrustedWrapper's walker used to skip
+// only an enumerated list of directory names (.scratch, .git, .claude,
+// node_modules, vendor, dist), so a dot-prefixed directory NOT on that list —
+// most concretely a nested git worktree checkout, which carries its own full
+// go.mod-rooted source tree — was walked into and scanned as if it were
+// first-party source. This exercises the SAME findRawExecViolations walker
+// used by the real governance test (not a reimplementation of it) against a
+// synthetic tree containing a dot-prefixed directory laid out like a nested
+// worktree checkout (its own .git file plus an internal/collectors-shaped Go
+// tree), and asserts the walker never reports a violation living inside it.
+func TestExecLocaleWalkSkipsDotPrefixedDirectories(t *testing.T) {
+	root := t.TempDir()
+
+	// A raw, unwrapped exec.Command call directly under root: the walker
+	// MUST still find this — proves the walker isn't vacuously skipping
+	// everything.
+	if err := os.WriteFile(filepath.Join(root, "control.go"),
+		[]byte("package fixture\n\nimport \"os/exec\"\n\nfunc bad() { exec.Command(\"ls\") }\n"), 0o644); err != nil {
+		t.Fatalf("writing control fixture: %v", err)
+	}
+
+	// A dot-prefixed directory NOT on the old enumerated skip list, laid out
+	// like a nested git worktree checkout: its own .git FILE (the marker
+	// `git worktree add` writes, pointing back at the real repo's
+	// .git/worktrees/<name>) plus its own go source tree underneath — the
+	// exact shape this repo's own agent worktrees take under
+	// .claude/worktrees/<name>.
+	worktreeDir := filepath.Join(root, ".worktree-fake-agent")
+	worktreeGoDir := filepath.Join(worktreeDir, "internal", "collectors")
+	if err := os.MkdirAll(worktreeGoDir, 0o755); err != nil {
+		t.Fatalf("creating fake worktree dir: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(worktreeDir, ".git"),
+		[]byte("gitdir: /somewhere/.git/worktrees/fake-agent\n"), 0o644); err != nil {
+		t.Fatalf("writing fake worktree .git file: %v", err)
+	}
+	if err := os.WriteFile(filepath.Join(worktreeGoDir, "violation.go"),
+		[]byte("package collectors\n\nimport \"os/exec\"\n\nfunc bad() { exec.Command(\"ls\") }\n"), 0o644); err != nil {
+		t.Fatalf("writing worktree violation fixture: %v", err)
+	}
+
+	violations, checked := findRawExecViolations(t, root, map[string]string{})
+
+	if checked < 1 {
+		t.Fatalf("walk examined %d files — fixture setup is broken", checked)
+	}
+
+	foundControl := false
+	for _, v := range violations {
+		if v.rel == "control.go" {
+			foundControl = true
+		}
+		if strings.HasPrefix(v.rel, ".worktree-fake-agent") {
+			t.Errorf("walker descended into dot-prefixed worktree-like directory and flagged %s:%d — "+
+				"it must skip any dot-prefixed directory entirely (filepath.SkipDir), not just the "+
+				"enumerated names", v.rel, v.line)
+		}
+	}
+	if !foundControl {
+		t.Error("walker did not find the control violation directly under root — the walker itself " +
+			"is broken, not just the skip logic (this test would pass vacuously)")
 	}
 }
 
