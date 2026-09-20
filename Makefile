@@ -273,7 +273,7 @@ hooks:
 	chmod +x .git/hooks/pre-commit .git/hooks/pre-push
 	@echo "✅ Hooks installed"
 	@echo "   pre-commit: gofmt + go vet + go test -short"
-	@echo "   pre-push:   go test -race + golangci-lint + gosec"
+	@echo "   pre-push:   go test -race + golangci-lint + gosec + base-branch check (warn-only)"
 
 # ── CLEAN ─────────────────────────────────────────────────────────────────────
 .PHONY: clean
