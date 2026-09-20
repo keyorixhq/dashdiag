@@ -280,17 +280,19 @@ func checkCVEZypper(ctx context.Context, cveID string) *models.CVEResult {
 func checkCVEDNF(ctx context.Context, cveID string) *models.CVEResult {
 	result := &models.CVEResult{CVE: cveID, PackageManager: "dnf"}
 
-	// Try DNF5 syntax first (Fedora 41+), fall back to DNF4
-	out, err := runCmd(ctx, "dnf", "advisory", "info", "--cve", cveID, flagQuiet)
+	// Try DNF5 syntax first (Fedora 41+), fall back to DNF4. --cacheonly means
+	// this only ever reads dnf's existing local cache — never refreshes
+	// metadata or touches the network.
+	out, err := runCmd(ctx, "dnf", dnfCacheOnly, "advisory", "info", "--cve", cveID, flagQuiet)
 	if err != nil {
-		out, err = runCmd(ctx, "dnf", cmdUpdateinfo, "info", "--cve", cveID, flagQuiet)
+		out, err = runCmd(ctx, "dnf", dnfCacheOnly, cmdUpdateinfo, "info", "--cve", cveID, flagQuiet)
 	}
 
 	lower := strings.ToLower(out)
 
 	if err != nil && len(out) == 0 {
 		result.Status = models.CVEUnknown
-		result.StatusReason = "dnf advisory query failed"
+		result.StatusReason = "could not check: no cached dnf metadata available (dnf --cacheonly) — run 'dnf makecache' manually as root, then retry"
 		result.FallbackURL = "https://access.redhat.com/security/cve/" + cveID
 		return result
 	}
@@ -686,23 +688,22 @@ func scanAllZypper(ctx context.Context) *models.CVEAllResult {
 func scanAllDNF(ctx context.Context) *models.CVEAllResult {
 	result := &models.CVEAllResult{PackageManager: "dnf"}
 
-	// BUG-098: warm the cache first so this scan (and the concurrently-running
-	// Packages collector's own dnf calls) aren't each independently racing a cold
-	// multi-repo metadata sync. Best-effort — see dnfWarmCache's doc comment.
-	dnfWarmCache(ctx)
-
-	// Try DNF5 first, then DNF4
-	out, err := runCmd(ctx, "dnf", "advisory", "list", flagSecurity, flagQuiet)
+	// Try DNF5 first, then DNF4. --cacheonly means this only ever reads dnf's
+	// existing local cache — never refreshes metadata or touches the network.
+	out, err := runCmd(ctx, "dnf", dnfCacheOnly, "advisory", "list", flagSecurity, flagQuiet)
 	if err != nil {
-		out, err = runCmd(ctx, "dnf", cmdUpdateinfo, "list", "security", flagQuiet)
+		out, err = runCmd(ctx, "dnf", dnfCacheOnly, cmdUpdateinfo, "list", "security", flagQuiet)
 	}
 	if err != nil && len(out) == 0 {
 		if ctx.Err() != nil {
-			// A cancelled/deadline-exceeded call is not "no repo access" — it's an
-			// honest "ran out of time," almost always a cold cache. Say so.
-			result.StatusReason = "dnf advisory scan timed out — likely a cold metadata cache or slow mirror; retry"
+			// A cancelled/deadline-exceeded call is an honest "ran out of time,"
+			// not "no cache" — say so distinctly.
+			result.StatusReason = "dnf advisory scan timed out — retry"
 		} else {
-			result.StatusReason = "dnf advisory list failed — could not verify CVE exposure (no repo access?)"
+			// --cacheonly itself failed outright — almost always means there is no
+			// local dnf metadata cache yet. Never silently fall through to a clean
+			// 0-CVE verdict here.
+			result.StatusReason = "could not check: no cached dnf metadata available (dnf --cacheonly) — run 'dnf makecache' manually as root, then rescan"
 		}
 		result.ScanFailed = true
 		return result
@@ -775,7 +776,7 @@ func enrichDNFAdvisoryWithCVEs(ctx context.Context, result *models.CVEAllResult)
 	eCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	defer cancel()
 
-	out, err := runCmd(eCtx, "dnf", cmdUpdateinfo, "info", flagSecurity, flagQuiet)
+	out, err := runCmd(eCtx, "dnf", dnfCacheOnly, cmdUpdateinfo, "info", flagSecurity, flagQuiet)
 	if err != nil || len(out) == 0 {
 		result.SubscriptionNote = rhSubscriptionNote()
 		return

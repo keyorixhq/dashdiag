@@ -50,8 +50,11 @@ func buildWholeBundle(dnfAdvisory, meminfo, loadavg string) *source.Bundle {
 	}
 	// Package/advisory inline parse (DNF3/4/5) — gate + fuzzed advisory scan, matching the
 	// exact name+args the packages/cve collectors query (see FuzzCollectDNFReplay).
-	b.PutCmd("dnf", []string{"repolist", "--enabled", "-q"}, "baseos\nappstream\n", 0)
-	b.PutCmd("dnf", []string{"advisory", "list", "--security", "--quiet"}, dnfAdvisory, 0)
+	// --cacheonly (issue #1103): every dnf read-query call site now leads with
+	// --cacheonly, so dnf never refreshes its metadata cache or touches the
+	// network — see docs/findings/2026-09-19-FINDING-dnf-makecache-writes-and-network.md.
+	b.PutCmd("dnf", []string{"--cacheonly", "repolist", "--enabled", "-q"}, "baseos\nappstream\n", 0)
+	b.PutCmd("dnf", []string{"--cacheonly", "advisory", "list", "--security", "--quiet"}, dnfAdvisory, 0)
 	// A couple of file seams parsed inline by the memory / load collectors.
 	b.PutFile("/proc/meminfo", []byte(meminfo))
 	b.PutFile("/proc/loadavg", []byte(loadavg))
