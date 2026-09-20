@@ -540,3 +540,80 @@ func TestRunHookInstallSystemdTimerNoRoot(t *testing.T) {
 		t.Errorf("a permission-denied systemd write should hint at sudo, got:\n%s", errOut)
 	}
 }
+
+// TestInstallSystemdTimerRefusesSymlink is installSystemdTimer's counterpart
+// to TestInstallPreDeployRefusesSymlink/TestInstallGitHookRefusesSymlink/
+// TestInstallGitHubActionsRefusesSymlink — same hazard, same fix, at
+// dsd-health.timer. GH #1106: this site used to write with plain os.WriteFile
+// and was carved out of TestNoBareOSWriteFileInCmdOrRender's exemption list
+// on the theory that a root-owned destination directory (/etc/systemd/system)
+// made it safe from symlink attacks — that reasoning only covers an attacker
+// planting the symlink themselves, not a symlink already sitting at the
+// destination (a prior install, a compromised package, a stale artifact) that
+// an unguarded root-privileged write would follow and clobber. Exercised via
+// installSystemdTimerAt so the test never touches the real
+// /etc/systemd/system.
+func TestInstallSystemdTimerRefusesSymlink(t *testing.T) {
+	dir := t.TempDir()
+	timerVictim := filepath.Join(t.TempDir(), "timer-victim")
+	if err := os.WriteFile(timerVictim, []byte("original-timer"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	timerPath := filepath.Join(dir, "dsd-health.timer")
+	svcPath := filepath.Join(dir, "dsd-health.service") // never reached: timer write fails first
+	if err := os.Symlink(timerVictim, timerPath); err != nil {
+		t.Fatal(err)
+	}
+
+	errOut := captureStderr(t, func() { installSystemdTimerAt(false, timerPath, svcPath) })
+	if !strings.Contains(errOut, "may need sudo") {
+		t.Errorf("expected an error refusing to write through the timer symlink, got:\n%s", errOut)
+	}
+
+	data, err := os.ReadFile(timerVictim) //nolint:gosec // test-controlled path
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "original-timer" {
+		t.Errorf("timer victim file was overwritten: %q", data)
+	}
+	if _, err := os.Lstat(svcPath); err == nil || !os.IsNotExist(err) {
+		t.Errorf("service unit should never have been written after the timer write failed, Lstat error: %v", err)
+	}
+}
+
+// TestInstallSystemdServiceRefusesSymlink is
+// TestInstallSystemdTimerRefusesSymlink's counterpart for
+// dsd-health.service: the timer path is a real file so the timer write
+// succeeds, letting the test reach and prove the second writeFileNoFollow
+// call (svcPath) independently refuses a pre-existing symlink.
+func TestInstallSystemdServiceRefusesSymlink(t *testing.T) {
+	dir := t.TempDir()
+	svcVictim := filepath.Join(t.TempDir(), "svc-victim")
+	if err := os.WriteFile(svcVictim, []byte("original-service"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	timerPath := filepath.Join(dir, "dsd-health.timer")
+	svcPath := filepath.Join(dir, "dsd-health.service")
+	if err := os.Symlink(svcVictim, svcPath); err != nil {
+		t.Fatal(err)
+	}
+
+	errOut := captureStderr(t, func() { installSystemdTimerAt(false, timerPath, svcPath) })
+	if !strings.Contains(errOut, "symlink") {
+		t.Errorf("expected an error refusing to write through the service symlink, got:\n%s", errOut)
+	}
+	if _, err := os.Stat(timerPath); err != nil {
+		t.Errorf("timer unit should have been written normally: %v", err)
+	}
+
+	data, err := os.ReadFile(svcVictim) //nolint:gosec // test-controlled path
+	if err != nil {
+		t.Fatal(err)
+	}
+	if string(data) != "original-service" {
+		t.Errorf("service victim file was overwritten: %q", data)
+	}
+}

@@ -120,17 +120,14 @@ func TestNoBareOSWriteFileInCmdOrRender(t *testing.T) {
 // writeFileGovernanceExemptions lists "file.go:line" sites explicitly
 // allowed to call os.WriteFile directly, each with the reason it's safe. A
 // reason is required — this is not a suppression list.
-var writeFileGovernanceExemptions = map[string]string{
-	// installSystemdTimer writes /etc/systemd/system/dsd-health.{timer,service}
-	// — fixed, root-owned paths, not a CWD-relative or shared-working-directory
-	// location. An unprivileged local attacker cannot plant a symlink there in
-	// the first place (same reasoning SECURITY.md and BACKLOG.md's
-	// refuse_symlinked_prefix() entry already apply to the default,
-	// root-owned --prefix). Opt-in, requires root/sudo; out of scope for the
-	// symlink-hardening sweep that added this test.
-	"hook.go:264": "writes /etc/systemd/system/dsd-health.timer, a fixed root-owned path an unprivileged attacker can't symlink",
-	"hook.go:269": "writes /etc/systemd/system/dsd-health.service, a fixed root-owned path an unprivileged attacker can't symlink",
-}
+//
+// installSystemdTimer's two unit-file writes (formerly exempted here as
+// "root-owned path, unprivileged attacker can't symlink") were found to still
+// be vulnerable to a pre-existing-symlink/TOCTOU write (GH #1106) — the
+// "attacker can't plant the symlink" reasoning doesn't cover a symlink left
+// by an earlier process. Both sites now route through writeFileNoFollow like
+// every sibling call site and no longer need an exemption.
+var writeFileGovernanceExemptions = map[string]string{}
 
 // repoRootForWriteFileGovernanceTest mirrors this package's own
 // repoRootForNetworkPolicyGovernanceTest (and internal/collectors',
