@@ -76,7 +76,7 @@ func TestPkgIntegrityAPT_DpkgBrokenPackages(t *testing.T) {
 // indistinguishable from a genuinely clean system. CheckFailed must be set.
 func TestPkgIntegrityDNF_CheckFailed(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutCmdNotFound("dnf", []string{"check", flagQuiet})
+		b.PutCmdNotFound("dnf", []string{"--cacheonly", "check", flagQuiet})
 		b.PutCmdNotFound("rpm", append([]string{"--verify"}, []string{"bash", "coreutils", "systemd", "glibc", "openssl-libs"}...))
 	})
 	var pi models.PackageIntegrity
@@ -115,7 +115,7 @@ func TestPkgIntegrityDNF_TenOrMoreBrokenPackages(t *testing.T) {
 		fmt.Fprintf(&dnfCheckOut, "broken-pkg-%s: requires missing-dep\n", strings.Repeat("x", i))
 	}
 	fake := fakeRunSource{run: func(name string, args []string) source.Result {
-		if name == "dnf" && len(args) > 0 && args[0] == "check" {
+		if name == "dnf" && len(args) > 1 && args[1] == "check" {
 			return source.Result{Stdout: []byte(dnfCheckOut.String()), ExitCode: 1}
 		}
 		// rpm --verify: clean
@@ -135,7 +135,7 @@ func TestPkgIntegrityDNF_TenOrMoreBrokenPackages(t *testing.T) {
 // config-file modifications from rpm --verify (expected changes, not tampering).
 func TestPkgIntegrityDNF_RPMVerifyConfigSkipped(t *testing.T) {
 	fake := fakeRunSource{run: func(name string, args []string) source.Result {
-		if name == "dnf" && len(args) > 0 && args[0] == "check" {
+		if name == "dnf" && len(args) > 1 && args[1] == "check" {
 			return source.Result{ExitCode: 0} // no broken packages
 		}
 		if name == "rpm" {

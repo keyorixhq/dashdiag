@@ -115,7 +115,7 @@ func TestIsKali_FileMissing(t *testing.T) {
 
 func TestCheckCVEDNF_Vulnerable(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutCmd("dnf", []string{"advisory", "info", "--cve", "CVE-2026-1234", "--quiet"},
+		b.PutCmd("dnf", []string{"--cacheonly", "advisory", "info", "--cve", "CVE-2026-1234", "--quiet"},
 			"Advisory ID: RHSA-2026:1234\nSeverity: Important\n  openssl-1.2.3-1.el9.x86_64\n  openssl-libs-1.2.3-1.el9.x86_64\n", 0)
 	})
 
@@ -133,8 +133,8 @@ func TestCheckCVEDNF_Vulnerable(t *testing.T) {
 
 func TestCheckCVEDNF_DNF4Fallback(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutCmdNotFound("dnf", []string{"advisory", "info", "--cve", "CVE-2026-1234", "--quiet"})
-		b.PutCmd("dnf", []string{"updateinfo", "info", "--cve", "CVE-2026-1234", "--quiet"},
+		b.PutCmdNotFound("dnf", []string{"--cacheonly", "advisory", "info", "--cve", "CVE-2026-1234", "--quiet"})
+		b.PutCmd("dnf", []string{"--cacheonly", "updateinfo", "info", "--cve", "CVE-2026-1234", "--quiet"},
 			"Update ID: RHSA-2026:1234\nType: security\n  openssl-1.2.3-1.el9.x86_64\n", 0)
 	})
 
@@ -146,7 +146,7 @@ func TestCheckCVEDNF_DNF4Fallback(t *testing.T) {
 
 func TestCheckCVEDNF_NoAdvisory(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutCmd("dnf", []string{"advisory", "info", "--cve", "CVE-2026-1234", "--quiet"}, "No advisory found for this CVE\n", 0)
+		b.PutCmd("dnf", []string{"--cacheonly", "advisory", "info", "--cve", "CVE-2026-1234", "--quiet"}, "No advisory found for this CVE\n", 0)
 	})
 
 	result := checkCVEDNF(context.Background(), "CVE-2026-1234")
@@ -160,7 +160,7 @@ func TestCheckCVEDNF_NoAdvisory(t *testing.T) {
 // lines and no updates pending must read CVEPatched, not CVEVulnerable.
 func TestCheckCVEDNF_AdvisoryFoundNoPendingPackages(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutCmd("dnf", []string{"advisory", "info", "--cve", "CVE-2026-1234", "--quiet"},
+		b.PutCmd("dnf", []string{"--cacheonly", "advisory", "info", "--cve", "CVE-2026-1234", "--quiet"},
 			"Advisory ID: RHSA-2026:1234\n", 0)
 	})
 
@@ -175,8 +175,8 @@ func TestCheckCVEDNF_AdvisoryFoundNoPendingPackages(t *testing.T) {
 
 func TestCheckCVEDNF_QueryFails(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutCmdNotFound("dnf", []string{"advisory", "info", "--cve", "CVE-2026-1234", "--quiet"})
-		b.PutCmdNotFound("dnf", []string{"updateinfo", "info", "--cve", "CVE-2026-1234", "--quiet"})
+		b.PutCmdNotFound("dnf", []string{"--cacheonly", "advisory", "info", "--cve", "CVE-2026-1234", "--quiet"})
+		b.PutCmdNotFound("dnf", []string{"--cacheonly", "updateinfo", "info", "--cve", "CVE-2026-1234", "--quiet"})
 	})
 
 	result := checkCVEDNF(context.Background(), "CVE-2026-1234")

@@ -35,3 +35,19 @@ func NetworkAllowed() bool {
 	}
 	return os.Getenv("DSD_ALLOW_NETWORK") != ""
 }
+
+// OfflineForced reports whether DSD_OFFLINE is set, independent of
+// DSD_ALLOW_NETWORK/--network. Almost every call site should use
+// NetworkAllowed() (the full off-by-default policy) instead — this narrower
+// check exists only for cmd/root.go's networkFlagExempt category (fleet, tls,
+// update): commands whose network action is the direct, immediate effect of
+// naming a target on the command line, so --network/DSD_ALLOW_NETWORK
+// deliberately have no bearing on them (see PRIVACY.md "Network calls" — you
+// already opted in by naming the target). DSD_OFFLINE's hard "go offline no
+// matter what" override still has to win there too, the same as it does
+// inside NetworkAllowed(), so a script that sets DSD_OFFLINE=1 can rely on
+// dsd making zero outbound connections even when a command also names an
+// endpoint on the command line.
+func OfflineForced() bool {
+	return os.Getenv("DSD_OFFLINE") != ""
+}

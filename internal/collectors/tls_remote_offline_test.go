@@ -6,25 +6,24 @@ import (
 	"context"
 	"crypto/tls"
 	"net"
+	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 )
 
-// TestTLSEndpointBypassesOfflineGate deterministically proves the known
-// violation KV-TLS-OFFLINE-BYPASS (cmd/knownviolations_test.go):
-// CheckRemoteEndpoint (dsd tls --endpoint host:port) dials out even with
-// DSD_OFFLINE=1 set — the only remote-dialing code path in the repo that
-// doesn't check platform.NetworkAllowed()/DSD_OFFLINE first. Uses a loopback
+// TestTLSEndpointHonoursOfflineGate is the regression proof for the fix to
+// KV-TLS-OFFLINE-BYPASS (formerly cmd/knownviolations_test.go, now removed):
+// CheckRemoteEndpoint (dsd tls --endpoint host:port) used to dial out even
+// with DSD_OFFLINE=1 set — the only remote-dialing code path in the repo that
+// didn't check platform.OfflineForced()/platform.NetworkAllowed() first. It
+// now must refuse BEFORE ever attempting a connection. Uses a loopback
 // listener (127.0.0.1, matching TestCheckRemoteEndpointLive_Success's
 // pattern), never a real external host — this is a deterministic regression
-// proof, not a live-network test.
-//
-// If this test starts FAILING (the dial gets refused/blocked), the bypass has
-// been fixed — delete this test and the KV-TLS-OFFLINE-BYPASS entry together.
-func TestTLSEndpointBypassesOfflineGate(t *testing.T) {
-	if !knownViolations["KV-TLS-OFFLINE-BYPASS"] {
-		t.Fatal("KV-TLS-OFFLINE-BYPASS is not registered in knownViolations — either the bypass was fixed (delete this test) or the registry entry was removed without meaning to stop tolerating it (restore it)")
-	}
+// proof, not a live-network test. Not driven by FuzzCommandAllowlist either
+// way: a live dial isn't safe to fuzz (see execallowlist_fuzz_test.go's
+// header comment), so this direct test is the only coverage for the gate.
+func TestTLSEndpointHonoursOfflineGate(t *testing.T) {
 	t.Setenv("DSD_OFFLINE", "1")
 
 	now := time.Now()
@@ -37,12 +36,14 @@ func TestTLSEndpointBypassesOfflineGate(t *testing.T) {
 	}
 	defer ln.Close()
 
+	var accepted atomic.Bool
 	go func() {
 		for {
 			conn, err := ln.Accept()
 			if err != nil {
 				return
 			}
+			accepted.Store(true)
 			go func(c net.Conn) {
 				defer c.Close()
 				if tc, ok := c.(*tls.Conn); ok {
@@ -56,8 +57,22 @@ func TestTLSEndpointBypassesOfflineGate(t *testing.T) {
 	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
 	defer cancel()
 
-	_, err = CheckRemoteEndpoint(ctx, ln.Addr().String())
-	if err != nil {
-		t.Fatalf("CheckRemoteEndpoint dialed a loopback listener with DSD_OFFLINE=1 set and still failed (%v) — either the environment blocked loopback, or the bypass is already fixed (in which case remove this test and KV-TLS-OFFLINE-BYPASS)", err)
+	certs, err := CheckRemoteEndpoint(ctx, ln.Addr().String())
+	if err == nil {
+		t.Fatal("expected CheckRemoteEndpoint to refuse with DSD_OFFLINE=1 set, got nil error")
+	}
+	if !strings.Contains(err.Error(), "DSD_OFFLINE") {
+		t.Errorf("error = %q, want it to mention DSD_OFFLINE (actionable, not a generic dial failure)", err.Error())
+	}
+	if certs != nil {
+		t.Errorf("expected nil certs when blocked by DSD_OFFLINE, got %+v", certs)
+	}
+
+	// Give the accept loop a moment, then prove the block happened BEFORE any
+	// connection attempt — not that the dial merely failed for some other
+	// reason (e.g. a listener misconfiguration) that happened to also error.
+	time.Sleep(100 * time.Millisecond)
+	if accepted.Load() {
+		t.Error("CheckRemoteEndpoint connected to the listener despite DSD_OFFLINE=1 — the offline gate ran too late, or not at all")
 	}
 }

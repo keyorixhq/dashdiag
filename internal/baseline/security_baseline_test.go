@@ -222,8 +222,12 @@ func TestSaveAndLoadSecurityBaseline_RoundTrip(t *testing.T) {
 
 	// File should be at $HOME/.dsd/security-baseline.json
 	want := filepath.Join(dir, ".dsd", "security-baseline.json")
-	if SecurityBaselinePath() != want {
-		t.Errorf("SecurityBaselinePath = %q, want %q", SecurityBaselinePath(), want)
+	gotPath, err := SecurityBaselinePath()
+	if err != nil {
+		t.Fatalf("SecurityBaselinePath: %v", err)
+	}
+	if gotPath != want {
+		t.Errorf("SecurityBaselinePath = %q, want %q", gotPath, want)
 	}
 
 	loaded, err := LoadSecurityBaseline()

@@ -29,9 +29,8 @@ func TestScanAllViaPackageManager_DispatchesToZypper(t *testing.T) {
 
 func TestScanAllViaPackageManager_DispatchesToDNF(t *testing.T) {
 	withLookPathFixture(t, map[string]bool{"dnf": true}, func(b *source.Bundle) {
-		b.PutCmdNotFound("dnf", []string{"makecache", "-q"})
-		b.PutCmdNotFound("dnf", []string{"advisory", "list", "--security", "--quiet"})
-		b.PutCmdNotFound("dnf", []string{"updateinfo", "list", "security", "--quiet"})
+		b.PutCmdNotFound("dnf", []string{"--cacheonly", "advisory", "list", "--security", "--quiet"})
+		b.PutCmdNotFound("dnf", []string{"--cacheonly", "updateinfo", "list", "security", "--quiet"})
 	})
 	res := scanAllViaPackageManager(context.Background())
 	if res.PackageManager != "dnf" {

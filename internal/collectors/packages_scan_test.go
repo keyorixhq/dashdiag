@@ -4,6 +4,7 @@ package collectors
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/source"
@@ -11,12 +12,12 @@ import (
 
 func TestCollectDNF_HappyPath(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutCmd("dnf", []string{"repolist", "--enabled", "-q"}, "repo id   repo name\nbaseos    BaseOS\n", 0)
+		b.PutCmd("dnf", []string{"--cacheonly", "repolist", "--enabled", "-q"}, "repo id   repo name\nbaseos    BaseOS\n", 0)
 		// DNF5's "type" column is lowercase "security" (see cve_linux.go's own
 		// documented sample format) — capitalizing it would collide with the
 		// "Sec"-substring check that distinguishes DNF5's type column from
 		// DNF4's "severity/Sec." column and silently misparse as DNF4.
-		b.PutCmd("dnf", []string{"advisory", "list", "--security", "--quiet"},
+		b.PutCmd("dnf", []string{"--cacheonly", "advisory", "list", "--security", "--quiet"},
 			"RHSA-2026:1234 security  critical openssl-1.2.3.el9.x86_64\nRHSA-2026:5678 security important curl-8.0.1.el9.x86_64\n", 0)
 	})
 
@@ -34,7 +35,7 @@ func TestCollectDNF_HappyPath(t *testing.T) {
 
 func TestCollectDNF_NoSecurityRepo(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutCmd("dnf", []string{"repolist", "--enabled", "-q"}, "", 0)
+		b.PutCmd("dnf", []string{"--cacheonly", "repolist", "--enabled", "-q"}, "", 0)
 	})
 
 	info, err := collectDNF(context.Background())
@@ -46,14 +47,43 @@ func TestCollectDNF_NoSecurityRepo(t *testing.T) {
 	}
 }
 
+// TestCollectDNF_CacheUnavailable is the regression proof for issue #1103's
+// fix: dnfWarmCache (which used to run `dnf makecache -q`, a real disk
+// write + possible network fetch) has been removed entirely, and the repo
+// gate now reads via `dnf --cacheonly repolist ...` instead. When
+// --cacheonly itself fails outright (spawn error, not empty output) —
+// almost always because there is no local dnf metadata cache yet — this
+// must produce an explicit "could not check: no cached metadata" style
+// finding distinct from "no-security-repo", and must NEVER silently fall
+// through to a clean 0-updates verdict.
+func TestCollectDNF_CacheUnavailable(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmdNotFound("dnf", []string{"--cacheonly", "repolist", "--enabled", "-q"})
+	})
+
+	info, err := collectDNF(context.Background())
+	if err != nil {
+		t.Fatalf("collectDNF: %v", err)
+	}
+	if info.Status != pkgQueryFailed {
+		t.Fatalf("expected Status=query-failed when dnf --cacheonly has no cache to read, got %q", info.Status)
+	}
+	if !strings.Contains(info.StatusReason, "no cached dnf metadata") {
+		t.Errorf("StatusReason = %q, want it to explicitly mention no cached dnf metadata (not a misleading no-security-repo reason)", info.StatusReason)
+	}
+	if info.SecurityUpdates != 0 {
+		t.Errorf("SecurityUpdates = %d, want 0 (unset) on an unverified result", info.SecurityUpdates)
+	}
+}
+
 // TestCollectDNF_QueryFails guards the false-OK this collector explicitly
 // documents: a failed advisory query must report query-failed, never a silent
 // clean 0 security updates.
 func TestCollectDNF_QueryFails(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutCmd("dnf", []string{"repolist", "--enabled", "-q"}, "baseos    BaseOS\n", 0)
-		b.PutCmdNotFound("dnf", []string{"advisory", "list", "--security", "--quiet"})
-		b.PutCmdNotFound("dnf", []string{"updateinfo", "list", "security", "--quiet"})
+		b.PutCmd("dnf", []string{"--cacheonly", "repolist", "--enabled", "-q"}, "baseos    BaseOS\n", 0)
+		b.PutCmdNotFound("dnf", []string{"--cacheonly", "advisory", "list", "--security", "--quiet"})
+		b.PutCmdNotFound("dnf", []string{"--cacheonly", "updateinfo", "list", "security", "--quiet"})
 	})
 
 	info, err := collectDNF(context.Background())

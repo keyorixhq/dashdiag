@@ -2,6 +2,7 @@ package baseline
 
 import (
 	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"sort"
@@ -11,7 +12,10 @@ import (
 // host, sorted oldest-first. Ignores -latest and -prev symlink files.
 func LoadHistory(n int) ([]*Snapshot, error) {
 	hostname, _ := os.Hostname()
-	dir := baselineDir()
+	dir, err := baselineDir()
+	if err != nil {
+		return nil, fmt.Errorf("resolving baseline dir: %w", err)
+	}
 
 	// SafeHostname: same sanitizer latestPath/prevPath/goldenPath use. The
 	// kernel hostname normally requires privilege to change, but nothing

@@ -46,7 +46,9 @@ Or pass explicit paths:
 --endpoint/--endpoints-file connect to hosts YOU name, at the moment you run
 this command — that's not the kind of ambient, on-your-behalf network
 activity --network/DSD_ALLOW_NETWORK gates, so the flag has no effect here;
-those connections happen regardless.`,
+those connections happen regardless. DSD_OFFLINE=1 still blocks them, though:
+it's a hard "no network calls" override that wins over everything else,
+including a target you named yourself.`,
 	RunE: runTLS,
 }
 

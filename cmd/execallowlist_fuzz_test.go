@@ -34,10 +34,18 @@ package cmd_test
 // Explicitly excluded from the fuzzed subcommand surface (see
 // knownviolations_test.go): `update` (self-overwrites its own binary path,
 // outside ExecHook's reach), `fleet` (mutates remote hosts via ssh/scp,
-// outside ExecHook's reach by design), `tls` (CheckRemoteEndpoint dials out
-// even with DSD_OFFLINE=1 — KV-TLS-OFFLINE-BYPASS — so it is not safe to let
-// a fuzzer hand it arbitrary --endpoint values; proven separately by
-// TestTLSEndpointBypassesOfflineGate against a loopback listener).
+// outside ExecHook's reach by design), `tls` (CheckRemoteEndpoint now checks
+// platform.OfflineForced() before ever dialing — KV-TLS-OFFLINE-BYPASS is
+// fixed, proven deterministically by TestTLSEndpointHonoursOfflineGate
+// against a loopback listener — but the subcommand stays excluded here
+// regardless: `dsd tls --endpoint`/`--endpoints-file` is in
+// networkFlagExempt, i.e. still a real, unconditional live-dial code path by
+// product design once network isn't forced off (see PRIVACY.md "Network
+// calls"), and letting a fuzzer hand it arbitrary --endpoint values has not
+// been separately re-reviewed against the OPTION-INJECTION/WRITES oracles.
+// The DSD_OFFLINE=1 this harness force-appends happens to also satisfy the
+// new offline gate, but that's incidental, not a substitute for that review —
+// kept excluded out of caution rather than assumed safe).
 //
 // Safety: $HOME and CWD are fresh t.TempDir()s every exec (never touches the
 // real filesystem outside them), DSD_OFFLINE=1 is force-appended last so it
@@ -47,7 +55,8 @@ package cmd_test
 // family will happily write to an operator-supplied ABSOLUTE path (a real,
 // intentional feature — see the allowed-writes contract), which is exactly
 // why this harness, running unsandboxed on a real machine, must never hand
-// it one. No real network: DSD_OFFLINE=1 plus the `tls` exclusion above.
+// it one. No real network: DSD_OFFLINE=1 (now also enforced by tls's own
+// offline gate) plus the `tls` exclusion above, belt-and-suspenders.
 
 import (
 	"bufio"
@@ -319,32 +328,16 @@ var cwdAutoNamePatterns = []struct{ prefix, suffix string }{
 	{"dsd-migrate-baseline-", ".tar.gz"},
 }
 
-// homeFailOpenViolationFor maps a CWD-relative path to the specific
-// KV-HOME-FAILOPEN-* ID that would produce it (baselineDir/goldenDir/
-// SecurityBaselinePath each fail open to a distinct shape — see
-// internal/baseline's TestHomeFailOpen_KnownViolations), or "" if rel
-// doesn't match any of the three. Scoped to the exact known shapes rather
-// than a blanket ".dsd/" prefix so an unrelated stray ".dsd/..." write
-// (not one of these three specific bugs) is never silently tolerated.
-func homeFailOpenViolationFor(rel string) string {
-	switch {
-	case strings.HasPrefix(rel, filepath.Join(".dsd", "baselines")+string(filepath.Separator)):
-		return "KV-HOME-FAILOPEN-BASELINE"
-	case strings.HasPrefix(rel, filepath.Join(".dsd", "golden")+string(filepath.Separator)):
-		return "KV-HOME-FAILOPEN-GOLDEN"
-	case rel == filepath.Join(".dsd", "security-baseline.json"):
-		return "KV-HOME-FAILOPEN-SECBASELINE"
-	}
-	return ""
-}
-
-// isAllowedCWDWrite tolerates a CWD-relative ".dsd/..." write ONLY when it
-// matches one of the three known $HOME-fail-open shapes AND that shape's KV
-// ID is present in knownViolations (knownviolations_test.go) — an unknown
-// ID (the entry was removed) makes it fatal even though this harness always
-// sets a real $HOME, so that branch should not actually trigger live here;
-// this keeps the tolerance genuinely registry-driven rather than a
-// hardcoded carve-out the registry only documents.
+// isAllowedCWDWrite tolerates a CWD-relative write only when it's one of the
+// known auto-named report/export artifacts, or a path the fuzzed argv named
+// explicitly (--out/-o/--report). It no longer tolerates any CWD-relative
+// ".dsd/..." write: baselineDir/goldenDir/SecurityBaselinePath used to fail
+// open to a CWD-relative path when $HOME was unresolvable (formerly
+// KV-HOME-FAILOPEN-BASELINE/GOLDEN/SECBASELINE — see
+// internal/baseline's TestHomeFailClosed), but now fail closed and return an
+// error instead of ever resolving such a path, so there is nothing left to
+// tolerate here — a stray ".dsd/..." write under CWD is unconditionally
+// fatal, which is exactly what should happen if that regresses.
 func isAllowedCWDWrite(rel string, fuzzedTokens map[string]bool) bool {
 	name := filepath.Base(rel)
 	for _, p := range cwdAutoNamePatterns {
@@ -354,11 +347,6 @@ func isAllowedCWDWrite(rel string, fuzzedTokens map[string]bool) bool {
 	}
 	if fuzzedTokens[rel] || fuzzedTokens[name] {
 		return true // explicit --out/-o/--report target named verbatim in argv
-	}
-	if kv := homeFailOpenViolationFor(rel); kv != "" {
-		if _, ok := knownViolations[kv]; ok {
-			return true
-		}
 	}
 	return false
 }

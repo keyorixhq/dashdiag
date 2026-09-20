@@ -1,9 +1,13 @@
 package cmd_test
 
+import (
+	"strings"
+	"testing"
+)
+
 // knownviolations_test.go is the explicit, reviewed list of deviations the
-// read-only-invariant oracles (FuzzCommandAllowlist, the writes-contract
-// check inside it, and TestTLSEndpointBypassesOfflineGate in
-// internal/collectors) are told to tolerate instead of failing. Anything NOT
+// read-only-invariant oracles (FuzzCommandAllowlist and the writes-contract
+// check inside it) are told to tolerate instead of failing. Anything NOT
 // listed here that trips an oracle is FATAL — this file exists so a
 // tolerated deviation is a reviewed, keyed, one-line decision, never a silent
 // carve-out buried in oracle logic. Each entry is kept OPEN until the linked
@@ -34,14 +38,30 @@ var knownViolations = map[string]knownViolation{
 		Issue:       "TBD — draft in STEP 2 report, bug/low",
 		Description: "internal/baseline/security_baseline.go:64 SecurityBaselinePath() has the same unguarded os.UserHomeDir() fail-open, for `dsd security --save-baseline`.",
 	},
-	"KV-TLS-OFFLINE-BYPASS": {
-		ID:          "KV-TLS-OFFLINE-BYPASS",
-		Issue:       "TBD — draft in STEP 2 report, bug/medium",
-		Description: "internal/collectors/tls_remote.go's CheckRemoteEndpoint (dsd tls --endpoint host:port) does not check platform.NetworkAllowed()/DSD_OFFLINE before dialing — the only remote-dialing code path in the repo that doesn't. FuzzCommandAllowlist never drives `dsd tls` (a live dial isn't safe to fuzz); TestTLSEndpointBypassesOfflineGate (internal/collectors/tls_remote_offline_test.go) demonstrates it deterministically against a loopback listener instead.",
-	},
 	"KV-PING-ROUTE-UNRESOLVED": {
 		ID:          "KV-PING-ROUTE-UNRESOLVED",
 		Issue:       "TBD — draft in STEP 2 report, enhancement (folds into the exec-site consolidation issue)",
 		Description: "internal/collectors/network_quick.go's localeSafeCmd (ping, route -n get default) execs the bare name, not platform.ResolveTrustedTool(name) — the only two of the ~10 exec call sites that skip PATH-trust resolution. Recorded ExecHook name is therefore not a resolved path for these two.",
 	},
+}
+
+// TestKnownViolationsRegistryWellFormed keeps every open entry a reviewable,
+// keyed decision: the map key equals the entry's ID, IDs carry the KV-
+// prefix, and Issue/Description are never blank. It also keeps the registry
+// exercised when no oracle in this package currently consults an entry.
+func TestKnownViolationsRegistryWellFormed(t *testing.T) {
+	for key, kv := range knownViolations {
+		if key != kv.ID {
+			t.Errorf("knownViolations[%q].ID = %q; key and ID must match", key, kv.ID)
+		}
+		if !strings.HasPrefix(key, "KV-") {
+			t.Errorf("knownViolations key %q must start with \"KV-\"", key)
+		}
+		if strings.TrimSpace(kv.Issue) == "" {
+			t.Errorf("knownViolations[%q].Issue is empty", key)
+		}
+		if strings.TrimSpace(kv.Description) == "" {
+			t.Errorf("knownViolations[%q].Description is empty", key)
+		}
+	}
 }
