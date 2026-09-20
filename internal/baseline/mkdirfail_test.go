@@ -277,11 +277,18 @@ func TestSaveBaseline_RenameToLatestFails(t *testing.T) {
 	// "-prev" must ALSO be pre-occupied by a directory: the rotation rename
 	// then fails (its error is deliberately ignored by SaveBaseline), leaving
 	// our directory at "latest" in place to block the final rename.
-	latest := latestPath(hostname)
+	latest, err := latestPath(hostname)
+	if err != nil {
+		t.Fatal(err)
+	}
 	if err := os.MkdirAll(latest, 0o750); err != nil {
 		t.Fatal(err)
 	}
-	if err := os.MkdirAll(prevPath(hostname), 0o750); err != nil {
+	prev, err := prevPath(hostname)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(prev, 0o750); err != nil {
 		t.Fatal(err)
 	}
 

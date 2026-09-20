@@ -14,10 +14,12 @@ import (
 // a crafted bundle's recorded dnf output is served to the packages collector.
 // collectDNF's DNF3/DNF4/DNF5 advisory parse is INLINE (no extracted function),
 // so this replay harness is the only way to fuzz it. It records:
-//   - the repo gate (dnf repolist --enabled -q) with a non-empty result so
-//     dnfHasUpdateRepo passes and the parse loop actually runs — otherwise the
-//     collector early-returns and the harness would be silently vacuous;
-//   - the advisory scan (dnf advisory list --security --quiet) = the fuzz input.
+//   - the repo gate (dnf --cacheonly repolist --enabled -q) with a non-empty
+//     result so dnfHasUpdateRepo passes and the parse loop actually runs —
+//     otherwise the collector early-returns and the harness would be silently
+//     vacuous;
+//   - the advisory scan (dnf --cacheonly advisory list --security --quiet) =
+//     the fuzz input.
 //
 // Command args reference the same package constants the production code uses, so
 // the Replay name+args lookup matches by construction. Property: the inline
@@ -32,9 +34,9 @@ func FuzzCollectDNFReplay(f *testing.F) {
 	f.Fuzz(func(t *testing.T, dnfOut string) {
 		b := source.NewBundle()
 		// Gate: make dnfHasUpdateRepo return true so the parse loop is reached.
-		b.PutCmd("dnf", []string{"repolist", "--enabled", pkgFlagQ}, "baseos\nappstream\n", 0)
+		b.PutCmd("dnf", []string{"--cacheonly", "repolist", "--enabled", pkgFlagQ}, "baseos\nappstream\n", 0)
 		// The fuzzed advisory scan (collectDNF's primary DNF5 query).
-		b.PutCmd("dnf", []string{"advisory", "list", flagSecurity, flagQuiet}, dnfOut, 0)
+		b.PutCmd("dnf", []string{"--cacheonly", "advisory", "list", flagSecurity, flagQuiet}, dnfOut, 0)
 
 		prev := SetSource(source.NewReplay(b))
 		t.Cleanup(func() { SetSource(prev) })

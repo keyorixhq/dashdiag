@@ -5,29 +5,41 @@
 # since a bump changes parser behavior without touching any *.go in the
 # target's package. Targets are DISCOVERED (never hardcoded) — same principle
 # as fuzz.yml. Deep/continuous fuzzing stays on the weekly run and the rigs.
+#
+# Execution: a `plan` job lists every target as "pkg|FuncName", splits them
+# round-robin across up to FUZZ_SHARDS parallel `fuzz` jobs (matrix), and a
+# final `fuzz-changed` job aggregates the shards so the check keeps one stable
+# name (and passes when there is nothing to fuzz). Each target still gets the
+# full FUZZTIME; sharding only cuts wall-clock (the serial version took 30+ min
+# on dep-bump / internal/collectors PRs).
 name: fuzz-changed
 on:
   pull_request:
   workflow_dispatch:
+    inputs:
+      base:
+        description: "Ref/SHA to diff against (default: HEAD~1). Lets a manual run reproduce a PR-sized plan."
+        required: false
+        default: ""
 permissions:
   contents: read
+# A new push to the same PR supersedes the previous run instead of stacking.
+concurrency:
+  group: fuzz-changed-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
 env:
   # Per fuzz target. This is a BRIEF regression smoke — the committed corpus is
   # replayed in the first moment of each run (that is the actual regression
   # signal), then a short new-input burst. Deep/continuous discovery is the
-  # dedicated rigs and the weekly fuzz.yml, NOT this per-PR gate. Keep this small:
-  # wall-clock here is (targets in changed packages) x FUZZTIME, run serially, and
-  # a dep bump fans out to every fuzz-target package (~55 targets), so 90s here was
-  # ~80 min per PR. 10s keeps the busiest package (internal/collectors, ~50 targets)
-  # near ~8 min while still replaying every committed seed.
+  # dedicated rigs and the weekly fuzz.yml, NOT this per-PR gate.
   FUZZTIME: 10s
+  FUZZ_SHARDS: 10  # max parallel fuzz jobs
 jobs:
-  fuzz-changed:
+  plan:
     runs-on: ubuntu-24.04
-    # Hard cap so a target with no per-input deadline (dashdiag own targets don't
-    # use the fuzz-harness deadline lint) can never wedge a PR's CI for hours. Sized
-    # comfortably above the expected ~8-11 min worst case (dep-bump fan-out).
-    timeout-minutes: 20
+    outputs:
+      count: ${{ steps.plan.outputs.count }}
+      shards: ${{ steps.shard.outputs.shards }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with:
@@ -36,11 +48,12 @@ jobs:
         with:
           go-version-file: go.mod
           cache: true
-      - name: Determine changed packages that have fuzz targets
-        id: pkgs
+      - name: Determine fuzz targets to run
+        id: plan
         env:
-          BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          BASE_SHA: ${{ github.event.pull_request.base.sha || inputs.base }}
         run: |
+          set -euo pipefail
           base="${BASE_SHA:-$(git rev-parse HEAD~1)}"
 
           # A dependency bump (go.mod/go.sum) changes parser behavior without
@@ -48,47 +61,82 @@ jobs:
           # targets exist to catch. On a dep change, fan out to every git-tracked
           # fuzz-target package (git ls-files, so vendored/cached trees are never
           # walked); otherwise just the changed .go dirs.
-          dep_changed=0
           if git diff --name-only "$base"...HEAD | grep -qE '^(go\.mod|go\.sum)$'; then
-            dep_changed=1
             echo "go.mod/go.sum changed — dependency churn: fuzzing ALL fuzz-target packages."
-          fi
-
-          if [ "$dep_changed" = 1 ]; then
-            changed_dirs="$(git ls-files -- '*_test.go' | xargs -r grep -lE '^func Fuzz' \
+            changed_dirs="$(git ls-files -- '*_test.go' | { xargs -r grep -lE '^func Fuzz' || true; } \
               | xargs -r -n1 dirname | sort -u)"
           else
             changed_dirs="$(git diff --name-only "$base"...HEAD -- '*.go' \
               | xargs -r -n1 dirname | sort -u)"
           fi
 
-          pkgs=""
+          # Emit "pkg|FuncName" per target. A dir that can't be listed (no Go
+          # files left, build-ignored, or a build error that build/lint catch
+          # loudly) contributes nothing instead of killing this step.
+          plan_file="$(mktemp)"
           while IFS= read -r d; do
             [ -n "$d" ] || continue
-            d="${d#./}"
-            if go test -list '^Fuzz' "./$d" 2>/dev/null | grep -q '^Fuzz'; then
-              pkgs="$pkgs ./$d"
-            fi
+            pkg="./${d#./}"
+            out="$(go test -list '^Fuzz' "$pkg" 2>/dev/null)" || continue
+            printf '%s\n' "$out" | { grep '^Fuzz' || true; } \
+              | while IFS= read -r fn; do printf '%s|%s\n' "$pkg" "$fn"; done >> "$plan_file"
           done < <(printf '%s\n' "$changed_dirs")
-          pkgs="$(echo "$pkgs" | xargs || true)"
-          echo "pkgs=$pkgs" >> "$GITHUB_OUTPUT"
-          if [ -z "$pkgs" ]; then
-            echo "No changed packages with fuzz targets — nothing to fuzz."
-          else
-            echo "Will fuzz: $pkgs"
-          fi
-      - name: Fuzz changed packages
-        if: steps.pkgs.outputs.pkgs != ''
+
+          sort -u "$plan_file" -o "$plan_file"
+          count="$(grep -c . "$plan_file" || true)"
+          echo "Planned $count fuzz target(s):"
+          sed 's/^/  /' "$plan_file"
+          {
+            echo "plan<<__FUZZ_PLAN_EOF__"
+            cat "$plan_file"
+            echo "__FUZZ_PLAN_EOF__"
+          } >> "$GITHUB_OUTPUT"
+          echo "count=$count" >> "$GITHUB_OUTPUT"
+      - name: Split plan into shards
+        id: shard
         env:
-          PKGS: ${{ steps.pkgs.outputs.pkgs }}
+          PLAN: ${{ steps.plan.outputs.plan }}
         run: |
           set -euo pipefail
-          for pkg in $PKGS; do
-            while IFS= read -r fn; do
-              echo "::group::fuzz $fn ($pkg) for $FUZZTIME"
-              go test "$pkg" -run='^$' -fuzz="^${fn}$" -fuzztime="$FUZZTIME"
-              echo "::endgroup::"
-            done < <(go test -list '^Fuzz' "$pkg" | grep '^Fuzz')
+          count="$(printf '%s\n' "$PLAN" | grep -c . || true)"
+          n=$(( count < FUZZ_SHARDS ? count : FUZZ_SHARDS ))
+          if [ "$n" -lt 1 ]; then echo 'shards=[]' >> "$GITHUB_OUTPUT"; exit 0; fi
+          shards="$(printf '%s\n' "$PLAN" | grep . | jq -R -s -c --argjson n "$n" '
+            split("\n") | map(select(length > 0)) | to_entries
+            | group_by(.key % $n)
+            | map({id: (.[0].key % $n), targets: (map(.value) | join(" "))})')"
+          echo "Shards: $shards"
+          echo "shards=$shards" >> "$GITHUB_OUTPUT"
+
+  fuzz:
+    needs: plan
+    if: needs.plan.outputs.count != '0'
+    runs-on: ubuntu-24.04
+    # Hard cap so a target with no per-input deadline (dashdiag own targets don't
+    # use the fuzz-harness deadline lint) can never wedge a PR's CI for hours.
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: ${{ fromJSON(needs.plan.outputs.shards) }}
+    name: fuzz (shard ${{ matrix.shard.id }})
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version-file: go.mod
+          cache: true
+      - name: Fuzz shard targets
+        env:
+          TARGETS: ${{ matrix.shard.targets }}
+        run: |
+          set -euo pipefail
+          for entry in $TARGETS; do
+            pkg="${entry%%|*}"; fn="${entry#*|}"
+            if [ -z "$pkg" ] || [ -z "$fn" ]; then continue; fi
+            echo "::group::fuzz $fn ($pkg) for $FUZZTIME"
+            go test "$pkg" -run='^$' -fuzz="^${fn}$" -fuzztime="$FUZZTIME"
+            echo "::endgroup::"
           done
       # Go writes a new crash's minimized repro into testdata/fuzz/<Func>/ — the
       # same dir committed seeds live in, with an indistinguishable hash name. Only
@@ -110,6 +158,22 @@ jobs:
         if: failure()
         uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
         with:
-          name: fuzz-changed-crashes-${{ github.run_id }}
+          name: fuzz-changed-crashes-${{ github.run_id }}-shard-${{ matrix.shard.id }}
           path: /tmp/fuzz-crashes
           if-no-files-found: ignore
+
+  # Single, stable check name regardless of shard count (or zero targets).
+  fuzz-changed:
+    needs: [plan, fuzz]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Aggregate shard results
+        env:
+          PLAN_RESULT: ${{ needs.plan.result }}
+          FUZZ_RESULT: ${{ needs.fuzz.result }}
+          COUNT: ${{ needs.plan.outputs.count }}
+        run: |
+          echo "plan=$PLAN_RESULT fuzz=$FUZZ_RESULT targets=$COUNT"
+          [ "$PLAN_RESULT" = "success" ] || exit 1
+          case "$FUZZ_RESULT" in success|skipped) exit 0 ;; *) exit 1 ;; esac

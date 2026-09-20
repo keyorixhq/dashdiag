@@ -328,32 +328,16 @@ var cwdAutoNamePatterns = []struct{ prefix, suffix string }{
 	{"dsd-migrate-baseline-", ".tar.gz"},
 }
 
-// homeFailOpenViolationFor maps a CWD-relative path to the specific
-// KV-HOME-FAILOPEN-* ID that would produce it (baselineDir/goldenDir/
-// SecurityBaselinePath each fail open to a distinct shape — see
-// internal/baseline's TestHomeFailOpen_KnownViolations), or "" if rel
-// doesn't match any of the three. Scoped to the exact known shapes rather
-// than a blanket ".dsd/" prefix so an unrelated stray ".dsd/..." write
-// (not one of these three specific bugs) is never silently tolerated.
-func homeFailOpenViolationFor(rel string) string {
-	switch {
-	case strings.HasPrefix(rel, filepath.Join(".dsd", "baselines")+string(filepath.Separator)):
-		return "KV-HOME-FAILOPEN-BASELINE"
-	case strings.HasPrefix(rel, filepath.Join(".dsd", "golden")+string(filepath.Separator)):
-		return "KV-HOME-FAILOPEN-GOLDEN"
-	case rel == filepath.Join(".dsd", "security-baseline.json"):
-		return "KV-HOME-FAILOPEN-SECBASELINE"
-	}
-	return ""
-}
-
-// isAllowedCWDWrite tolerates a CWD-relative ".dsd/..." write ONLY when it
-// matches one of the three known $HOME-fail-open shapes AND that shape's KV
-// ID is present in knownViolations (knownviolations_test.go) — an unknown
-// ID (the entry was removed) makes it fatal even though this harness always
-// sets a real $HOME, so that branch should not actually trigger live here;
-// this keeps the tolerance genuinely registry-driven rather than a
-// hardcoded carve-out the registry only documents.
+// isAllowedCWDWrite tolerates a CWD-relative write only when it's one of the
+// known auto-named report/export artifacts, or a path the fuzzed argv named
+// explicitly (--out/-o/--report). It no longer tolerates any CWD-relative
+// ".dsd/..." write: baselineDir/goldenDir/SecurityBaselinePath used to fail
+// open to a CWD-relative path when $HOME was unresolvable (formerly
+// KV-HOME-FAILOPEN-BASELINE/GOLDEN/SECBASELINE — see
+// internal/baseline's TestHomeFailClosed), but now fail closed and return an
+// error instead of ever resolving such a path, so there is nothing left to
+// tolerate here — a stray ".dsd/..." write under CWD is unconditionally
+// fatal, which is exactly what should happen if that regresses.
 func isAllowedCWDWrite(rel string, fuzzedTokens map[string]bool) bool {
 	name := filepath.Base(rel)
 	for _, p := range cwdAutoNamePatterns {
@@ -363,11 +347,6 @@ func isAllowedCWDWrite(rel string, fuzzedTokens map[string]bool) bool {
 	}
 	if fuzzedTokens[rel] || fuzzedTokens[name] {
 		return true // explicit --out/-o/--report target named verbatim in argv
-	}
-	if kv := homeFailOpenViolationFor(rel); kv != "" {
-		if _, ok := knownViolations[kv]; ok {
-			return true
-		}
 	}
 	return false
 }
