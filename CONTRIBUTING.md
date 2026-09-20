@@ -132,6 +132,22 @@ than piping through `< <(...)`, which `set -e` does not cover; don't
 `2>/dev/null` a command whose failure changes the answer; and assert the
 result count is non-zero before succeeding.
 
+`scripts/hooks/pre-push`'s base-branch check is a deliberate exception, not
+an oversight: it warns (prints and exits 0) rather than failing when it
+can't run (`gh`/`jq` missing, not authenticated) or when it finds a PR
+based on something other than `main`. Unlike the guards above, it can't
+locally distinguish "this stacked PR is still correctly waiting on its base
+to merge" from "this stacked PR's base already merged and should have been
+retargeted" — the two are indistinguishable from git alone — so a hard
+failure here would routinely block entirely normal, correct pushes. It
+exists because a PR merged into an already-merged sibling branch instead of
+`main` still shows as "Merged" on GitHub while its commits never reach
+`main` (seen for real in the sibling keyorix repo, PR #1961) — this warning
+puts that risk in front of the pusher one step earlier, right before the
+merge that would make it permanent. Silence it for a deliberate,
+still-in-progress stack by naming the branch `stacked-on-...`, or adding a
+`Stacked-On: <branch>` line to the latest commit's body.
+
 ## Testing
 
 ```bash
