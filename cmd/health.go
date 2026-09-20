@@ -401,6 +401,20 @@ func healthOutputMode(cmd *cobra.Command) output.OutputMode {
 	return mode
 }
 
+// saveBaselineOrWarn saves snap and, on failure, surfaces the error to stderr
+// instead of swallowing it. Baseline persistence is best-effort — it must
+// never change dsd's exit code, which is derived solely from insight severity
+// — but a silent failure here is exactly the fail-open shape KV-HOME-FAILOPEN-*
+// used to hide: with $HOME unresolvable, SaveBaseline now correctly refuses to
+// write rather than falling back to a CWD-relative path, and that refusal
+// must be visible to the operator (e.g. `dsd health --diff` will otherwise
+// mysteriously never have a previous baseline to diff against).
+func saveBaselineOrWarn(snap *baseline.Snapshot) {
+	if err := baseline.SaveBaseline(snap); err != nil {
+		fmt.Fprintf(os.Stderr, "warning: could not save baseline: %v\n", err)
+	}
+}
+
 // printHealthResults renders the interactive verdict (banner, correlations,
 // main output, diff notice, summary, explain/fix) and saves the baseline,
 // returning the exit code and the writer subsequent notices should use (stderr
@@ -445,7 +459,7 @@ func printHealthResults(cmd *cobra.Command, ctrCtx platform.ContainerContext, mo
 	if fixFlag, _ := cmd.Flags().GetBool("fix"); fixFlag {
 		printHealthFixes(insights, mode)
 	}
-	_ = baseline.SaveBaseline(snap)
+	saveBaselineOrWarn(snap)
 	return exitCode, noticeW
 }
 
@@ -503,7 +517,7 @@ func handleNagiosMode(nagiosFlag bool, results []runner.Result, insights []model
 	}
 	line, code := render.NagiosLine(results, insights)
 	fmt.Println(line)
-	_ = baseline.SaveBaseline(snap)
+	saveBaselineOrWarn(snap)
 	if code > 0 {
 		os.Exit(code)
 	}
@@ -518,7 +532,7 @@ func handlePrometheusMode(promFlag bool, results []runner.Result, insights []mod
 		return false, nil
 	}
 	fmt.Print(render.PrometheusMetrics(results, insights))
-	_ = baseline.SaveBaseline(snap)
+	saveBaselineOrWarn(snap)
 	return true, nil
 }
 
@@ -538,7 +552,7 @@ func handleBlobMode(blobFlag bool, results []runner.Result, insights []models.In
 	fmt.Fprintln(os.Stderr, "  They turn it back into a readable report with:  dsd decode   (paste it, or `dsd decode file.txt`)")
 	fmt.Fprintln(os.Stderr, "  Note: the block is compressed + encoded, NOT encrypted or redacted — it contains this host's")
 	fmt.Fprintln(os.Stderr, "  name, addresses, and open ports. Send it through a trusted channel; don't post it publicly.")
-	_ = baseline.SaveBaseline(snap)
+	saveBaselineOrWarn(snap)
 	return true, nil
 }
 
@@ -564,7 +578,7 @@ func handlePostMortemMode(pmFlag string, snap *baseline.Snapshot, insights []mod
 		return false, nil
 	}
 	fmt.Println(render.RenderPostMortem(pmFlag, snap, insights, mode))
-	_ = baseline.SaveBaseline(snap)
+	saveBaselineOrWarn(snap)
 	return true, nil
 }
 

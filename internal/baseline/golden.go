@@ -8,9 +8,12 @@ import (
 	"strings"
 )
 
-func goldenDir() string {
-	home, _ := os.UserHomeDir()
-	return filepath.Join(home, ".dsd", "golden")
+func goldenDir() (string, error) {
+	home, err := resolveHomeDir()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Join(home, ".dsd", "golden"), nil
 }
 
 // goldenPath sanitizes name the same way baseline hostnames are (SafeHostname)
@@ -20,20 +23,26 @@ func goldenDir() string {
 // save (an attacker-chosen write path) or on load (reading an arbitrary file
 // and returning its content as if it were a golden Snapshot). The belt-and-
 // suspenders HasPrefix check mirrors latestPath/prevPath below.
-func goldenPath(name string) string {
-	dir := goldenDir()
+func goldenPath(name string) (string, error) {
+	dir, err := goldenDir()
+	if err != nil {
+		return "", err
+	}
 	full := filepath.Join(dir, SafeHostname(name)+".json")
 	if !strings.HasPrefix(full, dir) {
-		return filepath.Join(dir, "unknown-golden.json")
+		return filepath.Join(dir, "unknown-golden.json"), nil
 	}
-	return full
+	return full, nil
 }
 
 // SaveGolden saves a snapshot as a named golden baseline.
 // Golden baselines are stable reference points — unlike rolling latest/prev,
 // they are only updated explicitly via 'dsd baseline save'.
 func SaveGolden(snap *Snapshot, name string) error {
-	dir := goldenDir()
+	dir, err := goldenDir()
+	if err != nil {
+		return fmt.Errorf("resolving golden dir: %w", err)
+	}
 	if err := os.MkdirAll(dir, 0750); err != nil {
 		return fmt.Errorf("creating golden dir: %w", err)
 	}
@@ -41,7 +50,10 @@ func SaveGolden(snap *Snapshot, name string) error {
 	if err != nil {
 		return err
 	}
-	path := goldenPath(name)
+	path, err := goldenPath(name)
+	if err != nil {
+		return fmt.Errorf("resolving golden path: %w", err)
+	}
 	tmp, err := os.CreateTemp(dir, ".golden-*.tmp")
 	if err != nil {
 		return err
@@ -56,7 +68,11 @@ func SaveGolden(snap *Snapshot, name string) error {
 
 // LoadGolden loads a named golden baseline.
 func LoadGolden(name string) (*Snapshot, error) {
-	data, err := os.ReadFile(goldenPath(name)) // #nosec G304 -- goldenPath sanitizes name (SafeHostname) before it reaches a path
+	path, err := goldenPath(name)
+	if err != nil {
+		return nil, fmt.Errorf("resolving golden path: %w", err)
+	}
+	data, err := os.ReadFile(path) // #nosec G304 -- goldenPath sanitizes name (SafeHostname) before it reaches a path
 	if err != nil {
 		return nil, fmt.Errorf("golden baseline %q not found — run 'dsd baseline save %s' first", name, name)
 	}
@@ -69,7 +85,11 @@ func LoadGolden(name string) (*Snapshot, error) {
 
 // ListGolden returns all saved golden baseline names.
 func ListGolden() ([]string, error) {
-	entries, err := os.ReadDir(goldenDir())
+	dir, err := goldenDir()
+	if err != nil {
+		return nil, fmt.Errorf("resolving golden dir: %w", err)
+	}
+	entries, err := os.ReadDir(dir)
 	if err != nil {
 		if os.IsNotExist(err) {
 			return nil, nil

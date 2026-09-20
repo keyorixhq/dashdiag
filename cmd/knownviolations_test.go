@@ -1,5 +1,10 @@
 package cmd_test
 
+import (
+	"strings"
+	"testing"
+)
+
 // knownviolations_test.go is the explicit, reviewed list of deviations the
 // read-only-invariant oracles (FuzzCommandAllowlist, the writes-contract
 // check inside it, and TestTLSEndpointBypassesOfflineGate in
@@ -19,21 +24,6 @@ type knownViolation struct {
 }
 
 var knownViolations = map[string]knownViolation{
-	"KV-HOME-FAILOPEN-BASELINE": {
-		ID:          "KV-HOME-FAILOPEN-BASELINE",
-		Issue:       "TBD — draft in STEP 2 report, bug/low",
-		Description: "internal/baseline/baseline.go:68 baselineDir() does not guard os.UserHomeDir()'s error; an unset/unresolvable $HOME makes baseline snapshot writes land at CWD-relative ./.dsd/baselines instead of failing closed.",
-	},
-	"KV-HOME-FAILOPEN-GOLDEN": {
-		ID:          "KV-HOME-FAILOPEN-GOLDEN",
-		Issue:       "TBD — draft in STEP 2 report, bug/low",
-		Description: "internal/baseline/golden.go:12 goldenDir() has the same unguarded os.UserHomeDir() fail-open as baseline.go:68, for `dsd`'s golden-baseline save path.",
-	},
-	"KV-HOME-FAILOPEN-SECBASELINE": {
-		ID:          "KV-HOME-FAILOPEN-SECBASELINE",
-		Issue:       "TBD — draft in STEP 2 report, bug/low",
-		Description: "internal/baseline/security_baseline.go:64 SecurityBaselinePath() has the same unguarded os.UserHomeDir() fail-open, for `dsd security --save-baseline`.",
-	},
 	"KV-TLS-OFFLINE-BYPASS": {
 		ID:          "KV-TLS-OFFLINE-BYPASS",
 		Issue:       "TBD — draft in STEP 2 report, bug/medium",
@@ -44,4 +34,25 @@ var knownViolations = map[string]knownViolation{
 		Issue:       "TBD — draft in STEP 2 report, enhancement (folds into the exec-site consolidation issue)",
 		Description: "internal/collectors/network_quick.go's localeSafeCmd (ping, route -n get default) execs the bare name, not platform.ResolveTrustedTool(name) — the only two of the ~10 exec call sites that skip PATH-trust resolution. Recorded ExecHook name is therefore not a resolved path for these two.",
 	},
+}
+
+// TestKnownViolationsRegistryWellFormed keeps every open entry a reviewable,
+// keyed decision: the map key equals the entry's ID, IDs carry the KV-
+// prefix, and Issue/Description are never blank. It also keeps the registry
+// exercised when no oracle in this package currently consults an entry.
+func TestKnownViolationsRegistryWellFormed(t *testing.T) {
+	for key, kv := range knownViolations {
+		if key != kv.ID {
+			t.Errorf("knownViolations[%q].ID = %q; key and ID must match", key, kv.ID)
+		}
+		if !strings.HasPrefix(key, "KV-") {
+			t.Errorf("knownViolations key %q must start with \"KV-\"", key)
+		}
+		if strings.TrimSpace(kv.Issue) == "" {
+			t.Errorf("knownViolations[%q].Issue is empty", key)
+		}
+		if strings.TrimSpace(kv.Description) == "" {
+			t.Errorf("knownViolations[%q].Description is empty", key)
+		}
+	}
 }
