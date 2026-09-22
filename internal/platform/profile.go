@@ -408,21 +408,16 @@ func systemctlIsActiveWithLookup(unit string, lookup func(string) (string, error
 	// PATH-trust: dsd routinely runs as root, and profile detection feeds
 	// other collectors' decisions — a directory prepended ahead of the real
 	// systemctl (a tampered shell profile, a leftover sudo environment) must
-	// not be able to substitute a fake "is-active" answer. ResolveTrustedTool
-	// lives in this package (P2) specifically so platform/ — contractually
-	// stdlib-only — never has to import anything internal to get it.
-	// HardenedEnv is deliberately NOT set: only the exit code is read here,
-	// nothing parses stdout/stderr, so there's no locale-sensitive text to
-	// protect — add HardenedEnv() if this call site ever starts reading
-	// output.
-	resolved := ResolveTrustedTool("systemctl")
-	if ExecHook != nil {
-		if err := ExecHook(ctx, resolved, []string{"is-active", unit}); err != nil {
-			return false
-		}
+	// not be able to substitute a fake "is-active" answer. RunHardened lives
+	// in this package (P2) specifically so platform/ — contractually
+	// stdlib-only — never has to import anything internal to get it. Only the
+	// exit code is read here (nothing parses stdout/stderr), so
+	// RunHardened's locale forcing is a no-op for this call site, not a
+	// requirement.
+	cmd, err := RunHardened(ctx, "systemctl", "is-active", unit)
+	if err != nil {
+		return false
 	}
-	cmd := exec.CommandContext(ctx, resolved, "is-active", unit) // NOSONAR — hardcoded binary
-	cmd.WaitDelay = ExecWaitDelay
 	return cmd.Run() == nil
 }
 

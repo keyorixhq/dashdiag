@@ -274,19 +274,15 @@ func procComm(procRoot string, pid int) string {
 // parallel batch (same constraint as the t.Setenv("HOME") tests elsewhere in
 // this codebase).
 var runCmd = func(ctx context.Context, name string, args ...string) (string, error) {
-	resolved := platform.ResolveTrustedTool(name)
-	if platform.ExecHook != nil {
-		if err := platform.ExecHook(ctx, resolved, args); err != nil {
-			return "", err
-		}
+	// platform.RunHardened applies the same PATH-trust + ExecHook + C-locale +
+	// force-kill-on-cancel (subprocess-wrappers-06) pattern collectors'
+	// localeSafeExec uses — without the force-kill, a wedged tool (a stuck
+	// chronyc/aa-status/sntp) can outlive ctx's deadline instead of dying
+	// with it, since cmd.Wait() alone doesn't kill on cancellation.
+	cmd, err := platform.RunHardened(ctx, name, args...)
+	if err != nil {
+		return "", err
 	}
-	cmd := exec.CommandContext(ctx, resolved, args...)
-	cmd.Env = platform.HardenedEnv()
-	// subprocess-wrappers-06: force-kill after context cancel, same as
-	// collectors' localeSafeExec — without this, a wedged tool (a stuck
-	// chronyc/aa-status/sntp) can outlive ctx's deadline instead of dying with
-	// it, since cmd.Wait() alone doesn't kill on cancellation.
-	cmd.WaitDelay = platform.ExecWaitDelay
 	// internal-drilldown-01-07: a plain bytes.Buffer has no size limit — any of
 	// the tools this runs (du, chronyc, timedatectl, aa-status, pgrep, sntp)
 	// writing unbounded stdout would otherwise buffer unbounded in memory

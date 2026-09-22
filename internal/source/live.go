@@ -60,19 +60,16 @@ func (l Live) Run(ctx context.Context, name string, args ...string) (Result, err
 // defaultExec runs a command capturing stdout, stderr, and exit code. A non-zero
 // exit is reported via Result.ExitCode with a nil error; only a real execution
 // failure (binary not found, context cancelled) returns a non-nil error.
-// name is resolved via platform.ResolveTrustedTool (trusted system dirs,
-// never the inherited $PATH) before exec — see internal/platform/trustedexec.go.
+// Hardened via platform.RunHardened (trusted-dir resolution, forced C locale,
+// force-kill on context cancel) — see internal/platform/trustedexec.go.
 func defaultExec(ctx context.Context, name string, args ...string) (Result, error) {
-	resolved := platform.ResolveTrustedTool(name)
-	if platform.ExecHook != nil {
-		if err := platform.ExecHook(ctx, resolved, args); err != nil {
-			return Result{}, err
-		}
+	cmd, err := platform.RunHardened(ctx, name, args...)
+	if err != nil {
+		return Result{}, err
 	}
-	cmd := exec.CommandContext(ctx, resolved, args...)
 	so, se := NewCapWriter(MaxCapturedOutput), NewCapWriter(MaxCapturedOutput)
 	cmd.Stdout, cmd.Stderr = so, se
-	err := cmd.Run()
+	err = cmd.Run()
 	res := Result{Stdout: so.Bytes(), Stderr: se.Bytes()}
 	if err != nil {
 		if ee, ok := errors.AsType[*exec.ExitError](err); ok {

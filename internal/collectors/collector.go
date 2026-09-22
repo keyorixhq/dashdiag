@@ -31,31 +31,15 @@ func truncateRunes(s string, maxRunes int) string {
 	return string(r[:maxRunes]) + "…"
 }
 
-// runCmd runs an external command with LC_ALL=C and LANG=C so numeric output
-// always uses dot as the decimal separator regardless of the user's locale.
-// localeSafeEnv is platform.HardenedEnv under this package's established name —
-// every external command we parse must use this. runCmd applies it for you;
-// raw exec.Command/CommandContext .Output() sites must set cmd.Env =
-// localeSafeEnv() — otherwise parsing silently breaks on non-English hosts (e.g.
-// `dmesg -T` prints "dom jun" on es_ES, which an English layout cannot parse).
-func localeSafeEnv() []string {
-	return platform.HardenedEnv()
-}
-
-// localeSafeCmd is exec.CommandContext with the C locale forced. Use it for any
-// external command whose OUTPUT is parsed when you need the raw *exec.Cmd (e.g.
-// .Output() into []byte) rather than runCmd's string return. It keeps every
-// parsed command locale-safe by construction; the guard in exec_locale_test.go
-// enforces that collectors reach exec only through this / runCmd / runCmdTimeout.
+// localeSafeCmd is platform.RunHardened (PATH-trust resolved, ExecHook
+// observed, C locale forced, force-kill on context cancel) under this
+// package's established name. Use it for any external command whose OUTPUT is
+// parsed when you need the raw *exec.Cmd (e.g. .Output() into []byte) rather
+// than runCmd's string return. It keeps every parsed command locale-safe and
+// PATH-hijack-safe by construction; the guard in exec_locale_test.go enforces
+// that collectors reach exec only through this / runCmd / runCmdTimeout.
 func localeSafeCmd(ctx context.Context, name string, args ...string) (*exec.Cmd, error) {
-	if platform.ExecHook != nil {
-		if err := platform.ExecHook(ctx, name, args); err != nil {
-			return nil, err
-		}
-	}
-	cmd := exec.CommandContext(ctx, name, args...)
-	cmd.Env = localeSafeEnv()
-	return cmd, nil
+	return platform.RunHardened(ctx, name, args...)
 }
 
 // activeSource is the system-input backend every collector reads through:
@@ -119,24 +103,19 @@ func ActiveSource() source.Source { return curSource() }
 // source.Result. A non-zero exit is reported via ExitCode with a nil error; only
 // a genuine spawn failure (tool absent, ctx cancelled) returns a non-nil error.
 // This is the production exec path for every collector (runCmd/runCmdOutput/
-// runCmdCombined all route here via curSource().Run) — name is resolved via
-// platform.ResolveTrustedTool (trusted system dirs, never the inherited $PATH,
-// since dsd routinely runs as root) before exec.
+// runCmdCombined all route here via curSource().Run) — hardened via
+// platform.RunHardened (trusted-dir resolution, since dsd routinely runs as
+// root; forced C locale; force-kill on context cancel).
 func localeSafeExec(ctx context.Context, name string, args ...string) (source.Result, error) {
-	resolved := platform.ResolveTrustedTool(name)
-	if platform.ExecHook != nil {
-		if err := platform.ExecHook(ctx, resolved, args); err != nil {
-			return source.Result{}, err
-		}
+	cmd, err := platform.RunHardened(ctx, name, args...)
+	if err != nil {
+		return source.Result{}, err
 	}
-	cmd := exec.CommandContext(ctx, resolved, args...)
-	cmd.Env = localeSafeEnv()
-	cmd.WaitDelay = platform.ExecWaitDelay // force-kill after context cancel
 	so, se := source.NewCapWriter(source.MaxCapturedOutput), source.NewCapWriter(source.MaxCapturedOutput)
 	cmd.Stdout, cmd.Stderr = so, se
 	// cmd.Run() calls Wait() internally on every path, so the child is always
 	// reaped — no zombie can leak (see BUG-021).
-	err := cmd.Run()
+	err = cmd.Run()
 	res := source.Result{Stdout: so.Bytes(), Stderr: se.Bytes()}
 	if err != nil {
 		if ee, ok := errors.AsType[*exec.ExitError](err); ok {
