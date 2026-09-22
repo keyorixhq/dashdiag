@@ -20,10 +20,9 @@ import (
 // (not const) so tests can shrink it rather than waiting out the real value.
 var psTimeout = 5 * time.Second
 
-// newPSCmd builds the hardened `ps aux` command darwinProcessNames runs:
-// platform.ResolveTrustedTool (PATH-trust), platform.HardenedEnv (locale),
-// and platform.ExecWaitDelay (force-kill on context cancel) — the same
-// three primitives collectors/baseline/drilldown use.
+// newPSCmd builds the hardened `ps aux` command darwinProcessNames runs, via
+// platform.RunHardened (PATH-trust, locale, force-kill-on-cancel — the same
+// primitive collectors/baseline/drilldown use).
 //
 // A package-level var, not an inline call, for the same reason drilldown's
 // runCmd is one (see drilldown.go): it gives tests a seam to inject a fake
@@ -32,16 +31,7 @@ var psTimeout = 5 * time.Second
 // used to work by manipulating $PATH (t.Setenv("PATH", tempDir)) no longer
 // reaches a substitute binary that way; it must swap this var instead.
 var newPSCmd = func(ctx context.Context) (*exec.Cmd, error) {
-	resolved := platform.ResolveTrustedTool("ps")
-	if platform.ExecHook != nil {
-		if err := platform.ExecHook(ctx, resolved, []string{"aux"}); err != nil {
-			return nil, err
-		}
-	}
-	cmd := exec.CommandContext(ctx, resolved, "aux") // NOSONAR — hardcoded binary
-	cmd.Env = platform.HardenedEnv()
-	cmd.WaitDelay = platform.ExecWaitDelay // force-kill after context cancel
-	return cmd, nil
+	return platform.RunHardened(ctx, "ps", "aux")
 }
 
 // DetectServerProfile returns the best-guess server profile and whether the

@@ -36,33 +36,27 @@ import (
 // exec primitive, or an explicitly documented, considered exception — see
 // each comment. A newly-added raw exec anywhere else in the repo fails here.
 //
+// Since #1107, platform.RunHardened(ctx, name, args...) is the ONE place
+// that applies ResolveTrustedTool+HardenedEnv+ExecWaitDelay and builds the
+// *exec.Cmd — every other hardened call site in the repo (collectors,
+// source, drilldown, init, baseline, cvedata, inventory) now calls it rather
+// than re-typing the pattern, so this map has shrunk to just the primitive's
+// own definition plus fleet's documented, considered exception. A future
+// call site that hand-rolls exec.CommandContext instead of calling
+// platform.RunHardened is exactly the class of regression this test exists
+// to catch: localeSafeCmd (collector.go) used to build its *exec.Cmd by
+// hand and silently skipped ResolveTrustedTool for its two call sites
+// (sysPing's "ping", detectGatewayDarwin's "route -n get default" in
+// network_quick.go) until this consolidation routed it through
+// RunHardened too.
+//
 // Note: exec.LookPath is intentionally allowed (it runs nothing, just resolves a
 // path) — the regex below only matches command *execution*.
 var execWrapperFiles = map[string]string{
-	// Defines platform.ResolveTrustedTool / platform.HardenedEnv /
-	// platform.ExecWaitDelay themselves — resolution, not execution.
-	"internal/platform/trustedexec.go": "defines the primitives; does not itself exec",
-	// internal/platform is contractually stdlib-only (cannot import
-	// internal/source), so its own systemctl-is-active check resolves via
-	// the in-package ResolveTrustedTool directly (P2 — moved here from
-	// internal/source for exactly this reason).
-	"internal/platform/profile.go": "systemctlIsActiveWithLookup, in-package ResolveTrustedTool/ExecWaitDelay",
-	// The production exec path every collector (runCmd/runCmdOutput/
-	// runCmdCombined) and localeSafeCmd route through.
-	"internal/collectors/collector.go":   "localeSafeExec / localeSafeCmd, both platform.ResolveTrustedTool+HardenedEnv'd",
-	"internal/collectors/disk_linux.go":  "runCmdTimeout",
-	"internal/collectors/disk_darwin.go": "runDarwinCmd",
-	// source.Live's default exec backend when no custom Exec is injected —
-	// resolves via platform.ResolveTrustedTool; collectors override this
-	// with localeSafeExec in production (see collector.go's init()), so
-	// this path is a fallback (this package's own tests, mainly).
-	"internal/source/live.go":           "defaultExec, platform.ResolveTrustedTool'd",
-	"internal/drilldown/drilldown.go":   "runCmd, platform.ResolveTrustedTool+HardenedEnv'd",
-	"internal/init/detector.go":         "newPSCmd, platform.ResolveTrustedTool+HardenedEnv'd",
-	"internal/baseline/since_deploy.go": "platform.ResolveTrustedTool+HardenedEnv'd inline",
-	"internal/cvedata/rpm.go":           "resolveRPM = platform.ResolveTrustedTool",
-	"internal/cvedata/oval_debian.go":   "resolveDpkgQuery = platform.ResolveTrustedTool",
-	"internal/inventory/inventory.go":   "resolveRPM = platform.ResolveTrustedTool",
+	// Defines platform.RunHardened (ResolveTrustedTool+HardenedEnv+
+	// ExecWaitDelay) itself — the one place left that calls
+	// exec.CommandContext directly.
+	"internal/platform/trustedexec.go": "defines RunHardened, the shared hardened-exec primitive",
 	// Considered exception, not an oversight — see
 	// internal/fleet/wontfix_spec_test.go (subprocess-wrappers-08,
 	// VERIFICATION-2026-08.md §8): ssh/scp must resolve via the OPERATOR's

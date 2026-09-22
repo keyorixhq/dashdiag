@@ -8,7 +8,6 @@ package inventory
 import (
 	"context"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"runtime"
 	"strconv"
@@ -244,15 +243,10 @@ var resolveRPM = platform.ResolveTrustedTool
 func countRPM() int {
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
-	resolved := resolveRPM("rpm")
-	if platform.ExecHook != nil {
-		if err := platform.ExecHook(ctx, resolved, []string{"-qa"}); err != nil {
-			return 0
-		}
+	cmd, err := platform.RunHardened(ctx, resolveRPM("rpm"), "-qa")
+	if err != nil {
+		return 0
 	}
-	cmd := exec.CommandContext(ctx, resolved, "-qa") // NOSONAR — hardcoded binary
-	cmd.Env = platform.HardenedEnv()
-	cmd.WaitDelay = platform.ExecWaitDelay
 	out, err := cmd.Output()
 	if err != nil {
 		return 0

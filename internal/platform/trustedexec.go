@@ -1,7 +1,9 @@
 package platform
 
 import (
+	"context"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"strings"
 	"syscall"
@@ -37,6 +39,36 @@ const ExecWaitDelay = 100 * time.Millisecond
 // moment someone changes the call site to read output.
 func HardenedEnv() []string {
 	return append(os.Environ(), "LC_ALL=C", "LANG=C")
+}
+
+// RunHardened builds a *exec.Cmd for name with dsd's standard subprocess
+// hardening applied — the same ResolveTrustedTool+ExecHook+HardenedEnv+
+// ExecWaitDelay pattern every trusted-binary call site in the repo needs, now
+// in one place instead of ~10 independently re-typed copies (issue #1107). It
+// resolves name via ResolveTrustedTool (PATH-trust — dsd routinely runs as
+// root), gives ExecHook a chance to observe/deny the resolved name+args
+// (fuzz/test-only — see exechook.go), forces the C locale via HardenedEnv
+// (harmless even for a call site that only reads the exit code), and sets
+// WaitDelay to ExecWaitDelay (force-kill after context cancel). The caller
+// still owns Stdout/Stderr/.Output()/.Run().
+//
+// A non-nil error means ExecHook denied the command — the returned *exec.Cmd
+// is nil and must not be used; the caller should treat this exactly like the
+// exec itself having failed (skip/continue/return err, per call site).
+//
+// Do NOT use this for internal/fleet's ssh/scp — those must resolve via the
+// operator's own $PATH by design; see fleet.go's own documented exception.
+func RunHardened(ctx context.Context, name string, args ...string) (*exec.Cmd, error) {
+	resolved := ResolveTrustedTool(name)
+	if ExecHook != nil {
+		if err := ExecHook(ctx, resolved, args); err != nil {
+			return nil, err
+		}
+	}
+	cmd := exec.CommandContext(ctx, resolved, args...) // NOSONAR — name is a caller-supplied trusted-tool literal, resolved above
+	cmd.Env = HardenedEnv()
+	cmd.WaitDelay = ExecWaitDelay
+	return cmd, nil
 }
 
 // trustedToolDirs lists the directories dsd trusts when resolving an external
