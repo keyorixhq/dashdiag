@@ -1,0 +1,8 @@
+{
+  "mcpServers": {
+    "dashdiag": {
+      "command": "dsd",
+      "args": ["mcp"]
+    }
+  }
+}

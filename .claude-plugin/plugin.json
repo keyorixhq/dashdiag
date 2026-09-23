@@ -1,0 +1,14 @@
+{
+  "name": "dashdiag",
+  "displayName": "DashDiag",
+  "description": "Diagnose a Linux/macOS host with dsd — read-only, no network, no host changes. Registers the dsd MCP server plus a /diagnose command.",
+  "version": "2.3.2",
+  "author": {
+    "name": "Keyorix SL",
+    "url": "https://keyorix.io"
+  },
+  "homepage": "https://dashdiag.sh",
+  "repository": "https://github.com/keyorixhq/dashdiag",
+  "license": "MIT",
+  "keywords": ["system-health", "linux", "macos", "diagnostics", "sre", "observability", "mcp"]
+}

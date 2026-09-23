@@ -463,6 +463,10 @@ produce a verdict (bad `--policy` file, etc.) — see COMPATIBILITY.md.
 
 No agent. No port. No registration. Works wherever SSH works.
 
+Running in GitHub Actions? `keyorixhq/dashdiag` is also a composite Action —
+install + policy gate + a redacted report artifact in one step. See
+[`docs/CI.md`](docs/CI.md).
+
 ---
 
 ## Monitoring integration

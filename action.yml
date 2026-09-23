@@ -1,0 +1,190 @@
+name: 'DashDiag Health Gate'
+description: 'Install dsd (checksum-verified) and gate CI on a read-only system-health verdict.'
+author: 'Keyorix SL'
+branding:
+  icon: 'activity'
+  color: 'green'
+
+inputs:
+  version:
+    description: 'dsd release tag to install (e.g. v2.3.2). Defaults to the latest release.'
+    required: false
+    default: ''
+  policy:
+    description: 'Path to a dsd policy YAML file (dsd health --policy <file>). Generate a starter with `dsd policy init`.'
+    required: false
+    default: ''
+  hosts:
+    description: 'Space-separated remote hosts to check over SSH via `dsd fleet` instead of the runner itself.'
+    required: false
+    default: ''
+  ssh-key:
+    description: 'Private SSH key used to reach `hosts`. Required (and only used) when `hosts` is set.'
+    required: false
+    default: ''
+  fail-on:
+    description: 'Minimum severity that fails the action: warn or crit.'
+    required: false
+    default: 'crit'
+  allow-network:
+    description: "Allow dsd's own outbound network calls (DNS/connectivity probes, cloud-metadata detection, etc). Off by default — see PRIVACY.md."
+    required: false
+    default: 'false'
+
+outputs:
+  verdict:
+    description: 'Overall verdict: OK, WARN, or CRIT (fleet-wide worst case when `hosts` is set).'
+    value: ${{ steps.health.outputs.verdict || steps.fleet.outputs.verdict }}
+  top_catch:
+    description: 'The single most salient finding this run, as JSON ({topic,severity,summary,fix}) or the string "null". Only populated when `hosts` is unset — dsd fleet has no per-run top_catch of its own.'
+    value: ${{ steps.health.outputs.top_catch || 'null' }}
+  report:
+    description: 'Path to the dsd share markdown report written by this action. Only produced when `hosts` is unset.'
+    value: ${{ steps.report.outputs.report }}
+
+# Security note: every input value below is passed to shell steps via `env:`
+# and referenced as `"$VAR"`, never spliced directly as `${{ inputs.x }}`
+# inside a `run:` script body. GitHub Actions substitutes `${{ }}` into the
+# script's SOURCE TEXT before the shell parses it — an input containing shell
+# metacharacters would otherwise be a script-injection primitive, not just an
+# unusual argument. `env:`/`if:`/`with:` fields are evaluated by the runner
+# itself and are not subject to this — only `run:` bodies are.
+runs:
+  using: composite
+  steps:
+    - name: Validate inputs
+      shell: bash
+      env:
+        FAIL_ON: ${{ inputs['fail-on'] }}
+        HOSTS: ${{ inputs.hosts }}
+        SSH_KEY: ${{ inputs['ssh-key'] }}
+      run: |
+        set -e
+        case "$FAIL_ON" in
+          warn|crit) ;;
+          *) echo "::error::fail-on must be 'warn' or 'crit', got '${FAIL_ON}'" ; exit 1 ;;
+        esac
+        if [ -n "$HOSTS" ] && [ -z "$SSH_KEY" ]; then
+          echo "::error::ssh-key is required when hosts is set" ; exit 1
+        fi
+
+    # Reuses this repo's own checksum-verifying installer (install.sh, bundled
+    # alongside action.yml — resolved via github.action_path so it works
+    # whether the CONSUMING workflow checked out its own repo or not) rather
+    # than re-implementing the download/verify logic here. --prefix keeps the
+    # install local to the runner workspace: no sudo required, nothing left
+    # behind outside $RUNNER_TEMP. github.action_path is runner-computed, not
+    # user input, so it's safe to interpolate directly.
+    - name: Install dsd (checksum-verified)
+      shell: bash
+      env:
+        DSD_VERSION: ${{ inputs.version }}
+      run: |
+        set -e
+        mkdir -p "${RUNNER_TEMP}/dsd-install"
+        sh "${{ github.action_path }}/install.sh" --prefix "${RUNNER_TEMP}/dsd-install" ${DSD_VERSION}
+        echo "${RUNNER_TEMP}/dsd-install/bin" >> "$GITHUB_PATH"
+
+    - name: Set up SSH key
+      if: inputs.hosts != ''
+      shell: bash
+      env:
+        SSH_KEY: ${{ inputs['ssh-key'] }}
+      run: |
+        set -e
+        mkdir -p "${RUNNER_TEMP}/dsd-ssh"
+        chmod 700 "${RUNNER_TEMP}/dsd-ssh"
+        printf '%s\n' "$SSH_KEY" > "${RUNNER_TEMP}/dsd-ssh/key"
+        chmod 600 "${RUNNER_TEMP}/dsd-ssh/key"
+        echo "DSD_SSH_KEY_PATH=${RUNNER_TEMP}/dsd-ssh/key" >> "$GITHUB_ENV"
+
+    - name: Run dsd fleet
+      id: fleet
+      if: inputs.hosts != ''
+      shell: bash
+      env:
+        DSD_NETWORK_FLAG: ${{ inputs['allow-network'] == 'true' && '--network' || '' }}
+        HOSTS: ${{ inputs.hosts }}
+      run: |
+        set -e
+        export PATH="${RUNNER_TEMP}/dsd-install/bin:${PATH}"
+        # dsd fleet has no --policy of its own (each host runs its own
+        # `dsd health --json` over SSH); the per-run top_catch field is a
+        # single-host concept, so this path does not populate it — see the
+        # `top_catch`/`report` output descriptions above. $HOSTS is
+        # intentionally unquoted: it's a space-separated host list meant to
+        # word-split into dsd fleet's positional args.
+        dsd fleet $DSD_NETWORK_FLAG --json $HOSTS > "${RUNNER_TEMP}/dsd-fleet.json" || true
+        VERDICT=$(jq -r '.verdict // "CRIT"' "${RUNNER_TEMP}/dsd-fleet.json")
+        echo "verdict=${VERDICT}" >> "$GITHUB_OUTPUT"
+        cat "${RUNNER_TEMP}/dsd-fleet.json"
+
+    - name: Run dsd health
+      id: health
+      if: inputs.hosts == ''
+      shell: bash
+      env:
+        DSD_NETWORK_FLAG: ${{ inputs['allow-network'] == 'true' && '--network' || '' }}
+        DSD_POLICY_FLAG: ${{ inputs.policy != '' && format('--policy {0}', inputs.policy) || '' }}
+      run: |
+        set -e
+        export PATH="${RUNNER_TEMP}/dsd-install/bin:${PATH}"
+        # Exit code reflects severity (0/1/2/3) — capture it without letting
+        # `set -e` abort the step before the outputs below are written.
+        dsd health $DSD_NETWORK_FLAG $DSD_POLICY_FLAG --json > "${RUNNER_TEMP}/dsd-health.json" || true
+        dsd health $DSD_NETWORK_FLAG $DSD_POLICY_FLAG --plain || true
+        VERDICT=$(jq -r '.verdict' "${RUNNER_TEMP}/dsd-health.json")
+        TOP_CATCH=$(jq -c '.top_catch' "${RUNNER_TEMP}/dsd-health.json")
+        {
+          echo "verdict=${VERDICT}"
+          echo "top_catch=${TOP_CATCH}"
+        } >> "$GITHUB_OUTPUT"
+
+    # `--last` shares the run dsd health just completed (auto-saved as a
+    # baseline snapshot by every `dsd health` invocation) instead of
+    # re-collecting — same host state, redacted, in the standard artifact
+    # form. Fleet runs have no equivalent single "last run" to share.
+    - name: Generate share report
+      id: report
+      if: inputs.hosts == ''
+      shell: bash
+      run: |
+        export PATH="${RUNNER_TEMP}/dsd-install/bin:${PATH}"
+        # `dsd share` is a newer subcommand than `dsd health`'s exit-code
+        # contract this action gates on — an operator pinning `version` to an
+        # older release must still get a working health gate, just without
+        # the report artifact, rather than a hard failure on an unrelated
+        # subcommand not existing yet.
+        if dsd share --last --format md --out "${RUNNER_TEMP}/dsd-share-report.md" 2>/dev/null; then
+          echo "report=${RUNNER_TEMP}/dsd-share-report.md" >> "$GITHUB_OUTPUT"
+        else
+          echo "::notice::dsd share is not available in this dsd version — skipping the report artifact"
+        fi
+
+    # actions/upload-artifact requires a non-empty `path` input outright —
+    # "not supplied" is a hard step failure, not something if-no-files-found
+    # covers (that only governs a path that resolves to zero matching files,
+    # not an empty/missing path string). Gate on the report step having
+    # actually produced one, not just "we're on the local-runner path."
+    - name: Upload share report
+      if: inputs.hosts == '' && always() && steps.report.outputs.report != ''
+      uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7
+      with:
+        name: dsd-share-report
+        path: ${{ steps.report.outputs.report }}
+        if-no-files-found: ignore
+
+    - name: Gate on verdict
+      shell: bash
+      env:
+        VERDICT: ${{ inputs.hosts != '' && steps.fleet.outputs.verdict || steps.health.outputs.verdict }}
+        FAIL_ON: ${{ inputs['fail-on'] }}
+      run: |
+        set -e
+        echo "dsd verdict: ${VERDICT}"
+        case "$VERDICT" in
+          CRIT) exit 1 ;;
+          WARN) [ "$FAIL_ON" = "warn" ] && exit 1 || exit 0 ;;
+          OK) exit 0 ;;
+          *) echo "::warning::unrecognized verdict '${VERDICT}' — treating as failure"; exit 1 ;;
+        esac

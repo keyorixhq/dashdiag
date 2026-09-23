@@ -1,0 +1,65 @@
+name: Publish to MCP Registry
+
+# Validates server.json against the official schema on every release tag, and
+# publishes to the MCP Registry (https://registry.modelcontextprotocol.io)
+# ONLY when the repository variable MCP_REGISTRY_PUBLISH is exactly "true".
+# Until then this is a dry run: schema validation only, no publish, no auth.
+#
+# Sources (fetched, not guessed — see the PR description for the full list):
+#   - workflow shape: https://modelcontextprotocol.io/registry/github-actions
+#   - mcp-publisher subcommands (init/login/publish/status/validate/logout):
+#     https://github.com/modelcontextprotocol/registry/blob/main/cmd/publisher/README.md
+#
+# To enable publishing: Settings -> Secrets and variables -> Actions ->
+# Variables -> add MCP_REGISTRY_PUBLISH = true. No secret is needed — auth is
+# GitHub OIDC (github-oidc), scoped to this repo, for the io.github.keyorixhq
+# namespace.
+
+on:
+  push:
+    tags: ["v*"]
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    permissions:
+      id-token: write # GitHub OIDC — only exercised when MCP_REGISTRY_PUBLISH=true
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      # On a real tag push, keep server.json's version in lockstep with the
+      # release instead of relying on a hand-edited value going stale.
+      # workflow_dispatch (no tag) leaves server.json's committed version as-is.
+      - name: Set server.json version from tag
+        if: github.ref_type == 'tag'
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          jq --arg v "$VERSION" '.version = $v' server.json > server.json.tmp
+          mv server.json.tmp server.json
+
+      - name: Install mcp-publisher
+        run: |
+          curl -fsSL --proto '=https' --proto-redir '=https' \
+            "https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$(uname -s | tr '[:upper:]' '[:lower:]')_$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz" \
+            | tar xz mcp-publisher
+
+      - name: Validate server.json against the schema
+        run: ./mcp-publisher validate
+
+      - name: Authenticate to MCP Registry (GitHub OIDC)
+        if: vars.MCP_REGISTRY_PUBLISH == 'true'
+        run: ./mcp-publisher login github-oidc
+
+      - name: Publish server to MCP Registry
+        if: vars.MCP_REGISTRY_PUBLISH == 'true'
+        run: ./mcp-publisher publish
+
+      - name: Dry-run notice
+        if: vars.MCP_REGISTRY_PUBLISH != 'true'
+        run: |
+          echo "::notice::server.json validated but NOT published — the MCP_REGISTRY_PUBLISH repository variable is not 'true'. Set it in Settings > Secrets and variables > Actions > Variables to enable publishing on the next tag."
