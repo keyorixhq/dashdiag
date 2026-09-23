@@ -481,12 +481,25 @@ func TestPrintHealthResults(t *testing.T) {
 		}
 	})
 
-	// In-container: the container banner path.
+	// In-container: the container banner path — must name docs/CONTAINER.md
+	// and --host-root, the operator's way out of "diagnosing the wrong thing".
 	bannerOut := captureStdout(t, func() {
 		printHealthResults(newCmd(), platform.ContainerContext{InContainer: true}, output.ModePlain, results, insights, snap, time.Second, false)
 	})
-	if bannerOut == "" {
-		t.Error("an in-container run should still render output")
+	if !strings.Contains(bannerOut, "docs/CONTAINER.md") || !strings.Contains(bannerOut, "--host-root") {
+		t.Errorf("in-container run should print the container-diagnosis notice pointing to docs/CONTAINER.md and --host-root, got: %q", bannerOut)
+	}
+
+	// --host-root: the operator has confirmed /proc,/sys,/dev are host-mounted —
+	// the container-diagnosis notice would be actively wrong here, so it must
+	// be suppressed rather than merely optional.
+	hostRootCmd := newCmd()
+	hostRootCmd.Flags().Bool("host-root", true, "")
+	hostRootOut := captureStdout(t, func() {
+		printHealthResults(hostRootCmd, platform.ContainerContext{InContainer: true}, output.ModePlain, results, insights, snap, time.Second, false)
+	})
+	if strings.Contains(hostRootOut, "docs/CONTAINER.md") {
+		t.Errorf("--host-root should suppress the container-diagnosis notice, got: %q", hostRootOut)
 	}
 
 	// explain + fix flags on a WARN insight exercise both tail sections.

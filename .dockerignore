@@ -1,0 +1,9 @@
+.git/
+.scratch/
+dist/
+coverage.out
+coverage.html
+*.test
+.claude/
+.DS_Store
+docs/assets/

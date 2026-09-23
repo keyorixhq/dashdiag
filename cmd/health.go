@@ -67,6 +67,7 @@ func init() {
 	healthCmd.Flags().Bool("layered", false, "group findings by abstraction layer (hardware / platform / OS & services)")
 	healthCmd.Flags().String("post-mortem", "", "generate post-mortem for given incident ID")
 	healthCmd.Flags().Bool("persist", false, "append a snapshot of this run to the local state store (~/.dsd/store.jsonl)")
+	healthCmd.Flags().Bool("host-root", false, "acknowledge /proc, /sys, /dev are bind-mounted from the host — suppresses the container-diagnosis notice (see docs/CONTAINER.md)")
 }
 
 var healthCmd = &cobra.Command{
@@ -434,7 +435,8 @@ func printHealthResults(cmd *cobra.Command, ctrCtx platform.ContainerContext, mo
 		return 3, noticeW
 	}
 	renderer := render.NewRenderer(mode)
-	if ctrCtx.InContainer {
+	hostRootFlag, _ := cmd.Flags().GetBool("host-root")
+	if ctrCtx.InContainer && !hostRootFlag {
 		renderer.PrintContainerBanner(ctrCtx)
 	}
 	correlations := analysis.CorrelateDeep(insights, extractOOM(results), extractDocker(results), extractIO(results), extractSysctl(results), extractCPU(results), extractHealthDeep(results))

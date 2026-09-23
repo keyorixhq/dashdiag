@@ -1766,11 +1766,21 @@ func exitCodeFromInsights(insights []models.Insight) int {
 	return code
 }
 
+// PrintContainerBanner tells the operator dsd is diagnosing the container it
+// runs in, not the host — the two see different /proc, /sys, and cgroup
+// limits, and a reader who doesn't know which one they're looking at can
+// chase a "problem" that's actually the container's own sandbox. Prints in
+// both interactive (ModeHuman) and CI/plain (ModePlain) text modes — JSON/YAML
+// stay machine-only documents (see docs/CONTAINER.md for the two modes).
+// Callers must skip this entirely once the operator has confirmed host mode
+// (see cmd/health.go's --host-root gate) — repeating it there would be both
+// noise and, worse, wrong: the operator has told dsd the mounted paths ARE
+// the host's.
 func (r *Renderer) PrintContainerBanner(ctx platform.ContainerContext) {
-	if r.mode != output.ModeHuman {
+	if r.mode == output.ModeJSON || r.mode == output.ModeYAML {
 		return
 	}
-	fmt.Fprintln(os.Stdout, StyleInfo.Render("ℹ️  Running inside a container — showing container limits"))
+	fmt.Fprintln(os.Stdout, StyleInfo.Render("ℹ️  Running inside a container: diagnosing the container, not the host. For the host, mount /proc, /sys, /dev read-only and run with --host-root (see docs/CONTAINER.md)."))
 }
 
 // PrintCorrelations renders the DIAGNOSIS block when the correlation engine

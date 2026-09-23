@@ -32,14 +32,19 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
 
-      # On a real tag push, keep server.json's version in lockstep with the
-      # release instead of relying on a hand-edited value going stale.
-      # workflow_dispatch (no tag) leaves server.json's committed version as-is.
-      - name: Set server.json version from tag
+      # On a real tag push, keep server.json's version — and the oci package's
+      # image tag, which release.yml pushes to ghcr.io as exactly this same
+      # <semver> tag — in lockstep with the release instead of relying on a
+      # hand-edited value going stale. workflow_dispatch (no tag) leaves
+      # server.json's committed version/identifier as-is.
+      - name: Set server.json version + oci package tag from the release tag
         if: github.ref_type == 'tag'
         run: |
           VERSION="${GITHUB_REF_NAME#v}"
-          jq --arg v "$VERSION" '.version = $v' server.json > server.json.tmp
+          jq --arg v "$VERSION" \
+            '.version = $v
+             | (.packages[]? | select(.registryType == "oci") | .identifier) |= sub("[^:]+$"; $v)' \
+            server.json > server.json.tmp
           mv server.json.tmp server.json
 
       - name: Install mcp-publisher

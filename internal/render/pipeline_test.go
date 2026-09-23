@@ -71,6 +71,33 @@ func TestPrintAll_Modes(t *testing.T) {
 	}
 }
 
+// TestPrintContainerBanner_Modes: the container-diagnosis notice must appear
+// in both interactive (Human) and CI/agent (Plain) text output — Plain is the
+// common invocation shape for `dsd mcp`/CI, exactly where a reader silently
+// misreading a container verdict as the host's is most likely — but never in
+// the JSON/YAML machine documents, where an extra stdout line would corrupt
+// the single parseable output `--json`/`--yaml` promise.
+func TestPrintContainerBanner_Modes(t *testing.T) {
+	for _, mode := range []output.OutputMode{output.ModeHuman, output.ModePlain} {
+		r := NewRenderer(mode)
+		out := captureStdout(t, func() {
+			r.PrintContainerBanner(platform.ContainerContext{InContainer: true})
+		})
+		if !strings.Contains(out, "docs/CONTAINER.md") || !strings.Contains(out, "--host-root") {
+			t.Errorf("mode %v: container banner must name docs/CONTAINER.md and --host-root, got: %q", mode, out)
+		}
+	}
+	for _, mode := range []output.OutputMode{output.ModeJSON, output.ModeYAML} {
+		r := NewRenderer(mode)
+		out := captureStdout(t, func() {
+			r.PrintContainerBanner(platform.ContainerContext{InContainer: true})
+		})
+		if out != "" {
+			t.Errorf("mode %v: container banner must stay silent in machine modes, got: %q", mode, out)
+		}
+	}
+}
+
 func TestRenderJSONYAML(t *testing.T) {
 	results, insights := sampleResults(), sampleInsights()
 	j, err := RenderJSON(results, insights)

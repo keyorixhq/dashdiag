@@ -332,6 +332,29 @@ mcp-registry-check:
 		mcp-publisher validate; \
 	fi
 
+# ── CONTAINER IMAGE ────────────────────────────────────────────────────────────
+# Builds the same distroless image release.yml pushes to ghcr.io/keyorixhq/dashdiag,
+# for the host's own arch only (buildx multi-arch + push is release.yml's job, not
+# this one — see docs/CONTAINER.md for the two supported run modes).
+IMAGE ?= dashdiag:dev
+.PHONY: image
+image:
+	@echo "→ Building $(IMAGE) ($(VERSION))"
+	docker build \
+		--build-arg VERSION=$(VERSION) \
+		--build-arg COMMIT=$(COMMIT) \
+		--build-arg BUILT=$(BUILT) \
+		-t $(IMAGE) .
+	@echo "✅ Image built: $(IMAGE)"
+
+.PHONY: image-run
+image-run: image
+	docker run --rm $(IMAGE) health
+
+.PHONY: image-mcp
+image-mcp: image
+	docker run -i --rm $(IMAGE) mcp
+
 # ── CLEAN ─────────────────────────────────────────────────────────────────────
 .PHONY: clean
 clean:
@@ -362,6 +385,9 @@ help:
 	@echo "  make hooks        → install pre-commit and pre-push git hooks"
 	@echo "  make demo-gif     → regenerate docs/assets/demo.gif via vhs (requires vhs; skips gracefully otherwise)"
 	@echo "  make mcp-registry-check → validate server.json against the MCP registry schema (requires mcp-publisher; skips gracefully otherwise)"
+	@echo "  make image        → build the distroless container image (IMAGE=name:tag, default dashdiag:dev)"
+	@echo "  make image-run    → build + run \`dsd health\` in the container image"
+	@echo "  make image-mcp    → build + run \`dsd mcp\` (stdio) in the container image"
 	@echo "  make clean        → remove dist/ and coverage files"
 
 
