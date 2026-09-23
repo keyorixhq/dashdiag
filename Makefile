@@ -315,6 +315,23 @@ demo-gif: build
 		fi; \
 	fi
 
+# ── MCP REGISTRY ──────────────────────────────────────────────────────────────
+# Validates server.json against the official MCP Registry schema, locally,
+# with no auth and no publish — the same check .github/workflows/
+# mcp-registry-publish.yml runs on every tag. Never fails the build when
+# mcp-publisher isn't installed — prints an install hint and skips.
+.PHONY: mcp-registry-check
+mcp-registry-check:
+	@if ! command -v mcp-publisher >/dev/null 2>&1; then \
+		echo "mcp-publisher not found — install it to validate server.json:"; \
+		echo "  curl -fsSL \"https://github.com/modelcontextprotocol/registry/releases/latest/download/mcp-publisher_$$(uname -s | tr '[:upper:]' '[:lower:]')_$$(uname -m | sed 's/x86_64/amd64/;s/aarch64/arm64/').tar.gz\" | tar xz mcp-publisher"; \
+		echo "  (or: brew install mcp-publisher)"; \
+		echo "  https://github.com/modelcontextprotocol/registry"; \
+		echo "skipping mcp-registry-check"; \
+	else \
+		mcp-publisher validate; \
+	fi
+
 # ── CLEAN ─────────────────────────────────────────────────────────────────────
 .PHONY: clean
 clean:
@@ -344,6 +361,7 @@ help:
 	@echo "  make tools        → install all dev tools"
 	@echo "  make hooks        → install pre-commit and pre-push git hooks"
 	@echo "  make demo-gif     → regenerate docs/assets/demo.gif via vhs (requires vhs; skips gracefully otherwise)"
+	@echo "  make mcp-registry-check → validate server.json against the MCP registry schema (requires mcp-publisher; skips gracefully otherwise)"
 	@echo "  make clean        → remove dist/ and coverage files"
 
 

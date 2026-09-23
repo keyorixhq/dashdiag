@@ -81,18 +81,21 @@ to end against a real MCP client, mirroring the `--share`/`--qr` precedent
 
 ## Tools (v1)
 
-Four tools — the chosen "health + capture/replay" scope. Each is a thin wrapper
-over an existing code path; the **output of every tool is the existing
-`render.JSONOutput` shape** (or a `DiffEntry` array), so the MCP contract inherits
-the frozen `schema/dsd-output.json` 1.x stability promise (`COMPATIBILITY.md`) for
-free — no second schema to maintain.
+Five tools — the "health + capture/replay + share" scope (`dsd_share` shipped
+after the original four; this table is updated to match `cmd/mcp.go`, the
+source of truth). Each is a thin wrapper over an existing code path; the
+**output of every tool is the existing `render.JSONOutput` shape** (or a
+`DiffEntry` array, or a rendered share artifact string), so the MCP contract
+inherits the frozen `schema/dsd-output.json` 1.x stability promise
+(`COMPATIBILITY.md`) for free — no second schema to maintain.
 
 | Tool | Wraps | Input | Output |
 |---|---|---|---|
-| `dsd_health` | the default health pipeline (`buildHealthCollectors` → `ApplyThresholds` → `render`) | `{ deep?: bool, cve?: bool }` | `JSONOutput` (verdict + checks[] + insights[]) |
+| `dsd_health` | the default health pipeline (`buildHealthCollectors` → `ApplyThresholds` → `render`) | `{ deep?: bool, cve?: bool }` | `JSONOutput` (verdict + checks[] + insights[] + top_catch) |
 | `dsd_capture` | `dsd capture --raw` | `{ out_path: string, sanitize?: bool, identifiers?: bool }` | `{ bundle_path, host, captured_at, bytes }` |
 | `dsd_replay` | `dsd replay <bundle>` | `{ bundle_path: string }` | `JSONOutput` for the captured host |
 | `dsd_diff` | `dsd diff <baseline> <current>` (`baseline.ComputeDiff`) | `{ baseline_path, current_path }` | `DiffEntry[]` (per-check status transitions) |
+| `dsd_share` | `dsd share` (live run, or `from_path` for a past run) | `{ format?: string, from_path?: string, deep?: bool, cve?: bool }` | Redacted artifact text (md/html/text/blob; always redacted — no MCP-exposed `--no-redact`) |
 
 Tool descriptions are **prescriptive about *when* to call** (recent-Opus tool
 descriptions reward this): e.g. `dsd_health` → "Call this to get a scored
@@ -100,10 +103,10 @@ health verdict for the host this server runs on, before diagnosing an incident o
 proposing a fix." Each tool's description names the read-only, deterministic
 nature so the agent can cite the result as evidence.
 
-Deliberately **excluded from v1** (additive later, demand-gated): per-subsystem
+Deliberately **excluded** (additive later, demand-gated): per-subsystem
 tools (`dsd_net`, `dsd_docker`, `dsd_k8s`, …), `dsd_cve`/`dsd_cis`, `dsd_sanitize`
 as its own tool. Starting narrow keeps the tool list legible to the agent and the
-review surface small. We `log()`/document what's omitted so "4 tools" doesn't read
+review surface small. We `log()`/document what's omitted so "5 tools" doesn't read
 as "complete coverage."
 
 ---
@@ -115,7 +118,7 @@ MCP client (Claude Code / Cursor / agent)
         │  JSON-RPC over stdio
         ▼
 cmd/mcp.go ── internal/mcp (NEW; thin adapter)
-        │         · registers 4 tools, maps args → existing entrypoints
+        │         · registers 5 tools, maps args → existing entrypoints
         │         · marshals results through internal/render (JSONOutput / DiffEntry)
         ▼
 EXISTING pipeline — UNCHANGED:
@@ -183,6 +186,19 @@ one line per client:
 Because the binary runs locally as a child of the client, it diagnoses the machine
 the agent is working on — which is exactly the host whose context the agent lacks.
 
+Three further distribution surfaces, all thin wrappers over the same `dsd mcp`
+subcommand — no new tool logic, no second schema:
+
+- **MCP Registry** (`server.json` at repo root) — the official discovery
+  listing at `registry.modelcontextprotocol.io`.
+- **Claude Code plugin** (`.claude-plugin/`, `skills/dashdiag/`,
+  `commands/diagnose.md`) — one-step install (`/plugin install
+  dashdiag@dashdiag`) that also ships a skill teaching an agent *when* and
+  *how* to use these tools, not just that they exist.
+- **`docs/AGENTS.md`** — setup snippets for every client (Claude Code,
+  Cursor, Codex CLI, generic stdio), so this section doesn't need to
+  enumerate every client's config format.
+
 ---
 
 ## Dependencies & build impact
@@ -203,7 +219,7 @@ the agent is working on — which is exactly the host whose context the agent la
   the same `JSONOutput` bytes as `dsd health --json` for the same inputs (golden
   comparison — catches any accidental fork of the render path).
 - **Protocol:** a table-driven `initialize` → `tools/list` → `tools/call` exchange
-  over an in-memory transport, asserting the 4 tools and their input schemas.
+  over an in-memory transport, asserting the 5 tools and their input schemas.
 - **End-to-end:** drive the server from a real MCP client (Claude Code) against a
   pve01 guest; confirm `dsd_health` returns the same verdict the CLI does, and
   `dsd_capture` → `dsd_replay` → `dsd_diff` round-trips. Run the client once as

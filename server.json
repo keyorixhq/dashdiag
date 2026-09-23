@@ -1,0 +1,12 @@
+{
+  "$schema": "https://static.modelcontextprotocol.io/schemas/2025-12-11/server.schema.json",
+  "name": "io.github.keyorixhq/dashdiag",
+  "title": "DashDiag",
+  "description": "Read-only Linux/macOS system health diagnosis over MCP — no writes, no network calls, no AI.",
+  "version": "2.3.2",
+  "websiteUrl": "https://dashdiag.sh",
+  "repository": {
+    "url": "https://github.com/keyorixhq/dashdiag",
+    "source": "github"
+  }
+}

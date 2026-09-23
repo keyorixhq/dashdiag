@@ -1,0 +1,81 @@
+name: Action self-test
+
+# Proves action.yml actually works end to end: install dsd, run the health
+# gate against the runner itself with the starter policy, upload the report.
+# Runs against a real GitHub release (install.sh's normal path) — see
+# action.yml's "Generate share report" step for why an older pinned release
+# (predating `dsd share`) degrades gracefully instead of failing the job.
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - 'action.yml'
+      - 'install.sh'
+      - '.github/workflows/action-selftest.yml'
+  pull_request:
+    paths:
+      - 'action.yml'
+      - 'install.sh'
+      - '.github/workflows/action-selftest.yml'
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  selftest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      # `dsd policy init` (the normal way to get this) needs dsd on PATH,
+      # which only happens inside the action itself, below — so extract the
+      # same starter-policy template directly from source instead.
+      - name: Generate the starter policy
+        run: |
+          awk '/const PolicyInitTemplate = `/{flag=1; next} /^`$/{flag=0} flag' internal/analysis/policy.go > starter-policy.yaml
+          test -s starter-policy.yaml
+          cat starter-policy.yaml
+
+      # continue-on-error: this self-test proves the ACTION's mechanics work
+      # (install, run, produce well-formed outputs, upload an artifact) — not
+      # that this specific runner is CRIT-free today. The action's own gate
+      # (exit 1 on CRIT, by design) must not fail a self-test whose job is to
+      # verify the gate exists and works, whichever way it lands. Real
+      # pass/fail for THIS workflow is decided by the assertion step below,
+      # which checks the outputs regardless of the gate's own exit code.
+      - name: Run the action against this runner
+        id: dsd
+        continue-on-error: true
+        uses: ./
+        with:
+          policy: starter-policy.yaml
+          fail-on: crit
+
+      - name: Report outputs
+        run: |
+          echo "gate outcome: ${{ steps.dsd.outcome }} (conclusion: ${{ steps.dsd.conclusion }})"
+          echo "verdict:      ${{ steps.dsd.outputs.verdict }}"
+          echo "top_catch:    ${{ steps.dsd.outputs.top_catch }}"
+          echo "report:       ${{ steps.dsd.outputs.report }}"
+
+      - name: Verdict output must be one of OK/WARN/CRIT
+        run: |
+          case "${{ steps.dsd.outputs.verdict }}" in
+            OK|WARN|CRIT) echo "ok" ;;
+            *) echo "::error::unexpected verdict output: '${{ steps.dsd.outputs.verdict }}'"; exit 1 ;;
+          esac
+
+      # If the gate step failed for any reason OTHER than a legitimate
+      # CRIT/WARN verdict (a real bug: install failure, malformed JSON, a
+      # missing output), that's the thing this self-test exists to catch —
+      # surface it as a real failure instead of silently passing.
+      - name: Gate step must only have failed on a real verdict, not a bug
+        if: steps.dsd.outcome == 'failure'
+        run: |
+          case "${{ steps.dsd.outputs.verdict }}" in
+            CRIT) echo "gate failed on a real CRIT verdict — expected behavior, not a bug" ;;
+            WARN) echo "gate failed on a real WARN verdict with fail-on=crit — would be a bug (fail-on=crit should only fail on CRIT)"; exit 1 ;;
+            *) echo "::error::gate step failed without a recognizable verdict — likely an install or parsing bug"; exit 1 ;;
+          esac
