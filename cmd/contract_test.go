@@ -60,6 +60,7 @@ var exitCodeContract = map[string]string{
 	"policy":    "exempt: prints policy info",
 	"story":     "exempt: dev/demo utility",
 	"tips":      "exempt: prints tips",
+	"demo":      "exempt: always exits 0 by design — renders simulated scenario data, never a live host gate a script could mistake for a real result",
 
 	// cobra built-ins.
 	"completion": "exempt: cobra builtin",
@@ -155,6 +156,7 @@ var jsonContract = map[string]string{
 	"policy":     "exempt: prints policy info",
 	"story":      "exempt: dev/demo utility",
 	"tips":       "exempt: prints tips",
+	"demo":       "json",
 	"completion": "exempt: cobra builtin",
 	"help":       "exempt: cobra builtin",
 

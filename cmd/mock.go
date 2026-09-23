@@ -62,6 +62,11 @@ type MockFixture struct {
 	// types the live collectors return and replay via the real print funcs.
 	CVEJSON      string `yaml:"cve,omitempty"`      // dsd cve --all --json
 	TimelineJSON string `yaml:"timeline,omitempty"` // dsd timeline --json
+	// Narrative is an optional 3-5 line "what happened, why, what to do" story,
+	// rendered after the summary by `dsd demo` (not by `dsd mock`, which stays a
+	// raw render-only tool). Free text rather than derived from story/consequences
+	// logic — those need baseline snapshot history a fixture can't supply.
+	Narrative []string `yaml:"narrative,omitempty"`
 }
 
 // MockInsight is one captured finding, mirroring the JSON insight shape so the
@@ -153,25 +158,7 @@ func runMock(cmd *cobra.Command, args []string) error {
 	fmt.Fprintf(os.Stderr, "System health — read only checks, usually under 5s\n")
 	fmt.Fprintf(os.Stderr, "%s\n", strings.Repeat("─", 56))
 
-	// Convert fixture rows to runner.Result for the table; insights are resolved
-	// separately so the COMPLETE captured set (not one per row) is rendered.
-	var results []runner.Result
-	for _, row := range fix.Rows {
-		// runner.Result — carries the name for ordering.
-		// If the row preserved raw disk data, decode it back to the real model
-		// type so the renderer sees exactly what a live collector would return.
-		// Falls back to the text-only stub when raw is absent or fails to decode.
-		var data any = &mockData{inline: row.Inline}
-		if d := mockRawData(row.Name, row.RawJSON); d != nil {
-			data = d
-		}
-		results = append(results, runner.Result{
-			Name: row.Name,
-			Data: data,
-		})
-	}
-
-	insights := resolveMockInsights(fix)
+	results, insights := mockFixtureResults(fix)
 
 	mode := output.ModeHuman
 	r := render.NewRenderer(mode)
@@ -191,6 +178,27 @@ func runMock(cmd *cobra.Command, args []string) error {
 	}
 
 	return nil
+}
+
+// mockFixtureResults converts a parsed fixture into the (results, insights) pair
+// the real render pipeline consumes — shared by `dsd mock` and `dsd demo` so both
+// render fixture data through the exact same code path. If a row preserved raw
+// disk data, it's decoded back to the real model type so the renderer sees
+// exactly what a live collector would return; otherwise it falls back to the
+// text-only inline stub.
+func mockFixtureResults(fix MockFixture) ([]runner.Result, []models.Insight) {
+	results := make([]runner.Result, 0, len(fix.Rows))
+	for _, row := range fix.Rows {
+		var data any = &mockData{inline: row.Inline}
+		if d := mockRawData(row.Name, row.RawJSON); d != nil {
+			data = d
+		}
+		results = append(results, runner.Result{
+			Name: row.Name,
+			Data: data,
+		})
+	}
+	return results, resolveMockInsights(fix)
 }
 
 // resolveMockInsights returns the insights to render for a fixture. It prefers the

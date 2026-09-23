@@ -91,6 +91,14 @@ func RenderJSON(results []runner.Result, insights []models.Insight) ([]byte, err
 	return json.MarshalIndent(buildOutput(results, insights), "", "  ")
 }
 
+// BuildJSONOutput returns the same structured value RenderJSON marshals, for
+// callers that need to extend the JSON contract additively (e.g. `dsd demo`'s
+// top-level "demo" field) without re-deriving it from results/insights or
+// round-tripping through JSON bytes.
+func BuildJSONOutput(results []runner.Result, insights []models.Insight) JSONOutput {
+	return buildOutput(results, insights)
+}
+
 func RenderYAML(results []runner.Result, insights []models.Insight) ([]byte, error) {
 	out := buildOutput(results, insights)
 	return yaml.Marshal(out)

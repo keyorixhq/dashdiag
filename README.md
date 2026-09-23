@@ -101,10 +101,58 @@ cd dashdiag && make install
 
 ---
 
+## Try it in 10 seconds
+
+No target machine yet? `dsd demo` renders a real diagnosis of a simulated
+broken host — same render pipeline as a live run, zero setup, no network,
+always exits `0`:
+
+```
+$ dsd demo
+
+⚡ DashDiag (dsd) v0.6.10 — DEMO: simulated host, not this machine. Run `sudo dsd health` for yours.
+db-prod-02 · Rocky Linux 9.4
+────────────────────────────────────────────────────────
+CPU Load     ✅  44% (load avg 7.2 across 16 CPUs)
+Memory       ✅  58/64 GB (90%)
+Swap         ✅  1.2 GB used
+Disk         ✅  / 61%
+IO           ⚠️  nvme0n1 await 24 ms — elevated disk latency
+Drives       ❌  /dev/sdb SMART health FAILED — drive may be failing, back up immediately
+Network      ✅  bond0 2x10Gbps  gw <1 ms
+Systemd      ✅  boot 21s
+Logs         ⚠️  12 disk I/O errors in dmesg in the last hour (sdb)
+Hardening    ✅  sshd hardened
+Firewall     ✅  firewalld  running
+────────────────────────────────────────────────────────
+❌  Drives: /dev/sdb SMART health FAILED — drive may be failing, back up immediately
+   → note: a FAILED self-assessment means the drive predicts its own failure — replace it
+   → to inspect:
+     smartctl -a /dev/sdb
+     dmesg | grep -i 'error\|failed\|reset'
+⚠️  IO: nvme0n1 await 24 ms — elevated disk latency
+   → to inspect: iostat -x 1 5
+⚠️  Logs: 12 disk I/O errors in dmesg in the last hour (sdb)
+   → to inspect: dmesg -T | grep -i 'I/O error'
+
+/dev/sdb's SMART self-check has moved from pass to FAILED — the drive is now predicting its own failure, not just running slow.
+Rising I/O latency (24ms await) and a burst of I/O errors in dmesg over the last hour are the drive's death throes, not routine noise.
+Back up whatever's on sdb right now, then replace the drive — don't wait for it to go fully dark.
+```
+
+That's the thing a healthy box can never show you: the causal chain from
+symptom (elevated I/O latency) to structural cause (a failing drive) to fix
+(back it up now). `dsd demo --list` shows four more scenarios (a Proxmox
+backup gap, a VMware SCSI-timeout gotcha, a Docker host meltdown, an
+actively-exploited CVE); `dsd demo <name>` renders any of them.
+
+---
+
 ## Commands
 
 | Command | What it does | Time |
 |---|---|---|
+| `dsd demo` | Simulated broken-host diagnosis — no hardware, no network needed | instant |
 | `dsd health` | Full system snapshot — CPU, memory, disk, network, security | ~1–3s |
 | `dsd cpu` | Load, frequency, temperature, top processes | ~1s |
 | `dsd disk` | Filesystems, SMART, ZFS, LVM RAID, btrfs health | ~3s |

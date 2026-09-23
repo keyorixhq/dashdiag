@@ -233,6 +233,17 @@ golden-update:
 smoke:
 	@bash scripts/smoke-test.sh
 
+# `dsd demo` embeds copies of a curated fixtures/ subset (internal/demo/scenarios/).
+# fixtures/ is the source of truth; re-run this after editing one of the chosen
+# fixtures. TestEmbeddedScenariosMatchFixtures (internal/demo/demo_test.go) fails
+# CI if the copies drift instead.
+.PHONY: demo-sync
+demo-sync:
+	@for f in failing-drive proxmox-backup-gap vmware-guest-scsi-timeout docker-host-meltdown cve-actively-exploited; do \
+		cp "fixtures/$$f.yaml" "internal/demo/scenarios/$$f.yaml"; \
+	done
+	@echo "✅ internal/demo/scenarios/ synced from fixtures/"
+
 # ── SECURITY ──────────────────────────────────────────────────────────────────
 .PHONY: vuln
 vuln:

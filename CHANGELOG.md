@@ -11,6 +11,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- `dsd demo` — renders a simulated broken-host diagnosis with zero setup (no
+  hardware, no files, no network): `dsd demo` for the flagship scenario (a
+  failing drive), `dsd demo --list` to browse, `dsd demo <name>` for a specific
+  one. Reuses the exact `dsd mock` render pipeline against five scenarios
+  embedded in the binary; supports `--json` (adds a top-level `"demo": true`
+  field to the standard `dsd health --json` schema) and always exits `0`.
+
 ## [2.3.2] - 2026-09-14
 
 ### Security
