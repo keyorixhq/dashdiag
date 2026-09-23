@@ -8,5 +8,21 @@
   "repository": {
     "url": "https://github.com/keyorixhq/dashdiag",
     "source": "github"
-  }
+  },
+  "packages": [
+    {
+      "registryType": "oci",
+      "identifier": "ghcr.io/keyorixhq/dashdiag:2.3.2",
+      "transport": {
+        "type": "stdio"
+      },
+      "packageArguments": [
+        {
+          "type": "positional",
+          "valueHint": "command",
+          "value": "mcp"
+        }
+      ]
+    }
+  ]
 }

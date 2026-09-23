@@ -13,6 +13,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Container image** — `ghcr.io/keyorixhq/dashdiag`, a distroless multi-arch
+  (linux/amd64 + linux/arm64) image built and pushed on every release, tagged
+  `<semver>`, `<major.minor>`, and `latest`. Signed with cosign (keyless/OIDC)
+  and carries an SBOM plus a SLSA-style build-provenance attestation, verified
+  the same way as every other release artifact (`gh attestation verify`).
+  `dsd health` now detects it's running in a container and prints a one-line
+  notice pointing at the new [`docs/CONTAINER.md`](docs/CONTAINER.md), which
+  documents the two supported modes — container self-diagnosis (default) and
+  host diagnosis via `--host-root` plus read-only host mounts — and an honest
+  per-check table of what works, degrades, or stays unavailable in each.
+  Registered in `server.json` as an `oci` package so MCP clients can run
+  `docker run -i --rm ghcr.io/keyorixhq/dashdiag mcp` directly. New `make
+  image`/`image-run`/`image-mcp` targets build and exercise the image locally;
+  CI builds the host-arch image and Trivy-scans it on every PR.
+
 - **Top catch** — after the health table, `dsd health` (human/`--plain`/
   `--layered`), `dsd demo`, and `dsd share` (md/html/text) now print one line
   naming the single most salient finding: `Top catch: <summary> (<topic>) →

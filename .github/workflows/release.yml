@@ -159,6 +159,102 @@ jobs:
             dist/checksums.txt*
             dist/dsd.spdx.json
 
+  # Multi-arch OCI image: ghcr.io/keyorixhq/dashdiag, tagged <semver>/<major.minor>/
+  # latest. A separate job (not steps bolted onto `release` above) so a
+  # registry/buildx hiccup can't block the binary/package release that already
+  # succeeded — same "placed so a failure here can't block distribution"
+  # principle release's own build-provenance step uses, extended to a whole job.
+  # needs: [release] so this only runs once the binaries/packages/SBOM/checksums
+  # have actually published successfully — the image's own SBOM below is
+  # image-specific (BuildKit/syft over the final layers), not a copy of dist/dsd.spdx.json.
+  image:
+    name: Container image (ghcr.io)
+    needs: release
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+      packages: write    # push to ghcr.io — scoped to only this job
+      id-token: write    # cosign keyless OIDC + attest-build-provenance's Sigstore cert
+      attestations: write
+      # actions/attest(-build-provenance) v4's own documented requirement for
+      # attesting an OCI subject (push-to-registry: true) — see its README.
+      artifact-metadata: write
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Compute image tags + build metadata
+        id: meta
+        run: |
+          VERSION="${GITHUB_REF_NAME#v}"
+          {
+            echo "version=$VERSION"
+            echo "minor=${VERSION%.*}"
+            echo "commit=$(git rev-parse --short HEAD)"
+            echo "built=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+          } >> "$GITHUB_OUTPUT"
+
+      # No docker/setup-qemu-action here: the Dockerfile's build stage pins
+      # `--platform=$BUILDPLATFORM` so `go build` cross-compiles natively for
+      # both target arches (no emulated execution), and the distroless final
+      # stage has no RUN steps at all — this multi-arch build needs zero QEMU.
+      - uses: docker/setup-buildx-action@f87e5991a6d7451dcb8d9637bfbc97413f497069 # v4.4.1
+
+      - name: Log in to GHCR
+        uses: docker/login-action@dbcb813823bdd20940b903addbd779551569679f # v4.6.0
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      # sbom: true attaches a BuildKit/syft-generated SPDX SBOM as a native OCI
+      # attestation on the image itself (one per platform) — the container
+      # analogue of dist/dsd.spdx.json above, which only covers the raw
+      # binaries. provenance is intentionally NOT requested here (no
+      # `provenance: true`) to avoid two differently-shaped provenance
+      # attestations on the same subject — the attest-build-provenance step
+      # below is this repo's one SLSA-provenance source of truth, verified the
+      # same way (`gh attestation verify`) for both binaries and this image.
+      - name: Build and push
+        id: build
+        uses: docker/build-push-action@c3c9e263c25d99ce0380d002d59b67737d91b0dc # v7.4.0
+        with:
+          context: .
+          platforms: linux/amd64,linux/arm64
+          push: true
+          sbom: true
+          build-args: |
+            VERSION=${{ steps.meta.outputs.version }}
+            COMMIT=${{ steps.meta.outputs.commit }}
+            BUILT=${{ steps.meta.outputs.built }}
+          tags: |
+            ghcr.io/keyorixhq/dashdiag:${{ steps.meta.outputs.version }}
+            ghcr.io/keyorixhq/dashdiag:${{ steps.meta.outputs.minor }}
+            ghcr.io/keyorixhq/dashdiag:latest
+
+      # cosign keyless (OIDC, no key to generate/protect/rotate) signs the
+      # image digest directly — the OCI-native authenticity anchor a
+      # `cosign verify` policy (admission controllers, `docker scout`, etc.)
+      # checks. This is genuinely additive next to minisign, not redundant
+      # with it (docs/RELEASE_SIGNING.md's "cosign was never adopted" note is
+      # about checksums.txt, which has no OCI-manifest equivalent for minisign
+      # to sign) — the same keyless/no-key rationale that note already gives
+      # for preferring attest-build-provenance's Sigstore cert over a
+      # long-lived key for the binaries.
+      - uses: sigstore/cosign-installer@6f9f17788090df1f26f669e9d70d6ae9567deba6 # v4.1.2
+
+      - name: Sign image (cosign keyless)
+        run: cosign sign --yes "ghcr.io/keyorixhq/dashdiag@${{ steps.build.outputs.digest }}"
+
+      # SLSA-style build provenance, same mechanism/verification command as the
+      # binaries above (`gh attestation verify ... --owner keyorixhq`), now for
+      # the image subject by digest instead of a subject-path.
+      - name: Attest build provenance (image)
+        uses: actions/attest-build-provenance@4d101475d8b20a2381f78447822ac1eab6504dd8 # v4
+        with:
+          subject-name: ghcr.io/keyorixhq/dashdiag
+          subject-digest: ${{ steps.build.outputs.digest }}
+          push-to-registry: true
+
   # Push the regenerated Homebrew formula to keyorixhq/homebrew-tap.
   # Off by default — a no-op until the maintainer has:
   #   1. created the keyorixhq/homebrew-tap repo,

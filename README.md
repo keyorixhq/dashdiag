@@ -219,6 +219,19 @@ git clone https://github.com/keyorixhq/dashdiag
 cd dashdiag && make install
 ```
 
+Or run the container image (multi-arch, signed, distroless):
+
+```bash
+docker run --rm ghcr.io/keyorixhq/dashdiag health
+```
+
+**A container only sees itself.** By default that image diagnoses the
+*container* it runs in, not the host underneath it — dsd says so with a
+one-line notice. To diagnose the host instead, share the host's process,
+network, and filesystem views with the container; see
+[`docs/CONTAINER.md`](docs/CONTAINER.md) for the exact `docker run` flags and
+a table of which checks work, degrade, or stay unavailable in each mode.
+
 ---
 
 ## Commands

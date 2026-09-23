@@ -91,6 +91,42 @@ hand any suggested fix to a human rather than running it yourself.
 
 ---
 
+## From the container image
+
+No local install at all — run the signed, multi-arch image directly as a
+stdio server:
+
+```bash
+docker run -i --rm ghcr.io/keyorixhq/dashdiag mcp
+```
+
+Claude Code:
+
+```bash
+claude mcp add dsd -- docker run -i --rm ghcr.io/keyorixhq/dashdiag mcp
+```
+
+Cursor (`~/.cursor/mcp.json` or `.cursor/mcp.json`):
+
+```json
+{
+  "mcpServers": {
+    "dashdiag": {
+      "command": "docker",
+      "args": ["run", "-i", "--rm", "ghcr.io/keyorixhq/dashdiag", "mcp"]
+    }
+  }
+}
+```
+
+**In this mode the agent's tools diagnose the container, not the host** —
+same default as `docker run ghcr.io/keyorixhq/dashdiag health` (see
+[`docs/CONTAINER.md`](CONTAINER.md)). To point the agent at the host instead,
+add the host-diagnosis mounts/flags from that doc to the `docker run` line
+above.
+
+---
+
 ## What you get
 
 | Tool | What it does |

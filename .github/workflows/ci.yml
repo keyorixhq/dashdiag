@@ -818,3 +818,51 @@ jobs:
             -v "$RUNNER_TEMP/dsd:/usr/local/bin/dsd:ro" \
             -v "$PWD/scripts/container-honesty-smoke.sh:/smoke.sh:ro" \
             debian:13 sh /smoke.sh
+
+  # Container IMAGE build + smoke test — the CI-side counterpart to
+  # release.yml's multi-arch build+push+sign+attest job. This job never
+  # pushes anywhere; it just proves the Dockerfile still builds and the
+  # resulting image still runs, on every PR, host-arch only (release.yml is
+  # the one place linux/arm64 actually gets built and pushed). Relies on the
+  # same needs:[preflight]-only cascade-skip every other non-matrix
+  # preflight-gated job here uses (see the `lint` job's comment above the
+  # `test` job for why matrix jobs need the fuller if: form and non-matrix
+  # jobs don't).
+  image-smoke:
+    name: Container image build + smoke test
+    needs: [preflight]
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+
+      - name: Build image (host arch only)
+        run: |
+          docker build \
+            --build-arg VERSION="ci-${GITHUB_SHA::7}" \
+            --build-arg COMMIT="${GITHUB_SHA::7}" \
+            -t dashdiag:ci .
+
+      - name: Smoke test — --version
+        run: docker run --rm dashdiag:ci --version
+
+      - name: Smoke test — demo --plain (offline, always exits 0)
+        run: docker run --rm dashdiag:ci demo --plain
+
+      # Distroless has no OS package manager, so this is mostly scanning the
+      # embedded Go module list (Trivy's Go-binary scanner reads the
+      # buildinfo `go build` embeds) against known CVEs in go.sum deps — the
+      # same coverage govulncheck gives the source tree, now confirming it
+      # also holds for what's actually IN the shipped image. ignore-unfixed:
+      # true + exit-code 1 on CRITICAL only, matching this task's "fail on
+      # CRIT with a fix available" — a CRITICAL with no upstream fix yet would
+      # otherwise permanently red this job for something nobody can act on.
+      - name: Trivy scan (fail on fixable CRITICAL)
+        uses: aquasecurity/trivy-action@ed142fd0673e97e23eac54620cfb913e5ce36c25 # v0.36.0
+        with:
+          image-ref: dashdiag:ci
+          format: table
+          severity: CRITICAL
+          ignore-unfixed: true
+          exit-code: '1'
