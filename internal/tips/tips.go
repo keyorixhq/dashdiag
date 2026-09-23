@@ -25,6 +25,7 @@ var tips = []struct {
 	{"Watch TLS certificate expiry on an endpoint", "dsd tls --endpoint example.com:443", ""},
 	{"Custom thresholds and service checks", "~/.dsd.yaml", ""},
 	{"Extended deep-dive snapshot — the complete picture", "dsd health --deep", ""},
+	{"See a real diagnosis in 10 seconds — no hardware needed", "dsd demo", ""},
 }
 
 // isPlainMode is a seam so tests can simulate a human-facing TTY session
