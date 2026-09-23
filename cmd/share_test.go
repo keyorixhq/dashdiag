@@ -161,6 +161,9 @@ func TestRenderShareArtifact_AllFormats(t *testing.T) {
 		if counts.Total() == 0 {
 			t.Errorf("expected nonzero redaction counts (hostname at least), got %v", counts)
 		}
+		if !strings.Contains(out, "**Top catch:**") {
+			t.Errorf("expected a Top catch line, got:\n%s", out)
+		}
 	})
 
 	t.Run("html", func(t *testing.T) {
@@ -177,6 +180,9 @@ func TestRenderShareArtifact_AllFormats(t *testing.T) {
 		if !strings.Contains(out, `href="https://dashdiag.sh/?src=share"`) {
 			t.Errorf("expected the footer link tagged with ?src=share, got:\n%s", out)
 		}
+		if !strings.Contains(out, "Top catch:") {
+			t.Errorf("expected a Top catch line, got:\n%s", out)
+		}
 	})
 
 	t.Run("text", func(t *testing.T) {
@@ -189,6 +195,18 @@ func TestRenderShareArtifact_AllFormats(t *testing.T) {
 		}
 		if n := len(strings.Split(strings.TrimRight(out, "\n"), "\n")); n > 40 {
 			t.Errorf("text format is %d lines, want <= 40:\n%s", n, out)
+		}
+		// Top catch must be the line immediately under Verdict.
+		lines := strings.Split(out, "\n")
+		verdictIdx := -1
+		for i, l := range lines {
+			if strings.HasPrefix(l, "Verdict:") {
+				verdictIdx = i
+				break
+			}
+		}
+		if verdictIdx < 0 || verdictIdx+1 >= len(lines) || !strings.HasPrefix(lines[verdictIdx+1], "Top catch:") {
+			t.Errorf("expected \"Top catch:\" on the line right after Verdict, got:\n%s", out)
 		}
 	})
 

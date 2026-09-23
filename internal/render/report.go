@@ -71,6 +71,7 @@ func buildMarkdown(snap *baseline.Snapshot, insights []models.Insight, elapsed t
 		}
 		fmt.Fprintf(&b, "\n")
 	}
+	writeTopCatchMarkdown(&b, insights, len(snap.Checks))
 
 	// Issues — CRIT first, then WARN, then INFO disclosures (a collector that
 	// errored, an unmeasurable value, etc.). INFO isn't a pass/fail verdict

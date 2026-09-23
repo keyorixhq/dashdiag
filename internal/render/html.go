@@ -57,6 +57,7 @@ type htmlReportData struct {
 	Crit         int
 	Warn         int
 	Info         int
+	TopCatch     string // "none — N checks passed." or "<summary> (<topic>) → <fix>"
 	Issues       []htmlIssue
 	Checks       []htmlCheckRow
 	CVE          *htmlCVE
@@ -119,6 +120,11 @@ func buildHTML(snap *baseline.Snapshot, insights []models.Insight, elapsed time.
 		Warn:     warn,
 		Info:     info,
 		Year:     snap.Timestamp.Year(),
+	}
+	if tc, ok := TopCatchLine(insights); ok {
+		data.TopCatch = fmt.Sprintf("%s (%s) → %s", tc.Summary, tc.Topic, tc.Fix)
+	} else {
+		data.TopCatch = fmt.Sprintf("none — %d checks passed.", len(snap.Checks))
 	}
 
 	if b := activeBrand(); b.Company != "" || b.Logo != "" {
@@ -269,6 +275,7 @@ const htmlReportTemplate = `<!DOCTYPE html>
   .verdict { margin: 22px 0; padding: 18px 22px; border-radius: 10px; border-left: 6px solid; }
   .verdict .badge { font-weight: 700; font-size: 18px; letter-spacing: 0.02em; }
   .verdict p { margin: 6px 0 0; font-size: 14px; }
+  .verdict .topcatch { margin-top: 12px; font-size: 13.5px; }
   .verdict.crit { background: var(--crit-bg); border-color: var(--crit); } .verdict.crit .badge { color: var(--crit); }
   .verdict.warn { background: var(--warn-bg); border-color: var(--warn); } .verdict.warn .badge { color: var(--warn); }
   .verdict.ok   { background: var(--ok-bg);   border-color: var(--ok);   } .verdict.ok .badge   { color: var(--ok); }
@@ -349,6 +356,7 @@ const htmlReportTemplate = `<!DOCTYPE html>
       <span class="chip warn">{{.Warn}} warning</span>
       <span class="chip info">{{.Info}} info</span>
     </div>
+    <p class="topcatch"><b>Top catch:</b> {{.TopCatch}}</p>
   </div>
 
   {{if .Issues}}

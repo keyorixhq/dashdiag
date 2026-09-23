@@ -13,6 +13,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- **Top catch** — after the health table, `dsd health` (human/`--plain`/
+  `--layered`), `dsd demo`, and `dsd share` (md/html/text) now print one line
+  naming the single most salient finding: `Top catch: <summary> (<topic>) →
+  <fix or inspect command>`, or `Top catch: none — N checks passed.` on a
+  clean run — always present, never omitted. Selection: highest severity
+  first (CRIT beats WARN); a correlated root cause (`dsd health`'s DIAGNOSIS
+  block) beats a lone symptom insight at the same severity; among ties with
+  no correlation, an insight with a fix hint beats one without; remaining
+  ties break alphabetically by check for run-to-run determinism. `--json`
+  (and the `dsd_health` MCP tool) get an additive top-level `"top_catch":
+  {"topic","severity","summary","fix"}` field, `null` when there's no
+  CRIT/WARN.
+- README restructured around the try → diagnose → share → AI-agent loop:
+  "Try it in 10 seconds" (`dsd demo`, install one-liner, recorded GIF),
+  "Diagnose your own host" (`sudo dsd health`), "Share the diagnosis"
+  (`dsd share`), and "Use it from your AI agent" (`dsd mcp`) are now the
+  first four sections, ahead of the full install/commands reference. New
+  `make demo-gif` target (`hack/demo.tape`, requires `vhs` — skips with an
+  install hint when it isn't present) regenerates `docs/assets/demo.gif`.
 - `dsd share` — the local, redacted, shareable diagnosis (no backend, no
   upload, no network): after `dsd health` finds something, one command
   produces an artifact fit to paste into a ticket, Slack, a vendor support

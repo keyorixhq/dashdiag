@@ -164,6 +164,31 @@
           }
         }
       }
+    },
+    "top_catch": {
+      "description": "The single most salient finding this run: highest severity first (CRIT beats WARN), a correlated root cause preferred over a lone symptom insight, then (among ties) an insight with a fix preferred over one without. Nullable: null when there is no CRIT/WARN (an all-clear or INFO-only run).",
+      "type": "object",
+      "required": ["topic", "severity", "summary", "fix"],
+      "additionalProperties": false,
+      "properties": {
+        "topic": {
+          "type": "string",
+          "description": "Lowercase, hyphenated slug of the primary check this finding is about (e.g. \"docker\", \"cpu-load\") — the same slug used in the dashdiag.sh/checks/<topic> catalog link."
+        },
+        "severity": {
+          "type": "string",
+          "enum": ["WARN", "CRIT"],
+          "description": "Severity of the winning finding"
+        },
+        "summary": {
+          "type": "string",
+          "description": "One-sentence description of the finding"
+        },
+        "fix": {
+          "type": "string",
+          "description": "A command to fix or investigate the finding — from the winning correlation's Action, the winning insight's first hint, or a generic fallback (`dsd health --explain`) when neither is available"
+        }
+      }
     }
   }
 }

@@ -9,6 +9,71 @@ Your car has had a health scanner since 1996. Plug it in, get:
 *"cylinder 3 misfire, coolant temp sensor reading high."* No guessing.
 
 `dsd` does the same for Linux. One command. Full picture. 1–3 seconds.
+No agents. No cloud. No registration. Single binary over SSH.
+
+---
+
+## Try it in 10 seconds
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/keyorixhq/dashdiag/main/install.sh | sh
+```
+
+No target machine yet? `dsd demo` renders a real diagnosis of a simulated
+broken host — same render pipeline as a live run, zero setup, no network,
+always exits `0`:
+
+![dsd demo](docs/assets/demo.gif)
+
+```
+$ dsd demo
+
+⚡ DashDiag (dsd) v0.6.10 — DEMO: simulated host, not this machine. Run `sudo dsd health` for yours.
+db-prod-02 · Rocky Linux 9.4
+────────────────────────────────────────────────────────
+CPU Load     ✅  44% (load avg 7.2 across 16 CPUs)
+Memory       ✅  58/64 GB (90%)
+Swap         ✅  1.2 GB used
+Disk         ✅  / 61%
+IO           ⚠️  nvme0n1 await 24 ms — elevated disk latency
+Drives       ❌  /dev/sdb SMART health FAILED — drive may be failing, back up immediately
+Network      ✅  bond0 2x10Gbps  gw <1 ms
+Systemd      ✅  boot 21s
+Logs         ⚠️  12 disk I/O errors in dmesg in the last hour (sdb)
+Hardening    ✅  sshd hardened
+Firewall     ✅  firewalld  running
+Top catch: /dev/sdb SMART health FAILED — drive may be failing, back up immediately (drives) → to inspect: smartctl -a /dev/sdb
+────────────────────────────────────────────────────────
+❌  Drives: /dev/sdb SMART health FAILED — drive may be failing, back up immediately
+   → note: a FAILED self-assessment means the drive predicts its own failure — replace it
+   → to inspect:
+     smartctl -a /dev/sdb
+     dmesg | grep -i 'error\|failed\|reset'
+⚠️  IO: nvme0n1 await 24 ms — elevated disk latency
+   → to inspect: iostat -x 1 5
+⚠️  Logs: 12 disk I/O errors in dmesg in the last hour (sdb)
+   → to inspect: dmesg -T | grep -i 'I/O error'
+
+/dev/sdb's SMART self-check has moved from pass to FAILED — the drive is now predicting its own failure, not just running slow.
+Rising I/O latency (24ms await) and a burst of I/O errors in dmesg over the last hour are the drive's death throes, not routine noise.
+Back up whatever's on sdb right now, then replace the drive — don't wait for it to go fully dark.
+```
+
+That's the thing a healthy box can never show you: the causal chain from
+symptom (elevated I/O latency) to structural cause (a failing drive) to fix
+(back it up now). `dsd demo --list` shows four more scenarios (a Proxmox
+backup gap, a VMware SCSI-timeout gotcha, a Docker host meltdown, an
+actively-exploited CVE); `dsd demo <name>` renders any of them.
+
+---
+
+## Diagnose your own host
+
+Point it at a real machine — read-only, no agent, no config required:
+
+```bash
+sudo dsd health
+```
 
 ```
 $ sudo dsd health
@@ -36,6 +101,7 @@ Battery      ✅  100%
 OOM          ✅  0 events
 Sessions     ✅  2 sessions  1 remote
 CPUFreq      ✅  performance  3820/4465 MHz
+Top catch: vm.swappiness=60 is high for a server (sysctl) → to fix: sysctl -w vm.swappiness=10
 ────────────────────────────────────────────────────────
 ⚠️  Sysctl: vm.swappiness=60 is high for a server
    → to fix:    sysctl -w vm.swappiness=10
@@ -43,7 +109,61 @@ CPUFreq      ✅  performance  3820/4465 MHz
 done in 1.3s
 ```
 
-No agents. No cloud. No registration. Single binary over SSH.
+`Top catch` is the single most important line on a busy host: the highest-
+severity finding, with a correlated root cause preferred over one of the
+symptoms it explains — so on a bad day you read one line, not twenty-two.
+
+---
+
+## Share the diagnosis
+
+Found something? `dsd share` turns it into one pasteable artifact — with
+secrets, tokens, hostnames, and IP addresses redacted by default. Paste it
+into a ticket, a Slack thread, or hand it straight to your AI agent:
+
+```
+$ dsd share --format text --stdout
+
+<host> · Ubuntu 24.04 LTS · dsd v0.6.10
+2026-09-23 16:21:24 UTC
+
+Verdict: CRIT — 1 critical, 2 warning
+Top catch: container "payments-api" is crash looping (restarted >5 times); 3 container OOM kill(s) in the last hour (docker) → to inspect: docker logs payments-api --tail 50
+
+[CRIT] docker — container "payments-api" is crash looping (restarted >5 times); 3 container OOM kill(s) in the last hour → fix: to inspect: docker logs payments-api --tail 50 (https://dashdiag.sh/checks/docker)
+[WARN] hardening — container "ci-runner" mounts /var/run/docker.sock — full host root from inside the container → fix: note: a compromised container with the socket = host takeover (https://dashdiag.sh/checks/hardening)
+[WARN] memory — memory at 92% — OOM kill risk → fix: to inspect: docker stats --no-stream (https://dashdiag.sh/checks/memory)
+
+— dsd v0.6.10 · https://github.com/keyorixhq/dashdiag · https://dashdiag.sh/?src=share
+```
+
+No backend, no upload, no network — just a local file (or stdout with
+`--stdout`). `--format md|html|blob` produce the full markdown/HTML report or
+the existing `--blob` encoding instead; `dsd share --from bundle.tar.gz` or
+`--last` shares a past run. `--no-redact` opts out (with a warning);
+`--keep-hostnames`/`--keep-ips` opt out selectively. Redaction is
+best-effort — see [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md#6-local-share--dsd-share--dsd_share)
+for what it does and doesn't catch.
+
+---
+
+## Use it from your AI agent
+
+```bash
+claude mcp add dsd -- dsd mcp
+```
+
+`dsd mcp` starts a Model Context Protocol server over stdio, giving an agent
+five tools: `dsd_health` (the full pipeline as JSON), `dsd_capture` (record a
+bundle for offline replay), `dsd_replay`/`dsd_diff` (replay or diff a
+captured bundle), and `dsd_share` (a redacted, pasteable summary — the same
+artifact the section above produces, on demand). Works with any MCP client,
+not just Claude Code.
+
+An agent reasoning about a broken host needs *deterministic, citable* ground
+truth, not its own guess dressed up as one — and every `dsd` tool is
+read-only, so pointing an agent at them never risks it "fixing" its way into
+a worse outage.
 
 ---
 
@@ -98,83 +218,6 @@ Or build from source (requires Go 1.22+):
 git clone https://github.com/keyorixhq/dashdiag
 cd dashdiag && make install
 ```
-
----
-
-## Try it in 10 seconds
-
-No target machine yet? `dsd demo` renders a real diagnosis of a simulated
-broken host — same render pipeline as a live run, zero setup, no network,
-always exits `0`:
-
-```
-$ dsd demo
-
-⚡ DashDiag (dsd) v0.6.10 — DEMO: simulated host, not this machine. Run `sudo dsd health` for yours.
-db-prod-02 · Rocky Linux 9.4
-────────────────────────────────────────────────────────
-CPU Load     ✅  44% (load avg 7.2 across 16 CPUs)
-Memory       ✅  58/64 GB (90%)
-Swap         ✅  1.2 GB used
-Disk         ✅  / 61%
-IO           ⚠️  nvme0n1 await 24 ms — elevated disk latency
-Drives       ❌  /dev/sdb SMART health FAILED — drive may be failing, back up immediately
-Network      ✅  bond0 2x10Gbps  gw <1 ms
-Systemd      ✅  boot 21s
-Logs         ⚠️  12 disk I/O errors in dmesg in the last hour (sdb)
-Hardening    ✅  sshd hardened
-Firewall     ✅  firewalld  running
-────────────────────────────────────────────────────────
-❌  Drives: /dev/sdb SMART health FAILED — drive may be failing, back up immediately
-   → note: a FAILED self-assessment means the drive predicts its own failure — replace it
-   → to inspect:
-     smartctl -a /dev/sdb
-     dmesg | grep -i 'error\|failed\|reset'
-⚠️  IO: nvme0n1 await 24 ms — elevated disk latency
-   → to inspect: iostat -x 1 5
-⚠️  Logs: 12 disk I/O errors in dmesg in the last hour (sdb)
-   → to inspect: dmesg -T | grep -i 'I/O error'
-
-/dev/sdb's SMART self-check has moved from pass to FAILED — the drive is now predicting its own failure, not just running slow.
-Rising I/O latency (24ms await) and a burst of I/O errors in dmesg over the last hour are the drive's death throes, not routine noise.
-Back up whatever's on sdb right now, then replace the drive — don't wait for it to go fully dark.
-```
-
-That's the thing a healthy box can never show you: the causal chain from
-symptom (elevated I/O latency) to structural cause (a failing drive) to fix
-(back it up now). `dsd demo --list` shows four more scenarios (a Proxmox
-backup gap, a VMware SCSI-timeout gotcha, a Docker host meltdown, an
-actively-exploited CVE); `dsd demo <name>` renders any of them.
-
----
-
-## Share the diagnosis
-
-Found something? `dsd share` turns it into one pasteable artifact — with
-secrets, tokens, hostnames, and IP addresses redacted by default:
-
-```
-$ dsd share --format text --stdout
-
-<host> · Ubuntu 24.04 LTS · dsd v0.6.10
-2026-09-23 16:21:24 UTC
-
-Verdict: CRIT — 1 critical, 2 warning
-
-[CRIT] docker — container "payments-api" is crash looping (restarted >5 times); 3 container OOM kill(s) in the last hour → fix: to inspect: docker logs payments-api --tail 50 (https://dashdiag.sh/checks/docker)
-[WARN] hardening — container "ci-runner" mounts /var/run/docker.sock — full host root from inside the container → fix: note: a compromised container with the socket = host takeover (https://dashdiag.sh/checks/hardening)
-[WARN] memory — memory at 92% — OOM kill risk → fix: to inspect: docker stats --no-stream (https://dashdiag.sh/checks/memory)
-
-— dsd v0.6.10 · https://github.com/keyorixhq/dashdiag · https://dashdiag.sh/?src=share
-```
-
-No backend, no upload, no network — just a local file (or stdout with
-`--stdout`). `--format md|html|blob` produce the full markdown/HTML report or
-the existing `--blob` encoding instead; `dsd share --from bundle.tar.gz` or
-`--last` shares a past run. `--no-redact` opts out (with a warning);
-`--keep-hostnames`/`--keep-ips` opt out selectively. Redaction is
-best-effort — see [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md#6-local-share--dsd-share--dsd_share)
-for what it does and doesn't catch.
 
 ---
 
@@ -454,6 +497,7 @@ Requires: Linux kernel 4.18+ or macOS 12+. Single binary, no dependencies.
 
 ## Design principles
 
+- **Observes and explains. Never changes the host.**
 - **Read-only** — no writes to the system, ever
 - **No agent** — binary runs on demand, nothing stays resident
 - **No cloud** — all data stays on the machine

@@ -27,6 +27,7 @@ var tips = []struct {
 	{"Extended deep-dive snapshot — the complete picture", "dsd health --deep", ""},
 	{"See a real diagnosis in 10 seconds — no hardware needed", "dsd demo", ""},
 	{"Share a redacted diagnosis — ticket, Slack, or an LLM chat", "dsd share --format text --stdout", ""},
+	{"Explain every flagged subsystem — start from Top catch", "dsd health --explain", ""},
 }
 
 // isPlainMode is a seam so tests can simulate a human-facing TTY session

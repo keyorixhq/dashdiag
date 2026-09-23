@@ -8,6 +8,7 @@ import (
 
 	"gopkg.in/yaml.v3"
 
+	"github.com/keyorixhq/dashdiag/internal/analysis"
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/platform"
 	"github.com/keyorixhq/dashdiag/internal/runner"
@@ -33,6 +34,17 @@ type JSONOutput struct {
 	Counts   JSONCounts    `json:"counts"` // insight tallies by level
 	Checks   []JSONCheck   `json:"checks"`
 	Insights []JSONInsight `json:"insights"`
+	// TopCatch is the single most salient finding this run — see
+	// ComputeTopCatch. Additive: the key is always present but its value is
+	// null (not omitted) when there is no CRIT/WARN, so a consumer checking
+	// for the key's existence always finds it, and one ignoring it is
+	// unaffected. Computed from analysis.Correlate(insights) — the
+	// insights-only correlation rules; a handful of time-aware
+	// analysis.CorrelateDeep rules (raw OOM/Docker event timing, IO
+	// device/process attribution) are unavailable here and only affect the
+	// human-rendered `dsd health` line, which has the full deep correlation
+	// set.
+	TopCatch *TopCatch `json:"top_catch"`
 }
 
 // JSONCounts tallies insights by level so a consumer can branch without
@@ -214,6 +226,7 @@ func buildOutput(results []runner.Result, insights []models.Insight) JSONOutput 
 		Counts:    counts,
 		Checks:    checks,
 		Insights:  jsonInsights,
+		TopCatch:  ComputeTopCatch(insights, analysis.Correlate(insights)),
 	}
 }
 

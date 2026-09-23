@@ -56,3 +56,4 @@ DEMO-1	./cmd	TestDemoDefaultScenario	TBD-on-merge	first-run wow without a broken
 SHARE-1	./internal/share	TestRedactText_SecretsAndIdentifiers	TBD-on-merge	dsd share's redaction pass strips secrets plus hostnames/IPv4/IPv6/MACs/usernames/serials/cloud-IDs/emails from a rendered report, keeping labels intact
 SHARE-2	./cmd	TestRenderShareArtifact_AllFormats	TBD-on-merge	every dsd share --format value (md/html/text/blob) renders, redacts the fixture hostname by default, and the text format stays within the 40-line ticket budget
 SHARE-3	./cmd	TestToolShare_FromPathRejectsOutsideCWD	TBD-on-merge	the dsd_share MCP tool's from_path is CWD-confined via safeBundlePath, matching dsd_capture/dsd_replay/dsd_diff's path-argument threat model
+TOPCATCH-1	./internal/render	TestRenderJSON_TopCatchField_NullWhenHealthy	TBD-on-merge	the top_catch JSON key is always present (never omitted) even when there's no CRIT/WARN — a consumer checking for the key's existence always finds it
