@@ -1,0 +1,7 @@
+  1 lo        loopback - unmanaged
+  2 nic0      ether    - unmanaged
+  3 vmbr0     bridge   - unmanaged
+ 13 veth100i0 ether    - unmanaged
+ 14 veth221i0 ether    - unmanaged
+ 15 veth222i0 ether    - unmanaged
+ 16 veth223i0 ether    - unmanaged
