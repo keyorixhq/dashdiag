@@ -286,6 +286,35 @@ hooks:
 	@echo "   pre-commit: gofmt + go vet + go test -short"
 	@echo "   pre-push:   go test -race + golangci-lint + gosec + base-branch check (warn-only)"
 
+# ── DEMO GIF ──────────────────────────────────────────────────────────────────
+# Regenerates docs/assets/demo.gif (README's "Try it in 10 seconds" section)
+# from hack/demo.tape via VHS (https://github.com/charmbracelet/vhs). Never
+# fails the build when vhs isn't installed — prints an install hint and
+# skips instead, since this target isn't part of `make check`/`make test`.
+.PHONY: demo-gif
+demo-gif: build
+	@if ! command -v vhs >/dev/null 2>&1; then \
+		echo "vhs not found — install it to record the demo GIF:"; \
+		echo "  brew install vhs   (or: go install github.com/charmbracelet/vhs@latest)"; \
+		echo "  https://github.com/charmbracelet/vhs#installation"; \
+		echo "skipping demo-gif"; \
+	else \
+		mkdir -p docs/assets; \
+		PATH="$(CURDIR)/dist:$$PATH" vhs hack/demo.tape; \
+		if [ -f docs/assets/demo.gif ]; then \
+			size=$$(wc -c < docs/assets/demo.gif | tr -d ' '); \
+			echo "→ docs/assets/demo.gif: $$size bytes"; \
+			if [ "$$size" -gt 1572864 ]; then \
+				echo "⚠️  demo.gif exceeds 1.5MB ($$size bytes) — do NOT commit it as-is;"; \
+				echo "   host it elsewhere, or re-tune hack/demo.tape (shorter Sleep, smaller Width/Height, fewer colors)"; \
+			else \
+				echo "✅ demo.gif is under 1.5MB — safe to commit"; \
+			fi; \
+		else \
+			echo "⚠️  vhs ran but docs/assets/demo.gif was not produced — check hack/demo.tape's Output path"; \
+		fi; \
+	fi
+
 # ── CLEAN ─────────────────────────────────────────────────────────────────────
 .PHONY: clean
 clean:
@@ -314,6 +343,7 @@ help:
 	@echo "  make security     → govulncheck + gosec"
 	@echo "  make tools        → install all dev tools"
 	@echo "  make hooks        → install pre-commit and pre-push git hooks"
+	@echo "  make demo-gif     → regenerate docs/assets/demo.gif via vhs (requires vhs; skips gracefully otherwise)"
 	@echo "  make clean        → remove dist/ and coverage files"
 
 

@@ -23,6 +23,7 @@ import (
 	"github.com/spf13/cobra"
 	"gopkg.in/yaml.v3"
 
+	"github.com/keyorixhq/dashdiag/internal/analysis"
 	"github.com/keyorixhq/dashdiag/internal/demo"
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
@@ -98,6 +99,8 @@ func runDemo(cmd *cobra.Command, args []string) error {
 	plain, _ := cmd.Flags().GetBool("plain")
 	r := render.NewRenderer(output.DetectMode(plain, false, ""))
 	r.PrintAllMock(results, insights, mockInlineFunc(fix.Rows))
+
+	r.PrintTopCatch(insights, analysis.Correlate(insights), len(results))
 
 	start := time.Now().Add(-3 * time.Second) // simulate a ~3s run, like dsd mock
 	r.PrintSummary(insights, time.Since(start))

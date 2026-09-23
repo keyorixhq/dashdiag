@@ -171,4 +171,15 @@ var sanitizeGovernanceExemptions = map[string]string{
 	// sanitize for; the actual print site in this file (PrintInsightChanges)
 	// already calls output.SanitizeControl on every Insight field it prints.
 	"watchdiff.go:insightSignature": "return value is an internal map key for tick dedup, never printed",
+
+	// ComputeTopCatch is a pure selector (picks the winning Correlation/
+	// Insight and copies its Summary/Message and Action/Hints[0] into a
+	// TopCatch value) — not a sink itself. Every actual sink sanitizes on
+	// its own terms: PrintTopCatch/TopCatchLine call output.SanitizeControl
+	// before a terminal/markdown/HTML print (same as PrintCorrelations does
+	// for Correlation.Summary/Action), and buildOutput's use feeds the
+	// top_catch JSON field, which encoding/json.Marshal escapes control
+	// characters for by construction — the identical reasoning as this
+	// file's existing "json.go:buildOutput" exemption above.
+	"topcatch.go:ComputeTopCatch": "pure selector, not a sink — every caller (PrintTopCatch/TopCatchLine for terminal/HTML, buildOutput for JSON) sanitizes or escapes on its own terms",
 }

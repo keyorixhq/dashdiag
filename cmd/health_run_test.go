@@ -508,7 +508,7 @@ func TestPrintHealthMainOutputModes(t *testing.T) {
 
 	jsonOut := captureStdout(t, func() {
 		r := render.NewRenderer(output.ModeJSON)
-		printHealthMainOutput(r, output.ModeJSON, results, insights, nil, false, false)
+		printHealthMainOutput(r, output.ModeJSON, results, insights, nil, false, false, len(results))
 	})
 	if !strings.Contains(jsonOut, `"checks"`) {
 		t.Errorf("JSON mode should emit the JSON document, got: %q", jsonOut)
@@ -516,7 +516,7 @@ func TestPrintHealthMainOutputModes(t *testing.T) {
 
 	yamlOut := captureStdout(t, func() {
 		r := render.NewRenderer(output.ModeYAML)
-		printHealthMainOutput(r, output.ModeYAML, results, insights, nil, false, false)
+		printHealthMainOutput(r, output.ModeYAML, results, insights, nil, false, false, len(results))
 	})
 	if yamlOut == "" {
 		t.Error("YAML mode should emit a document")
@@ -524,7 +524,7 @@ func TestPrintHealthMainOutputModes(t *testing.T) {
 
 	plainOut := captureStdout(t, func() {
 		r := render.NewRenderer(output.ModePlain)
-		printHealthMainOutput(r, output.ModePlain, results, insights, nil, false, false)
+		printHealthMainOutput(r, output.ModePlain, results, insights, nil, false, false, len(results))
 	})
 	if !strings.Contains(plainOut, "CPU Load") {
 		t.Errorf("plain mode should render the results table, got: %q", plainOut)
@@ -532,10 +532,67 @@ func TestPrintHealthMainOutputModes(t *testing.T) {
 
 	layeredOut := captureStdout(t, func() {
 		r := render.NewRenderer(output.ModePlain)
-		printHealthMainOutput(r, output.ModePlain, results, insights, nil, true, false)
+		printHealthMainOutput(r, output.ModePlain, results, insights, nil, true, false, len(results))
 	})
 	if layeredOut == "" {
 		t.Error("layered mode should render a layered report")
+	}
+}
+
+// TestPrintHealthMainOutput_TopCatchLine covers the "Top catch" line's
+// presence and placement: after the health table (and, when present, the
+// DIAGNOSIS correlation block), before the summary block printHealthResults
+// prints next. Human/plain and --layered all share printHealthMainOutput's
+// same default branch, so one assertion per mode/flag combination is enough.
+func TestPrintHealthMainOutput_TopCatchLine(t *testing.T) {
+	results := []runner.Result{{Name: "Docker", Data: &models.DockerInfo{}}}
+	insights := []models.Insight{{
+		Level: "CRIT", Check: "Docker", Message: "container crash looping",
+		Hints: []string{"to inspect: docker logs payments-api"},
+	}}
+	want := "Top catch: container crash looping (docker) → to inspect: docker logs payments-api"
+
+	plainOut := captureStdout(t, func() {
+		r := render.NewRenderer(output.ModePlain)
+		printHealthMainOutput(r, output.ModePlain, results, insights, nil, false, false, len(results))
+	})
+	if !strings.Contains(plainOut, want) {
+		t.Errorf("plain mode missing Top catch line, got:\n%s", plainOut)
+	}
+
+	layeredOut := captureStdout(t, func() {
+		r := render.NewRenderer(output.ModePlain)
+		printHealthMainOutput(r, output.ModePlain, results, insights, nil, true, false, len(results))
+	})
+	if !strings.Contains(layeredOut, want) {
+		t.Errorf("--layered mode missing Top catch line, got:\n%s", layeredOut)
+	}
+
+	// JSON mode gets the additive top_catch field instead of a printed line.
+	jsonOut := captureStdout(t, func() {
+		r := render.NewRenderer(output.ModeJSON)
+		printHealthMainOutput(r, output.ModeJSON, results, insights, nil, false, false, len(results))
+	})
+	if strings.Contains(jsonOut, "Top catch:") {
+		t.Errorf("JSON mode should not print the human Top catch line, got:\n%s", jsonOut)
+	}
+	if !strings.Contains(jsonOut, `"top_catch"`) {
+		t.Errorf("JSON mode should carry the additive top_catch field, got:\n%s", jsonOut)
+	}
+}
+
+// TestPrintHealthMainOutput_TopCatchAllClear covers the healthy-run line.
+func TestPrintHealthMainOutput_TopCatchAllClear(t *testing.T) {
+	results := []runner.Result{{Name: "CPU Load", Data: &models.CPUInfo{}}}
+	insights := []models.Insight{{Level: "OK", Check: "CPU Load"}}
+
+	out := captureStdout(t, func() {
+		r := render.NewRenderer(output.ModePlain)
+		printHealthMainOutput(r, output.ModePlain, results, insights, nil, false, false, len(results))
+	})
+	want := "Top catch: none — 1 checks passed."
+	if !strings.Contains(out, want) {
+		t.Errorf("expected the all-clear Top catch line, got:\n%s", out)
 	}
 }
 

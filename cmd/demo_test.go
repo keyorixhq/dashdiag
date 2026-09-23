@@ -76,6 +76,25 @@ func TestDemoNamedScenario(t *testing.T) {
 	}
 }
 
+// TestDemoTopCatchLine covers the Top catch line's presence in `dsd demo`'s
+// human output — docker-host-meltdown's only CRIT is Docker (the crash-loop
+// finding), so it must win regardless of the WARN-level Hardening/Memory
+// findings the same fixture carries.
+func TestDemoTopCatchLine(t *testing.T) {
+	c := newBareDemoCmd()
+	stdout := captureStdout(t, func() {
+		if err := runDemo(c, []string{"docker-host-meltdown"}); err != nil {
+			t.Errorf("runDemo(docker-host-meltdown): %v", err)
+		}
+	})
+	if !strings.Contains(stdout, "Top catch: container \"payments-api\" is crash looping") {
+		t.Errorf("stdout missing Top catch line for docker-host-meltdown:\n%s", stdout)
+	}
+	if !strings.Contains(stdout, "(docker)") {
+		t.Errorf("stdout missing Top catch topic slug:\n%s", stdout)
+	}
+}
+
 func TestDemoUnknownScenario(t *testing.T) {
 	c := newBareDemoCmd()
 	err := captureStderrErr(t, func() error {
