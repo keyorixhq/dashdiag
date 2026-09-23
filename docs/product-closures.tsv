@@ -53,3 +53,6 @@ GAP-1-cleanup-error-reported	./internal/fleet	TestRunHost_CleanupFailureReported
 GAP-1-write-invariant	.	TestWriteCapableCallSitesAreOwnArtifactsOnly	e960f7a9	every write-capable call site outside internal/fleet must write only the operator's own output artifact
 BUG-101	./internal/collectors	TestTryOVALFallback_FoundWithRealInstalledPackage	2f8acf5e	single-CVE OVAL check (dsd cve check --oval) now vendor-dispatches to Ubuntu/Debian parsing, matching the bulk --oval-scan path
 DEMO-1	./cmd	TestDemoDefaultScenario	TBD-on-merge	first-run wow without a broken host: `dsd demo` with zero args renders a real-looking broken-host diagnosis via the live render pipeline, no hardware/files/network required
+SHARE-1	./internal/share	TestRedactText_SecretsAndIdentifiers	TBD-on-merge	dsd share's redaction pass strips secrets plus hostnames/IPv4/IPv6/MACs/usernames/serials/cloud-IDs/emails from a rendered report, keeping labels intact
+SHARE-2	./cmd	TestRenderShareArtifact_AllFormats	TBD-on-merge	every dsd share --format value (md/html/text/blob) renders, redacts the fixture hostname by default, and the text format stays within the 40-line ticket budget
+SHARE-3	./cmd	TestToolShare_FromPathRejectsOutsideCWD	TBD-on-merge	the dsd_share MCP tool's from_path is CWD-confined via safeBundlePath, matching dsd_capture/dsd_replay/dsd_diff's path-argument threat model

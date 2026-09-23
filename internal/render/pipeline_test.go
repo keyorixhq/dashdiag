@@ -129,7 +129,13 @@ func TestBuildMarkdownReportQuality(t *testing.T) {
 	}
 
 	// 2. Worst-first, alphabetical within rank: CRIT, WARN, then OK (Alpha<Mid<Zeta).
-	want := []string{"| CPU Load | 🔴 CRIT", "| Disk | ⚠️ WARN", "| Alpha | ✅", "| Mid | ✅", "| Zeta | ✅"}
+	want := []string{
+		"| [CPU Load](https://dashdiag.sh/checks/cpu-load) | 🔴 CRIT",
+		"| [Disk](https://dashdiag.sh/checks/disk) | ⚠️ WARN",
+		"| [Alpha](https://dashdiag.sh/checks/alpha) | ✅",
+		"| [Mid](https://dashdiag.sh/checks/mid) | ✅",
+		"| [Zeta](https://dashdiag.sh/checks/zeta) | ✅",
+	}
 	last := -1
 	for _, tok := range want {
 		i := strings.Index(md, tok)

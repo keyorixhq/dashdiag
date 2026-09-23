@@ -2,11 +2,12 @@ package cmd
 
 // mcp.go — `dsd mcp`: MCP (Model Context Protocol) server over stdio.
 //
-// Exposes four tools that give an AI agent structured, citable host context:
+// Exposes five tools that give an AI agent structured, citable host context:
 //   dsd_health   — run the health pipeline and return the JSON verdict
 //   dsd_capture  — record a raw bundle for offline replay/diff
 //   dsd_replay   — replay a bundle and return its JSON verdict
 //   dsd_diff     — diff two bundles and return per-check status transitions
+//   dsd_share    — run the health pipeline and return a redacted, pasteable summary
 //
 // All tools are thin wrappers over existing code paths; no new collector or
 // verdict logic lives here. The output of every tool is the existing
@@ -38,6 +39,7 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/output"
 	"github.com/keyorixhq/dashdiag/internal/platform"
 	"github.com/keyorixhq/dashdiag/internal/render"
+	"github.com/keyorixhq/dashdiag/internal/share"
 	"github.com/keyorixhq/dashdiag/internal/source"
 	"github.com/keyorixhq/dashdiag/internal/version"
 )
@@ -55,11 +57,12 @@ var mcpCmd = &cobra.Command{
 stdin/stdout. This lets AI agents (Claude Code, Cursor, etc.) call dsd's
 diagnosis tools directly and cite the results as citable host evidence.
 
-Four tools are exposed:
+Five tools are exposed:
   dsd_health   — run the full health pipeline (same as dsd health --json)
   dsd_capture  — record a raw bundle to a file for offline replay
   dsd_replay   — replay a bundle and return its health verdict as JSON
   dsd_diff     — diff two bundles, returning per-check status transitions
+  dsd_share    — run the health pipeline and return a redacted, pasteable summary
 
 Register in Claude Code:
   claude mcp add dsd -- dsd mcp
@@ -115,6 +118,13 @@ type mcpReplayInput struct {
 type mcpDiffInput struct {
 	BaselinePath string `json:"baseline_path" jsonschema:"path to the baseline (before) bundle"`
 	CurrentPath  string `json:"current_path"  jsonschema:"path to the current (after) bundle"`
+}
+
+type mcpShareInput struct {
+	Format   string `json:"format,omitempty"    jsonschema:"output format: md|html|text|blob (default: text)"`
+	FromPath string `json:"from_path,omitempty" jsonschema:"optional path to a past run to share instead of running collectors now — a snapshot.json or a bundle.tar.gz created by dsd_capture"`
+	Deep     bool   `json:"deep,omitempty"      jsonschema:"run extended analysis (live run only, ignored with from_path)"`
+	CVE      bool   `json:"cve,omitempty"       jsonschema:"include CVE security advisory scan (live run only, ignored with from_path)"`
 }
 
 // mcpAllowAbsolutePaths opts out of safeBundlePath's default CWD-subtree
@@ -406,6 +416,57 @@ func toolDiff(_ context.Context, _ *mcp.CallToolRequest, in mcpDiffInput) (
 	}, nil, nil
 }
 
+// toolShare runs the health pipeline (or replays from_path, when given) and
+// returns a redacted, pasteable summary in the requested format. Equivalent
+// to `dsd share --format <format> [--from <from_path>]`, always with
+// redaction on (an MCP caller has no --no-redact equivalent — this tool's
+// whole purpose is a safe-to-forward summary).
+func toolShare(ctx context.Context, _ *mcp.CallToolRequest, in mcpShareInput) (
+	*mcp.CallToolResult, any, error,
+) {
+	mcpPipelineMu.Lock()
+	defer mcpPipelineMu.Unlock()
+
+	format := in.Format
+	if format == "" {
+		format = "text"
+	}
+	if _, ok := shareFormats[format]; !ok {
+		return nil, nil, fmt.Errorf("dsd_share: unknown format %q (want md|html|text|blob)", format)
+	}
+
+	ctx, cancel := context.WithTimeout(ctx, mcpToolTimeout)
+	defer cancel()
+
+	var src *shareSource
+	var err error
+	if in.FromPath != "" {
+		fromPath, perr := safeBundlePath(in.FromPath)
+		if perr != nil {
+			return nil, nil, fmt.Errorf("dsd_share: invalid from_path: %w", perr)
+		}
+		if isBundlePath(fromPath) {
+			src, err = shareFromBundle(fromPath)
+		} else {
+			src, err = shareFromSnapshotFile(fromPath)
+		}
+	} else {
+		src, err = shareFromLiveRun(ctx, healthRunOpts{IncludeDeep: in.Deep, IncludeCVE: in.CVE})
+	}
+	if err != nil {
+		return nil, nil, fmt.Errorf("dsd_share: %w", err)
+	}
+	defer src.restore()
+
+	artifact, _, err := renderShareArtifact(format, src, share.RedactOptions{})
+	if err != nil {
+		return nil, nil, fmt.Errorf("dsd_share: %w", err)
+	}
+	return &mcp.CallToolResult{
+		Content: []mcp.Content{&mcp.TextContent{Text: artifact}},
+	}, nil, nil
+}
+
 // ── server ─────────────────────────────────────────────────────────────────
 
 func runMCP(_ *cobra.Command, _ []string) error {
@@ -450,6 +511,16 @@ func runMCP(_ *cobra.Command, _ []string) error {
 			"healthy state and a broken one, or to verify that a change had the intended " +
 			"effect. Each entry has: name, before, after, status_change, changed, improved.",
 	}, toolDiff)
+
+	mcp.AddTool(srv, &mcp.Tool{
+		Name: "dsd_share",
+		Description: "Run the DashDiag health pipeline (or replay a past run via from_path) and " +
+			"return a redacted, pasteable summary — safe to forward into a ticket, chat, or " +
+			"another tool's context. Secrets, hostnames, IP addresses, and other identifiers " +
+			"are redacted by default (best-effort — see docs/THREAT_MODEL.md's \"Local share\" " +
+			"section). format selects md|html|text|blob (default text, a short ticket-form " +
+			"summary). This tool is read-only and makes no changes to the host.",
+	}, toolShare)
 
 	return srv.Run(context.Background(), &mcp.StdioTransport{})
 }

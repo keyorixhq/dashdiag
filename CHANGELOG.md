@@ -13,6 +13,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Added
 
+- `dsd share` — the local, redacted, shareable diagnosis (no backend, no
+  upload, no network): after `dsd health` finds something, one command
+  produces an artifact fit to paste into a ticket, Slack, a vendor support
+  case, or an LLM chat. `--format md|html|text|blob` (default `md`); `text`
+  is a new ≤40-line ticket-form summary. Redacted by default — secrets (the
+  same rules `dsd capture --sanitize` uses) plus hostnames, IPv4/IPv6, MACs,
+  usernames, serial numbers, cloud instance IDs, and emails
+  (`--keep-hostnames`/`--keep-ips` opt out selectively, `--no-redact`
+  disables the whole pass with a warning). `--from <snapshot.json|bundle.tar.gz>`
+  and `--last` share a past run instead of collecting live data. Every check
+  name links to `https://dashdiag.sh/checks/<id>`. `--json` adds additive
+  `redacted`/`redactions` fields to the standard `dsd health --json` schema.
+  New MCP tool `dsd_share` (CWD-confined `from_path`, redaction always on).
 - `dsd demo` — renders a simulated broken-host diagnosis with zero setup (no
   hardware, no files, no network): `dsd demo` for the flagship scenario (a
   failing drive), `dsd demo --list` to browse, `dsd demo <name>` for a specific

@@ -55,6 +55,18 @@ var mcpGovernanceExemptions = map[string]string{
 	// (sanitize-bundle-03), a different mechanism for a different surface
 	// (the written file, not this response).
 	"toolCapture": "structured mcpCaptureOutput carries no collector-derived free text; see sanitizeDisclosureNote/Bundle.Sanitize instead",
+	// toolShare's outbound artifact (md/html/text/blob) already goes through
+	// share.RedactText/share.RedactJSONBytes with share.RedactOptions{} —
+	// redaction is always ON with no MCP-exposed opt-out (unlike the CLI's
+	// --no-redact) — which reuses the exact same secret rules redactMCPJSON's
+	// source.RedactJSONSecrets applies (source.RedactSecretsText/
+	// RedactJSONSecretsCounted), PLUS strips hostnames/IPs/MACs/emails/
+	// serials/cloud IDs redactMCPJSON does not touch: a strictly stronger
+	// floor. redactMCPJSON itself would be a no-op for the md/html/text
+	// formats (not JSON — RedactJSONSecrets's own not-valid-JSON fallback
+	// leaves the payload untouched), so calling it here would only create a
+	// false impression of protection, not add any.
+	"toolShare": "outbound artifact already redacted via share.RedactText/RedactJSONBytes (always on, stronger than redactMCPJSON's secrets-only floor) — see this file's comment for the full reasoning",
 }
 
 // TestEveryMCPToolHandlerRedactsSecrets is this file's completeness

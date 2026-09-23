@@ -148,6 +148,36 @@ actively-exploited CVE); `dsd demo <name>` renders any of them.
 
 ---
 
+## Share the diagnosis
+
+Found something? `dsd share` turns it into one pasteable artifact — with
+secrets, tokens, hostnames, and IP addresses redacted by default:
+
+```
+$ dsd share --format text --stdout
+
+<host> · Ubuntu 24.04 LTS · dsd v0.6.10
+2026-09-23 16:21:24 UTC
+
+Verdict: CRIT — 1 critical, 2 warning
+
+[CRIT] docker — container "payments-api" is crash looping (restarted >5 times); 3 container OOM kill(s) in the last hour → fix: to inspect: docker logs payments-api --tail 50 (https://dashdiag.sh/checks/docker)
+[WARN] hardening — container "ci-runner" mounts /var/run/docker.sock — full host root from inside the container → fix: note: a compromised container with the socket = host takeover (https://dashdiag.sh/checks/hardening)
+[WARN] memory — memory at 92% — OOM kill risk → fix: to inspect: docker stats --no-stream (https://dashdiag.sh/checks/memory)
+
+— dsd v0.6.10 · https://github.com/keyorixhq/dashdiag · https://dashdiag.sh/?src=share
+```
+
+No backend, no upload, no network — just a local file (or stdout with
+`--stdout`). `--format md|html|blob` produce the full markdown/HTML report or
+the existing `--blob` encoding instead; `dsd share --from bundle.tar.gz` or
+`--last` shares a past run. `--no-redact` opts out (with a warning);
+`--keep-hostnames`/`--keep-ips` opt out selectively. Redaction is
+best-effort — see [`docs/THREAT_MODEL.md`](docs/THREAT_MODEL.md#6-local-share--dsd-share--dsd_share)
+for what it does and doesn't catch.
+
+---
+
 ## Commands
 
 | Command | What it does | Time |
@@ -179,6 +209,7 @@ actively-exploited CVE); `dsd demo <name>` renders any of them.
 | `dsd logs` | OOM kills, segfaults, crash loops, journal errors | ~3s |
 | `dsd proc <pid>` | Deep process inspect — memory map, FDs, connections | ~3s |
 | `dsd explain <topic>` | What a check means, how it's judged, how to fix it (offline reference) | instant |
+| `dsd share` | Redacted, shareable diagnosis — markdown/HTML/text/blob | ~1–3s |
 | `dsd inventory` | Hardware/software inventory export for a CMDB (JSON/CSV) | ~5s |
 | `dsd update` | Self-update to the latest release (checksum-verified) | varies |
 

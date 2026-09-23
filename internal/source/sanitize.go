@@ -193,6 +193,17 @@ func looksLikeJSON(data []byte) bool {
 	return len(t) > 0 && (t[0] == '{' || t[0] == '[')
 }
 
+// RedactSecretsText applies the same best-effort secret-pattern redaction
+// Bundle.Sanitize gives capture-bundle content to arbitrary non-JSON text
+// (e.g. a rendered `dsd share` report). Unlike RedactJSONSecrets, no
+// JSON-structural pass is attempted — callers holding a JSON payload should
+// use RedactJSONSecrets/RedactJSONSecretsCounted instead; see
+// redactSecretsAndJSON's doc comment for why running this line-scan pass
+// directly against serialized JSON is unsafe.
+func RedactSecretsText(data []byte) ([]byte, int) {
+	return redactSecrets(data)
+}
+
 // redactSecretsAndJSON is redactSecrets extended with a JSON-structural pass
 // for content that looks like a JSON document. It exists because
 // secretRules[1] (the "key=value"/"key: value" line-scan rule) cannot see a
@@ -552,6 +563,13 @@ func redactCmdArgvKey(key string) (string, int) {
 func RedactJSONSecrets(data []byte) ([]byte, error) {
 	out, _, err := redactJSONSecretsCounted(data)
 	return out, err
+}
+
+// RedactJSONSecretsCounted is RedactJSONSecrets plus the number of
+// redactions made, for callers (`dsd share`) that report a redaction summary
+// back to the operator.
+func RedactJSONSecretsCounted(data []byte) ([]byte, int, error) {
+	return redactJSONSecretsCounted(data)
 }
 
 // redactJSONSecretsCounted is the shared implementation behind

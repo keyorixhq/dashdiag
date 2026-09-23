@@ -53,6 +53,7 @@ var exitCodeContract = map[string]string{
 	"diff":      "exempt: offline capture-diff utility, compares two bundles — not a live host gate",
 	"migrate":   "gates", // migrate certify sets exit 2/1 on FAIL/PASS-WITH-WARNINGS via recordExitCode
 	"sanitize":  "exempt: offline bundle-redaction utility — not a host monitoring gate",
+	"share":     "exempt: repackages an already-computed diagnosis (live, --from, or --last) into a redacted artifact — the exit code reflects whether the artifact was produced, not host severity",
 	"examples":  "exempt: prints usage examples",
 	"explain":   "exempt: static documentation, does not diagnose the host",
 	"hook":      "exempt: internal hook helper",
@@ -149,6 +150,7 @@ var jsonContract = map[string]string{
 	"diff":       "exempt: capture-diff utility; --json supported but compares bundles, not a live host diagnostic",
 	"migrate":    "exempt: migration certification; migrate certify supports --json but compares captures, not a live host diagnostic",
 	"sanitize":   "exempt: bundle-redaction utility, no JSON payload",
+	"share":      "json",
 	"examples":   "exempt: prints usage examples",
 	"explain":    "exempt: static documentation, not a host diagnostic payload",
 	"hook":       "exempt: internal hook helper",
