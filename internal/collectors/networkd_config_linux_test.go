@@ -370,6 +370,52 @@ func TestParseNetworkctlLinksJSON(t *testing.T) {
 	}
 }
 
+// TestParseNetworkctlLinksJSON_SchemaValidity pins the three cases from the
+// networkctl half of the schema-mismatch fix
+// (docs/findings/2026-09-23-FINDING-tdnf-json-schema-silent-empty.md): an
+// empty Interfaces array is networkctl's genuine "no links" answer and must
+// stay trusted; a non-empty array missing a required field must be fully
+// distrusted (nil, triggering the column-parsing fallback); a fully valid
+// array must be trusted.
+func TestParseNetworkctlLinksJSON_SchemaValidity(t *testing.T) {
+	t.Parallel()
+
+	t.Run("empty array is trusted", func(t *testing.T) {
+		t.Parallel()
+		got := parseNetworkctlLinksJSON(`{"Interfaces":[]}`)
+		if got == nil {
+			t.Fatal("empty Interfaces array must return a non-nil (trusted) empty slice, not nil")
+		}
+		if len(got) != 0 {
+			t.Errorf("want 0 links, got %+v", got)
+		}
+	})
+
+	t.Run("non-empty array missing AdministrativeState is fully distrusted", func(t *testing.T) {
+		t.Parallel()
+		const renamed = `{"Interfaces":[{"Name":"eth0","OperationalState":"routable","AdminState":"configured"}]}`
+		if got := parseNetworkctlLinksJSON(renamed); got != nil {
+			t.Errorf("a renamed/missing AdministrativeState key must return nil (fallback trigger), got %+v", got)
+		}
+	})
+
+	t.Run("non-empty array missing OperationalState is fully distrusted", func(t *testing.T) {
+		t.Parallel()
+		const noOperational = `{"Interfaces":[{"Name":"eth0","AdministrativeState":"configured"}]}`
+		if got := parseNetworkctlLinksJSON(noOperational); got != nil {
+			t.Errorf("a missing OperationalState key must return nil (fallback trigger), got %+v", got)
+		}
+	})
+
+	t.Run("fully valid array is trusted", func(t *testing.T) {
+		t.Parallel()
+		got := parseNetworkctlLinksJSON(networkctlJSONFixture)
+		if got == nil || len(got) != 3 {
+			t.Fatalf("want 3 trusted links, got %+v", got)
+		}
+	})
+}
+
 // Real `networkctl list --no-legend` columns: IDX LINK TYPE OPERATIONAL SETUP.
 func TestParseNetworkctlLinksColumns(t *testing.T) {
 	t.Parallel()

@@ -425,7 +425,7 @@ func collectTDNF(ctx context.Context) (*models.PackagesInfo, error) {
 	info.HasSecurityRepo = true
 
 	out, err := runCmd(ctx, "tdnf", "-j", cmdUpdateinfo, "list", flagSecurity)
-	entries, parsed := parseTDNFUpdateInfoJSON(out)
+	entries, parsed, _ := parseTDNFUpdateInfoJSON(out)
 	if !parsed {
 		textOut, textErr := runCmd(ctx, "tdnf", cmdUpdateinfo, "list", flagSecurity)
 		entries = parseTDNFUpdateInfoText(textOut)

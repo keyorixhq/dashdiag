@@ -19,7 +19,7 @@ patch:PHSA-2026-5.0-0830 Security xz-5.4.0-6.ph5.x86_64.rpm
 patch:PHSA-2025-5.0-0677 Security lz4-1.10.0-1.ph5.x86_64.rpm`
 
 func TestParseTDNFUpdateInfoJSON(t *testing.T) {
-	entries, ok := parseTDNFUpdateInfoJSON(tdnfUpdateInfoJSONFixture)
+	entries, ok, _ := parseTDNFUpdateInfoJSON(tdnfUpdateInfoJSONFixture)
 	if !ok {
 		t.Fatal("expected JSON to parse")
 	}
@@ -35,14 +35,14 @@ func TestParseTDNFUpdateInfoJSON(t *testing.T) {
 // isolate the array rather than choke on the prefix.
 func TestParseTDNFUpdateInfoJSON_RefreshNoisePrefix(t *testing.T) {
 	noisy := "Refreshing metadata for: 'VMware Photon Linux 5.0 (x86_64) Updates'\n" + tdnfUpdateInfoJSONFixture
-	entries, ok := parseTDNFUpdateInfoJSON(noisy)
+	entries, ok, _ := parseTDNFUpdateInfoJSON(noisy)
 	if !ok || len(entries) != 4 {
 		t.Fatalf("want 4 entries past refresh noise, ok=%v got %d", ok, len(entries))
 	}
 }
 
 func TestParseTDNFUpdateInfoJSON_NotJSON(t *testing.T) {
-	if _, ok := parseTDNFUpdateInfoJSON("0 Security notice(s)"); ok {
+	if _, ok, _ := parseTDNFUpdateInfoJSON("0 Security notice(s)"); ok {
 		t.Error("non-JSON output must report parsed=false so the caller falls back to text")
 	}
 }
@@ -52,9 +52,78 @@ func TestParseTDNFUpdateInfoJSON_NotJSON(t *testing.T) {
 // '['...']' span (so the bracket-index early return doesn't fire) but whose
 // content isn't valid JSON must still report parsed=false.
 func TestParseTDNFUpdateInfoJSON_BracketsPresentButInvalidJSON(t *testing.T) {
-	if _, ok := parseTDNFUpdateInfoJSON("some text [not, valid, json} more text]"); ok {
+	if _, ok, _ := parseTDNFUpdateInfoJSON("some text [not, valid, json} more text]"); ok {
 		t.Error("malformed JSON between brackets must report parsed=false")
 	}
+}
+
+// TestParseTDNFUpdateInfoJSON_SchemaValidity pins the three cases from the
+// schema-mismatch fix (docs/findings/2026-09-23-FINDING-tdnf-json-schema-silent-empty.md):
+// an empty array is tdnf's genuine "no advisories" answer and must stay
+// trusted; a non-empty array missing a required field must be fully
+// distrusted (no partial acceptance); a fully valid array must be trusted.
+func TestParseTDNFUpdateInfoJSON_SchemaValidity(t *testing.T) {
+	t.Run("empty array is parsed and trusted", func(t *testing.T) {
+		entries, ok, badField := parseTDNFUpdateInfoJSON("[]")
+		if !ok {
+			t.Fatal("empty array must report parsed=true — it's tdnf's real 'no advisories' answer")
+		}
+		if len(entries) != 0 {
+			t.Errorf("want 0 entries, got %d", len(entries))
+		}
+		if badField != "" {
+			t.Errorf("badField = %q, want empty on success", badField)
+		}
+	})
+
+	t.Run("non-empty array missing UpdateID is fully distrusted", func(t *testing.T) {
+		const renamed = `[{"Type":"Security","AdvisoryID":"patch:PHSA-2026-5.0-0099","Packages":["pkg.rpm"]}]`
+		entries, ok, badField := parseTDNFUpdateInfoJSON(renamed)
+		if ok {
+			t.Fatal("a renamed/missing UpdateID key must report parsed=false")
+		}
+		if entries != nil {
+			t.Errorf("want nil entries on distrust, got %+v", entries)
+		}
+		if badField != "UpdateID" {
+			t.Errorf("badField = %q, want UpdateID", badField)
+		}
+	})
+
+	t.Run("non-empty array missing Type is fully distrusted", func(t *testing.T) {
+		const noType = `[{"UpdateID":"patch:PHSA-2026-5.0-0099","Packages":["pkg.rpm"]}]`
+		_, ok, badField := parseTDNFUpdateInfoJSON(noType)
+		if ok {
+			t.Fatal("a missing Type key must report parsed=false")
+		}
+		if badField != "Type" {
+			t.Errorf("badField = %q, want Type", badField)
+		}
+	})
+
+	t.Run("non-empty array missing Packages is fully distrusted", func(t *testing.T) {
+		const noPackages = `[{"Type":"Security","UpdateID":"patch:PHSA-2026-5.0-0099"}]`
+		_, ok, badField := parseTDNFUpdateInfoJSON(noPackages)
+		if ok {
+			t.Fatal("a missing/empty Packages field must report parsed=false")
+		}
+		if badField != "Packages" {
+			t.Errorf("badField = %q, want Packages", badField)
+		}
+	})
+
+	t.Run("fully valid array is trusted", func(t *testing.T) {
+		entries, ok, badField := parseTDNFUpdateInfoJSON(tdnfUpdateInfoJSONFixture)
+		if !ok {
+			t.Fatal("a fully valid array must report parsed=true")
+		}
+		if len(entries) != 4 {
+			t.Errorf("want 4 entries, got %d", len(entries))
+		}
+		if badField != "" {
+			t.Errorf("badField = %q, want empty on success", badField)
+		}
+	})
 }
 
 func TestParseTDNFUpdateInfoText(t *testing.T) {

@@ -1,0 +1,4 @@
+  1 lo        loopback carrier    unmanaged
+  2 eth0      ether    routable   configured
+  3 docker0   bridge   no-carrier unmanaged
+ 38 flannel.1 vxlan    off        unmanaged

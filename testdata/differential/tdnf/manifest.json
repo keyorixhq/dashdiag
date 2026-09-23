@@ -1,0 +1,24 @@
+{
+  "tool": "tdnf",
+  "captured_by": "manual ssh, back-to-back on an idle throwaway VM (not via dsd)",
+  "pairs": [
+    {
+      "name": "photon5.0-vm",
+      "date": "2026-09-23",
+      "host": "throwaway VM (pve01 VMID 300, pending teardown), VMware Photon OS 5.0 (build dde71ec57), tdnf 3.5.2",
+      "provenance": "Provisioned from the official VMware Photon 5.0 GA GCE image (https://packages.vmware.com/photon/5.0/GA/gce/photon-gce-5.0-dde71ec57.x86_64.tar.gz), imported into Proxmox via qm importdisk, customized with virt-customize only to inject an SSH key and disable the GCE guest-agent units (no tdnf/package changes). tdnf updateinfo state is whatever Photon 5.0 GA shipped with -- not manufactured.",
+      "commands": [
+        "tdnf -j updateinfo list --security 2>/dev/null",
+        "tdnf updateinfo list --security 2>/dev/null"
+      ],
+      "json_file": "photon5.0-vm-20260923.json",
+      "json_exit": 0,
+      "text_file": "photon5.0-vm-20260923.text",
+      "text_exit": 0,
+      "raw_entry_count": 29,
+      "deduped_advisory_count": 21,
+      "note": "Real, non-empty pair: 29 matching raw per-package entries in both forms (verified: 29 UpdateID occurrences in JSON == 29 lines in text), deduping to 21 unique PHSA advisory IDs in both paths via production's dedup rule (cve_linux.go:1405-1427) -- several packages here share an advisory. Both captured back-to-back within seconds of each other on the same idle VM, so the underlying tdnf metadata state did not change between calls."
+    }
+  ],
+  "gap": "Only one live host was available (freshly provisioned; no aged/older Photon build in the fleet to compare against). This pair covers the JSON-success, non-empty-advisories case; the fuzz harness's synthetic renderer covers empty-array and malformed/renamed-field schema-mismatch cases per the collector research (parseTDNFUpdateInfoJSON silently treats those as zero advisories with no fallback)."
+}

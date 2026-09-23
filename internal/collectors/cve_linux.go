@@ -12,6 +12,7 @@ import (
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/cvedata"
+	"github.com/keyorixhq/dashdiag/internal/debug"
 	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
@@ -1384,9 +1385,15 @@ func scanAllTDNF(ctx context.Context) *models.CVEAllResult {
 	// this code path. The existing textErr+err fallback guard below already
 	// covers a genuine tdnf failure.
 	out, err := runCmd(ctx, "tdnf", "-j", cmdUpdateinfo, "list", flagSecurity)
-	entries, parsed := parseTDNFUpdateInfoJSON(out)
+	entries, parsed, badField := parseTDNFUpdateInfoJSON(out)
 	if !parsed {
-		// JSON unavailable/garbled (older tdnf, refresh noise) — fall back to text.
+		// JSON unavailable/garbled (older tdnf, refresh noise) or structurally
+		// incomplete (schema drift) — fall back to text. badField is only set
+		// for the schema-drift case (an operator watching --debug can tell a
+		// tdnf schema change happened from a garbled/absent JSON payload).
+		if badField != "" {
+			debug.Log(ctx, "CVE", "tdnf JSON updateinfo missing an expected field, falling back to text", "field", badField)
+		}
 		textOut, textErr := runCmd(ctx, "tdnf", cmdUpdateinfo, "list", flagSecurity)
 		entries = parseTDNFUpdateInfoText(textOut)
 		if len(entries) == 0 && textErr != nil && err != nil {
@@ -1439,17 +1446,42 @@ func scanAllTDNF(ctx context.Context) *models.CVEAllResult {
 // parseTDNFUpdateInfoJSON extracts the advisory records from `tdnf -j` output.
 // tdnf may prefix the JSON with a metadata-refresh line, so it isolates the array
 // between the first '[' and last ']'. Returns parsed=false when no JSON array is
-// present so the caller can fall back to the text parser.
-func parseTDNFUpdateInfoJSON(out string) (entries []tdnfUpdateInfoEntry, parsed bool) {
+// present, the JSON is malformed, OR the array is non-empty but any element is
+// missing a field the verdict needs — UpdateID (the advisory id), Type, or a
+// non-empty Packages list, the same fields parseTDNFUpdateInfoText requires —
+// so the caller falls back to the text parser. badField names the first
+// missing field found, for a diagnostic log line at the caller; it is only
+// meaningful when parsed is false due to a schema mismatch (empty otherwise).
+//
+// No partial acceptance: a real tdnf schema change (renamed/dropped field)
+// affects every element the same way, so one structurally incomplete element
+// is reason enough to distrust the WHOLE payload for this run rather than
+// silently keep the elements that happen to look fine — the exact "JSON
+// succeeds but hides findings" class this parser was found to have (see
+// docs/findings/2026-09-23-FINDING-tdnf-json-schema-silent-empty.md). A
+// genuinely EMPTY array — real tdnf's correct "no pending advisories" answer —
+// is unaffected: the loop below never runs, so it still returns parsed=true
+// with zero entries, and the caller correctly does NOT fall back.
+func parseTDNFUpdateInfoJSON(out string) (entries []tdnfUpdateInfoEntry, parsed bool, badField string) {
 	start := strings.Index(out, "[")
 	end := strings.LastIndex(out, "]")
 	if start < 0 || end <= start {
-		return nil, false
+		return nil, false, ""
 	}
 	if err := json.Unmarshal([]byte(out[start:end+1]), &entries); err != nil {
-		return nil, false
+		return nil, false, ""
 	}
-	return entries, true
+	for _, e := range entries {
+		switch {
+		case e.UpdateID == "":
+			return nil, false, "UpdateID"
+		case e.Type == "":
+			return nil, false, "Type"
+		case len(e.Packages) == 0:
+			return nil, false, "Packages"
+		}
+	}
+	return entries, true, ""
 }
 
 // parseTDNFUpdateInfoText parses the plain `tdnf updateinfo list --security` table:

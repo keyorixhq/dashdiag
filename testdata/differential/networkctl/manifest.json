@@ -1,0 +1,31 @@
+{
+  "tool": "networkctl",
+  "captured_by": "manual ssh/pct exec, back-to-back on idle hosts (not via dsd)",
+  "pairs": [
+    {
+      "name": "pve01-host-debian13-nonetworkd",
+      "date": "2026-09-23",
+      "host": "pve01 (192.168.10.20), Debian 13, systemd 257 (257.9-1~deb13u1)",
+      "note": "systemd-networkd is not running on this host (Proxmox VE manages networking via ifupdown/vmbr, not networkd) -- a real production fallback trigger, not a version cutoff. `networkctl --json=short list` exits 1 with EMPTY stdout (stderr-only warning + error, stripped here); `networkctl list --no-legend` exits 0 and still prints rows, but OPERATIONAL is shown as `-` for every link since networkd never populated it. Production's collectNetworkdLinks gates on the JSON call's exit code (err == nil), so this case falls back to text correctly today -- it exercises the fallback trigger but is not itself a divergence.",
+      "json_file": "pve01-host-debian13-nonetworkd-20260923.json",
+      "json_exit": 1,
+      "text_file": "pve01-host-debian13-nonetworkd-20260923.text",
+      "text_exit": 0,
+      "expected_failed_links": 0,
+      "expected_stuck_links": 0
+    },
+    {
+      "name": "ct223-ubuntu-systemd255",
+      "date": "2026-09-23",
+      "host": "pve01 LXC 223 (dashdiag-demo), Ubuntu, systemd 255 (255.4-1ubuntu8)",
+      "note": "JSON-success baseline, same moment via `pct exec 223`. Both invocations exit 0. Verified the JSON AdministrativeState and text SETUP column agree link-by-link (lo=unmanaged, eth0=configured, docker0=unmanaged, flannel.1=unmanaged). No failed/stuck links present -- the current fleet has no naturally occurring failed/degraded managed link (per fleet-survey research), so this pair only covers the healthy-agreement case, not classify's failed/stuck branches.",
+      "json_file": "ct223-ubuntu-systemd255-20260923.json",
+      "json_exit": 0,
+      "text_file": "ct223-ubuntu-systemd255-20260923.text",
+      "text_exit": 0,
+      "expected_failed_links": 0,
+      "expected_stuck_links": 0
+    }
+  ],
+  "gap": "No real host with a link in 'failed' or 'configuring'/'pending' AdministrativeState was found in the reachable fleet. The plain equivalence test below covers agreement on healthy states only; the failed/stuck classify branches are covered by the fuzz harness's synthetic renderer instead, per instruction not to fabricate hardware state."
+}

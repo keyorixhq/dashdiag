@@ -1162,22 +1162,29 @@ func TestScanAllTDNF_JSONSuccess(t *testing.T) {
 	}
 }
 
-// TestScanAllTDNF_MultiPackageAdvisoryAndEmptyID guards two branches in the
-// dedup loop: an entry with an empty UpdateID (after trimming the "patch:"
-// prefix) must be skipped, and a second distinct package under the SAME
-// advisory ID must be appended to the existing advisory's Summary rather
-// than replacing it or creating a duplicate advisory.
+// TestScanAllTDNF_MultiPackageAdvisoryAndEmptyID guards the dedup loop's
+// multi-package aggregation: a second distinct package under the SAME
+// advisory ID must be appended to the existing advisory's Summary rather than
+// replacing it or creating a duplicate advisory.
+//
+// Behavior change (2026-09-23, docs/findings/2026-09-23-FINDING-tdnf-json-schema-silent-empty.md):
+// this test used to also carry a THIRD entry with an empty UpdateID and
+// assert that only that one entry was skipped while the rest of the JSON
+// array was still trusted. That was the "no partial acceptance" gap itself —
+// an empty UpdateID is indistinguishable from a renamed/dropped field
+// affecting every element, so parseTDNFUpdateInfoJSON now discards the WHOLE
+// payload and falls back to text on any element missing a required field.
+// That empty-ID scenario moved to TestScanAllTDNF_JSONMissingFieldFallsBackToText.
 func TestScanAllTDNF_MultiPackageAdvisoryAndEmptyID(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("tdnf", []string{"-j", "repolist"}, `[{"Repo":"photon-updates","Enabled":true}]`, 0)
 		b.PutCmd("tdnf", []string{"-j", "updateinfo", "list", "--security"},
-			`[{"Type":"Security","UpdateID":"","Packages":["ignored-1.0-1.ph5.x86_64.rpm"]},`+
-				`{"Type":"Security","UpdateID":"patch:PHSA-2026-5.0-0003","Packages":["pkg-a-1.0-1.ph5.x86_64.rpm","pkg-b-2.0-1.ph5.x86_64.rpm"]}]`, 0)
+			`[{"Type":"Security","UpdateID":"patch:PHSA-2026-5.0-0003","Packages":["pkg-a-1.0-1.ph5.x86_64.rpm","pkg-b-2.0-1.ph5.x86_64.rpm"]}]`, 0)
 		b.PutCmdNotFound("tdnf", []string{"updateinfo", "info", "--security"})
 	})
 	res := scanAllTDNF(context.Background())
 	if res.Total != 1 {
-		t.Fatalf("expected exactly 1 advisory (empty-ID entry skipped), got %d: %+v", res.Total, res)
+		t.Fatalf("expected exactly 1 advisory, got %d: %+v", res.Total, res)
 	}
 	if len(res.Important) != 1 {
 		t.Fatalf("expected 1 Important advisory, got %+v", res)
@@ -1185,6 +1192,57 @@ func TestScanAllTDNF_MultiPackageAdvisoryAndEmptyID(t *testing.T) {
 	summary := res.Important[0].Summary
 	if !strings.Contains(summary, "pkg-a-1.0-1.ph5.x86_64") || !strings.Contains(summary, "pkg-b-2.0-1.ph5.x86_64") {
 		t.Errorf("Summary = %q, want both packages joined", summary)
+	}
+}
+
+// TestScanAllTDNF_JSONMissingFieldFallsBackToText is the fixed behavior for
+// the schema-mismatch finding: a JSON array with an entry missing UpdateID
+// (whether from a genuinely blank field or a renamed/dropped key — the two
+// are indistinguishable from the parser's side) must be entirely distrusted,
+// not partially accepted, so production falls back to text and recovers the
+// advisory the JSON payload would have silently hidden.
+func TestScanAllTDNF_JSONMissingFieldFallsBackToText(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("tdnf", []string{"-j", "repolist"}, `[{"Repo":"photon-updates","Enabled":true}]`, 0)
+		b.PutCmd("tdnf", []string{"-j", "updateinfo", "list", "--security"},
+			`[{"Type":"Security","UpdateID":"","Packages":["ignored-1.0-1.ph5.x86_64.rpm"]}]`, 0)
+		b.PutCmd("tdnf", []string{"updateinfo", "list", "--security"},
+			"patch:PHSA-2026-5.0-0003 Security ignored-1.0-1.ph5.x86_64.rpm\n", 0)
+		b.PutCmdNotFound("tdnf", []string{"updateinfo", "info", "--security"})
+	})
+	res := scanAllTDNF(context.Background())
+	if res.Total != 1 {
+		t.Fatalf("expected the text fallback to recover 1 advisory the JSON payload hid, got %d: %+v", res.Total, res)
+	}
+	if res.Important[0].ID != "PHSA-2026-5.0-0003" {
+		t.Errorf("ID = %q, want PHSA-2026-5.0-0003 (from the text fallback)", res.Important[0].ID)
+	}
+}
+
+// TestScanAllTDNF_RenamedKeyJSONSameVerdictAsTextAlone is the verdict-level
+// regression for the schema-mismatch finding: a literal key rename (not just a
+// blank value) in the JSON payload, paired with a text path that shows a real
+// advisory, must reach the SAME verdict as trusting text alone.
+// checkCVEHealth's tdnf branch (internal/analysis/heuristics_packages.go:347-359)
+// gates WARN purely on `len(r.Critical)+len(r.Important) > 0` — since
+// scanAllTDNF only ever populates Important, res.Total > 0 is that verdict.
+func TestScanAllTDNF_RenamedKeyJSONSameVerdictAsTextAlone(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("tdnf", []string{"-j", "repolist"}, `[{"Repo":"photon-updates","Enabled":true}]`, 0)
+		// "AdvisoryID" instead of "UpdateID" — a real schema rename, not a
+		// blank value.
+		b.PutCmd("tdnf", []string{"-j", "updateinfo", "list", "--security"},
+			`[{"Type":"Security","AdvisoryID":"patch:PHSA-2026-5.0-0005","Packages":["pkg-d-1.0-1.ph5.x86_64.rpm"]}]`, 0)
+		b.PutCmd("tdnf", []string{"updateinfo", "list", "--security"},
+			"patch:PHSA-2026-5.0-0005 Security pkg-d-1.0-1.ph5.x86_64.rpm\n", 0)
+		b.PutCmdNotFound("tdnf", []string{"updateinfo", "info", "--security"})
+	})
+	res := scanAllTDNF(context.Background())
+	if res.Total == 0 {
+		t.Fatal("renamed-key JSON must not silently report zero advisories when the text path shows a real one — same verdict as text-only required")
+	}
+	if res.Important[0].ID != "PHSA-2026-5.0-0005" {
+		t.Errorf("ID = %q, want PHSA-2026-5.0-0005 (recovered via the text fallback)", res.Important[0].ID)
 	}
 }
 

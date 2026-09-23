@@ -43,7 +43,7 @@ func FuzzParseTDNFUpdateInfo(f *testing.F) {
 	f.Add("not json {[}")
 	f.Add("only-one-field\n")
 	f.Fuzz(func(t *testing.T, out string) {
-		_, _ = parseTDNFUpdateInfoJSON(out)
+		_, _, _ = parseTDNFUpdateInfoJSON(out)
 		_ = parseTDNFUpdateInfoText(out) // must not panic
 	})
 }

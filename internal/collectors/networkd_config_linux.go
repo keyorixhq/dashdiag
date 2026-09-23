@@ -132,8 +132,17 @@ type networkctlJSON struct {
 	} `json:"Interfaces"`
 }
 
-// parseNetworkctlLinksJSON returns ALL links from --json output. Returns nil (not
-// empty) on a parse error so the caller falls back to column parsing.
+// parseNetworkctlLinksJSON returns ALL links from --json output. Returns nil
+// (not empty) on a parse error, OR when the array is non-empty but any
+// interface is missing Name/OperationalState/AdministrativeState — a renamed
+// or dropped field in a newer/older networkctl schema would otherwise silently
+// zero out Setup/Operational for every link (they never match "failed" or
+// "configuring", hiding real state) while still returning a non-nil result
+// the caller trusts outright. No partial acceptance: one structurally
+// incomplete interface means the whole payload is untrusted for this run, so
+// the caller falls back to column parsing. A genuinely EMPTY array (real
+// networkctl reporting zero links) is unaffected — the loop below never runs,
+// so it still returns the trusted non-nil empty slice.
 func parseNetworkctlLinksJSON(out string) []models.NetworkdLink {
 	var doc networkctlJSON
 	if err := json.Unmarshal([]byte(out), &doc); err != nil {
@@ -141,6 +150,9 @@ func parseNetworkctlLinksJSON(out string) []models.NetworkdLink {
 	}
 	links := make([]models.NetworkdLink, 0, len(doc.Interfaces))
 	for _, i := range doc.Interfaces {
+		if i.Name == "" || i.OperationalState == "" || i.AdministrativeState == "" {
+			return nil
+		}
 		links = append(links, models.NetworkdLink{
 			Name: i.Name, Setup: i.AdministrativeState, Operational: i.OperationalState,
 		})
