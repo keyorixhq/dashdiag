@@ -13,6 +13,14 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/version"
 )
 
+// BuildMarkdownReport returns the markdown report body without writing a
+// file — the shared building block behind GenerateReport (writes
+// dsd-report-*.md) and `dsd share --format md` (redacts the same body before
+// writing dsd-share-*.md).
+func BuildMarkdownReport(snap *baseline.Snapshot, insights []models.Insight, elapsed time.Duration, cve *models.CVEAllResult) string {
+	return buildMarkdown(snap, insights, elapsed, cve)
+}
+
 // GenerateReport produces a markdown health report and writes it to a file.
 // Returns the output file path.
 func GenerateReport(snap *baseline.Snapshot, insights []models.Insight, elapsed time.Duration, cve *models.CVEAllResult) (string, error) {
@@ -81,7 +89,7 @@ func buildMarkdown(snap *baseline.Snapshot, insights []models.Insight, elapsed t
 			case "INFO":
 				icon = "ℹ️"
 			}
-			fmt.Fprintf(&b, "### %s %s — %s\n\n", icon, ins.Level, output.SanitizeControl(ins.Check))
+			fmt.Fprintf(&b, "### %s %s — [%s](%s)\n\n", icon, ins.Level, output.SanitizeControl(ins.Check), checkURL(ins.Check))
 			// ins.Message can carry attacker-controlled substrings (e.g. a
 			// process name a local user set via prctl(PR_SET_NAME), surfaced
 			// through an FD-limit or similar heuristic) — markdown doesn't
@@ -158,7 +166,7 @@ func buildMarkdown(snap *baseline.Snapshot, insights []models.Insight, elapsed t
 		return rows[i].name < rows[j].name
 	})
 	for _, r := range rows {
-		fmt.Fprintf(&b, "| %s | %s |\n", r.name, r.status)
+		fmt.Fprintf(&b, "| [%s](%s) | %s |\n", r.name, checkURL(r.name), r.status)
 	}
 	fmt.Fprintf(&b, "\n")
 
@@ -265,4 +273,43 @@ func countLevel(insights []models.Insight, level string) int {
 // postmortem.go rather than duplicated — same package, no import needed.
 func escapeMarkdownBackticks(s string) string {
 	return strings.ReplaceAll(s, "`", "ˋ")
+}
+
+// checksBaseURL is the documented URL scheme for the (not-yet-built) checks
+// catalog page — see docs/CHECKS.md's note on `dsd share`. Linking to it now
+// establishes the contract; a 404 today is expected and disclosed.
+const checksBaseURL = "https://dashdiag.sh/checks/"
+
+// checkURL returns the catalog URL for a check/insight name.
+func checkURL(name string) string {
+	return checksBaseURL + checkSlug(name)
+}
+
+// checkSlug converts a check/insight display name (e.g. "Docker",
+// "Network/DNS", "CPU Load") into a lowercase, hyphenated catalog slug
+// ("docker", "network", "cpu-load"). A subsystem-qualified name is reduced to
+// its base collector name first (the part before "/"), matching how
+// baseline.BuildSnapshot already attaches a qualified insight to its parent
+// check.
+func checkSlug(name string) string {
+	base := name
+	if i := strings.IndexByte(base, '/'); i >= 0 {
+		base = base[:i]
+	}
+	base = strings.ToLower(base)
+	var b strings.Builder
+	prevDash := true // leading separators are dropped, not turned into a dash
+	for _, r := range base {
+		switch {
+		case r >= 'a' && r <= 'z' || r >= '0' && r <= '9':
+			b.WriteRune(r)
+			prevDash = false
+		default:
+			if !prevDash {
+				b.WriteByte('-')
+				prevDash = true
+			}
+		}
+	}
+	return strings.TrimSuffix(b.String(), "-")
 }

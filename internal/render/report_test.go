@@ -255,14 +255,14 @@ func TestReport_QualifiedCheckCritShowsInTable(t *testing.T) {
 
 	tbl := md[strings.Index(md, "## Check Results"):]
 	for _, want := range []string{
-		"| Network | 🔴 CRIT |",
-		"| Memory | 🔴 CRIT |",
+		"| [Network](https://dashdiag.sh/checks/network) | 🔴 CRIT |",
+		"| [Memory](https://dashdiag.sh/checks/memory) | 🔴 CRIT |",
 	} {
 		if !strings.Contains(tbl, want) {
 			t.Errorf("Check Results table missing %q\n--- table ---\n%s", want, tbl)
 		}
 	}
-	if strings.Contains(tbl, "| Network | ✅ OK |") {
+	if strings.Contains(tbl, "| [Network](https://dashdiag.sh/checks/network) | ✅ OK |") {
 		t.Errorf("Network rendered as OK despite a DNS CRIT (false-OK regression)\n%s", tbl)
 	}
 }
@@ -292,7 +292,7 @@ func TestReport_FailedVsNotApplicableVsOK(t *testing.T) {
 			results: []runner.Result{
 				{Name: "CPU Load", Data: &models.CPUInfo{}},
 			},
-			wantTableHas: []string{"| CPU Load | ✅ OK |"},
+			wantTableHas: []string{"| [CPU Load](https://dashdiag.sh/checks/cpu-load) | ✅ OK |"},
 			wantTableNot: []string{"ℹ️ INFO"},
 		},
 		{
@@ -301,8 +301,8 @@ func TestReport_FailedVsNotApplicableVsOK(t *testing.T) {
 				{Name: "CPU Load", Data: &models.CPUInfo{}},
 				{Name: "Sessions", Data: nil, Err: errors.New("reading utmp: permission denied")},
 			},
-			wantTableHas: []string{"| CPU Load | ✅ OK |", "| Sessions | ℹ️ INFO |"},
-			wantTableNot: []string{"| Sessions | ✅ OK |"},
+			wantTableHas: []string{"| [CPU Load](https://dashdiag.sh/checks/cpu-load) | ✅ OK |", "| [Sessions](https://dashdiag.sh/checks/sessions) | ℹ️ INFO |"},
+			wantTableNot: []string{"| [Sessions](https://dashdiag.sh/checks/sessions) | ✅ OK |"},
 			wantIssueHas: []string{"check could not run", "permission denied"},
 		},
 		{
@@ -311,7 +311,7 @@ func TestReport_FailedVsNotApplicableVsOK(t *testing.T) {
 				{Name: "CPU Load", Data: &models.CPUInfo{}},
 				{Name: "BIND", Data: nil, Err: nil},
 			},
-			wantTableHas: []string{"| CPU Load | ✅ OK |"},
+			wantTableHas: []string{"| [CPU Load](https://dashdiag.sh/checks/cpu-load) | ✅ OK |"},
 			wantTableNot: []string{"BIND"},
 		},
 		{
@@ -321,8 +321,8 @@ func TestReport_FailedVsNotApplicableVsOK(t *testing.T) {
 				{Name: "Sessions", Data: nil, Err: errors.New("reading utmp: permission denied")},
 				{Name: "BIND", Data: nil, Err: nil},
 			},
-			wantTableHas: []string{"| CPU Load | ✅ OK |", "| Sessions | ℹ️ INFO |"},
-			wantTableNot: []string{"| Sessions | ✅ OK |", "BIND"},
+			wantTableHas: []string{"| [CPU Load](https://dashdiag.sh/checks/cpu-load) | ✅ OK |", "| [Sessions](https://dashdiag.sh/checks/sessions) | ℹ️ INFO |"},
+			wantTableNot: []string{"| [Sessions](https://dashdiag.sh/checks/sessions) | ✅ OK |", "BIND"},
 			wantIssueHas: []string{"check could not run"},
 		},
 	}

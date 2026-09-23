@@ -26,7 +26,7 @@ func GenerateHTMLReport(snap *baseline.Snapshot, insights []models.Insight, elap
 		return "", fmt.Errorf("no snapshot data")
 	}
 
-	html, err := buildHTML(snap, insights, elapsed, cve)
+	html, err := BuildHTMLReport(snap, insights, elapsed, cve)
 	if err != nil {
 		return "", err
 	}
@@ -69,12 +69,14 @@ type htmlIssue struct {
 	Level      string
 	LevelClass string
 	Check      string
+	CheckURL   string
 	Message    string
 	Hints      []string
 }
 
 type htmlCheckRow struct {
 	Name        string
+	NameURL     string
 	Status      string
 	StatusClass string
 	Detail      string
@@ -93,6 +95,14 @@ type htmlCVE struct {
 type htmlAdvisory struct {
 	ID      string
 	Summary string
+}
+
+// BuildHTMLReport returns the self-contained HTML report body without
+// writing a file — the shared building block behind GenerateHTMLReport
+// (writes dsd-report-*.html) and `dsd share --format html` (redacts the same
+// body before writing dsd-share-*.html).
+func BuildHTMLReport(snap *baseline.Snapshot, insights []models.Insight, elapsed time.Duration, cve *models.CVEAllResult) (string, error) {
+	return buildHTML(snap, insights, elapsed, cve)
 }
 
 func buildHTML(snap *baseline.Snapshot, insights []models.Insight, elapsed time.Duration, cve *models.CVEAllResult) (string, error) {
@@ -152,7 +162,7 @@ func buildHTML(snap *baseline.Snapshot, insights []models.Insight, elapsed time.
 		// does (internal-analysis-11-02), in addition to (not instead of) the
 		// template's own HTML escaping.
 		data.Issues = append(data.Issues, htmlIssue{
-			Level: ins.Level, LevelClass: cls, Check: ins.Check,
+			Level: ins.Level, LevelClass: cls, Check: ins.Check, CheckURL: checkURL(ins.Check),
 			Message: output.SanitizeControl(ins.Message), Hints: sanitizeHints(ins.Hints),
 		})
 	}
@@ -183,7 +193,7 @@ func buildHTMLCheckRows(snap *baseline.Snapshot) []htmlCheckRow {
 	}
 	rows := make([]row, 0, len(snap.Checks))
 	for _, c := range snap.Checks {
-		r := row{htmlCheckRow{Name: c.Name, Detail: c.Value}, 0}
+		r := row{htmlCheckRow{Name: c.Name, NameURL: checkURL(c.Name), Detail: c.Value}, 0}
 		switch c.Status {
 		case "CRIT":
 			r.Status, r.StatusClass, r.rank = "CRIT", "crit", 3
@@ -345,7 +355,7 @@ const htmlReportTemplate = `<!DOCTYPE html>
   <h2>Issues</h2>
   {{range .Issues}}
   <div class="issue {{.LevelClass}}">
-    <span class="tag">{{.Level}}</span><span class="check">{{.Check}}</span>
+    <span class="tag">{{.Level}}</span><span class="check"><a href="{{.CheckURL}}">{{.Check}}</a></span>
     <p class="msg">{{.Message}}</p>
     {{if .Hints}}
     <div class="fixlabel">Remediation</div>
@@ -365,7 +375,7 @@ const htmlReportTemplate = `<!DOCTYPE html>
     <tbody>
     {{range .Checks}}
       <tr>
-        <td>{{.Name}}</td>
+        <td><a href="{{.NameURL}}">{{.Name}}</a></td>
         <td><span class="st {{.StatusClass}}">{{.Status}}</span></td>
         <td><span class="detail">{{.Detail}}</span></td>
       </tr>

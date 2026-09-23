@@ -1,5 +1,63 @@
 # Share design
 
+## Local share (shipped)
+
+`dsd share` ships as a **local, redacted, shareable diagnosis — no backend,
+no upload, no network.** It is entirely separate from the hosted `--share`
+design below (still gated/unimplemented, `--share`/`--qr` remain hidden
+stubs in `cmd/root.go`); this section documents what actually exists today.
+
+**What it does:** after `dsd health` finds something, one command produces
+an artifact a person can paste into a ticket, Slack, a vendor support case,
+or an LLM chat — with secrets/PII removed by default.
+
+```
+dsd share                          markdown report -> dsd-share-<host>-<date>.md
+dsd share --format text --stdout   short ticket-form summary, printed to stdout
+dsd share --format html            self-contained HTML report
+dsd share --format blob            compressed/encoded block (dsd decode reverses it)
+dsd share --from bundle.tar.gz     share a bundle captured earlier
+dsd share --last                   share this host's most recently completed run
+```
+
+**Formats** reuse the existing renderers, unmodified: `md` =
+`render.BuildMarkdownReport` (the same body `dsd health --report` writes),
+`html` = `render.BuildHTMLReport`, `blob` = the existing `internal/share`
+gzip+base64 encoding `dsd health --blob` already uses. `text` is new — a
+≤40-line ticket form: host/OS/dsd-version header, one verdict line, then
+every finding as `[LEVEL] check-id — message → fix: <cmd>
+(https://dashdiag.sh/checks/<check-id>)`.
+
+**Redaction** (`internal/share.RedactText`/`RedactJSONBytes`): the capture
+sanitizer's secret rules (`internal/source`) plus a report-specific
+identifier pass — hostname, IPv4/IPv6, MACs, `/home/<user>` usernames,
+labeled serial numbers, AWS EC2-family resource IDs, emails.
+`--keep-hostnames`/`--keep-ips` opt out selectively; `--no-redact` disables
+the whole pass with a visible warning. A `redactions:` summary line reports
+what was removed. Full threat-model detail: `docs/THREAT_MODEL.md`'s "Local
+share" section; the same caveat is in `PRIVACY.md` and the command's
+`--help`.
+
+**Data sources** unify into one `(results, insights, snapshot)` shape every
+format renders from: a live run (default), `--from <bundle.tar.gz>` (replays
+via the same pipeline `dsd replay` uses), `--from <snapshot.json>` /
+`--last` (reconstructs from a saved `baseline.Snapshot` — lossier, since a
+snapshot only records the worst insight per check).
+
+**Check-ID links:** every check name in every format links to
+`https://dashdiag.sh/checks/<slug>`. The catalog page does not exist yet —
+only the URL scheme is the committed contract, same status as this whole
+document's hosted design below.
+
+**MCP:** `dsd_share` exposes the same thing to an AI agent (`format` arg,
+optional `from_path`, always-on redaction, CWD-confined paths matching
+`dsd_capture`/`dsd_replay`/`dsd_diff`).
+
+**Not built:** upload, a hosted URL, QR codes. Those remain the hosted
+design below — `--share`/`--qr` stay hidden until that backend exists.
+
+---
+
 Status: design captured 2026-05-10. Not implemented. Targeted for v0.3 or
 later, after launch traction signals demand for sharing functionality.
 

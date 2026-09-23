@@ -296,6 +296,85 @@ though an arbitrary-file-read is lower severity than an arbitrary-file-write
 echo back is still a real disclosure risk, not just a defensive-symmetry
 choice.
 
+## 6. Local share — `dsd share` / `dsd_share`
+
+**What crosses the boundary:** nothing crosses *in* — like surface 2
+(capture sanitization), this is the outbound side. `dsd share` is the local,
+redacted, shareable diagnosis (docs/SHARE_DESIGN.md's "Local share (shipped)"
+section) — the opposite end of that document's still-unimplemented hosted
+`--share` design. It produces one artifact (markdown, HTML, a short text
+summary, or the existing `--blob` encoding) intended to leave the machine:
+pasted into a ticket, a Slack message, a vendor support case, or an LLM chat.
+Covered here because that "leaves the machine, often into another tool's
+context" destination is exactly the trust-boundary shape this document
+exists to scope.
+
+**What's redacted by default:** every share format goes through
+`internal/share.RedactText` (markdown/HTML/text) or `RedactJSONBytes` (the
+`--format blob` payload, which is JSON before it's gzip+base64-encoded).
+Both apply, in order: (1) the same secret-pattern rules
+`internal/source/sanitize.go`'s capture sanitizer uses — PEM private keys,
+`password=`/`token=`/`api_key=`-shaped assignments, AWS access keys, bearer
+tokens, `/etc/shadow` hashes, bare JWTs, URL-embedded credentials, netrc
+lines — via the JSON-structural path for the blob format (never a line-scan
+regex directly against JSON; see `redactSecretsAndJSON`'s doc comment for why
+that would corrupt the document) and the line-scan path otherwise; then (2)
+a report-specific identifier pass: the report's own hostname, IPv4, IPv6,
+MAC addresses, `/home/<user>`-style path usernames, labeled serial numbers,
+AWS EC2-family resource IDs, and email addresses. `--keep-hostnames` and
+`--keep-ips` opt out of just those two classes; `--no-redact` disables the
+whole pass with a printed warning. Every check name in the artifact links to
+`https://dashdiag.sh/checks/<slug>` — the catalog page doesn't exist yet;
+only the URL scheme is the committed contract (see docs/CHECKS.md).
+
+**What redaction does NOT catch (best-effort, same standing caveat as
+`internal/source/sanitize.go`):**
+- **Free-text log lines quoted inside a finding.** A CRIT/WARN `Message` or
+  `Hints` string can itself quote a log line, a config snippet, or command
+  output containing something the pattern rules don't recognize as
+  secret-shaped (an internal project codename, a customer name, a URL path
+  carrying a token in an unlabeled position). The identifier patterns and
+  secret rules are pattern-based, not semantic — they can't tell "this
+  substring is sensitive" from context alone.
+- **IPv6 and cloud instance ID coverage is partial.** IPv6 uses a
+  best-effort regex covering the full and common `::`-compressed forms, not
+  a complete RFC-shape parser. Cloud instance IDs cover AWS's
+  EC2-family prefixes (`i-`, `vol-`, `eni-`, `snap-`) only — Azure (a GUID)
+  and GCP (a free-form string) instance identifiers are not distinguishable
+  from ordinary text by pattern alone and are not redacted.
+- **A `--from`/`--last` snapshot has less to redact from than a live run or
+  bundle.** `baseline.Snapshot` only records the worst insight per check
+  (`baseline.BuildSnapshot`'s documented behavior), so a check with multiple
+  simultaneous findings replays through `dsd share --from
+  snapshot.json`/`--last` as one — not a redaction gap, but a fidelity one
+  worth knowing about before treating a shared snapshot as the complete
+  picture.
+- **`--no-redact` is a complete, visible opt-out**, not a partial one — by
+  design, for the "I'm sharing within my own team and want full fidelity"
+  case. It prints a warning to stderr; it does not require confirmation.
+
+**Same caveat surfaces in three places**, so it's hard to miss: this
+document, `PRIVACY.md`'s "The dsd share command (shipped)" section, and
+`dsd share --help`'s own text.
+
+**MCP (`dsd_share`):** redaction is always on with no MCP-exposed
+`--no-redact` equivalent — an agent calling `dsd_share` cannot accidentally
+get an unredacted artifact the way a CLI script explicitly passing
+`--no-redact` could. `from_path` (the MCP equivalent of `--from`) goes
+through the same `safeBundlePath` CWD constraint documented under §5 above —
+it's LLM-reachable input under the identical threat model (a document the
+agent read could steer it), not operator-typed. `dsd_share`'s outbound
+artifact is exempted from the `redactMCPJSON` completeness guard
+(`cmd/mcp_governance_test.go`) with a stated reason: it already goes through
+`share.RedactText`/`RedactJSONBytes`, which is a strictly stronger floor
+(the same secret rules plus every identifier class), not a gap.
+
+**Residual gaps:** none beyond the disclosed best-effort limits above — this
+surface reuses surface 2's mature, tested secret rules rather than
+reinventing them, and the JSON-structural-vs-line-scan corruption hazard
+that surface's own history surfaced is avoided the same way (structural pass
+for JSON, line-scan for everything else, never the reverse).
+
 ## Known documentation drift found while researching this doc
 
 `SECURITY.md`'s "Verifying a Release" section told users to run

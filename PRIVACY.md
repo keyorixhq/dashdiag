@@ -108,6 +108,47 @@ Be clear on what this is and isn't:
 
 ---
 
+## The dsd share command (shipped)
+
+`dsd share` is a **local, redacted, shareable diagnosis — no backend, no
+upload, no network.** It is a different, already-implemented feature from
+the `--share` flag described below (that flag is still a hidden, unwired
+stub). After `dsd health` finds something, `dsd share` writes one artifact —
+markdown, self-contained HTML, a short ticket-form text summary, or the
+existing `--blob` encoding — designed to leave the machine (pasted into a
+ticket, Slack, a vendor support case, or an LLM chat).
+
+**Redacted by default.** Secrets (the same rules `dsd capture --sanitize`
+uses — passwords, tokens, API keys, private keys, AWS credentials, JWTs,
+`/etc/shadow` hashes) and identifiers (hostname, IPv4/IPv6, MAC addresses,
+usernames in `/home/<user>` paths, labeled serial numbers, AWS EC2-family
+instance/volume/interface IDs, email addresses) are stripped before the
+artifact is written. A `redactions:` summary line reports what was removed.
+`--keep-hostnames`/`--keep-ips` opt out of just those two classes (for
+sharing within your own team); `--no-redact` disables the pass entirely,
+printing a visible warning.
+
+**Best-effort, not a guarantee** — the same standing caveat
+`internal/source/sanitize.go`'s capture sanitizer already makes: free-text
+log lines quoted inside a finding can still carry something the pattern
+rules don't recognize as sensitive. Review the artifact before sharing it
+somewhere sensitive. Full detail: `docs/THREAT_MODEL.md`'s "Local share"
+section.
+
+**Unlike `--blob` (above), which is deliberately NOT redacted** (a
+support-offload tool that needs full fidelity), `dsd share --format blob` IS
+redacted by default — same command family, different artifact, different
+default, because the destination is different: `dsd health --blob` goes to
+your own support team through a trusted channel; `dsd share` is designed for
+wider distribution.
+
+`dsd share --from <snapshot.json|bundle.tar.gz>` and `dsd share --last`
+share a past run instead of collecting live data — no new network or file
+access beyond reading the named file. The MCP tool `dsd_share` runs the same
+pipeline for an AI agent, with redaction always on (no `--no-redact`
+equivalent exposed over MCP) and the same CWD-confined path handling as
+`dsd_capture`/`dsd_replay`/`dsd_diff`'s path arguments.
+
 ## The --share flag (planned, not yet implemented)
 
 `--share` is currently a stub (hidden flag, no implementation).
