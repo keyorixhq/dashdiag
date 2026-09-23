@@ -42,9 +42,13 @@ func TestTDNFDifferentialRealPairs(t *testing.T) {
 				t.Fatalf("reading %s: %v", tc.textFile, err)
 			}
 
-			jsonEntries, parsed := parseTDNFUpdateInfoJSON(string(jsonBytes))
+			jsonEntries, parsed, badField := parseTDNFUpdateInfoJSON(string(jsonBytes))
 			if !parsed {
-				t.Fatalf("parseTDNFUpdateInfoJSON failed to parse a real capture (json_exit=0 in manifest)")
+				// This is the real-box validation for the schema-mismatch fix
+				// (docs/findings/2026-09-23-FINDING-tdnf-json-schema-silent-empty.md):
+				// a real, well-formed capture must still take the JSON path,
+				// not silently fall back.
+				t.Fatalf("parseTDNFUpdateInfoJSON failed to parse a real, well-formed capture (json_exit=0 in manifest): badField=%q", badField)
 			}
 			textEntries := parseTDNFUpdateInfoText(string(textBytes))
 

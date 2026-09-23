@@ -92,13 +92,20 @@ func renderNetworkctlFuzzText(links []networkctlFuzzLink) string {
 // networkctl version could plausibly emit. This is the shape space step 3 of
 // the task asks to cover: "JSON that PARSES but in a shape the parser doesn't
 // expect ... must not produce zero failed links while the text form shows some."
+// There is deliberately NO "always empty/missing-key regardless of input"
+// variant: an earlier version of this harness had one (shapeMissingInterfacesKey
+// forced `{}` even when links was non-empty), and it fabricated a state real
+// networkctl can never produce — JSON reporting zero links while text, for the
+// SAME underlying state, reports some. That's a renderer-model artifact, not a
+// reachable bug (mirrors the equivalent fix in fuzz_tdnf_differential_linux_test.go).
+// A genuinely empty link set already renders as empty in BOTH formats via
+// shapeFaithful with zero links (empty spec) — see parseNetworkctlLinksJSON's
+// doc comment for why that must stay trusted with no fallback.
 type networkctlShapeVariant uint8
 
 const (
 	shapeFaithful networkctlShapeVariant = iota
 	shapeRenamedAdminStateKey
-	shapeEmptyInterfacesArray
-	shapeMissingInterfacesKey
 	shapeVariantCount // keep last
 )
 
@@ -107,14 +114,10 @@ const (
 // testdata/differential/networkctl/ct223-ubuntu-systemd255-20260923.json (extra
 // ignored keys included, independent of parseNetworkctlLinksJSON's own struct —
 // see networkctlFaithfulIface below), so the faithful path also exercises
-// "unknown fields are tolerated." The other variants are all valid JSON that a
-// schema-drifted or buggy networkctl could plausibly emit.
+// "unknown fields are tolerated." shapeRenamedAdminStateKey is the one genuine
+// per-field schema-drift a real networkctl version could plausibly emit.
 func renderNetworkctlFuzzJSON(links []networkctlFuzzLink, variant networkctlShapeVariant) string {
 	switch variant % shapeVariantCount {
-	case shapeEmptyInterfacesArray:
-		return `{"Interfaces":[]}`
-	case shapeMissingInterfacesKey:
-		return `{}`
 	case shapeRenamedAdminStateKey:
 		type iface struct {
 			Index            int    `json:"Index"`
@@ -190,6 +193,14 @@ func normalizeLinks(links []models.NetworkdLink) []models.NetworkdLink {
 //     that still parses to a non-nil (possibly empty) result short-circuits the
 //     fallback in production — exactly the "JSON succeeds but hides findings"
 //     class this harness exists to catch.
+//
+// FIXED FINDING (2026-09-23, docs/findings/2026-09-23-FINDING-tdnf-json-schema-silent-empty.md):
+// parseNetworkctlLinksJSON previously accepted a non-empty array even when
+// every interface was missing AdministrativeState (e.g. a renamed key),
+// silently returning Setup="" for every link (never matching "failed") and
+// never falling back to text. The seed pairing shapeRenamedAdminStateKey with
+// a FAILED link is the permanent regression for this — it now goes green
+// because production correctly returns nil (distrust) and falls back.
 func FuzzNetworkctlJSONTextDifferential(f *testing.F) {
 	f.Add("eth0|routable|configured", uint8(shapeFaithful))
 	f.Add("eth0|routable|configured\neth1|no-carrier|failed", uint8(shapeFaithful))
@@ -197,8 +208,11 @@ func FuzzNetworkctlJSONTextDifferential(f *testing.F) {
 	f.Add("", uint8(shapeFaithful))
 	f.Add("eth0|no-carrier|failed\neth0|no-carrier|failed", uint8(shapeFaithful))
 	f.Add("eth0|routable|configured", uint8(shapeRenamedAdminStateKey))
-	f.Add("eth0|routable|configured", uint8(shapeEmptyInterfacesArray))
-	f.Add("eth0|routable|configured", uint8(shapeMissingInterfacesKey))
+	// Pairs the schema-mismatch variant with a FAILED link, so the corpus
+	// actually exercises the verdict-hiding scenario the fix closes — a
+	// healthy-only seed can't distinguish a hidden Setup="" from a genuinely
+	// healthy link at the verdict level.
+	f.Add("eth0|no-carrier|failed", uint8(shapeRenamedAdminStateKey))
 
 	f.Fuzz(func(t *testing.T, spec string, variantSeed uint8) {
 		links := parseNetworkctlFuzzSpec(spec)
@@ -209,6 +223,15 @@ func FuzzNetworkctlJSONTextDifferential(f *testing.F) {
 
 		jsonLinks := parseNetworkctlLinksJSON(jsonOut)
 		textLinks := parseNetworkctlLinksColumns(textOut)
+
+		if variant == shapeRenamedAdminStateKey && len(links) > 0 {
+			// Pin the fix precisely: a non-empty array with every
+			// AdministrativeState renamed away must be distrusted (nil), not
+			// silently accepted with Setup=="".
+			if jsonLinks != nil {
+				t.Fatalf("renamed AdministrativeState key on a non-empty array must return nil (distrust), got %+v: jsonOut=%s", jsonLinks, jsonOut)
+			}
+		}
 
 		var effective []models.NetworkdLink
 		usedFallback := false

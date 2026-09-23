@@ -92,12 +92,20 @@ func renderTDNFFuzzText(entries []tdnfFuzzEntry) string {
 // parseTDNFUpdateInfoJSON legitimately finds no array) but structurally diverge
 // from what the tdnfUpdateInfoEntry struct expects — modeling schema drift a
 // real tdnf version could plausibly emit.
+//
+// There is deliberately NO "always empty regardless of input" variant: an
+// earlier version of this harness had one, and it fabricated a state real
+// tdnf can never produce (JSON reporting zero advisories while text, for the
+// SAME underlying state, reports some) — a renderer-model artifact, not a
+// reachable bug. A genuinely empty advisory set already renders as empty in
+// BOTH formats via tdnfShapeFaithful with zero fuzzEntries (empty spec), which
+// is the real "no pending advisories" case and must NOT trigger a fallback —
+// see parseTDNFUpdateInfoJSON's doc comment.
 type tdnfShapeVariant uint8
 
 const (
 	tdnfShapeFaithful tdnfShapeVariant = iota
 	tdnfShapeRenamedUpdateIDKey
-	tdnfShapeEmptyArray
 	tdnfShapeNoArrayBrackets
 	tdnfShapeVariantCount // keep last
 )
@@ -111,8 +119,6 @@ const (
 // round-tripping through the same struct on both sides.
 func renderTDNFFuzzJSON(entries []tdnfFuzzEntry, variant tdnfShapeVariant) string {
 	switch variant % tdnfShapeVariantCount {
-	case tdnfShapeEmptyArray:
-		return "[]"
 	case tdnfShapeNoArrayBrackets:
 		// A real tdnf can prefix or replace the array with plain metadata-refresh
 		// text; when no '[' ... ']' span exists at all, parseTDNFUpdateInfoJSON
@@ -208,33 +214,24 @@ func sortAdvisoriesByID(advs []models.CVEAdvisory) []models.CVEAdvisory {
 //     the sole input to checkCVEHealth's tdnf WARN condition,
 //     heuristics_packages.go:347-359: `len(r.Critical)+len(r.Important) > 0`)
 //     as trusting the text form alone. A syntactically valid but structurally
-//     wrong JSON payload (renamed UpdateID key, or a bare `[]`) that still
-//     parses successfully short-circuits the fallback in production — exactly
-//     the "JSON succeeds but hides findings" class this harness exists to
-//     catch (this is a REAL, already-present gap: cve_linux.go:1409-1412 skips
-//     any entry whose id is empty after tdnfTrimPatchPrefix, with no anomaly
-//     signal and no fallback).
+//     wrong JSON payload (a renamed UpdateID key) must now report parsed=false
+//     (see parseTDNFUpdateInfoJSON's doc comment) and correctly fall back —
+//     this is the fix for the "JSON succeeds but hides findings" class this
+//     harness exists to catch.
 //
-// KNOWN FINDING (confirmed 2026-09-23, not yet fixed — reported, not silently
-// patched, per the joint-triage requirement before calling this a bug): seeding
-// this fuzzer with tdnfShapeRenamedUpdateIDKey or tdnfShapeEmptyArray on a
-// non-empty spec reliably fails both oracles below. scanAllTDNF (cve_linux.go:
-// 1386-1397) only falls back to text when parseTDNFUpdateInfoJSON returns
-// parsed=false; a syntactically valid `[]` or a payload with a renamed/missing
-// "UpdateID" key returns parsed=true with zero (or all-empty-ID, later
-// filtered at cve_linux.go:1409-1412) advisories, so production reports "no
-// pending security advisories" while the text form of the SAME state shows
-// real ones — the "JSON succeeds but hides findings" class. Minimized repro:
-// spec="PHSA-2026-5.0-0874|Security|zlib-1.3.2-1.ph5.x86_64.rpm", variant=
-// tdnfShapeRenamedUpdateIDKey (or tdnfShapeEmptyArray). These two seeds are
-// deliberately NOT in the corpus below (they'd leave `go test` permanently
-// red pending a production fix decision) — re-add them locally, or run
-// `go test -fuzz=FuzzTDNFUpdateInfoJSONTextDifferential`, to reproduce.
+// FIXED FINDING (2026-09-23, docs/findings/2026-09-23-FINDING-tdnf-json-schema-silent-empty.md):
+// parseTDNFUpdateInfoJSON previously accepted a non-empty array even when
+// every element was missing UpdateID (e.g. a renamed key), returning
+// parsed=true with zero usable advisories and never falling back to text.
+// tdnfShapeRenamedUpdateIDKey is the permanent regression seed for this —
+// it now goes green because production correctly reports parsed=false and
+// falls back.
 func FuzzTDNFUpdateInfoJSONTextDifferential(f *testing.F) {
 	f.Add("PHSA-2026-5.0-0874|Security|zlib-1.3.2-1.ph5.x86_64.rpm", uint8(tdnfShapeFaithful))
 	f.Add("PHSA-2026-5.0-0830|Security|xz-libs-5.4.0-6.ph5.x86_64.rpm\nPHSA-2026-5.0-0830|Security|xz-5.4.0-6.ph5.x86_64.rpm", uint8(tdnfShapeFaithful))
 	f.Add("", uint8(tdnfShapeFaithful))
 	f.Add("PHSA-2026-5.0-0874|Security|zlib-1.3.2-1.ph5.x86_64.rpm", uint8(tdnfShapeNoArrayBrackets))
+	f.Add("PHSA-2026-5.0-0874|Security|zlib-1.3.2-1.ph5.x86_64.rpm", uint8(tdnfShapeRenamedUpdateIDKey))
 
 	f.Fuzz(func(t *testing.T, spec string, variantSeed uint8) {
 		fuzzEntries := parseTDNFFuzzSpec(spec)
@@ -243,8 +240,20 @@ func FuzzTDNFUpdateInfoJSONTextDifferential(f *testing.F) {
 		textOut := renderTDNFFuzzText(fuzzEntries)
 		jsonOut := renderTDNFFuzzJSON(fuzzEntries, variant)
 
-		jsonEntries, parsed := parseTDNFUpdateInfoJSON(jsonOut)
+		jsonEntries, parsed, badField := parseTDNFUpdateInfoJSON(jsonOut)
 		textEntries := parseTDNFUpdateInfoText(textOut)
+
+		if variant == tdnfShapeRenamedUpdateIDKey && len(fuzzEntries) > 0 {
+			// Pin the fix precisely: a non-empty array with every UpdateID
+			// renamed away must be diagnosed as a schema mismatch on THIS
+			// field, not silently accepted.
+			if parsed {
+				t.Fatalf("renamed UpdateID key on a non-empty array must report parsed=false, got parsed=true: jsonOut=%s", jsonOut)
+			}
+			if badField != "UpdateID" {
+				t.Fatalf("renamed UpdateID key must be diagnosed as missing field %q, got %q", "UpdateID", badField)
+			}
+		}
 
 		var effectiveEntries []tdnfUpdateInfoEntry
 		usedFallback := false

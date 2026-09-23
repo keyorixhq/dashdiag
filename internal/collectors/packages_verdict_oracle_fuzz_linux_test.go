@@ -98,7 +98,7 @@ func FuzzParseTDNFUpdateInfoVerdict(f *testing.F) {
 
 		// JSON parser oracle: when it reports parsed, the count must equal the
 		// number of top-level array elements in the same bracket-delimited slice.
-		jsonEntries, parsed := parseTDNFUpdateInfoJSON(out)
+		jsonEntries, parsed, _ := parseTDNFUpdateInfoJSON(out)
 		if parsed {
 			start := strings.Index(out, "[")
 			end := strings.LastIndex(out, "]")
