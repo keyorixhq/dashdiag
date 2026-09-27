@@ -292,8 +292,11 @@ func writeShareArtifact(cmd *cobra.Command, src *shareSource, artifact, ext stri
 		if err != nil {
 			return fmt.Errorf("writing %s: %w", auto, err)
 		}
-		defer f.Close()
 		if _, err := f.WriteString(artifact); err != nil {
+			_ = f.Close()
+			return fmt.Errorf("writing %s: %w", auto, err)
+		}
+		if err := f.Close(); err != nil {
 			return fmt.Errorf("writing %s: %w", auto, err)
 		}
 		fmt.Fprintf(os.Stderr, "📄 Share artifact saved: %s\n", auto)
