@@ -50,9 +50,8 @@ type collectorVerdict struct {
 	note string
 }
 
-func sentinel(note string) collectorVerdict   { return collectorVerdict{sentinelKind, note} }
-func exempt(note string) collectorVerdict     { return collectorVerdict{exemptKind, note} }
-func trackedBug(note string) collectorVerdict { return collectorVerdict{trackedBugKind, note} }
+func sentinel(note string) collectorVerdict { return collectorVerdict{sentinelKind, note} }
+func exempt(note string) collectorVerdict   { return collectorVerdict{exemptKind, note} }
 
 // unknownVsPassRegistry maps each Collect()-implementing type name to its
 // verdict. Keyed by type name (not file) — a collector with both a linux and

@@ -119,16 +119,16 @@ accident, which is what this ranking is for.
 12. **FIXED** (DD-COLLECTOR-GAPS-1 task 3) — `CPUCollector` (`RunQueue`) — zeroes out on exactly the host-contention scenario the field exists to detect (2s ctx timeout under load).
 
 **Low** — real gap, low likelihood or low blast radius:
-13. `KdumpCollector` / `TunedCollector` — no sentinel, unlike 5 siblings in the same file; lower-stakes maintenance checks.
-14. `ThermalCollector` (linux) — sensor file unreadable while the driver-name file is readable; analysis's own `CPUTempC==0` skip compounds it.
-15. `ContainerdCollector` — post-socket-dial `ctr namespaces list` failure, narrow.
-16. `TimelineCollector` (partial source failure) — forensic/investigative use, not a live verdict driver.
-17. `KVMGuestCollector` (`cumulativeStealPct`) — malformed `/proc/stat`, field stable since kernel 2.6.11.
-18. `SwapCollector` — `/proc/swaps` normally world-readable.
-19. `NFSCollector` — benign in practice (retrans-rate denominator is also 0).
-20. `HealthDeepCollector.collectMemDetail` — `/proc/meminfo` normally world-readable.
-21. `SecurityCollector` (darwin, SSH sub-check) — secondary platform.
-22. `PackagesCollector` (darwin/generic stub) — secondary platform, `brew` failure only.
+13. **FIXED** (DD-COLLECTOR-GAPS-1 task 4) — `KdumpCollector` / `TunedCollector` — no sentinel, unlike 5 siblings in the same file; lower-stakes maintenance checks.
+14. **FIXED** (DD-COLLECTOR-GAPS-1 task 4) — `ThermalCollector` (linux) — sensor file unreadable while the driver-name file is readable; analysis's own `CPUTempC==0` skip compounds it.
+15. **FIXED** (DD-COLLECTOR-GAPS-1 task 4) — `ContainerdCollector` — post-socket-dial `ctr namespaces list` failure, narrow.
+16. **FIXED** (DD-COLLECTOR-GAPS-1 task 4) — `TimelineCollector` (partial source failure) — forensic/investigative use, not a live verdict driver.
+17. **FIXED** (DD-COLLECTOR-GAPS-1 task 4) — `KVMGuestCollector` (`cumulativeStealPct`) — malformed `/proc/stat`, field stable since kernel 2.6.11.
+18. **FIXED** (DD-COLLECTOR-GAPS-1 task 4) — `SwapCollector` — `/proc/swaps` normally world-readable.
+19. **FIXED** (DD-COLLECTOR-GAPS-1 task 4) — `NFSCollector` — benign in practice (retrans-rate denominator is also 0).
+20. **FIXED** (DD-COLLECTOR-GAPS-1 task 4) — `HealthDeepCollector.collectMemDetail` — `/proc/meminfo` normally world-readable.
+21. **FIXED** (DD-COLLECTOR-GAPS-1 task 4) — `SecurityCollector` (darwin, SSH sub-check) — secondary platform.
+22. **FIXED** (DD-COLLECTOR-GAPS-1 task 4) — `PackagesCollector` (darwin/generic stub) — secondary platform, `brew` failure only.
 
 ## Full table
 
@@ -148,7 +148,7 @@ row (the project's own documented, accepted convention — not a defect).
 | BINDCollector | bind_linux.go:30 | CORRECT | `PortsChecked`/`QueryTested` |
 | CPUCollector | cpu.go | **FIXED** | `UsageSampleFailed` (cpuSample.OK) → Unverified INFO |
 | CloudMetaCollector | cloudmeta_linux.go | **FIXED** | gate retries once; a DMI-identified cloud VM still registers, `Available=false` → Unverified INFO |
-| **ContainerdCollector** | containerd_linux.go:107 | **BUG (narrow)** | `containerdNamespaces` silent `(nil,false)` on `ctr` failure post-socket-dial |
+| ContainerdCollector | containerd_linux.go | **FIXED** | `NamespacesUnreadable`/`ContainerCountsUnreadable` |
 | CronCollector | cron_linux.go:26 | CORRECT | `FailureScanOK` |
 | CVEHealthCollector | cve_health.go:33 | CORRECT | `ScanFailed`+`StatusReason`, stale-metadata guard |
 | DNSCollector | dns_linux.go:31 | CORRECT | fails closed (alarms rather than silence) |
@@ -162,7 +162,7 @@ row (the project's own documented, accepted convention — not a defect).
 | HardwareCollector | hardware_linux.go:27 | CORRECT (mixed) | SMART/EDAC sentineled; RAM/System DMI blank silently but not verdict-consulted |
 | GCPCollector | gcp_linux.go:60 | CORRECT | `MaintenanceChecked` etc. |
 | ClockCollector | clock.go:20 | CORRECT (fails loud) | `Synced=false`→CRIT, opposite-direction risk only |
-| **KVMGuestCollector** | kvmguest_linux.go:47 | **BUG (narrow)** | `cumulativeStealPct` malformed `/proc/stat` → 0 (shape 5) |
+| KVMGuestCollector | kvmguest_linux.go | **FIXED** | `StealUnreadable` (absent/short/zero-sum/malformed steal field) |
 | LVMCollector | lvm_linux.go:73 | CORRECT | per-subcommand `*ReadFailed` |
 | MemcachedCollector | memcached_linux.go | **FIXED** | open port + memcached cmdline but no VERSION → Detected, `MetricsRead=false` |
 | CephCollector | ceph_linux.go:19 | CORRECT | `Health="HEALTH_UNKNOWN"` |
@@ -179,11 +179,11 @@ row (the project's own documented, accepted convention — not a defect).
 | LogsCollector — journal severity | logs_linux.go:787-848 | CORRECT | `ErrorScanFailed`/`ErrorCountUnverified` — the good sibling |
 | LogsCollector — crash loops/files/journal size/corruption | logs_linux.go | **FIXED** | `CrashLoopsUnverified`/`CrashFilesUnreadable`/`JournalSizeUnreadable`/`JournalCorruptUnverified` → one Unverified INFO |
 | NetworkDeepCollector | network_deep.go:26 | CORRECT | `SockstatUnreadable`/`NetstatUnreadable` |
-| **NFSCollector** | nfs_linux.go:26 | **BUG (minor)** | `nfsReadStats` silent no-op; denominator also 0 so low practical impact |
+| NFSCollector | nfs_linux.go | **FIXED** | `StatsUnreadable` |
 | DockerCollector | docker.go:70 | CORRECT | `SocketPermDenied`/`DetailUnavailable`/`UnverifiedContainers` |
 | MongoDBCollector | mongodb_linux.go:56 | CORRECT | `MetricsRead`/`ReplStatusRead` |
-| **KdumpCollector** | maintenance_linux.go:63 | **BUG** | no sentinel, unlike 5 siblings in same file (shape 3) |
-| **TunedCollector** | maintenance_linux.go:107 | **BUG (minor)** | same shape 3, lower severity |
+| KdumpCollector | maintenance_linux.go | **FIXED** | `StateUnverified` |
+| TunedCollector | maintenance_linux.go | **FIXED** | `StateUnverified` |
 | KernelPatchCollector | maintenance_linux.go:162 | CORRECT | `CheckUnverified` — cites BUG-088 |
 | KspliceCollector | maintenance_linux.go:282 | CORRECT (minor caveat) | `CheckUnverified`; one untracked sub-field |
 | ServiceRestartCollector | maintenance_linux.go:357 | CORRECT | `NeedsRoot` — also catches silent hidepid=2 |
@@ -194,16 +194,16 @@ row (the project's own documented, accepted convention — not a defect).
 | MTECollector | mte_linux.go:54 | CORRECT | `StatusReason` on both fallible reads |
 | FirmwareCollector | firmware.go:24 | CORRECT | 4 distinct `StatusReason` branches |
 | EnvoyCollector | envoy_linux.go:65 | CORRECT | `StatsRead` |
-| **SwapCollector** | swap.go:87 | **BUG (low likelihood)** | `/proc/swaps`/zram reads have no sentinel, unlike its own vmstat `-1` sentinel in the same function (shape 5) |
+| SwapCollector | swap.go | **FIXED** | `SwapsUnreadable`/`ZramUnreadable` |
 | SysctlCollector | sysctl.go:70 | CORRECT | `-1` sentinels where 0 is legitimate; elsewhere guarded by `>0` thresholds |
-| **TimelineCollector — partial source failure** | timeline_linux.go:70-72 | **BUG** | `SourcesUnavailable` only fires when BOTH sources fail; dmesg-only failure (common: `dmesg_restrict=1`) is silent (shape 5) |
+| TimelineCollector — partial source failure | timeline_linux.go | **FIXED** | `UnreadSources` names a single failed source; `dsd timeline` says "Timeline incomplete" |
 | TraefikCollector | traefik_linux.go:72 | CORRECT | `APIRead` |
 | VMwareCollector | vmware_linux.go:55 | CORRECT | `ToolsRunningVerified`/`StatAvailable` |
 | SecurityCollector (linux) | security_linux.go:62 | CORRECT (one theoretical exception) | ~12 distinct sentinels; `parseWorldWritable` gap is theoretical only |
 | ZFSCollector | zfs.go:29 | CORRECT | `ListReadFailed`/`StatusReadFailed` |
 | SnapperCollector | snapper_collector.go:18 | CORRECT | string sentinel |
 | SystemdCollector | systemd.go:346 | CORRECT | `FailedUnitsUnknown`/`SSHDStatusUnverified` (doc claim verified) |
-| **ThermalCollector (linux)** | thermal_linux.go:33 | **BUG** | no sentinel; analysis's `CPUTempC==0` skip compounds it (shape 5) |
+| ThermalCollector (linux) | thermal_linux.go | **FIXED** | `SensorUnreadable` |
 | VaultCollector | vault_linux.go:33 | CORRECT | `Reachable`/`StatusRead`/`IdentityUnverified` |
 | ISCSICollector | iscsi_linux.go:21 | CORRECT | `NeedsRoot`/`SessionsParseFailed`, cross-checked against world-readable sysfs count |
 | MultipathCollector | multipath_linux.go:23 | CORRECT | `Status="error"`+`StatusReason` |
@@ -228,7 +228,7 @@ row (the project's own documented, accepted convention — not a defect).
 | PVECollector — other sub-checks | pve_linux.go:215-253 | CORRECT | `reachable`/`verified` bools |
 | HAProxyCollector | haproxy_linux.go:25 | CORRECT | `ConfigTested` (StatusReason cosmetic gap only) |
 | ServicesCollector | services.go:24 | CORRECT | explicit WARN+`Error` on missing probe/config |
-| **HealthDeepCollector — collectMemDetail** | health_deep_linux.go:629-632 | **BUG** | no sentinel; low likelihood (`/proc/meminfo` normally world-readable) |
+| HealthDeepCollector — collectMemDetail | health_deep_linux.go | **FIXED** | `MemDetailUnreadable` |
 | HealthDeepCollector — top-procs/CPU/IO | health_deep_linux.go:79,101-116 | CORRECT | `TopProcsNeedsRoot` etc., registered |
 | SUSEConnectCollector | suseconnect_collector.go:78 | CORRECT | `StatusUnverified` |
 | SteamOSCollector | steamos_linux.go:53 | CORRECT | every sub-check has a "checked" companion |
@@ -240,10 +240,10 @@ row (the project's own documented, accepted convention — not a defect).
 | BatteryCollector (darwin) | battery_darwin.go:23 | CORRECT | `StatusReason` |
 | LaunchdCollector (darwin) | launchd_darwin.go:24 | CORRECT | `Checked` |
 | NVMeCollector (darwin) | nvme_darwin.go:27 | CORRECT | `DrivesListUnreadable` |
-| **SecurityCollector (darwin) — SSH sub-check** | security_darwin.go:85-89 | **BUG** | missing the `SSHConfigUnreadable`-equivalent every other platform has (shape 5) |
+| SecurityCollector (darwin) — SSH sub-check | security_darwin.go | **FIXED** | `SSHConfigUnreadable` when no sshd_config could be read |
 | SecurityCollector (darwin) — other sub-checks | security_darwin.go:44-84 | not exhaustively re-verified | flagged, not confirmed, per batch's "quick check" budget |
 | ThermalCollector (generic/darwin stub) | thermal_notlinux.go:32 | CORRECT | `Available=false` is explicit |
-| **PackagesCollector (generic/darwin stub)** | packages_notlinux.go:23 | **BUG** | sets `Checked:true` before running `brew outdated`, never corrected on failure — the only stub-vs-real asymmetry found |
+| PackagesCollector (generic/darwin stub) | packages_notlinux.go | **FIXED** | failed `brew outdated` -> `Status=query-failed`, `Checked=false` |
 
 ## Cross-cutting euid-proxy check
 

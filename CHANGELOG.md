@@ -55,6 +55,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     an optional `direrrs.json`, older bundles still load), and a permission-denied
     subdirectory of a readable scan root is reported by the TLS walker instead of
     being skipped as if it were a file.
+- **The remaining "could not look" gaps are closed (COLLECTOR-SWEEP.md Low #13-#22
+  and `PressureCollector`).** Additive, `omitempty` fields, each with an
+  `unverified` insight:
+  - `KdumpCollector` / `TunedCollector`: `state_unverified` (an unanswered
+    `systemctl is-enabled`/`is-active`, or an unreadable tuned profile).
+  - `ThermalCollector`: `sensor_unreadable` (driver found, temperature input
+    unreadable) instead of being skipped as "no thermal data".
+  - `ContainerdCollector`: `namespaces_unreadable`, `container_counts_unreadable`.
+  - `TimelineCollector`: `unread_sources` names a single failed source (the common
+    non-root `dmesg_restrict=1` case); `dsd timeline` prints which source is missing
+    and "Timeline incomplete" instead of "Timeline clean".
+  - `KVMGuestCollector`: `steal_unreadable`.
+  - `SwapCollector`: `swaps_unreadable`, `zram_unreadable`.
+  - `NFSCollector`: `stats_unreadable`.
+  - `HealthDeepCollector`: `mem_detail_unreadable`.
+  - `PressureCollector`: `unreadable_metrics` lists each PSI file that failed.
+  - macOS `SecurityCollector`: `ssh_config_unreadable` when no `sshd_config` could
+    be read (as on Linux). macOS/generic `PackagesCollector`: a failed
+    `brew outdated` is `status: query-failed`, `checked: false`, not "0 updates".
 - **Seven more collectors no longer read "could not look" as a clean result
   (COLLECTOR-SWEEP.md Medium #6-#12).** Additive, `omitempty` fields, each with an
   `unverified` insight:
