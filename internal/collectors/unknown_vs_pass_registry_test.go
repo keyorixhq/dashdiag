@@ -92,7 +92,7 @@ var unknownVsPassRegistry = map[string]collectorVerdict{
 	"MemoryCollector":         sentinel("MeminfoUnreadable/EDACCountersUnreadable/CgroupMemMeasured/MemHotplugChecked"),
 	"KafkaCollector":          sentinel("Detected/Accepting/MetricsRead/UnderReplicatedRead"),
 	"CloudInitCollector":      sentinel("StatusUnverified"),
-	"NetworkCollector":        trackedBug("COLLECTOR-SWEEP.md Medium #6: cachedJSON errors discarded (`_ = ...`) — interfaces + CLOSE_WAIT leak detector both silently empty on a /proc/net/* read failure"),
+	"NetworkCollector":        sentinel("InterfacesUnreadable/ConnectionsUnreadable (+ SockstatUnreadable/NetstatUnreadable in deep)"),
 	"KVMCollector":            sentinel("kvmStatusEnumFailed/DiskErrorCheckFailed/VMsUnreadable/PoolsCapUnknown — exemplary"),
 	"IPMICollector":           sentinel("NeedsRoot set only after BOTH the read fails AND geteuid()!=0 — read-result-first, euid-second (the correct order C2 was missing)"),
 	"PostBootCollector":       sentinel("explicit FOUND/ABSENT/UNMEASURABLE trichotomy, per-finding *Checked booleans"),

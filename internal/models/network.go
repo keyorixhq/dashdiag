@@ -48,6 +48,12 @@ type NetworkInfo struct {
 	// actually attempted and failed — distinguishes "not measured" from a real
 	// "host appears offline" finding so DSD_OFFLINE never produces a false CRIT.
 	ConnectivityProbeDisabled bool `json:"connectivity_probe_disabled,omitempty"`
+	// InterfacesUnreadable is true when the interface list could not be read, so
+	// an empty Interfaces slice means "could not look", not "no interfaces".
+	InterfacesUnreadable bool `json:"interfaces_unreadable,omitempty"`
+	// ConnectionsUnreadable is true when the TCP connection table could not be
+	// read, leaving CloseWaitCount at 0 — the CLOSE_WAIT leak detector never ran.
+	ConnectionsUnreadable bool `json:"connections_unreadable,omitempty"`
 	// Deep metrics (populated by NetworkDeepCollector)
 	TimeWaitCount    int     `json:"time_wait_count,omitempty"`    // TIME_WAIT sockets
 	SynRetransCount  int     `json:"syn_retrans_count,omitempty"`  // TCPSynRetrans — SYN retransmissions
