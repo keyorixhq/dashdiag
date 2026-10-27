@@ -171,7 +171,7 @@ var unknownVsPassRegistry = map[string]collectorVerdict{
 	"KernelRetentionCollector": sentinel("BootUnreadable (globChecked on /boot/vmlinuz-*; permission-denied /boot is no longer InstalledKernels=0/not-applicable) -> analysis Unverified insight"),
 	"LivePatchCollector":       sentinel("UnverifiedPatches, per-patch enable-read failures — exemplary, explicit doc comment on the false-WARN this avoids. Top-level glob(\"/sys/kernel/livepatch/*\") is a kernel sysfs dir gated by LivePatchAvailable(); EACCES unrealistic."),
 	"NUMACollector":            exempt("glob(\"/sys/devices/system/node/node[0-9]*\") error discarded — same sysfs-class reasoning as BondingCollector/HBACollector"),
-	"PressureCollector":        trackedBug("New (this pass), Low: once Available=true (gated on fileExists), each of the 3 PSI file reads (memory/cpu/io) silently leaves its metric at zero on a mid-read failure (readPSIFile err discarded) — narrow race, the gate already confirmed the files exist moments earlier"),
+	"PressureCollector":        sentinel("UnreadableMetrics (each PSI file that failed or parsed empty after Available=true)"),
 	"RAIDCollector":            sentinel("ReadFailed, fs.ErrNotExist distinguished from a real failure (internal-models-11-01) — already registered in the models falseok registry"),
 	"RootFSCollector":          sentinel("/proc/mounts read failure returns a real error (cmd-09-04, explicit comment) -> checks[].status=ERROR"),
 	"SRIOVCollector":           exempt("glob(\"/sys/bus/pci/devices/*/sriov_numvfs\") error discarded — same sysfs-class reasoning as BondingCollector/HBACollector/NUMACollector"),
@@ -249,9 +249,7 @@ func TestUnknownVsPassRegistryComplete(t *testing.T) {
 // flip its registry row to sentinel(...) AND delete it from this list in the
 // same PR. When the list is empty, delete trackedBugKind (DD-COLLECTOR-GAPS-1
 // Task 5) and this test with it.
-var frozenTrackedBugs = map[string]bool{
-	"PressureCollector": true,
-}
+var frozenTrackedBugs = map[string]bool{}
 
 func TestTrackedBugRatchetOnlyShrinks(t *testing.T) {
 	var added, stale []string

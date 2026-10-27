@@ -198,7 +198,7 @@ var parseFloatGateExemptions = map[string]string{
 	"internal/collectors/network_quick.go:447":    "ping RTT parse — a NaN/Inf RTT feeds a <100ms-style WARN threshold that fails loud (not a false-OK); low realistic attacker control (local ping output)",
 	"internal/collectors/network_quick.go:458":    "ping RTT parse, same shape as :447",
 	"internal/collectors/cpuinfo.go:57":           "cpu MHz — display-only field, no verdict threshold reads it",
-	"internal/collectors/pressure_linux.go:95":    "kernel-authored /proc/pressure/* value; a NaN PSI avg fails every WARN/CRIT threshold loud rather than false-OK",
+	"internal/collectors/pressure_linux.go:104":   "kernel-authored /proc/pressure/* value; a NaN PSI avg fails every WARN/CRIT threshold loud rather than false-OK",
 	"internal/collectors/postgres_linux.go:145":   "lag>=0 in the same condition rejects NaN and negative; +Inf slips through but only makes the >300s WARN/CRIT threshold fire, never a false-OK",
 	"internal/collectors/cpu.go:57":               "kernel-authored /proc/loadavg field 1; feeds a load-average WARN/CRIT threshold that fails loud on NaN, never false-OK",
 	"internal/collectors/cpu.go:60":               "kernel-authored /proc/loadavg field 2, same shape as :57",

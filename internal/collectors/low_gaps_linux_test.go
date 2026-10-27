@@ -135,3 +135,23 @@ func TestCumulativeStealPctChecked(t *testing.T) {
 		t.Errorf("steal pct = %v, want ~10", pct)
 	}
 }
+
+func TestPressureCollector_UnreadablePSIFileIsNamed(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutStat("/proc/pressure", source.FileMeta{IsDir: true, Mode: 0o555})
+		b.PutFile("/proc/pressure/memory", []byte("some avg10=1.00 avg60=2.00 avg300=3.00 total=1\nfull avg10=0.00 avg60=0.00 avg300=0.00 total=0\n"))
+		b.PutFile("/proc/pressure/cpu", []byte("some avg10=0.00 avg60=0.00 avg300=0.00 total=0\n"))
+		// /proc/pressure/io deliberately not seeded: the read fails after Available=true.
+	})
+	raw, err := NewPressureCollector().Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	info := raw.(*models.PressureInfo)
+	if !info.Available || len(info.UnreadableMetrics) != 1 || info.UnreadableMetrics[0] != "io" {
+		t.Fatalf("UnreadableMetrics = %v (Available=%v), want [io]", info.UnreadableMetrics, info.Available)
+	}
+	if info.MemorySome.Avg10 != 1 {
+		t.Errorf("readable metrics must still be parsed, got %+v", info.MemorySome)
+	}
+}

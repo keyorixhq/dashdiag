@@ -76,3 +76,11 @@ func TestCheckHealthDeep_MemDetailUnreadable(t *testing.T) {
 		t.Errorf("no Unverified insight: %+v", got)
 	}
 }
+
+func TestCheckPressure_UnreadableMetrics(t *testing.T) {
+	t.Parallel()
+	got := checkPressure(models.PressureInfo{Available: true, UnreadableMetrics: []string{"memory", "io"}})
+	if !hasUnverified(got, "memory, io") {
+		t.Errorf("no Unverified insight naming the unread PSI files: %+v", got)
+	}
+}
