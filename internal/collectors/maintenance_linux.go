@@ -433,8 +433,12 @@ func (c *KernelRetentionCollector) Collect(_ context.Context) (interface{}, erro
 	// Count kernel images occupying /boot. The bare `vmlinuz`/`initrd` symlinks have no
 	// version suffix and are excluded — this counts the per-version images, the
 	// cross-distro proxy for what actually fills /boot regardless of package naming.
-	imgs, _ := glob("/boot/vmlinuz-*")
+	imgs, bootUnreadable, _ := globChecked("/boot/vmlinuz-*")
 	info.InstalledKernels = len(imgs)
+	// A permission-denied /boot lists as empty: without this flag it reads as
+	// "no kernels installed" (Available=false, i.e. not-applicable) rather than
+	// "could not verify".
+	info.BootUnreadable = bootUnreadable
 
 	switch {
 	case hasCmd(maintCmdZypper):

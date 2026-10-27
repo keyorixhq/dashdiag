@@ -94,6 +94,14 @@ var neverSilentChecks = []neverSilentCheck{
 		wantSubstr: "could not read",
 	},
 	{
+		name:    "checkKernelRetention: /boot permission-denied",
+		checkFn: "checkKernelRetention",
+		run: func() []models.Insight {
+			return checkKernelRetention(models.KernelRetentionInfo{BootUnreadable: true})
+		},
+		wantSubstr: "could not read /boot",
+	},
+	{
 		name:    "checkNetwork: /proc/net/sockstat read failed",
 		checkFn: "checkNetwork",
 		run: func() []models.Insight {

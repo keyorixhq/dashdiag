@@ -11,6 +11,25 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **An unreadable directory no longer reads as "nothing found".** `filepath.Glob`
+  returns an empty, nil-error result for a directory it may not read, so several
+  scans reported a clean "none" for a directory they were denied. The fix helper
+  moved to `internal/source` as `source.GlobChecked` and is now used by
+  `dsd tls` (an unreadable cert directory such as a root-only
+  `/etc/letsencrypt/live` is reported as `could not read <dir>`, appears in
+  `uncheckable[]` in `--json`, and forces a non-ok status), by the
+  KernelRetention check (new additive `boot_unreadable` in its raw model; a
+  permission-denied `/boot` yields an Unverified insight instead of
+  "0 kernels / not applicable"), and by baseline history lookups
+  (`could not read baseline dir`).
+- A new AST guard test (`TestNoRawGlobInProduction`) fails on any production
+  call to `filepath.Glob` or the collectors' raw `glob()` helper outside
+  `internal/source`; the remaining uses are an explicit exemption list with a
+  reason per row. A ratchet test (`TestTrackedBugRatchetOnlyShrinks`) stops new
+  "known bug" rows from being added to the unknown-vs-pass registry.
+
 ## [2.4.0] - 2026-09-23
 
 ### Added

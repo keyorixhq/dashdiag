@@ -231,3 +231,12 @@ func TestCheckTransactional(t *testing.T) {
 		t.Error("an unverified btrfs read must INFO, not silently pass as clean")
 	}
 }
+
+// A /boot the collector could not list must produce an Unverified insight, not
+// the silent nil that Available=false (0 kernels seen) would otherwise give.
+func TestCheckKernelRetention_UnreadableBootIsUnverified(t *testing.T) {
+	got := checkKernelRetention(models.KernelRetentionInfo{BootUnreadable: true})
+	if len(got) != 1 || !got[0].Unverified || got[0].Level != "INFO" {
+		t.Fatalf("got %+v, want one Unverified INFO insight", got)
+	}
+}
