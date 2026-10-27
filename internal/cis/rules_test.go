@@ -6739,6 +6739,34 @@ func TestRule4_2_7_LogFilePermissions(t *testing.T) {
 		}
 	})
 
+	// A path the walk cannot read is a path whose permissions were not checked:
+	// the rule must not PASS over it (DD-FOLLOWUPS-1, nilerr).
+	t.Run("unreadable subdirectory → not PASS (unverified)", func(t *testing.T) {
+		if os.Geteuid() == 0 {
+			t.Skip("root reads everything; cannot make a directory unreadable")
+		}
+		logDir := filepath.Join(dir, "varlog_unreadable")
+		locked := filepath.Join(logDir, "locked")
+		if err := os.MkdirAll(locked, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(locked, "secret.log"), []byte("x\n"), 0o666); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.Chmod(locked, 0o000); err != nil {
+			t.Fatal(err)
+		}
+		t.Cleanup(func() { _ = os.Chmod(locked, 0o755) })
+		varLogPath = logDir
+		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
+		if got.Status == models.CISPass {
+			t.Fatalf("an unreadable log directory must not PASS, got %s (%s)", got.Status, got.Finding)
+		}
+		if !got.Unverified {
+			t.Errorf("want Unverified, got %+v", got)
+		}
+	})
+
 	t.Run("world-readable logfile → FAIL", func(t *testing.T) {
 		logDir := filepath.Join(dir, "varlog_bad")
 		if err := os.Mkdir(logDir, 0o755); err != nil {

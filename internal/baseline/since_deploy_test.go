@@ -246,6 +246,36 @@ func TestRunSinceDeployDiff_NoBaseline(t *testing.T) {
 	}
 }
 
+// An unreadable baseline directory is not "no baseline": RunSinceDeployDiff must
+// return the error instead of telling the operator to run dsd health first.
+func TestRunSinceDeployDiff_UnreadableBaselineDir(t *testing.T) {
+	if os.Geteuid() == 0 {
+		t.Skip("root reads everything; cannot make a directory unreadable")
+	}
+	dir := t.TempDir()
+	t.Setenv("HOME", dir)
+	bdir := filepath.Join(dir, ".dsd", "baselines")
+	if err := os.MkdirAll(bdir, 0o750); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Chmod(bdir, 0o000); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = os.Chmod(bdir, 0o750) })
+
+	if err := reportSinceDeploy(time.Now(), "test: synthetic deploy"); err == nil {
+		t.Error("an unreadable baseline dir must be reported as an error, not as 'no baseline found'")
+	}
+}
+
+// No baseline at all is the expected first-run state: info line, nil error.
+func TestReportSinceDeploy_NoBaselineIsInfo(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	if err := reportSinceDeploy(time.Now(), "test: synthetic deploy"); err != nil {
+		t.Errorf("no baseline must not be an error, got %v", err)
+	}
+}
+
 // RunSinceDeployDiff's success path (a deploy signal is found AND a baseline
 // predates it) prints the "Changes since last deploy" header rather than one
 // of the two info fallbacks. DetectLastDeployTime has no injection seam (it

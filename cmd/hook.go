@@ -130,7 +130,12 @@ func runHookInstall(cmd *cobra.Command, _ []string) error {
 	}
 
 	chosen, err := tui.RunMultiSelect("Select hooks to install:", hookOptions)
-	if err != nil || len(chosen) == 0 {
+	if err != nil {
+		// The prompt itself failed (no usable terminal, a read error): that is
+		// not the operator choosing nothing, so don't report it as such.
+		return fmt.Errorf("selecting hooks: %w", err)
+	}
+	if len(chosen) == 0 {
 		fmt.Println("No hooks selected.")
 		return nil
 	}
