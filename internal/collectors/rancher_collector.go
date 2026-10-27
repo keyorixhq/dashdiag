@@ -36,7 +36,7 @@ func (c *RancherCollector) Collect(ctx context.Context) (any, error) {
 	// k8s collector's APIReachable, dsd does not invent a verdict it couldn't measure.
 	out, err := k8sRun(ctx, bin, "get", "namespace", rancherNamespace, "-o", "name")
 	if err != nil || !strings.Contains(out, rancherNamespace) {
-		return info, nil
+		return info, nil //nolint:nilerr // namespace query failed or absent: Available stays false; cluster reachability is K8sCollector's APIReachable, not duplicated here
 	}
 	info.Available = true
 	var serverOK, webhookOK bool

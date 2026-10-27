@@ -50,7 +50,7 @@ func (c *PackagesCollector) Collect(ctx context.Context) (any, error) {
 		info.Checked = false
 		info.Status = "query-failed"
 		info.StatusReason = "brew outdated failed to run: " + err.Error()
-		return info, nil
+		return info, nil //nolint:nilerr // brew failure is carried in Status=query-failed/Checked=false, not the error
 	}
 
 	for line := range strings.SplitSeq(out, "\n") {

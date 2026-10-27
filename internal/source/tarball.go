@@ -153,7 +153,7 @@ func untarGzWithLimits(srcPath, dstDir string, maxEntries int, maxTotalBytes int
 	var totalBytes int64
 	for {
 		hdr, err := tr.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {

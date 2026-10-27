@@ -69,7 +69,7 @@ func (c *PrometheusCollector) Collect(ctx context.Context) (interface{}, error) 
 	body, code, err := promHTTPGet(ctx, base+"/api/v1/targets?state=active")
 	if err != nil || code != http.StatusOK {
 		info.StatusReason = "Prometheus targets API could not be read"
-		return info, nil
+		return info, nil //nolint:nilerr // targets API failure is carried in StatusReason, not the error
 	}
 	var t struct {
 		Status string `json:"status"`
@@ -84,7 +84,7 @@ func (c *PrometheusCollector) Collect(ctx context.Context) (interface{}, error) 
 	}
 	if json.Unmarshal(body, &t) != nil || t.Status != "success" {
 		info.StatusReason = "Prometheus targets response could not be parsed"
-		return info, nil
+		return info, nil //nolint:nilerr // unparseable targets body is carried in StatusReason, not the error
 	}
 	info.MetricsRead = true
 	info.TargetsTotal = len(t.Data.ActiveTargets)

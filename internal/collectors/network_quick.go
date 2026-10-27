@@ -72,9 +72,13 @@ func (c *NetworkCollector) Collect(ctx context.Context) (any, error) {
 		result.InterfacesUnreadable = true
 	}
 	var ioCounters []gopsutilnet.IOCountersStat
-	_ = cachedJSON("gopsutil/net/iocounters", func() (any, error) {
+	if err := cachedJSON("gopsutil/net/iocounters", func() (any, error) {
 		return gopsutilnet.IOCountersWithContext(ctx, true)
-	}, &ioCounters)
+	}, &ioCounters); err != nil {
+		// Without the counters every interface reads 0 drops/errors: not measured,
+		// not clean. InterfacesUnreadable covers "link state, errors and drops".
+		result.InterfacesUnreadable = true
+	}
 	counterMap := make(map[string]gopsutilnet.IOCountersStat, len(ioCounters))
 	for _, cnt := range ioCounters {
 		counterMap[cnt.Name] = cnt

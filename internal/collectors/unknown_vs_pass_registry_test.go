@@ -29,9 +29,11 @@ import (
 //     cite the field(s) — cross-reference internal/models' registry.
 //   - exemptKind:     no fallible read that could produce a pass-shaped
 //     result, or the failure mode is provably benign — state why.
-//   - trackedBugKind: a confirmed gap, not yet fixed. Cite
-//     COLLECTOR-SWEEP.md's ranking so the backlog stays a ranked, bounded
-//     list instead of a markdown table nobody re-reads.
+//
+// There is deliberately no "known bug" kind: a collector with an unknown-as-pass
+// gap cannot be parked in this registry, it must ship a sentinel (or be exempt
+// with a reason). The kind existed while the COLLECTOR-SWEEP.md backlog was open
+// and was deleted when the last row was fixed (DD-COLLECTOR-GAPS-1 task 5).
 //
 // TestUnknownVsPassRegistryComplete fails when a Collect() method exists
 // with no entry (collector #100 cannot be added silently) or when an entry
@@ -42,7 +44,6 @@ type verdictKind int
 const (
 	sentinelKind verdictKind = iota
 	exemptKind
-	trackedBugKind
 )
 
 type collectorVerdict struct {
@@ -231,7 +232,7 @@ func TestUnknownVsPassRegistryComplete(t *testing.T) {
 
 	if len(unregistered) > 0 {
 		t.Errorf("%d Collect()-implementing type(s) have no entry in unknownVsPassRegistry:\n  %s\n\n"+
-			"Each must be classified sentinel/exempt/trackedBug — see this file's doc comment. "+
+			"Each must be classified sentinel/exempt — see this file's doc comment. "+
 			"(Completeness tripwire for the unknown-vs-pass defect class.)",
 			len(unregistered), strings.Join(unregistered, "\n  "))
 	}
@@ -241,33 +242,13 @@ func TestUnknownVsPassRegistryComplete(t *testing.T) {
 	}
 }
 
-// frozenTrackedBugs is the RATCHET for the "unknown vs pass" backlog: the set of
-// collectors allowed to be registered as trackedBug may only shrink. A new
-// collector (or a newly discovered gap) cannot be parked as a "known bug" — it
-// must ship a sentinel or a justified exempt row. When a collector is fixed,
-// flip its registry row to sentinel(...) AND delete it from this list in the
-// same PR. When the list is empty, delete trackedBugKind (DD-COLLECTOR-GAPS-1
-// Task 5) and this test with it.
-var frozenTrackedBugs = map[string]bool{}
-
-func TestTrackedBugRatchetOnlyShrinks(t *testing.T) {
-	var added, stale []string
+// A registry row is a claim ("this collector carries sentinel X"); a blank note is
+// not one. There is no "known bug" kind any more, so every row must name the
+// sentinel field(s) or give the reason the collector is exempt.
+func TestUnknownVsPassRegistryRowsHaveNotes(t *testing.T) {
 	for name, v := range unknownVsPassRegistry {
-		if v.kind == trackedBugKind && !frozenTrackedBugs[name] {
-			added = append(added, name)
+		if strings.TrimSpace(v.note) == "" {
+			t.Errorf("%s: registry row has no note naming its sentinel or exemption reason", name)
 		}
-	}
-	for name := range frozenTrackedBugs {
-		if v, ok := unknownVsPassRegistry[name]; !ok || v.kind != trackedBugKind {
-			stale = append(stale, name)
-		}
-	}
-	sort.Strings(added)
-	sort.Strings(stale)
-	for _, n := range added {
-		t.Errorf("%s is registered trackedBug but is not in frozenTrackedBugs: no NEW known-bug rows; ship a sentinel or a justified exempt", n)
-	}
-	for _, n := range stale {
-		t.Errorf("%s is in frozenTrackedBugs but no longer a trackedBug registry row: delete it from the frozen list (the list only shrinks)", n)
 	}
 }

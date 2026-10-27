@@ -22,7 +22,7 @@ func (c *ISCSICollector) Collect(ctx context.Context) (interface{}, error) {
 	info := &models.ISCSIInfo{}
 
 	if _, err := lookPath("iscsiadm"); err != nil {
-		return nil, nil // no initiator tooling — absent, gate off (no phantom row)
+		return nil, nil //nolint:nilerr // iscsiadm not installed: gate off, no phantom row
 	}
 	info.Available = true
 

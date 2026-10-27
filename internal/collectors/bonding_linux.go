@@ -32,7 +32,7 @@ func (c *BondingCollector) Collect(_ context.Context) (interface{}, error) {
 
 	files, err := glob(bondingGlob)
 	if err != nil || len(files) == 0 {
-		return info, nil
+		return info, nil //nolint:nilerr // no bonds (or bad glob on a world-readable /proc/net/bonding): see glob_exemptions_test.go; absence is the normal answer
 	}
 
 	for _, path := range files {

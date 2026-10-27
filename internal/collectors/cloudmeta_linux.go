@@ -204,9 +204,13 @@ func collectAWS(ctx context.Context, info *models.CloudInfo) bool {
 	// (normal). A transient IMDS error / unexpected status must NOT read as "no
 	// termination" — distinguish it so an imminent reclaim isn't hidden. Cached.
 	var spot awsSpotStatus
-	_ = cachedJSON("imds-aws-termination", func() (any, error) {
+	if err := cachedJSON("imds-aws-termination", func() (any, error) {
 		return awsSpotTermination(ctx, client, token), nil
-	}, &spot)
+	}, &spot); err != nil {
+		// Nothing recorded (replay of a bundle captured without this probe): the
+		// zero value would read as "confirmed no termination notice".
+		spot.CheckFailed = true
+	}
 	switch {
 	case spot.Terminating:
 		info.SpotTermination = true

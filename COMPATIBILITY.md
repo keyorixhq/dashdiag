@@ -127,6 +127,10 @@ Stable fields per insight: `level`, `check`, `message`, `hints`, `details`.
   set when no sshd_config could be read, and `packages` reports `checked: false`,
   `status: "query-failed"` when `brew outdated` fails (previously `checked: true`,
   0 updates).
+- Task 5 adds, same rules: `cron.quality_scan_unreadable`. `cloud.spot_check_failed` is
+  now also set when the termination probe was not recorded, `network.interfaces_unreadable`
+  also when the I/O counters could not be read, and a macOS `FDLimits` sysctl failure is
+  now a collector error (previously an empty result).
 
 ### 4. Exit codes
 

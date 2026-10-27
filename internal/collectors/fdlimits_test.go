@@ -273,7 +273,7 @@ func FuzzParseFileNr(f *testing.F) {
 
 // TestFDLimitsCollector_CollectDarwin_SysctlError covers fdlimits.go:223.88,225.16
 // and fdlimits.go:225.16,227.3 — when sysctl fails, collectDarwin returns an empty
-// FDInfo with no error (graceful degrade).
+// error (DD-COLLECTOR-GAPS-1: an empty FDInfo + nil read as "no FD pressure").
 func TestFDLimitsCollector_CollectDarwin_SysctlError(t *testing.T) {
 	b := source.NewBundle()
 	b.PutCmd("sysctl", []string{"-n", "kern.maxfiles"}, "", 1) // non-zero exit → error
@@ -281,20 +281,14 @@ func TestFDLimitsCollector_CollectDarwin_SysctlError(t *testing.T) {
 	defer SetSource(prev)
 
 	got, err := (&FDLimitsCollector{}).collectDarwin(context.Background())
-	if err != nil {
-		t.Fatalf("collectDarwin returned unexpected error: %v", err)
-	}
-	if got == nil {
-		t.Fatal("expected non-nil *models.FDInfo")
-	}
-	if got.MaxCount != 0 {
-		t.Errorf("MaxCount = %d, want 0 on sysctl error", got.MaxCount)
+	if err == nil || got != nil {
+		t.Fatalf("sysctl failure must propagate as an error, got %+v / %v", got, err)
 	}
 }
 
 // TestFDLimitsCollector_CollectDarwin_ParseError covers fdlimits.go:228.2,229.16
 // and fdlimits.go:229.16,231.3 — when sysctl returns non-numeric output, ParseUint
-// fails and collectDarwin returns an empty FDInfo with no error.
+// fails and collectDarwin returns an error rather than an empty FDInfo.
 func TestFDLimitsCollector_CollectDarwin_ParseError(t *testing.T) {
 	b := source.NewBundle()
 	b.PutCmd("sysctl", []string{"-n", "kern.maxfiles"}, "not-a-number\n", 0)
@@ -302,14 +296,8 @@ func TestFDLimitsCollector_CollectDarwin_ParseError(t *testing.T) {
 	defer SetSource(prev)
 
 	got, err := (&FDLimitsCollector{}).collectDarwin(context.Background())
-	if err != nil {
-		t.Fatalf("collectDarwin returned unexpected error: %v", err)
-	}
-	if got == nil {
-		t.Fatal("expected non-nil *models.FDInfo")
-	}
-	if got.MaxCount != 0 {
-		t.Errorf("MaxCount = %d, want 0 on parse error", got.MaxCount)
+	if err == nil || got != nil {
+		t.Fatalf("unparseable sysctl output must propagate as an error, got %+v / %v", got, err)
 	}
 }
 

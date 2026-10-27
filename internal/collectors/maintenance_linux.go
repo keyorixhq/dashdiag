@@ -309,7 +309,7 @@ func (c *KspliceCollector) Collect(ctx context.Context) (interface{}, error) {
 	out, err := runCmdOutput(ctx, "uptrack-upgrade", "-n")
 	if err != nil {
 		info.CheckUnverified = true
-		return info, nil
+		return info, nil //nolint:nilerr // uptrack failure is carried in CheckUnverified, not the error
 	}
 	info.PendingUpdates = countKsplicePending(out)
 	return info, nil

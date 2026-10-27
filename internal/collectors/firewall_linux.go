@@ -125,7 +125,7 @@ func collectNFTables(ctx context.Context, info *models.FirewallInfo) (*models.Fi
 		// instead of silently leaving Available=false (a clean-looking no-firewall).
 		info.Status = "unverified"
 		info.StatusReason = "could not read nftables ruleset (run as root?): " + err.Error()
-		return info, nil
+		return info, nil //nolint:nilerr // nft failure is carried in Status=unverified/StatusReason, not the error
 	}
 	parseNFTRuleset(out, info)
 
@@ -376,7 +376,7 @@ func collectIPTables(ctx context.Context, info *models.FirewallInfo) (*models.Fi
 		// flag it so the verdict reports "not verified" rather than a silent OK.
 		info.Status = "unverified"
 		info.StatusReason = "could not read iptables rules (run as root?): " + err.Error()
-		return info, nil
+		return info, nil //nolint:nilerr // iptables failure is carried in Status=unverified/StatusReason, not the error
 	}
 	parseIPTList(out, info)
 

@@ -31,7 +31,7 @@ func (c *BatteryCollector) Collect(ctx context.Context) (any, error) {
 		// disclose it so checkBattery doesn't silently read it as "no battery
 		// issues".
 		info.StatusReason = "battery status unreadable — ioreg failed to run"
-		return info, nil
+		return info, nil //nolint:nilerr // ioreg failure is carried in StatusReason, not the error
 	}
 	if out == "" {
 		// Clean exit, empty output: no AppleSmartBattery IOKit service —

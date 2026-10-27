@@ -67,7 +67,7 @@ func (c *RabbitMQCollector) Collect(ctx context.Context) (interface{}, error) {
 	// port already answered.
 	if out, err := rabbitmqRun(ctx, cli, "-q", "ping"); err != nil || !strings.Contains(out, "Ping succeeded") {
 		info.StatusReason = "rabbitmq diagnostics unavailable (need root or the rabbitmq user / Erlang cookie)"
-		return info, nil
+		return info, nil //nolint:nilerr // diagnostics failure is carried in StatusReason, not the error
 	}
 	info.DiagnosticsRead = true
 	info.Pinged = true

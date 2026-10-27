@@ -136,11 +136,11 @@ func (c *HACollector) Collect(ctx context.Context) (interface{}, error) {
 	// false and the heuristic reports "couldn't verify" instead of implying healthy.
 	out, err := runCmdOutput(ctx, "crm_mon", "--output-as=xml", "-1", "-r")
 	if err != nil || strings.TrimSpace(out) == "" {
-		return info, nil
+		return info, nil //nolint:nilerr // crm_mon failure: StatusReadable stays false, so the heuristic says it could not verify
 	}
 	var x crmMonXML
 	if xml.Unmarshal([]byte(out), &x) != nil {
-		return info, nil
+		return info, nil //nolint:nilerr // unparseable crm_mon XML: StatusReadable stays false, so the heuristic says it could not verify
 	}
 	info.StatusReadable = true
 	applyCrmMon(info, x)

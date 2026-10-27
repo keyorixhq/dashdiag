@@ -35,4 +35,8 @@ type CronInfo struct {
 	// Failures means the scan could not run — recent job failures may be hidden,
 	// which would otherwise read as a clean "no failures".
 	FailureScanOK bool `json:"failure_scan_ok,omitempty"`
+	// QualityScanUnreadable is true when a crontab directory or file existed but
+	// could not be read (the root and user crontabs are root-only), so an empty
+	// QualityIssues means "not fully scanned", not "no crontab problems".
+	QualityScanUnreadable bool `json:"quality_scan_unreadable,omitempty"`
 }

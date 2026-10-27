@@ -26,7 +26,7 @@ func (c *HBACollector) Collect(_ context.Context) (interface{}, error) {
 
 	hosts, err := glob("/sys/class/fc_host/host*")
 	if err != nil || len(hosts) == 0 {
-		return info, nil
+		return info, nil //nolint:nilerr // no FC hosts (or bad glob on world-readable /sys/class/fc_host): see glob_exemptions_test.go; absence is the normal answer
 	}
 
 	for _, host := range hosts {

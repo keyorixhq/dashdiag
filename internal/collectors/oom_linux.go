@@ -54,7 +54,7 @@ func (c *OOMCollector) Collect(ctx context.Context) (interface{}, error) {
 			// Keep the section but flag it unverified, so the verdict says "not
 			// checked" rather than a silent verified "0 OOM kills" (false-OK).
 			info.StatusReason = "kernel log unreadable (journalctl -k and dmesg both failed)"
-			return info, nil
+			return info, nil //nolint:nilerr // unreadable kernel log is carried in StatusReason, not the error
 		}
 		usedDmesg = true
 	}

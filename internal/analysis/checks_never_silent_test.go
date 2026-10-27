@@ -142,6 +142,14 @@ var neverSilentChecks = []neverSilentCheck{
 		wantSubstr: "could not be read",
 	},
 	{
+		name:    "checkCron: crontab quality scan unreadable",
+		checkFn: "checkCron",
+		run: func() []models.Insight {
+			return checkCron(models.CronInfo{DaemonActive: true, FailureScanOK: true, QualityScanUnreadable: true})
+		},
+		wantSubstr: "crontabs could not be read",
+	},
+	{
 		name:    "checkProcesses: process list unreadable",
 		checkFn: "checkProcesses",
 		run: func() []models.Insight {

@@ -4,7 +4,9 @@ package collectors
 
 import (
 	"context"
+	"errors"
 	"fmt"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -30,7 +32,7 @@ func (c *CronCollector) Collect(ctx context.Context) (interface{}, error) {
 	detectCronDaemon(ctx, info)
 
 	// 2. Crontab quality scan
-	info.QualityIssues = scanCrontabQuality()
+	info.QualityIssues, info.QualityScanUnreadable = scanCrontabQualityChecked()
 
 	// 3. Recent failures from journal/syslog
 	info.Failures, info.FailureScanOK = scanCronFailures(ctx)
@@ -147,12 +149,24 @@ var cronDirs = []string{
 }
 
 func scanCrontabQuality() []models.CronJob {
-	var issues []models.CronJob
+	issues, _ := scanCrontabQualityChecked()
+	return issues
+}
+
+// scanCrontabQualityChecked is scanCrontabQuality plus unreadable=true when any
+// crontab directory or file existed but was permission-denied (absent is normal).
+func scanCrontabQualityChecked() (issues []models.CronJob, unreadable bool) {
+	note := func(err error) {
+		if errors.Is(err, os.ErrPermission) {
+			unreadable = true
+		}
+	}
 
 	// System crontabs in /etc/cron.d and /etc/cron.*/
 	for _, dir := range cronDirs {
 		entries, err := readDirEntries(dir)
 		if err != nil {
+			note(err)
 			continue
 		}
 		for _, e := range entries {
@@ -160,33 +174,46 @@ func scanCrontabQuality() []models.CronJob {
 				continue
 			}
 			path := filepath.Join(dir, e.Name())
-			jobs := parseCrontabFile(path, path)
+			jobs, perr := parseCrontabFileChecked(path, path)
+			note(perr)
 			issues = append(issues, jobs...)
 		}
 	}
 
 	// Root crontab
-	issues = append(issues, parseCrontabFile("/var/spool/cron/crontabs/root", "user:root")...)
+	rootJobs, rerr := parseCrontabFileChecked("/var/spool/cron/crontabs/root", "user:root")
+	note(rerr)
+	issues = append(issues, rootJobs...)
 
 	// User crontabs
-	userEntries, _ := readDirEntries("/var/spool/cron/crontabs")
+	userEntries, uerr := readDirEntries("/var/spool/cron/crontabs")
+	note(uerr)
 	for _, e := range userEntries {
 		if e.IsDir() || e.Name() == "root" {
 			continue
 		}
 		path := filepath.Join("/var/spool/cron/crontabs", e.Name())
-		issues = append(issues, parseCrontabFile(path, "user:"+e.Name())...)
+		jobs, perr := parseCrontabFileChecked(path, "user:"+e.Name())
+		note(perr)
+		issues = append(issues, jobs...)
 	}
 
-	return issues
+	return issues, unreadable
 }
 
 // parseCrontabFile reads a crontab file and checks each job line for quality issues.
 // Returns at most one CronJob entry per file (deduplicating issues across lines).
 func parseCrontabFile(path, source string) []models.CronJob {
+	jobs, _ := parseCrontabFileChecked(path, source)
+	return jobs
+}
+
+// parseCrontabFileChecked is parseCrontabFile plus the read error, so the caller
+// can tell a permission-denied crontab from an absent or clean one.
+func parseCrontabFileChecked(path, source string) ([]models.CronJob, error) {
 	data, err := readFile(filepath.Clean(path)) // #nosec G304 -- known cron paths
 	if err != nil {
-		return nil
+		return nil, err
 	}
 
 	// /etc/cron.{hourly,daily,weekly,monthly}/ hold run-parts SCRIPTS, not
@@ -199,7 +226,7 @@ func parseCrontabFile(path, source string) []models.CronJob {
 		strings.Contains(path, "/cron.daily/") ||
 		strings.Contains(path, "/cron.weekly/") ||
 		strings.Contains(path, "/cron.monthly/") {
-		return nil
+		return nil, nil
 	}
 
 	var hasPath, hasMailto bool
@@ -262,7 +289,7 @@ func parseCrontabFile(path, source string) []models.CronJob {
 	}
 
 	if len(issueSet) == 0 {
-		return nil
+		return nil, nil
 	}
 
 	var issues []string
@@ -274,7 +301,7 @@ func parseCrontabFile(path, source string) []models.CronJob {
 		Source: source,
 		Line:   "",
 		Issues: issues,
-	}}
+	}}, nil
 }
 
 // extractCronCommand returns the command portion of a crontab line.

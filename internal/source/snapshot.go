@@ -3,6 +3,7 @@ package source
 import (
 	"archive/tar"
 	"compress/gzip"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -80,7 +81,7 @@ func fromSnapshotWithLimits(tarballPath string, maxEntries int, maxTotalBytes in
 	var totalBytes int64
 	for {
 		hdr, err := tr.Next()
-		if err == io.EOF {
+		if errors.Is(err, io.EOF) {
 			break
 		}
 		if err != nil {

@@ -250,13 +250,16 @@ func (c *FDLimitsCollector) scanProcesses(ctx context.Context) fdProcScan {
 }
 
 func (c *FDLimitsCollector) collectDarwin(ctx context.Context) (*models.FDInfo, error) {
+	// A failed or unparseable sysctl propagates as a collector error (the registry's
+	// documented FDLimits contract: primary read failure -> checks[].status=ERROR),
+	// not an empty FDInfo that reads as "no FD pressure".
 	out, err := runCmd(ctx, "sysctl", "-n", "kern.maxfiles")
 	if err != nil {
-		return &models.FDInfo{}, nil
+		return nil, fmt.Errorf("reading kern.maxfiles: %w", err)
 	}
 	maxFDs, err := strconv.ParseUint(strings.TrimSpace(out), 10, 64)
 	if err != nil {
-		return &models.FDInfo{}, nil
+		return nil, fmt.Errorf("parsing kern.maxfiles %q: %w", strings.TrimSpace(out), err)
 	}
 	return &models.FDInfo{MaxCount: maxFDs}, nil
 }

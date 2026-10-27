@@ -25,7 +25,7 @@ func (c *AuthCollector) Collect(ctx context.Context) (interface{}, error) {
 	if _, err := runCmd(ctx, "pgrep", "-x", "sshd"); err != nil {
 		// Also check if the binary exists even if not running right now
 		if _, err2 := runCmd(ctx, "which", "sshd"); err2 != nil {
-			return &models.AuthInfo{}, nil // Available=false → row hidden
+			return &models.AuthInfo{}, nil //nolint:nilerr // no sshd at all: Available=false hides the row; absence is not an error
 		}
 	}
 

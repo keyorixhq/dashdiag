@@ -22,6 +22,8 @@ linters:
     - bodyclose
     - cyclop
     - funlen
+    - errorlint
+    - nilerr
   settings:
     govet:
       settings:

@@ -73,7 +73,7 @@ func (c *EnvoyCollector) Collect(ctx context.Context) (interface{}, error) {
 	body, code, err := promHTTPGet(ctx, base+"/stats?filter=membership_(healthy|total)")
 	if err != nil || code != http.StatusOK {
 		info.StatusReason = "Envoy cluster stats could not be read"
-		return info, nil
+		return info, nil //nolint:nilerr // stats read failure is carried in StatusReason, not the error
 	}
 	info.StatsRead = true
 	parseEnvoyMembership(string(body), info)

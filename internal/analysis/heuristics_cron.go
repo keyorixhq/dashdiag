@@ -64,6 +64,11 @@ func checkCron(c models.CronInfo) []models.Insight {
 	}
 
 	out = append(out, checkCronQuality(c.QualityIssues)...)
+	if c.QualityScanUnreadable {
+		out = append(out, unverifiedInsight("INFO", "Cron",
+			"some crontabs could not be read (root and user crontabs are root-only) — crontab quality not fully checked",
+			[]string{"to inspect: ls -l /var/spool/cron/crontabs", "to fix: re-run with sudo"}))
+	}
 	out = append(out, checkAnacronSchedules(c.AnacronJobs)...)
 
 	return out

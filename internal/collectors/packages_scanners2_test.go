@@ -318,6 +318,10 @@ func TestCollectAPTKali_AptGetFails(t *testing.T) {
 	if got.StatusReason != "apt-get unavailable" {
 		t.Errorf("StatusReason = %q, want %q", got.StatusReason, "apt-get unavailable")
 	}
+	// DD-COLLECTOR-GAPS-1: a reason without Status read as a clean 0 updates.
+	if got.Status != pkgQueryFailed {
+		t.Errorf("Status = %q, want %q so the analysis says 'could not verify'", got.Status, pkgQueryFailed)
+	}
 	if !got.HasSecurityRepo {
 		t.Error("expected HasSecurityRepo=true (kali-rolling is the security channel)")
 	}

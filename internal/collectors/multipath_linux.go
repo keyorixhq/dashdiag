@@ -38,7 +38,7 @@ func (c *MultipathCollector) Collect(ctx context.Context) (interface{}, error) {
 		if err != nil {
 			info.Status = "error"
 			info.StatusReason = "multipathd running but paths unreadable"
-			return info, nil // actionable error — keep the row
+			return info, nil //nolint:nilerr // unreadable paths are carried in Status=error/StatusReason, not the error
 		}
 		info.Devices = parseMultipathL(out)
 	} else {

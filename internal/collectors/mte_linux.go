@@ -57,7 +57,7 @@ func (c *MTECollector) Collect(ctx context.Context) (interface{}, error) {
 	exceptionTrace, err := readIntFile("/proc/sys/debug/exception-trace")
 	if err != nil {
 		info.StatusReason = "debug.exception-trace unreadable: " + err.Error()
-		return info, nil
+		return info, nil //nolint:nilerr // unreadable exception-trace is carried in StatusReason, not the error
 	}
 	info.ExceptionTraceEnabled = exceptionTrace == 1
 	if !info.ExceptionTraceEnabled {
@@ -78,7 +78,7 @@ func (c *MTECollector) Collect(ctx context.Context) (interface{}, error) {
 		}
 		if err != nil {
 			info.StatusReason = "kernel log unreadable (journalctl -k and dmesg both failed)"
-			return info, nil
+			return info, nil //nolint:nilerr // unreadable kernel log is carried in StatusReason, not the error
 		}
 		usedDmesg = true
 	}

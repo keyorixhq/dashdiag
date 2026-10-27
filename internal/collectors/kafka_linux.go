@@ -80,7 +80,7 @@ func (c *KafkaCollector) Collect(ctx context.Context) (interface{}, error) {
 	out, err := runCmd(ctx, cli, "--bootstrap-server", server, "--describe", "--unavailable-partitions")
 	if err != nil {
 		info.StatusReason = "kafka topic metadata unavailable (the CLI could not reach the bootstrap server; SSL/SASL auth may be required)"
-		return info, nil
+		return info, nil //nolint:nilerr // CLI failure is carried in StatusReason, not the error
 	}
 	info.MetricsRead = true
 	info.OfflinePartitions, info.OfflineDetail = countKafkaPartitionLines(out)
