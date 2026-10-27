@@ -121,7 +121,7 @@ var unknownVsPassRegistry = map[string]collectorVerdict{
 	"TraefikCollector":        sentinel("APIRead"),
 	"NVMeCollector":           sentinel("linux: SmartUnreadReason (needs_root/tool_absent/error), SmartRead, SmartDangerousFieldsUnread. darwin: DrivesListUnreadable."),
 	"VMwareCollector":         sentinel("ToolsRunningVerified/StatAvailable"),
-	"SecurityCollector":       trackedBug("COLLECTOR-SWEEP.md Low #21 (darwin only): parseDarwinSSHFile has no SSHConfigUnreadable-equivalent, unlike every other platform's SSH parser (including this file's own linux/notlinux siblings). linux implementation is CORRECT (~12 distinct sentinels)."),
+	"SecurityCollector":       sentinel("SSHConfigUnreadable on every platform incl. darwin (no readable sshd_config -> unreadable) + the linux *Unreadable family"),
 	"ZFSCollector":            sentinel("ListReadFailed/StatusReadFailed"),
 	"SnapperCollector":        sentinel("string sentinel on `snapper list` failure/no-permissions"),
 	"PackagesCollector":       trackedBug("COLLECTOR-SWEEP.md Low #22 (darwin/generic stub only): Checked:true is set BEFORE `brew outdated` runs and never corrected on failure — the only stub-vs-real-implementation asymmetry found. linux implementation is CORRECT (extensive, incl. stale-metadata guard)."),
@@ -250,7 +250,7 @@ func TestUnknownVsPassRegistryComplete(t *testing.T) {
 // same PR. When the list is empty, delete trackedBugKind (DD-COLLECTOR-GAPS-1
 // Task 5) and this test with it.
 var frozenTrackedBugs = map[string]bool{
-	"SecurityCollector": true, "PackagesCollector": true,
+	"PackagesCollector": true,
 	"PressureCollector": true,
 }
 

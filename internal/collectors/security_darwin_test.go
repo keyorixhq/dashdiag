@@ -165,3 +165,28 @@ func TestParseDarwinSuspectLaunchd_GlobFailsSkipsUserDirs(t *testing.T) {
 		t.Errorf("expected the root-dir scan to still complete, got %d: %v", len(info.SuspectCrons), info.SuspectCrons)
 	}
 }
+
+// DD-COLLECTOR-GAPS-1 Low #21: with no readable sshd_config the OpenSSH defaults
+// are assumptions, not an audit; the darwin parser must set SSHConfigUnreadable
+// like every other platform's.
+func TestParseDarwinSSHConfig_NoReadableConfigIsUnreadable(t *testing.T) {
+	prev := SetSource(source.NewReplay(source.NewBundle()))
+	t.Cleanup(func() { SetSource(prev) })
+	info := &models.SecurityInfo{}
+	parseDarwinSSHConfig(info)
+	if !info.SSHConfigUnreadable {
+		t.Error("SSHConfigUnreadable = false although no sshd_config could be read")
+	}
+}
+
+func TestParseDarwinSSHConfig_ReadableConfigIsNotFlagged(t *testing.T) {
+	b := source.NewBundle()
+	b.PutFile("/etc/ssh/sshd_config", []byte("PermitRootLogin no\n"))
+	prev := SetSource(source.NewReplay(b))
+	t.Cleanup(func() { SetSource(prev) })
+	info := &models.SecurityInfo{}
+	parseDarwinSSHConfig(info)
+	if info.SSHConfigUnreadable {
+		t.Error("SSHConfigUnreadable = true for a readable sshd_config")
+	}
+}
