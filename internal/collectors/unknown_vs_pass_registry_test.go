@@ -70,7 +70,7 @@ var unknownVsPassRegistry = map[string]collectorVerdict{
 	"BINDCollector":           sentinel("PortsChecked/QueryTested/PortsOwnershipUnverified"),
 	"CPUCollector":            sentinel("UsageSampleFailed (cpuSample.OK false on a read/parse failure or cancelled window; Linux only)"),
 	"CloudMetaCollector":      sentinel("IsCloudInstance retries once and, on a DMI-identified cloud VM, still registers the collector; Available=false then yields checkCloudMeta's Unverified INFO"),
-	"ContainerdCollector":     trackedBug("COLLECTOR-SWEEP.md Low #15: containerdNamespaces silent (nil,false) on `ctr` failure post-socket-dial"),
+	"ContainerdCollector":     sentinel("NamespacesUnreadable/ContainerCountsUnreadable (+ SocketPermDenied/CtrBinaryFound)"),
 	"CronCollector":           sentinel("FailureScanOK"),
 	"CVEHealthCollector":      sentinel("ScanFailed+StatusReason; stale-metadata guard"),
 	"DNSCollector":            sentinel("empty Nameservers surfaces as a misconfiguration finding, not silence; ProbeSkipped gates the live probe"),
@@ -250,7 +250,7 @@ func TestUnknownVsPassRegistryComplete(t *testing.T) {
 // same PR. When the list is empty, delete trackedBugKind (DD-COLLECTOR-GAPS-1
 // Task 5) and this test with it.
 var frozenTrackedBugs = map[string]bool{
-	"ContainerdCollector": true, "KVMGuestCollector": true, "NFSCollector": true,
+	"KVMGuestCollector": true, "NFSCollector": true,
 	"SwapCollector": true, "TimelineCollector": true,
 	"SecurityCollector": true, "PackagesCollector": true,
 	"HealthDeepCollector": true, "PressureCollector": true,

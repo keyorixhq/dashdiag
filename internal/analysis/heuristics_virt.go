@@ -343,6 +343,16 @@ func checkContainerd(d models.ContainerdInfo) []models.Insight {
 	// attempted — TotalContainers stayed 0 and Namespaces stayed nil, byte-for-
 	// byte identical to a genuinely idle containerd with zero namespaces. Never
 	// let that read as "verified clean".
+	if d.NamespacesUnreadable {
+		out = append(out, unverifiedInsight("INFO", virtCatContainerd,
+			"containerd is reachable but `ctr namespaces list` failed — namespaces and container counts not measured",
+			[]string{"to inspect: ctr namespaces list"}))
+	}
+	if d.ContainerCountsUnreadable {
+		out = append(out, unverifiedInsight("INFO", virtCatContainerd,
+			"at least one containerd namespace's container list could not be read — the container total is a lower bound",
+			[]string{"to inspect: ctr -n <namespace> containers list"}))
+	}
 	if !d.CtrBinaryFound {
 		out = append(out, unverifiedInsight("INFO", virtCatContainerd,
 			"containerd namespaces/containers could not be enumerated — no ctr/containerd-ctr binary found",

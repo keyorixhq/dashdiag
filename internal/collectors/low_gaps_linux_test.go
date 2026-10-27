@@ -61,3 +61,33 @@ func TestThermalCollector_DriverFoundInputUnreadableIsFlagged(t *testing.T) {
 		t.Fatalf("SensorUnreadable not set: %#v", raw)
 	}
 }
+
+func TestContainerdNamespacesChecked_ListFailureIsUnreadableNotIdle(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("ctr", []string{"namespaces", "list", "-q"}, "", 1)
+	})
+	ns, _, nsUnreadable, _ := containerdNamespacesChecked(context.Background(), "ctr")
+	if ns != nil || !nsUnreadable {
+		t.Fatalf("ns=%v nsUnreadable=%v, want nil/true", ns, nsUnreadable)
+	}
+}
+
+func TestContainerdNamespacesChecked_EmptyAnswerIsGenuinelyIdle(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("ctr", []string{"namespaces", "list", "-q"}, "", 0)
+	})
+	if _, _, nsUnreadable, countsUnreadable := containerdNamespacesChecked(context.Background(), "ctr"); nsUnreadable || countsUnreadable {
+		t.Fatal("an empty successful answer must not be flagged unreadable")
+	}
+}
+
+func TestContainerdNamespacesChecked_CountFailureIsFlagged(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutCmd("ctr", []string{"namespaces", "list", "-q"}, "default\n", 0)
+		b.PutCmd("ctr", []string{"-n", "default", "containers", "list", "-q"}, "", 1)
+	})
+	_, _, nsUnreadable, countsUnreadable := containerdNamespacesChecked(context.Background(), "ctr")
+	if nsUnreadable || !countsUnreadable {
+		t.Fatalf("nsUnreadable=%v countsUnreadable=%v, want false/true", nsUnreadable, countsUnreadable)
+	}
+}

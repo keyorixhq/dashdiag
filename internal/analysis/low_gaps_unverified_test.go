@@ -35,3 +35,11 @@ func TestCheckThermal_SensorUnreadable(t *testing.T) {
 		t.Errorf("no Unverified insight: %+v", got)
 	}
 }
+
+func TestCheckContainerd_UnreadableNamespacesAndCounts(t *testing.T) {
+	t.Parallel()
+	got := checkContainerd(models.ContainerdInfo{Available: true, ServiceState: "active", CtrBinaryFound: true, NamespacesUnreadable: true, ContainerCountsUnreadable: true})
+	if !hasUnverified(got, "namespaces list") || !hasUnverified(got, "lower bound") {
+		t.Errorf("missing Unverified insights: %+v", got)
+	}
+}

@@ -127,7 +127,7 @@ func (c *ContainerdCollector) Collect(ctx context.Context) (interface{}, error) 
 	info.CtrBinaryFound = ctrBin != ""
 	if ctrBin != "" {
 		info.Version = containerdVersion(ctx, ctrBin)
-		info.Namespaces, info.NamespacesTruncated = containerdNamespaces(ctx, ctrBin)
+		info.Namespaces, info.NamespacesTruncated, info.NamespacesUnreadable, info.ContainerCountsUnreadable = containerdNamespacesChecked(ctx, ctrBin)
 		for _, ns := range info.Namespaces {
 			info.TotalContainers += ns.ContainerCount
 		}
@@ -188,11 +188,23 @@ func containerdVersion(ctx context.Context, ctrBin string) string {
 // (internal-collectors-05-04: an unbounded fan-out is a namespace-bombing
 // subprocess-exhaustion vector).
 func containerdNamespaces(ctx context.Context, ctrBin string) (result []models.ContainerdNamespace, truncated bool) {
+	result, truncated, _, _ = containerdNamespacesChecked(ctx, ctrBin)
+	return result, truncated
+}
+
+// containerdNamespacesChecked is containerdNamespaces plus the two "could not look"
+// outcomes: nsUnreadable when `ctr namespaces list` itself failed (an empty
+// successful answer is a genuinely namespace-less containerd), countsUnreadable
+// when any per-namespace container listing failed.
+func containerdNamespacesChecked(ctx context.Context, ctrBin string) (result []models.ContainerdNamespace, truncated, nsUnreadable, countsUnreadable bool) {
 	nsCtx, cancel := context.WithTimeout(ctx, 5*time.Second)
 	defer cancel()
 	out, err := runCmd(nsCtx, ctrBin, "namespaces", "list", "-q")
-	if err != nil || out == "" {
-		return nil, false
+	if err != nil {
+		return nil, false, true, false
+	}
+	if out == "" {
+		return nil, false, false, false
 	}
 	var names []string
 	for _, ns := range strings.Split(strings.TrimSpace(out), "\n") {
@@ -209,27 +221,37 @@ func containerdNamespaces(ctx context.Context, ctrBin string) (result []models.C
 	}
 	result = make([]models.ContainerdNamespace, 0, len(names))
 	for _, ns := range names {
-		result = append(result, models.ContainerdNamespace{
-			Name:           ns,
-			ContainerCount: containerdContainerCount(ctx, ctrBin, ns),
-		})
+		n, ok := containerdContainerCountChecked(ctx, ctrBin, ns)
+		if !ok {
+			countsUnreadable = true
+		}
+		result = append(result, models.ContainerdNamespace{Name: ns, ContainerCount: n})
 	}
-	return result, truncated
+	return result, truncated, false, countsUnreadable
 }
 
 // containerdContainerCount counts containers in one containerd namespace.
 func containerdContainerCount(ctx context.Context, ctrBin, ns string) int {
+	n, _ := containerdContainerCountChecked(ctx, ctrBin, ns)
+	return n
+}
+
+// containerdContainerCountChecked reports ok=false when the listing failed, so a
+// failure is not mistaken for an empty namespace.
+func containerdContainerCountChecked(ctx context.Context, ctrBin, ns string) (count int, ok bool) {
 	cCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
 	out, err := runCmd(cCtx, ctrBin, "-n", ns, "containers", "list", "-q")
-	if err != nil || out == "" {
-		return 0
+	if err != nil {
+		return 0, false
 	}
-	count := 0
+	if out == "" {
+		return 0, true
+	}
 	for _, line := range strings.Split(strings.TrimSpace(out), "\n") {
 		if strings.TrimSpace(line) != "" {
 			count++
 		}
 	}
-	return count
+	return count, true
 }
