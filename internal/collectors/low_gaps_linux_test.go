@@ -4,6 +4,8 @@ package collectors
 
 import (
 	"context"
+	"errors"
+	"reflect"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -89,5 +91,24 @@ func TestContainerdNamespacesChecked_CountFailureIsFlagged(t *testing.T) {
 	_, _, nsUnreadable, countsUnreadable := containerdNamespacesChecked(context.Background(), "ctr")
 	if nsUnreadable || !countsUnreadable {
 		t.Fatalf("nsUnreadable=%v countsUnreadable=%v, want false/true", nsUnreadable, countsUnreadable)
+	}
+}
+
+func TestUnreadTimelineSources(t *testing.T) {
+	boom := errors.New("read failed")
+	cases := []struct {
+		name       string
+		jErr, dErr error
+		want       []string
+	}{
+		{"both read", nil, nil, nil},
+		{"dmesg only fails (dmesg_restrict=1)", nil, boom, []string{"kernel log"}},
+		{"journal only fails", boom, nil, []string{"journald"}},
+		{"both fail", boom, boom, []string{"journald", "kernel log"}},
+	}
+	for _, tc := range cases {
+		if got := unreadTimelineSources(tc.jErr, tc.dErr); !reflect.DeepEqual(got, tc.want) {
+			t.Errorf("%s: got %v, want %v", tc.name, got, tc.want)
+		}
 	}
 }

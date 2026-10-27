@@ -70,6 +70,9 @@ func (c *TimelineCollector) Collect(ctx context.Context) (interface{}, error) {
 	if jr.err != nil && dr.err != nil {
 		info.SourcesUnavailable = true
 	}
+	// A single failed source is silent otherwise: dmesg-only failure is the common
+	// case (kernel.dmesg_restrict=1 as non-root) and the journal still reads.
+	info.UnreadSources = unreadTimelineSources(jr.err, dr.err)
 
 	info.Events = append(info.Events, jr.events...)
 	info.Events = append(info.Events, dr.events...)
@@ -108,6 +111,18 @@ func (c *TimelineCollector) Collect(ctx context.Context) (interface{}, error) {
 	}
 
 	return info, nil
+}
+
+// unreadTimelineSources names each event source whose read failed.
+func unreadTimelineSources(journalErr, dmesgErr error) []string {
+	var out []string
+	if journalErr != nil {
+		out = append(out, "journald")
+	}
+	if dmesgErr != nil {
+		out = append(out, "kernel log")
+	}
+	return out
 }
 
 // ── journal events ────────────────────────────────────────────────────────────

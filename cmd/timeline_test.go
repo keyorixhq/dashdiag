@@ -189,3 +189,16 @@ func TestRunTimeline(t *testing.T) {
 		t.Errorf("json mode should emit the TimelineInfo JSON shape, got: %q", jsonOut)
 	}
 }
+
+// DD-COLLECTOR-GAPS-1 Low #16: one failed source (the common non-root
+// dmesg_restrict=1 case) must not render the green "Timeline clean".
+func TestPrintTimeline_OneUnreadSourceIsNotClean(t *testing.T) {
+	info := &models.TimelineInfo{WindowHours: 1, UnreadSources: []string{"kernel log"}}
+	out := captureStdout(t, func() { printTimeline(info, time.Second, output.ModePlain) })
+	if strings.Contains(out, "Timeline clean") {
+		t.Errorf("a window with an unread source rendered clean: %q", out)
+	}
+	if !strings.Contains(out, "Timeline incomplete") || !strings.Contains(out, "kernel log") {
+		t.Errorf("missing incomplete summary naming the source: %q", out)
+	}
+}

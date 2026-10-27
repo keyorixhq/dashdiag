@@ -117,7 +117,7 @@ var unknownVsPassRegistry = map[string]collectorVerdict{
 	"SwapCollector":           trackedBug("COLLECTOR-SWEEP.md Low #18: /proc/swaps and zram reads have no sentinel, unlike this function's own vmstat -1 sentinel; /proc/swaps normally world-readable"),
 	"SysctlCollector":         sentinel("-1 sentinels where 0 is a legitimate value; other fields' consuming thresholds are all >0 guards, so 0-on-failure never fires a false verdict"),
 	"ThermalCollector":        sentinel("SensorUnreadable (driver found, temp input unreadable) → Unverified INFO; darwin/generic stub Available=false is correct"),
-	"TimelineCollector":       trackedBug("COLLECTOR-SWEEP.md Low #16: SourcesUnavailable only fires when BOTH journalctl and dmesg fail — a dmesg-only failure (common: kernel.dmesg_restrict=1) is silent. Total-failure case is handled correctly."),
+	"TimelineCollector":       sentinel("SourcesUnavailable (both sources) + UnreadSources (any single failed source), rendered as Timeline incomplete"),
 	"TraefikCollector":        sentinel("APIRead"),
 	"NVMeCollector":           sentinel("linux: SmartUnreadReason (needs_root/tool_absent/error), SmartRead, SmartDangerousFieldsUnread. darwin: DrivesListUnreadable."),
 	"VMwareCollector":         sentinel("ToolsRunningVerified/StatAvailable"),
@@ -251,7 +251,7 @@ func TestUnknownVsPassRegistryComplete(t *testing.T) {
 // Task 5) and this test with it.
 var frozenTrackedBugs = map[string]bool{
 	"KVMGuestCollector": true, "NFSCollector": true,
-	"SwapCollector": true, "TimelineCollector": true,
+	"SwapCollector":     true,
 	"SecurityCollector": true, "PackagesCollector": true,
 	"HealthDeepCollector": true, "PressureCollector": true,
 }
