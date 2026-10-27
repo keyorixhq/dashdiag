@@ -439,6 +439,13 @@ func (b *Bundle) sanitizeStatErrs(redactStr func(string) (string, int), rep *San
 			rep.TotalRedactions += n
 		}
 	}
+	for path, rec := range b.dirErrs {
+		if red, n := redactStr(rec.errText); n > 0 {
+			rec.errText = red
+			b.dirErrs[path] = rec
+			rep.TotalRedactions += n
+		}
+	}
 }
 
 // sanitizeDirsGlobs rewrites every directory-listing and glob-match entry.

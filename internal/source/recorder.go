@@ -36,6 +36,8 @@ func (r *Recorder) ReadDir(dir string) ([]string, error) {
 	names, err := r.inner.ReadDir(dir)
 	if err == nil {
 		r.b.putDir(dir, names)
+	} else {
+		r.b.putDirErr(dir, err)
 	}
 	return names, err
 }

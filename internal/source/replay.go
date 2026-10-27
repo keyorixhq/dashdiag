@@ -48,6 +48,16 @@ func (rp *Replay) Glob(pattern string) ([]string, error) {
 func (rp *Replay) ReadDir(dir string) ([]string, error) {
 	n, ok := rp.b.getDir(dir)
 	if !ok {
+		if rec, bad := rp.b.getDirErr(dir); bad {
+			switch {
+			case rec.notExist:
+				return nil, &fs.PathError{Op: "open", Path: dir, Err: fs.ErrNotExist}
+			case rec.permission:
+				return nil, &fs.PathError{Op: "open", Path: dir, Err: fs.ErrPermission}
+			default:
+				return nil, errors.New(rec.errText)
+			}
+		}
 		return nil, fmt.Errorf("%w: ReadDir %s", ErrNotRecorded, dir)
 	}
 	return append([]string(nil), n...), nil

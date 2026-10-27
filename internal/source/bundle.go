@@ -81,6 +81,16 @@ type statRec struct {
 	errText    string
 }
 
+// dirErrRec is a recorded failed ReadDir, kept beside (not inside) the success
+// map so older bundles and the dirs.json format are unchanged. Like statRec it
+// preserves absent vs unreadable, so a capture-time permission error replays as
+// unreadable rather than as ErrNotRecorded or "does not exist".
+type dirErrRec struct {
+	notExist   bool
+	permission bool
+	errText    string
+}
+
 // statfsRec is a recorded syscall.Statfs: the stats on success, or a recorded
 // error (absent / unreadable) so a filesystem-usage probe replays the live
 // outcome instead of stat-ing the replaying machine's own filesystem.
@@ -100,6 +110,7 @@ type Bundle struct {
 	files   map[string]fileRec
 	globs   map[string][]string
 	dirs    map[string][]string
+	dirErrs map[string]dirErrRec
 	cmds    map[string]cmdRec
 	links   map[string]linkRec
 	stats   map[string]statRec
@@ -113,7 +124,8 @@ func NewBundle() *Bundle {
 		files:    map[string]fileRec{},
 		globs:    map[string][]string{},
 		dirs:     map[string][]string{},
-		cmds:     map[string]cmdRec{},
+		dirErrs:  map[string]dirErrRec{},
+		cmds:    map[string]cmdRec{},
 		links:    map[string]linkRec{},
 		stats:    map[string]statRec{},
 		statfss:  map[string]statfsRec{},
@@ -203,6 +215,7 @@ func (b *Bundle) getGlob(pattern string) ([]string, bool) {
 func (b *Bundle) putDir(dir string, names []string) {
 	b.mu.Lock()
 	b.dirs[cleanPath(dir)] = append([]string(nil), names...)
+	delete(b.dirErrs, cleanPath(dir)) // last write wins
 	b.mu.Unlock()
 }
 
@@ -211,6 +224,30 @@ func (b *Bundle) getDir(dir string) ([]string, bool) {
 	n, ok := b.dirs[cleanPath(dir)]
 	b.mu.RUnlock()
 	return n, ok
+}
+
+func (b *Bundle) putDirErr(dir string, err error) {
+	rec := dirErrRec{}
+	switch {
+	case errors.Is(err, fs.ErrNotExist):
+		rec.notExist = true
+	case errors.Is(err, fs.ErrPermission):
+		rec.permission = true
+		rec.errText = err.Error()
+	default:
+		rec.errText = err.Error()
+	}
+	b.mu.Lock()
+	b.dirErrs[cleanPath(dir)] = rec
+	delete(b.dirs, cleanPath(dir)) // last write wins
+	b.mu.Unlock()
+}
+
+func (b *Bundle) getDirErr(dir string) (dirErrRec, bool) {
+	b.mu.RLock()
+	rec, ok := b.dirErrs[cleanPath(dir)]
+	b.mu.RUnlock()
+	return rec, ok
 }
 
 func (b *Bundle) putCmd(name string, args []string, res Result, err error) {
