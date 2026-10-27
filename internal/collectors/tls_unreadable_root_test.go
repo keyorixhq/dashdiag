@@ -60,3 +60,26 @@ func TestScanCertPath_MissingRootIsNotAnError(t *testing.T) {
 		t.Fatalf("certs=%+v unc=%+v, want both empty for an absent root", certs, unc)
 	}
 }
+
+// DD-COLLECTOR-GAPS-1 follow-up: a permission-denied subdirectory of a readable
+// scan root must be reported, not mistaken for a non-cert file. probeIsDir used
+// to answer false for any ReadDir error, so the walker skipped the entry.
+func TestScanCertPath_UnreadableNestedSubdirIsUncheckable(t *testing.T) {
+	b := source.NewBundle()
+	b.PutDir("/etc/pki", []string{"tls-private"})
+	prev := SetSource(readDirErrSource{
+		Source: source.NewReplay(b),
+		errs: map[string]error{
+			"/etc/pki/tls-private": fmt.Errorf("open /etc/pki/tls-private: %w", os.ErrPermission),
+		},
+	})
+	t.Cleanup(func() { SetSource(prev) })
+
+	certs, unc := scanCertPath(context.Background(), "/etc/pki", time.Now())
+	if len(certs) != 0 {
+		t.Fatalf("certs = %+v, want none", certs)
+	}
+	if len(unc) != 1 || unc[0].Path != "/etc/pki/tls-private" {
+		t.Fatalf("uncheckable = %+v, want the unreadable nested directory", unc)
+	}
+}
