@@ -47,3 +47,22 @@ func TestNetworkCollector_ReadableInterfacesAndConnectionsAreNotFlagged(t *testi
 		t.Errorf("flags set on a clean read: interfaces=%v connections=%v", info.InterfacesUnreadable, info.ConnectionsUnreadable)
 	}
 }
+
+// The I/O counters feed every interface's drop/error figures: a failed read leaves
+// them 0, which must not read as clean (DD-COLLECTOR-GAPS-1 task 5 discard review).
+func TestNetworkCollector_UnreadableIOCountersAreFlagged(t *testing.T) {
+	b := source.NewBundle()
+	b.PutCached("gopsutil/net/interfaces", []byte("[]"))
+	b.PutCached("gopsutil/net/connections/tcp", []byte("[]"))
+	// gopsutil/net/iocounters deliberately not recorded.
+	prev := SetSource(source.NewReplay(b))
+	t.Cleanup(func() { SetSource(prev) })
+
+	raw, err := NewNetworkCollector().Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	if info := raw.(*models.NetworkInfo); !info.InterfacesUnreadable {
+		t.Error("InterfacesUnreadable = false although the I/O counters could not be read")
+	}
+}

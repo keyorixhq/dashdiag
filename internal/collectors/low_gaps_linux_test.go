@@ -155,3 +155,43 @@ func TestPressureCollector_UnreadablePSIFileIsNamed(t *testing.T) {
 		t.Errorf("readable metrics must still be parsed, got %+v", info.MemorySome)
 	}
 }
+
+func TestCronCollector_PermissionDeniedCrontabIsFlagged(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutDir("/etc/cron.d", nil)
+	})
+	prev := SetSource(readDirErrSource{
+		Source: ActiveSource(),
+		errs:   map[string]error{"/var/spool/cron/crontabs": permDenied("/var/spool/cron/crontabs")},
+	})
+	t.Cleanup(func() { SetSource(prev) })
+	_, unreadable := scanCrontabQualityChecked()
+	if !unreadable {
+		t.Error("unreadable = false for a permission-denied /var/spool/cron/crontabs")
+	}
+}
+
+func TestCronCollector_AbsentCrontabsAreNotFlagged(t *testing.T) {
+	withFixtureSource(t, func(_ *source.Bundle) {})
+	if _, unreadable := scanCrontabQualityChecked(); unreadable {
+		t.Error("absent crontab dirs were flagged unreadable")
+	}
+}
+
+func TestCollectAWS_SpotProbeNotRecordedIsCheckFailed(t *testing.T) {
+	t.Setenv("DSD_ALLOW_NETWORK", "1")
+	withCombinedFixture(t, map[string][]byte{
+		"imds-aws-token": []byte("tok"),
+		"imds/http://169.254.169.254/latest/meta-data/instance-id#X-aws-ec2-metadata-token=tok":      []byte("i-0123"),
+		"imds/http://169.254.169.254/latest/meta-data/instance-type#X-aws-ec2-metadata-token=tok":    []byte("t3.micro"),
+		"imds/http://169.254.169.254/latest/meta-data/placement/region#X-aws-ec2-metadata-token=tok": []byte("us-east-1"),
+		// imds-aws-termination deliberately missing.
+	}, nil, nil)
+	raw, err := NewCloudMetaCollector().Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if info := raw.(*models.CloudInfo); !info.SpotCheckFailed {
+		t.Errorf("SpotCheckFailed = false although the termination probe was not recorded: %+v", info)
+	}
+}

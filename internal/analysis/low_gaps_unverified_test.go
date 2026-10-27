@@ -84,3 +84,11 @@ func TestCheckPressure_UnreadableMetrics(t *testing.T) {
 		t.Errorf("no Unverified insight naming the unread PSI files: %+v", got)
 	}
 }
+
+func TestCheckCron_QualityScanUnreadable(t *testing.T) {
+	t.Parallel()
+	got := checkCron(models.CronInfo{DaemonActive: true, QualityScanUnreadable: true, FailureScanOK: true})
+	if !hasUnverified(got, "crontabs could not be read") {
+		t.Errorf("no Unverified insight: %+v", got)
+	}
+}
