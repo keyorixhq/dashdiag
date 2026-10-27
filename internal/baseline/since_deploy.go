@@ -16,6 +16,7 @@ import (
 
 	"github.com/keyorixhq/dashdiag/internal/output"
 	"github.com/keyorixhq/dashdiag/internal/platform"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 func DetectLastDeployTime() (time.Time, string, error) {
@@ -336,7 +337,10 @@ func FindBaselineBeforeTime(t time.Time, hostname string) (*Snapshot, error) {
 	if err != nil {
 		return nil, fmt.Errorf("resolving baseline dir: %w", err)
 	}
-	entries, err := filepath.Glob(filepath.Join(dir, SafeHostname(hostname)+"-2*.json"))
+	entries, dirUnreadable, err := source.GlobChecked(source.Live{}, filepath.Join(dir, SafeHostname(hostname)+"-2*.json"))
+	if dirUnreadable {
+		return nil, fmt.Errorf("could not read baseline dir %s", dir)
+	}
 	if err != nil || len(entries) == 0 {
 		return nil, fmt.Errorf("no baselines found for %s", hostname)
 	}

@@ -6,6 +6,8 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 // LoadHistory loads the last n timestamped baseline snapshots for the current
@@ -23,9 +25,14 @@ func LoadHistory(n int) ([]*Snapshot, error) {
 	// unsanitized hostname could match or (via '/') traverse outside
 	// baselineDir() if it ever did contain glob metacharacters or separators.
 	pattern := filepath.Join(dir, SafeHostname(hostname)+"-[0-9]*-[0-9]*.json")
-	matches, err := filepath.Glob(pattern)
+	// GlobChecked, not filepath.Glob: an unreadable baseline dir must not read
+	// as "no history yet".
+	matches, dirUnreadable, err := source.GlobChecked(source.Live{}, pattern)
 	if err != nil {
 		return nil, err
+	}
+	if dirUnreadable {
+		return nil, fmt.Errorf("could not read baseline dir %s", dir)
 	}
 
 	// Sort by filename (timestamp is embedded: hostname-YYYYMMDD-HHMMSS.json)
