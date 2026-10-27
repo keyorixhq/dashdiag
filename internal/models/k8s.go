@@ -79,6 +79,15 @@ type K8sInfo struct {
 	// Detected && !APIReachable as "health not verified".
 	APIReachable bool   `json:"api_reachable"`
 	KubeBin      string `json:"kube_bin"`
+	// EventsUnreadable / PVCsUnreadable / WorkloadsUnreadable are true when the
+	// matching `kubectl get` itself failed (RBAC forbidden, timeout, API error).
+	// They are independent of APIReachable, which only vouches for nodes/pods: an
+	// RBAC-scoped viewer kubeconfig can list pods yet be forbidden PVCs and
+	// Deployments, and the resulting zero PVCsNotBound/WorkloadsDown must not read
+	// as "none". WorkloadsUnreadable is set if either deploy or statefulset failed.
+	EventsUnreadable    bool `json:"events_unreadable,omitempty"`
+	PVCsUnreadable      bool `json:"pvcs_unreadable,omitempty"`
+	WorkloadsUnreadable bool `json:"workloads_unreadable,omitempty"`
 	// Distribution is the Kubernetes flavor in use ("rke2", "k3s", "microk8s",
 	// "kubeadm"), best-effort from on-disk markers. Empty when undetermined.
 	Distribution string `json:"distribution,omitempty"`

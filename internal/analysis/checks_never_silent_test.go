@@ -86,6 +86,14 @@ var neverSilentChecks = []neverSilentCheck{
 		wantSubstr: "could not enumerate physical drives",
 	},
 	{
+		name:    "checkK8sWorkloadsAndEvents: PVC list forbidden (RBAC-scoped kubeconfig)",
+		checkFn: "checkK8sWorkloadsAndEvents",
+		run: func() []models.Insight {
+			return checkK8sWorkloadsAndEvents(models.K8sInfo{APIReachable: true, PVCsUnreadable: true})
+		},
+		wantSubstr: "could NOT be listed",
+	},
+	{
 		name:    "checkNetworkdConfig: /etc/systemd/network permission-denied",
 		checkFn: "checkNetworkdConfig",
 		run: func() []models.Insight {

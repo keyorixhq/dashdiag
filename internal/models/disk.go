@@ -145,7 +145,7 @@ type DiskInfo struct {
 	// are no numbers to show, but they must never read as "no such mount": each
 	// one is an Unverified insight, not a clean pass.
 	UnreachableMounts []UnreachableMount `json:"unreachable_mounts,omitempty"`
-	Drives      []PhysicalDrive  `json:"drives,omitempty"`
+	Drives            []PhysicalDrive    `json:"drives,omitempty"`
 	// DrivesListUnreadable is true (macOS only) when `diskutil list` itself
 	// failed or returned nothing — distinct from a genuine zero-physical-
 	// drives host, which cannot actually occur on real Mac hardware. Without

@@ -961,6 +961,24 @@ func checkK8sWorkloadsAndEvents(k models.K8sInfo) []models.Insight {
 		))
 	}
 	out = append(out, k8sWarningEventInsight(k.Events)...)
+	// Each query can fail independently of the APIReachable gate (an RBAC-scoped
+	// viewer kubeconfig lists pods but is forbidden PVCs/Deployments/events), so
+	// the zero counts above are not evidence of health. Say what was not checked.
+	for _, u := range []struct {
+		failed bool
+		what   string
+		hint   string
+	}{
+		{k.PVCsUnreadable, "PersistentVolumeClaims", "kubectl get pvc -A"},
+		{k.WorkloadsUnreadable, "Deployments/StatefulSets", "kubectl get deploy,statefulset -A"},
+		{k.EventsUnreadable, "Warning events", "kubectl get events -A --field-selector type=Warning"},
+	} {
+		if u.failed {
+			out = append(out, unverifiedInsight("INFO", virtCatK8s,
+				u.what+" could NOT be listed (forbidden/timeout) — their health is NOT verified",
+				[]string{"to inspect: " + u.hint, "check: RBAC for this kubeconfig covers " + u.what}))
+		}
+	}
 	return out
 }
 

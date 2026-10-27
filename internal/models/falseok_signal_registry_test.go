@@ -34,6 +34,10 @@ var guardedUnverifiedSignals = map[string]string{
 	// cmd/falseok_verdict_test.go (the renderer must not print its green line when
 	// the signal is unset).
 	"K8sInfo.APIReachable":                  "cmd/falseok_verdict_test.go (k8s renderer) + analysis/pve_apireachable_test.go",
+	"TLSUncheckable.NeedsRoot":              "cmd/tls_glob_test.go TestUnreadableDirResults_NonRootNeedsRoot (non-root denied scan dir lands in uncheckable[] with needs_root and a non-ok status; never 'no certificates')",
+	"K8sInfo.EventsUnreadable":              "analysis/heuristics_deep_test.go TestCheckK8sWorkloadsAndEvents_UnreadableQueriesAreUnverified (forbidden events list → Unverified INFO, independent of APIReachable)",
+	"K8sInfo.PVCsUnreadable":                "analysis/heuristics_deep_test.go TestCheckK8sWorkloadsAndEvents_UnreadableQueriesAreUnverified (forbidden PVC list → Unverified INFO, not '0 unbound')",
+	"K8sInfo.WorkloadsUnreadable":           "analysis/heuristics_deep_test.go TestCheckK8sWorkloadsAndEvents_UnreadableQueriesAreUnverified (forbidden deploy/statefulset list → Unverified INFO, not '0 down')",
 	"CronInfo.FailureScanOK":                "cmd/falseok_verdict_test.go (cron) + analysis/cron_logs_unverified_test.go",
 	"LogsInfo.ErrorCountUnverified":         "cmd/falseok_verdict_test.go (logs) + analysis/cron_logs_unverified_test.go",
 	"LogsInfo.NeedsRoot":                    "cmd/falseok_verdict_test.go (logs non-root)",
