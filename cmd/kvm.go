@@ -62,7 +62,7 @@ func runKVM(cmd *cobra.Command, _ []string) error {
 		return result.Err
 	}
 
-	recordResultSeverity([]runner.Result{result}) // BUG-022 class: honour 0/1/2 exit contract
+	v := recordResultSeverity([]runner.Result{result}) // BUG-022 class: honour 0/1/2 exit contract
 
 	if mode == output.ModeJSON {
 		enc := json.NewEncoder(os.Stdout)
@@ -71,7 +71,7 @@ func runKVM(cmd *cobra.Command, _ []string) error {
 		return nil
 	}
 
-	printKVMReport(info, elapsed, mode)
+	printKVMReport(info, elapsed, mode, v)
 	return nil
 }
 
@@ -104,7 +104,7 @@ func kvmConcerns(info *models.KVMInfo) int {
 	return issues
 }
 
-func printKVMReport(info *models.KVMInfo, elapsed time.Duration, mode output.OutputMode) {
+func printKVMReport(info *models.KVMInfo, elapsed time.Duration, mode output.OutputMode, v render.VerdictInfo) {
 	sep := strings.Repeat("─", 56)
 	timing := fmt.Sprintf(" in %.1fs", elapsed.Seconds())
 
@@ -141,7 +141,7 @@ func printKVMReport(info *models.KVMInfo, elapsed time.Duration, mode output.Out
 	fmt.Println(sep)
 	issues := kvmConcerns(info)
 	if issues == 0 {
-		fmt.Println(render.StyleOK.Render(fmt.Sprintf("%sKVM healthy. Checks passed%s", asciiOr("ok", "✅ ", mode), timing)))
+		fmt.Println(subcommandSummary(v, "KVM", asciiOr("ok", "✅ ", mode), asciiOr("warn", iconWarnSp, mode), timing))
 	} else {
 		fmt.Println(render.StyleWarn.Render(
 			fmt.Sprintf("%s%d KVM concern(s) found%s", asciiOr("warn", "⚠️  ", mode), issues, timing)))

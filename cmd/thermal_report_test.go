@@ -15,7 +15,7 @@ import (
 // captureStdout's shared os.Stdout swap).
 
 func TestPrintThermalReportNoSensors(t *testing.T) {
-	out := captureStdout(t, func() { printThermalReport(&models.ThermalInfo{}, output.ModePlain, 0) })
+	out := captureStdout(t, func() { printThermalReport(&models.ThermalInfo{}, output.ModePlain, 0, cleanVerdict()) })
 	if !strings.Contains(out, "not available") {
 		t.Errorf("no thermal source should say not available, got:\n%s", out)
 	}
@@ -25,7 +25,9 @@ func TestPrintThermalReportNoSensors(t *testing.T) {
 // sensor was detected but no temperature could actually be read (Source set,
 // CPUTempC stayed 0) — mirrors the health heuristic's CPUTempC==0 gate.
 func TestPrintThermalReportUnreadable(t *testing.T) {
-	out := captureStdout(t, func() { printThermalReport(&models.ThermalInfo{Source: "hwmon", CPUTempC: 0}, output.ModePlain, 0) })
+	out := captureStdout(t, func() {
+		printThermalReport(&models.ThermalInfo{Source: "hwmon", CPUTempC: 0}, output.ModePlain, 0, cleanVerdict())
+	})
 	if strings.Contains(out, "Thermal healthy") {
 		t.Errorf("an unreadable temperature must not read healthy, got:\n%s", out)
 	}
@@ -36,14 +38,14 @@ func TestPrintThermalReportUnreadable(t *testing.T) {
 
 func TestPrintThermalReportThresholds(t *testing.T) {
 	crit := captureStdout(t, func() {
-		printThermalReport(&models.ThermalInfo{Source: "hwmon", CPUTempC: 98}, output.ModePlain, 0)
+		printThermalReport(&models.ThermalInfo{Source: "hwmon", CPUTempC: 98}, output.ModePlain, 0, cleanVerdict())
 	})
 	if !strings.Contains(crit, "critical") {
 		t.Errorf("98C should render critical, got:\n%s", crit)
 	}
 
 	warn := captureStdout(t, func() {
-		printThermalReport(&models.ThermalInfo{Source: "hwmon", CPUTempC: 88}, output.ModePlain, 0)
+		printThermalReport(&models.ThermalInfo{Source: "hwmon", CPUTempC: 88}, output.ModePlain, 0, cleanVerdict())
 	})
 	if !strings.Contains(warn, "elevated") {
 		t.Errorf("88C should render elevated, got:\n%s", warn)
@@ -51,7 +53,7 @@ func TestPrintThermalReportThresholds(t *testing.T) {
 
 	healthy := captureStdout(t, func() {
 		printThermalReport(&models.ThermalInfo{Source: "hwmon", CPUTempC: 55,
-			CoreTemps: map[string]float64{"core0": 55, "core1": 96}}, output.ModePlain, 0)
+			CoreTemps: map[string]float64{"core0": 55, "core1": 96}}, output.ModePlain, 0, cleanVerdict())
 	})
 	if !strings.Contains(healthy, "core1") {
 		t.Errorf("per-core sensor readings should be listed, got:\n%s", healthy)
@@ -64,7 +66,7 @@ func TestPrintThermalReportThresholds(t *testing.T) {
 	// from both the OK (55) and CRIT (96) sensors above.
 	sensorWarn := captureStdout(t, func() {
 		printThermalReport(&models.ThermalInfo{Source: "hwmon", CPUTempC: 55,
-			CoreTemps: map[string]float64{"core0": 88}}, output.ModePlain, 0)
+			CoreTemps: map[string]float64{"core0": 88}}, output.ModePlain, 0, cleanVerdict())
 	})
 	if !strings.Contains(sensorWarn, "WARN") {
 		t.Errorf("a per-sensor reading in the WARN band should render WARN, got:\n%s", sensorWarn)
@@ -78,7 +80,7 @@ func TestPrintThermalReportThresholds(t *testing.T) {
 func TestPrintThermalReport_SanitizesSensorLabel(t *testing.T) {
 	out := captureStdout(t, func() {
 		printThermalReport(&models.ThermalInfo{Source: "hwmon", CPUTempC: 55,
-			CoreTemps: map[string]float64{"\x1b[2Jevil": 60}}, output.ModePlain, 0)
+			CoreTemps: map[string]float64{"\x1b[2Jevil": 60}}, output.ModePlain, 0, cleanVerdict())
 	})
 	if strings.ContainsRune(out, 0x1b) {
 		t.Errorf("sensor label output contains a raw ESC byte, got:\n%q", out)

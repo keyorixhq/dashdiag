@@ -57,8 +57,10 @@ func runPVE(cmd *cobra.Command, _ []string) error {
 	p.Start()
 
 	var info *models.PVEInfo
+	var result runner.Result
 	for r := range runner.RunAll(ctx, cols) {
 		p.Step("")
+		result = r
 		if v, ok := r.Data.(*models.PVEInfo); ok {
 			info = v
 		}
@@ -67,8 +69,13 @@ func runPVE(cmd *cobra.Command, _ []string) error {
 	elapsed := p.Elapsed()
 
 	if info == nil {
-		return nil
+		// A collector that failed outright is an error, not a clean exit 0.
+		return result.Err
 	}
+
+	// BUG-022 class: honour the 0/1/2 exit contract and word the closing line
+	// from the same verdict.
+	v := recordResultSeverity([]runner.Result{result})
 
 	if mode == output.ModeJSON {
 		if deep {
@@ -79,7 +86,7 @@ func runPVE(cmd *cobra.Command, _ []string) error {
 		return printPVEJSON(info)
 	}
 
-	printPVEReport(info, deep, elapsed, mode)
+	printPVEReport(info, deep, elapsed, mode, v)
 	return nil
 }
 
@@ -88,7 +95,7 @@ func printPVEJSON(info *models.PVEInfo) error {
 	return outputJSON(os.Stdout, info)
 }
 
-func printPVEReport(info *models.PVEInfo, deep bool, elapsed time.Duration, mode output.OutputMode) {
+func printPVEReport(info *models.PVEInfo, deep bool, elapsed time.Duration, mode output.OutputMode, v render.VerdictInfo) {
 	sep := strings.Repeat("─", 56)
 	timing := fmt.Sprintf(" in %.1fs", elapsed.Seconds())
 
@@ -137,7 +144,7 @@ func printPVEReport(info *models.PVEInfo, deep bool, elapsed time.Duration, mode
 	fmt.Println(sep)
 	issues := countPVEIssues(info)
 	if issues == 0 {
-		fmt.Println(render.StyleOK.Render(fmt.Sprintf("%s Proxmox VE healthy. Checks passed%s", asciiOr("ok", iconOK, mode), timing)))
+		fmt.Println(subcommandSummary(v, "Proxmox VE", asciiOr("ok", iconOK, mode)+" ", asciiOr("warn", iconWarnSp, mode), timing))
 	} else {
 		fmt.Println(render.StyleWarn.Render(fmt.Sprintf("%s %d concern(s) found%s", asciiOr("warn", iconWarnSp, mode), issues, timing)))
 	}

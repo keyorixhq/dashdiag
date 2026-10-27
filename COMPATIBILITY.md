@@ -154,6 +154,24 @@ strings it always did. A script that greps for `All checks passed`/`healthy` and
 treats a match as "all good" will no longer match on a run that could not verify
 itself — that is the intent; gate on the exit code or `--json` `verdict` instead.
 
+**The per-subcommand closing lines agree too.** `dsd cpu`, `db`, `disk`, `docker`,
+`gpu`, `k8s`, `kvm`, `logs`, `net`, `processes`, `pve`, `security`, `steamos` and
+`thermal` each end with a one-line summary. They used to derive "healthy" from the
+subcommand's own per-section counts; they now ask the same `render.Verdict` and
+the exit code is that verdict's. For a run whose collector errored or whose check
+is `unverified`, with no finding of its own:
+
+| Subcommand | Before | Now |
+|------------|--------|-----|
+| `dsd <sub>` closing line (human / `--plain`) | `✅ <X> healthy. Checks passed` (e.g. `Disk`, `Docker`, `CPU`, `Databases`, `Cluster`, `Proxmox VE`) | `⚠️ <X>: Not fully verified: N check(s) could not run — re-run with sudo / see the INFO lines above` |
+| `dsd <sub>` exit code, collector errored with partial data | `0` (`pve`, `processes`: always `0`) | `1` |
+| `dsd pve`, `dsd processes` whose collector returned no data and an error | exit `0`, no output | the collector's error, non-zero |
+| `dsd pve`, `dsd processes` with a real WARN/CRIT finding | exit `0` | `1` / `2`, as every other subcommand (BUG-022 contract) |
+| `dsd disk` unverified-read line | `Disk: checks passed, but some state could not be verified — run as root` | `Disk: no finding, but some state could not be verified — run as root` |
+
+A fully verified run prints the same strings and exits with the same codes as
+before. `--json` output of every subcommand is unchanged.
+
 ### 5. The `--blob` / `decode` round-trip
 
 `dsd health --blob` emits a gzip+base64 report block; `dsd decode` reads it back.

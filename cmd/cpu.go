@@ -14,6 +14,7 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
 	"github.com/keyorixhq/dashdiag/internal/platform"
+	"github.com/keyorixhq/dashdiag/internal/render"
 	"github.com/keyorixhq/dashdiag/internal/runner"
 )
 
@@ -74,7 +75,7 @@ func runCPU(cmd *cobra.Command, _ []string) error {
 		return err
 	}
 
-	recordResultSeverity(results)
+	verdict := recordResultSeverity(results)
 
 	if isJSON {
 		type cpuReport struct {
@@ -114,11 +115,11 @@ func runCPU(cmd *cobra.Command, _ []string) error {
 		hw = &v
 	}
 
-	printCPUReport(ctx, cpu, freq, thermal, hw, mode, elapsed)
+	printCPUReport(ctx, cpu, freq, thermal, hw, mode, elapsed, verdict)
 	return nil
 }
 
-func printCPUReport(ctx context.Context, cpu *models.CPUInfo, freq *models.CPUFreqInfo, thermal *models.ThermalInfo, hw *models.HardwareInfo, mode output.OutputMode, elapsed time.Duration) { //nolint:funlen,cyclop // NOSONAR — flat display renderer — each section is independent
+func printCPUReport(ctx context.Context, cpu *models.CPUInfo, freq *models.CPUFreqInfo, thermal *models.ThermalInfo, hw *models.HardwareInfo, mode output.OutputMode, elapsed time.Duration, v render.VerdictInfo) { //nolint:funlen,cyclop // NOSONAR — flat display renderer — each section is independent
 	sep := strings.Repeat("─", 56)
 	timing := fmt.Sprintf(" in %.1fs", elapsed.Seconds())
 
@@ -233,7 +234,12 @@ func printCPUReport(ctx context.Context, cpu *models.CPUInfo, freq *models.CPUFr
 		issues++
 	}
 	if issues == 0 {
-		fmt.Printf("%s CPU healthy. Checks passed%s\n", asciiOr("ok", iconOK, mode), timing)
+		level, text := v.SubcommandSummary("CPU")
+		icon := asciiOr("ok", iconOK, mode)
+		if level != "ok" {
+			icon = asciiOr("warn", iconWarnSp, mode)
+		}
+		fmt.Printf("%s %s%s\n", icon, text, timing)
 	} else {
 		fmt.Printf("%s %d CPU concern(s) found%s\n", asciiOr("warn", iconWarnSp, mode), issues, timing)
 	}

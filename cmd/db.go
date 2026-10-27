@@ -12,6 +12,7 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
 	"github.com/keyorixhq/dashdiag/internal/platform"
+	"github.com/keyorixhq/dashdiag/internal/render"
 	"github.com/keyorixhq/dashdiag/internal/runner"
 )
 
@@ -102,7 +103,7 @@ func printDB(results []runner.Result, mode output.OutputMode) {
 	ctrCtx := platform.DetectContainerContext()
 	cloudEnv := platform.DetectCloudEnvironment()
 	insights := analysis.ApplyThresholds(results, analysis.DefaultThresholds(cloudEnv), cloudEnv, ctrCtx)
-	printDBVerdict(insights, mode)
+	printDBVerdict(insights, mode, render.Verdict(results, insights))
 }
 
 func printPostgresState(p *models.PostgresInfo, mode output.OutputMode) {
@@ -226,7 +227,7 @@ func printMongoState(m *models.MongoDBInfo, mode output.OutputMode) {
 	}
 }
 
-func printDBVerdict(insights []models.Insight, mode output.OutputMode) {
+func printDBVerdict(insights []models.Insight, mode output.OutputMode, v render.VerdictInfo) {
 	crit, warn := 0, 0
 	for _, in := range insights {
 		switch in.Level {
@@ -253,7 +254,12 @@ func printDBVerdict(insights []models.Insight, mode output.OutputMode) {
 	case warn > 0:
 		fmt.Fprintf(os.Stdout, "%s %d database concern(s) found\n", asciiOr("warn", "⚠️", mode), warn)
 	default:
-		fmt.Fprintf(os.Stdout, "%s Databases healthy. Checks passed\n", asciiOr("ok", iconOK, mode))
+		level, text := v.SubcommandSummary("Databases")
+		icon := asciiOr("ok", iconOK, mode)
+		if level != "ok" {
+			icon = asciiOr("warn", "⚠️", mode)
+		}
+		fmt.Fprintf(os.Stdout, "%s %s\n", icon, text)
 	}
 }
 

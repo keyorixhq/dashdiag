@@ -19,14 +19,14 @@ import (
 func TestPrintCPUReportIdentity(t *testing.T) {
 	withModel := captureStdout(t, func() {
 		printCPUReport(context.Background(), &models.CPUInfo{NumCPU: 8}, nil, nil,
-			&models.HardwareInfo{CPU: models.HardwareCPU{Model: "AMD Ryzen 7", Cores: 8, Threads: 16}}, output.ModePlain, 0)
+			&models.HardwareInfo{CPU: models.HardwareCPU{Model: "AMD Ryzen 7", Cores: 8, Threads: 16}}, output.ModePlain, 0, cleanVerdict())
 	})
 	if !strings.Contains(withModel, "AMD Ryzen 7") || !strings.Contains(withModel, "hyperthreading") {
 		t.Errorf("a known CPU model with SMT should show the model and hyperthreading note, got:\n%s", withModel)
 	}
 
 	noHW := captureStdout(t, func() {
-		printCPUReport(context.Background(), &models.CPUInfo{NumCPU: 4}, nil, nil, nil, output.ModePlain, 0)
+		printCPUReport(context.Background(), &models.CPUInfo{NumCPU: 4}, nil, nil, nil, output.ModePlain, 0, cleanVerdict())
 	})
 	if !strings.Contains(noHW, "4 logical CPUs") {
 		t.Errorf("no hardware info should fall back to the logical CPU count, got:\n%s", noHW)
@@ -35,14 +35,14 @@ func TestPrintCPUReportIdentity(t *testing.T) {
 
 func TestPrintCPUReportLoadAndSteal(t *testing.T) {
 	steal := captureStdout(t, func() {
-		printCPUReport(context.Background(), &models.CPUInfo{NumCPU: 4, StealPct: 12}, nil, nil, nil, output.ModePlain, 0)
+		printCPUReport(context.Background(), &models.CPUInfo{NumCPU: 4, StealPct: 12}, nil, nil, nil, output.ModePlain, 0, cleanVerdict())
 	})
 	if !strings.Contains(steal, "hypervisor over-provisioned") {
 		t.Errorf("a high steal percentage should hint at hypervisor over-provisioning, got:\n%s", steal)
 	}
 
 	iowait := captureStdout(t, func() {
-		printCPUReport(context.Background(), &models.CPUInfo{NumCPU: 4, IOwaitPct: 15}, nil, nil, nil, output.ModePlain, 0)
+		printCPUReport(context.Background(), &models.CPUInfo{NumCPU: 4, IOwaitPct: 15}, nil, nil, nil, output.ModePlain, 0, cleanVerdict())
 	})
 	if !strings.Contains(iowait, "IOWait:") {
 		t.Errorf("a nonzero IOwaitPct should render the IOWait row, got:\n%s", iowait)
@@ -53,7 +53,7 @@ func TestPrintCPUReportFrequency(t *testing.T) {
 	// No cpufreq interface at all (common on VM/cloud guests) must not print
 	// "0 MHz" as if it were a real reading.
 	noCpufreq := captureStdout(t, func() {
-		printCPUReport(context.Background(), &models.CPUInfo{NumCPU: 4}, &models.CPUFreqInfo{}, nil, nil, output.ModePlain, 0)
+		printCPUReport(context.Background(), &models.CPUInfo{NumCPU: 4}, &models.CPUFreqInfo{}, nil, nil, output.ModePlain, 0, cleanVerdict())
 	})
 	if !strings.Contains(noCpufreq, "unavailable") {
 		t.Errorf("an all-zero CPUFreqInfo must say unavailable, not print 0 MHz, got:\n%s", noCpufreq)
@@ -64,7 +64,7 @@ func TestPrintCPUReportFrequency(t *testing.T) {
 
 	throttled := captureStdout(t, func() {
 		printCPUReport(context.Background(), &models.CPUInfo{NumCPU: 4, UsagePct: 50},
-			&models.CPUFreqInfo{Governor: "performance", CurrentMHz: 1200, MaxMHz: 3000, ThrottledPct: 60}, nil, nil, output.ModePlain, 0)
+			&models.CPUFreqInfo{Governor: "performance", CurrentMHz: 1200, MaxMHz: 3000, ThrottledPct: 60}, nil, nil, output.ModePlain, 0, cleanVerdict())
 	})
 	if !strings.Contains(throttled, "CPU throttled under load") {
 		t.Errorf("a throttled CPU under load should be flagged, got:\n%s", throttled)
@@ -74,7 +74,7 @@ func TestPrintCPUReportFrequency(t *testing.T) {
 func TestPrintCPUReportThermalAndVerdict(t *testing.T) {
 	hot := captureStdout(t, func() {
 		printCPUReport(context.Background(), &models.CPUInfo{NumCPU: 4}, nil,
-			&models.ThermalInfo{Available: true, CPUTempC: 97}, nil, output.ModePlain, 0)
+			&models.ThermalInfo{Available: true, CPUTempC: 97}, nil, output.ModePlain, 0, cleanVerdict())
 	})
 	if !strings.Contains(hot, "CRIT") {
 		t.Errorf("a 97C CPU temp should render CRIT, got:\n%s", hot)
@@ -84,7 +84,7 @@ func TestPrintCPUReportThermalAndVerdict(t *testing.T) {
 	}
 
 	healthy := captureStdout(t, func() {
-		printCPUReport(context.Background(), &models.CPUInfo{NumCPU: 4, UsagePct: 10}, nil, nil, nil, output.ModePlain, 0)
+		printCPUReport(context.Background(), &models.CPUInfo{NumCPU: 4, UsagePct: 10}, nil, nil, nil, output.ModePlain, 0, cleanVerdict())
 	})
 	if !strings.Contains(healthy, "CPU healthy") {
 		t.Errorf("low usage with no thermal data should read healthy, got:\n%s", healthy)
@@ -100,7 +100,7 @@ func TestPrintCPUReportThermal_SanitizesSensorLabel(t *testing.T) {
 	out := captureStdout(t, func() {
 		printCPUReport(context.Background(), &models.CPUInfo{NumCPU: 4}, nil,
 			&models.ThermalInfo{Available: true, CPUTempC: 55,
-				CoreTemps: map[string]float64{"\x1b[2Jevil": 60, "core1": 50}}, nil, output.ModePlain, 0)
+				CoreTemps: map[string]float64{"\x1b[2Jevil": 60, "core1": 50}}, nil, output.ModePlain, 0, cleanVerdict())
 	})
 	if strings.ContainsRune(out, 0x1b) {
 		t.Errorf("sensor label output contains a raw ESC byte, got:\n%q", out)

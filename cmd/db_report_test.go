@@ -271,8 +271,8 @@ func TestPrintMongoState_SanitizesVersion(t *testing.T) {
 func TestPrintDBDispatch(t *testing.T) {
 	out := captureStdout(t, func() {
 		printDB([]runner.Result{
-			{Data: &models.PostgresInfo{Detected: true, Accepting: true, MetricsRead: true}},
-			{Data: &models.RedisInfo{Detected: true, MetricsRead: true, Role: "master"}},
+			{Data: &models.PostgresInfo{Detected: true, Accepting: true, MetricsRead: true, MaxConnections: 100}},
+			{Data: &models.RedisInfo{Detected: true, MetricsRead: true, Role: "master", MaxClients: 10000, MaxClientsRead: true}},
 		}, output.ModePlain)
 	})
 	if !strings.Contains(out, "PostgreSQL") || !strings.Contains(out, "Redis") {
@@ -280,6 +280,24 @@ func TestPrintDBDispatch(t *testing.T) {
 	}
 	if !strings.Contains(out, "Databases healthy") {
 		t.Errorf("no insights should read healthy, got:\n%s", out)
+	}
+}
+
+// A saturation limit that could not be read leaves the check unverified: the
+// engines were reached, but the run is not worded as healthy (it used to be —
+// DD-FOLLOWUPS-1).
+func TestPrintDBUnverifiedLimitsNotHealthy(t *testing.T) {
+	out := captureStdout(t, func() {
+		printDB([]runner.Result{
+			{Data: &models.PostgresInfo{Detected: true, Accepting: true, MetricsRead: true}},
+			{Data: &models.RedisInfo{Detected: true, MetricsRead: true, Role: "master"}},
+		}, output.ModePlain)
+	})
+	if strings.Contains(out, "healthy") {
+		t.Errorf("unverified limits must not read healthy, got:\n%s", out)
+	}
+	if !strings.Contains(out, "Not fully verified") {
+		t.Errorf("want a Not fully verified summary, got:\n%s", out)
 	}
 }
 

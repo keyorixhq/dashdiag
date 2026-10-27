@@ -70,14 +70,19 @@ func runProcesses(cmd *cobra.Command, _ []string) error {
 	}
 
 	if procInfo == nil {
-		return nil
+		// A collector that failed outright is an error, not a clean exit 0.
+		return firstErr(results)
 	}
+
+	// BUG-022 class: honour the 0/1/2 exit contract; the closing line is
+	// worded from the same verdict.
+	v := recordResultSeverity(results)
 
 	if mode == output.ModeJSON {
 		return outputJSON(os.Stdout, procInfo)
 	}
 
-	printProcessesReport(ctx, procInfo, mode, elapsed)
+	printProcessesReport(ctx, procInfo, mode, elapsed, v)
 	return nil
 }
 
@@ -87,7 +92,9 @@ func watchProcesses(ctx context.Context, interval time.Duration, mode output.Out
 			fmt.Print("\033[H\033[2J") // clear screen
 		}
 		var procInfo *models.ProcessInfo
+		var results []runner.Result
 		for r := range runner.RunAll(ctx, []runner.Collector{collectors.NewProcessesCollector()}) {
+			results = append(results, r)
 			if info, ok := r.Data.(*models.ProcessInfo); ok {
 				procInfo = info
 			}
@@ -96,7 +103,7 @@ func watchProcesses(ctx context.Context, interval time.Duration, mode output.Out
 			return
 		}
 		fmt.Printf("\n── %s ──\n", time.Now().Format("15:04:05"))
-		printProcessesReport(ctx, procInfo, mode, 0)
+		printProcessesReport(ctx, procInfo, mode, 0, subcommandVerdict(results))
 	}
 
 	run()
@@ -112,7 +119,7 @@ func watchProcesses(ctx context.Context, interval time.Duration, mode output.Out
 	}
 }
 
-func printProcessesReport(ctx context.Context, info *models.ProcessInfo, mode output.OutputMode, elapsed time.Duration) {
+func printProcessesReport(ctx context.Context, info *models.ProcessInfo, mode output.OutputMode, elapsed time.Duration, v render.VerdictInfo) {
 	sep := strings.Repeat("─", 56)
 	timing := fmt.Sprintf(" in %.1fs", elapsed.Seconds())
 
@@ -162,7 +169,7 @@ func printProcessesReport(ctx context.Context, info *models.ProcessInfo, mode ou
 	fmt.Println()
 	fmt.Println(sep)
 	if issues == 0 {
-		fmt.Println(render.StyleOK.Render(fmt.Sprintf("%s Processes healthy. Checks passed%s", asciiOr("ok", "✅", mode), timing)))
+		fmt.Println(subcommandSummary(v, "Processes", asciiOr("ok", "✅", mode)+" ", asciiOr("warn", iconWarnSp, mode), timing))
 	} else {
 		fmt.Println(render.StyleWarn.Render(fmt.Sprintf("%s %d process concern(s) found%s", asciiOr("warn", "⚠️ ", mode), issues, timing)))
 	}

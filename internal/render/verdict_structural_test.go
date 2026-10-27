@@ -32,22 +32,19 @@ import (
 // VerdictInfo gives it. If a literal here is genuinely not a run verdict (say a
 // per-subsystem summary), add the file to verdictGuardExempt with a reason.
 //
-// Scope. Only the paths that render or record the multi-check `dsd health` run
-// are policed (internal/render, internal/store, and the cmd files that read
-// history/baselines back). The per-subcommand one-liners in cmd/ ("CPU healthy.
-// Checks passed", "Disk healthy. ...") summarize a single collector with their
-// own false-OK handling and are a separate surface (see COLLECTOR-SWEEP.md).
+// Scope. internal/render, internal/store and ALL of cmd/. The per-subcommand
+// closing lines ("CPU healthy. Checks passed", "Disk healthy. ...") used to
+// derive their own verdict from per-section counts and were left out of this
+// guard (DD-VERDICT-1); DD-FOLLOWUPS-1 routed every one through render.Verdict
+// (VerdictInfo.SubcommandSummary) and widened the scope, so a new subcommand
+// cannot add a "healthy" line of its own.
 
 // verdictGuardRoots are repo-relative directories (all non-test .go files in
 // them, not recursive) and files in scope.
 var verdictGuardRoots = []string{
 	"internal/render",
 	"internal/store",
-	"cmd/health.go",
-	"cmd/history.go",
-	"cmd/story.go",
-	"cmd/share.go",
-	"cmd/diff.go",
+	"cmd",
 }
 
 // verdictGuardAllowedFile is the single place verdict derivation and all-clear
@@ -57,11 +54,22 @@ const verdictGuardAllowedFile = "internal/render/verdict.go"
 // verdictGuardExempt: repo-relative file -> reason it may carry matching text
 // although it is not deriving a run verdict. Empty on purpose; a reason is
 // required, this is not a suppression list.
-var verdictGuardExempt = map[string]string{}
+var verdictGuardExempt = map[string]string{
+	"cmd/hook.go": "the text of the git pre-push hook script `dsd hook` installs (shell, 'Health check passed' is " +
+		"printed by that script after `dsd health` exited 0), not a verdict this process derives",
+	"cmd/examples.go": "help text only: the sentence describing the `dsd health` pre-push example, no verdict is rendered",
+	"cmd/policy.go":   "help text only: a shell usage example (`... && echo \"system healthy\"`), no verdict is rendered",
+}
 
 // verdictGuardExemptFuncs: "repo-relative file:FuncName" -> reason the function
 // maps a PER-CHECK status, not the run's overall verdict.
 var verdictGuardExemptFuncs = map[string]string{
+	"cmd/net.go:netMark": "maps one status key to the icon/token of a single line in the network report (ok->OK, warn->WARN); " +
+		"it classifies no run, the closing line is VerdictInfo.SubcommandSummary",
+	"cmd/tls.go:scanCertFile": "builds one certResult per certificate with that certificate's own expiry level; " +
+		"`dsd tls` has its own exit contract and never words a run verdict from this",
+	"cmd/tls.go:scanRemoteEndpoints": "builds one certResult per endpoint with that endpoint's own expiry level; " +
+		"`dsd tls` has its own exit contract and never words a run verdict from this",
 	"internal/render/html.go:buildHTMLCheckRows": "labels one row of the per-check table with that check's own status " +
 		"(INFO — a collector that errored or an unmeasurable value — has its own explicit case); the page verdict is HTMLVerdict's",
 }

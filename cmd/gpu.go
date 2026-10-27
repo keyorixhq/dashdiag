@@ -64,7 +64,7 @@ func runGPU(cmd *cobra.Command, _ []string) error {
 	if !ok || info == nil {
 		return result.Err
 	}
-	recordResultSeverity([]runner.Result{result})
+	v := recordResultSeverity([]runner.Result{result})
 
 	if mode == output.ModeJSON {
 		// Print [] for an empty GPU list — no GPU is not an error.
@@ -75,11 +75,11 @@ func runGPU(cmd *cobra.Command, _ []string) error {
 		return outputJSON(os.Stdout, info)
 	}
 
-	printGPUReport(info, elapsed, mode)
+	printGPUReport(info, elapsed, mode, v)
 	return nil
 }
 
-func printGPUReport(info *models.GPUInfo, elapsed time.Duration, mode output.OutputMode) {
+func printGPUReport(info *models.GPUInfo, elapsed time.Duration, mode output.OutputMode, v render.VerdictInfo) {
 	sep := strings.Repeat("─", 56)
 	timing := fmt.Sprintf(" in %.1fs", elapsed.Seconds())
 
@@ -108,7 +108,7 @@ func printGPUReport(info *models.GPUInfo, elapsed time.Duration, mode output.Out
 
 	fmt.Println()
 	fmt.Println(sep)
-	fmt.Println(gpuSummaryLine(info, timing, mode))
+	fmt.Println(gpuSummaryLine(info, timing, mode, v))
 }
 
 func printGPUDevice(dev models.GPUDevice, driverVersion string, mode output.OutputMode) {
@@ -356,7 +356,7 @@ func gpuConcerns(info *models.GPUInfo) (crits, warns int) {
 	return crits, warns
 }
 
-func gpuSummaryLine(info *models.GPUInfo, timing string, mode output.OutputMode) string {
+func gpuSummaryLine(info *models.GPUInfo, timing string, mode output.OutputMode, v render.VerdictInfo) string {
 	crits, warns := gpuConcerns(info)
 	n := len(info.NoDriver)
 	// Every detected device exposed ZERO health metrics (e.g. an older Intel iGPU
@@ -376,6 +376,9 @@ func gpuSummaryLine(info *models.GPUInfo, timing string, mode output.OutputMode)
 		return render.StyleWarn.Render(fmt.Sprintf("%s GPU elevated%s", asciiOr("warn", iconWarnSp, mode), timing))
 	case n > 0 && len(info.Devices) == 0:
 		return render.StyleWarn.Render(fmt.Sprintf("%s %d GPU(s) detected, no driver loaded%s", asciiOr("warn", iconWarnSp, mode), n, timing))
+	case !v.Clean():
+		// A collector error or Unverified insight: never worded as healthy below.
+		return subcommandSummary(v, "GPU", asciiOr("ok", iconOK, mode)+" ", asciiOr("warn", iconWarnSp, mode), timing)
 	case metricless:
 		return render.StyleInfo.Render(fmt.Sprintf("%s GPU detected — no health metrics exposed (driver reports no temperature/utilization); health not verified%s", asciiOr("info", iconInfoSp, mode), timing))
 	case metriclessCount > 0:
@@ -385,7 +388,7 @@ func gpuSummaryLine(info *models.GPUInfo, timing string, mode output.OutputMode)
 	case n > 0:
 		return render.StyleWarn.Render(fmt.Sprintf("%s active GPU healthy — %d GPU(s) without driver%s", asciiOr("ok", iconOK, mode), n, timing))
 	default:
-		return render.StyleOK.Render(fmt.Sprintf("%s GPU healthy. Checks passed%s", asciiOr("ok", iconOK, mode), timing))
+		return subcommandSummary(v, "GPU", asciiOr("ok", iconOK, mode)+" ", asciiOr("warn", iconWarnSp, mode), timing)
 	}
 }
 

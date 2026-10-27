@@ -13,6 +13,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **A subcommand whose collector failed or returned Unverified no longer prints
+  "healthy".** `dsd cpu`, `db`, `disk`, `docker`, `gpu`, `k8s`, `kvm`, `logs`,
+  `net`, `processes`, `pve`, `security`, `steamos` and `thermal` derived their
+  closing "<X> healthy. Checks passed" line from their own per-section counts.
+  They now ask `render.Verdict` (`VerdictInfo.SubcommandSummary`) and say
+  `Not fully verified: N check(s) could not run — re-run with sudo / see the INFO
+  lines above`; their exit code is that verdict's (WARN floor). `dsd pve` and
+  `dsd processes` previously never set an exit code and swallowed a collector
+  error as exit 0; both follow the 0/1/2 contract now. `TestGuardB_NoSecondVerdictDerivation`
+  covers all of `cmd/`, and `TestGuardA_SubcommandsNeverHealthyWhenNotVerified`
+  feeds every subcommand renderer an errored and an Unverified run. Before/after
+  rows: COMPATIBILITY.md §4.
+
 - **An unreadable directory no longer reads as "nothing found".** `filepath.Glob`
   returns an empty, nil-error result for a directory it may not read, so several
   scans reported a clean "none" for a directory they were denied. The fix helper

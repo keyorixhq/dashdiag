@@ -70,7 +70,7 @@ func TestGPUSummaryLineMetricless(t *testing.T) {
 	metricless := &models.GPUInfo{Devices: []models.GPUDevice{
 		{Name: "Intel GPU (0116)", Vendor: "intel", DRMDriver: "i915"},
 	}}
-	got := gpuSummaryLine(metricless, "", output.ModePlain)
+	got := gpuSummaryLine(metricless, "", output.ModePlain, cleanVerdict())
 	if strings.Contains(got, "Checks passed") {
 		t.Errorf("metricless GPU must NOT claim 'Checks passed', got: %q", got)
 	}
@@ -80,7 +80,7 @@ func TestGPUSummaryLineMetricless(t *testing.T) {
 
 	// A device WITH a real metric still summarizes as healthy.
 	healthy := &models.GPUInfo{Devices: []models.GPUDevice{{Name: "RTX 3070", TempC: 50, MemTotalMB: 8192}}}
-	if got := gpuSummaryLine(healthy, "", output.ModePlain); !strings.Contains(got, "Checks passed") {
+	if got := gpuSummaryLine(healthy, "", output.ModePlain, cleanVerdict()); !strings.Contains(got, "Checks passed") {
 		t.Errorf("a GPU with real metrics should report Checks passed, got: %q", got)
 	}
 
@@ -90,7 +90,7 @@ func TestGPUSummaryLineMetricless(t *testing.T) {
 		{Name: "RTX 3070", TempC: 50, MemTotalMB: 8192},
 		{Name: "Intel GPU (0116)", Vendor: "intel", DRMDriver: "i915"},
 	}}
-	got = gpuSummaryLine(mixed, "", output.ModePlain)
+	got = gpuSummaryLine(mixed, "", output.ModePlain, cleanVerdict())
 	if strings.Contains(got, "Checks passed") {
 		t.Errorf("mixed readable+metricless must NOT claim 'Checks passed', got: %q", got)
 	}
@@ -105,7 +105,7 @@ func TestGPUSummaryLineMetricless(t *testing.T) {
 // count as a thermal CRIT, but must still surface (WARN), never a false "healthy".
 func TestGPUSummaryLineImplausibleTemp(t *testing.T) {
 	garbage := &models.GPUInfo{Devices: []models.GPUDevice{{Name: "card0", TempC: 11758, MemTotalMB: 8192}}}
-	got := gpuSummaryLine(garbage, "", output.ModePlain)
+	got := gpuSummaryLine(garbage, "", output.ModePlain, cleanVerdict())
 	if strings.Contains(got, "issue(s) found") {
 		t.Errorf("implausible GPU temp must NOT be a CRIT, got: %q", got)
 	}
@@ -119,7 +119,7 @@ func TestGPUSummaryLineImplausibleTemp(t *testing.T) {
 	// A genuinely overheating GPU (in-range) must still CRIT — the gate must not
 	// suppress a real thermal fault.
 	overheat := &models.GPUInfo{Devices: []models.GPUDevice{{Name: "card0", TempC: 105, MemTotalMB: 8192}}}
-	if got := gpuSummaryLine(overheat, "", output.ModePlain); !strings.Contains(got, "issue(s) found") {
+	if got := gpuSummaryLine(overheat, "", output.ModePlain, cleanVerdict()); !strings.Contains(got, "issue(s) found") {
 		t.Errorf("a real 105°C overheat must still be a CRIT, got: %q", got)
 	}
 }

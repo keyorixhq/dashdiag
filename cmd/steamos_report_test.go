@@ -23,7 +23,7 @@ func TestOrDash(t *testing.T) {
 }
 
 func TestPrintSteamOSReportNotDetected(t *testing.T) {
-	out := captureStdout(t, func() { printSteamOSReport(&models.SteamOSInfo{Detected: false}, 0, output.ModePlain) })
+	out := captureStdout(t, func() { printSteamOSReport(&models.SteamOSInfo{Detected: false}, 0, output.ModePlain, cleanVerdict()) })
 	if !strings.Contains(out, "Not a SteamOS") {
 		t.Errorf("undetected SteamOS should say so, got:\n%s", out)
 	}
@@ -287,14 +287,14 @@ func TestSteamOSConcernCount(t *testing.T) {
 // covered by TestPrintSteamOSReportNotDetected).
 func TestPrintSteamOSReportDispatch(t *testing.T) {
 	healthy := captureStdout(t, func() {
-		printSteamOSReport(&models.SteamOSInfo{Detected: true}, 0, output.ModePlain)
+		printSteamOSReport(&models.SteamOSInfo{Detected: true}, 0, output.ModePlain, cleanVerdict())
 	})
 	if !strings.Contains(healthy, "SteamOS healthy") {
 		t.Errorf("no concerns should read healthy, got:\n%s", healthy)
 	}
 
 	deep := captureStdout(t, func() {
-		printSteamOSReport(&models.SteamOSInfo{Detected: true, Deep: true, BIOSVersion: "F7A0113"}, 0, output.ModePlain)
+		printSteamOSReport(&models.SteamOSInfo{Detected: true, Deep: true, BIOSVersion: "F7A0113"}, 0, output.ModePlain, cleanVerdict())
 	})
 	if !strings.Contains(deep, "F7A0113") {
 		t.Errorf("Deep=true should render the [Deep] section, got:\n%s", deep)
@@ -304,7 +304,7 @@ func TestPrintSteamOSReportDispatch(t *testing.T) {
 	// through the top-level dispatcher — not just via steamOSConcernCount
 	// itself (already pinned by TestSteamOSConcernCount).
 	concerning := captureStdout(t, func() {
-		printSteamOSReport(&models.SteamOSInfo{Detected: true, ReadonlyKnown: true, ReadonlyEnabled: false}, 0, output.ModePlain)
+		printSteamOSReport(&models.SteamOSInfo{Detected: true, ReadonlyKnown: true, ReadonlyEnabled: false}, 0, output.ModePlain, cleanVerdict())
 	})
 	if !strings.Contains(concerning, "SteamOS concern(s) found") {
 		t.Errorf("a genuine concern should surface the warn summary, got:\n%s", concerning)
