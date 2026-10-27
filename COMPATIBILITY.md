@@ -103,6 +103,12 @@ Stable fields per insight: `level`, `check`, `message`, `hints`, `details`.
   `k8s.pvcs_unreadable` / `k8s.workloads_unreadable`, and
   `tls.uncheckable[].needs_root`. Each also produces an `unverified` insight
   (or, for `dsd tls`, a non-ok status).
+- Task 2b adds, same rules: `services_deep.masked_units_queried` (`true` when the
+  masked-unit query ran, the opposite polarity of the others, like the existing
+  `failed_units_queried`), and `logs.crash_loops_unverified` /
+  `logs.crash_files_unreadable` / `logs.journal_size_unreadable` /
+  `logs.journal_corrupt_unverified`. A permission-denied TLS scan root is now an
+  `tls.uncheckable[]` entry instead of being dropped.
 
 ### 4. Exit codes
 
