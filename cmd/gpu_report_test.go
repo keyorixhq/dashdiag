@@ -15,7 +15,7 @@ import (
 // captureStdout's shared os.Stdout swap).
 
 func TestPrintGPUReportNoGPU(t *testing.T) {
-	out := captureStdout(t, func() { printGPUReport(&models.GPUInfo{}, 0, output.ModePlain) })
+	out := captureStdout(t, func() { printGPUReport(&models.GPUInfo{}, 0, output.ModePlain, cleanVerdict()) })
 	if !strings.Contains(out, "no GPU detected") {
 		t.Errorf("no devices and no NoDriver entries should say no GPU detected, got:\n%s", out)
 	}
@@ -255,7 +255,7 @@ func TestPrintGPUReportWithDevices(t *testing.T) {
 	clean := captureStdout(t, func() {
 		printGPUReport(&models.GPUInfo{Devices: []models.GPUDevice{
 			{Name: "RTX 3070", TempC: 50, MemTotalMB: 8192},
-		}}, 0, output.ModePlain)
+		}}, 0, output.ModePlain, cleanVerdict())
 	})
 	if !strings.Contains(clean, "RTX 3070") {
 		t.Errorf("the device should be rendered, got:\n%s", clean)
@@ -267,7 +267,7 @@ func TestPrintGPUReportWithDevices(t *testing.T) {
 	throttling := captureStdout(t, func() {
 		printGPUReport(&models.GPUInfo{Devices: []models.GPUDevice{
 			{Name: "RX 6800", TempC: 60, TDPLimitW: 200, TDPCurrentW: 199, Throttling: true},
-		}}, 0, output.ModePlain)
+		}}, 0, output.ModePlain, cleanVerdict())
 	})
 	if !strings.Contains(throttling, "throttling") {
 		t.Errorf("a throttling device should print the hint section, got:\n%s", throttling)
@@ -277,7 +277,7 @@ func TestPrintGPUReportWithDevices(t *testing.T) {
 	}
 
 	undriven := captureStdout(t, func() {
-		printGPUReport(&models.GPUInfo{NoDriver: []models.GPUDetected{{Name: "RX 6800", Vendor: "amd"}}}, 0, output.ModePlain)
+		printGPUReport(&models.GPUInfo{NoDriver: []models.GPUDetected{{Name: "RX 6800", Vendor: "amd"}}}, 0, output.ModePlain, cleanVerdict())
 	})
 	if !strings.Contains(undriven, "modprobe amdgpu") {
 		t.Errorf("an undriven-only report should render the no-driver section, got:\n%s", undriven)

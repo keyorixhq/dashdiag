@@ -480,7 +480,7 @@ func TestPrintNetReportVerdict(t *testing.T) {
 	healthy := captureStdout(t, func() {
 		printNetReport(&models.NetworkInfo{PrimaryInterface: "eth0", Interfaces: []models.InterfaceInfo{
 			{Name: "eth0", IP: "10.0.0.5", Up: true},
-		}}, output.ModePlain, 0, platform.ContainerContext{})
+		}}, output.ModePlain, 0, platform.ContainerContext{}, cleanVerdict())
 	})
 	if !strings.Contains(healthy, "Network healthy") {
 		t.Errorf("no concerns should read healthy, got:\n%s", healthy)
@@ -495,7 +495,7 @@ func TestPrintNetReportVerdict(t *testing.T) {
 		printNetReport(&models.NetworkInfo{PrimaryInterface: "eth0", Interfaces: []models.InterfaceInfo{
 			{Name: "eth0", IP: "10.0.0.5", Up: true},
 			{Name: "wlan0", IP: "", Up: false},
-		}}, output.ModePlain, 0, platform.ContainerContext{})
+		}}, output.ModePlain, 0, platform.ContainerContext{}, cleanVerdict())
 	})
 	if strings.Contains(suppressed, "wlan0") {
 		t.Errorf("an unconfigured non-primary interface must be suppressed, got:\n%s", suppressed)
@@ -505,14 +505,14 @@ func TestPrintNetReportVerdict(t *testing.T) {
 	}
 
 	concern := captureStdout(t, func() {
-		printNetReport(&models.NetworkInfo{PrimaryInterfaceDown: true}, output.ModePlain, 0, platform.ContainerContext{})
+		printNetReport(&models.NetworkInfo{PrimaryInterfaceDown: true}, output.ModePlain, 0, platform.ContainerContext{}, cleanVerdict())
 	})
 	if !strings.Contains(concern, "network concern(s) found") {
 		t.Errorf("a down primary interface should surface as a concern, got:\n%s", concern)
 	}
 
 	inContainer := captureStdout(t, func() {
-		printNetReport(&models.NetworkInfo{}, output.ModePlain, 0, platform.ContainerContext{InContainer: true})
+		printNetReport(&models.NetworkInfo{}, output.ModePlain, 0, platform.ContainerContext{InContainer: true}, cleanVerdict())
 	})
 	if !strings.Contains(inContainer, "Running inside a container") {
 		t.Errorf("container context should be surfaced, got:\n%s", inContainer)
@@ -529,7 +529,7 @@ func TestPrintNetReportWiFi_SanitizesSSID(t *testing.T) {
 			{Name: "wlan0", IP: "10.0.0.9", Up: true, WiFi: &models.WiFiInfo{
 				SSID: "\x1b]0;pwned\x07Evil", SignalDBm: -55,
 			}},
-		}}, output.ModePlain, 0, platform.ContainerContext{})
+		}}, output.ModePlain, 0, platform.ContainerContext{}, cleanVerdict())
 	})
 	if strings.ContainsRune(out, 0x1b) || strings.ContainsRune(out, 0x07) {
 		t.Errorf("SSID output contains a raw control byte, got:\n%q", out)
@@ -548,7 +548,7 @@ func TestPrintNetReportWiFiInterface(t *testing.T) {
 			{Name: "wlan0", IP: "10.0.0.9", Up: true, RxDrops: 3, WiFi: &models.WiFiInfo{
 				SSID: "HomeNet", Band: "5GHz", RateMbps: 866, SignalDBm: -55,
 			}},
-		}}, output.ModePlain, 0, platform.ContainerContext{})
+		}}, output.ModePlain, 0, platform.ContainerContext{}, cleanVerdict())
 	})
 	if !strings.Contains(strongSignal, "HomeNet") || !strings.Contains(strongSignal, "5GHz") || !strings.Contains(strongSignal, "866 Mbps") {
 		t.Errorf("a WiFi interface should show SSID/band/rate, got:\n%s", strongSignal)
@@ -560,7 +560,7 @@ func TestPrintNetReportWiFiInterface(t *testing.T) {
 	weakSignal := captureStdout(t, func() {
 		printNetReport(&models.NetworkInfo{PrimaryInterface: "wlan0", Interfaces: []models.InterfaceInfo{
 			{Name: "wlan0", IP: "10.0.0.9", Up: true, WiFi: &models.WiFiInfo{FreqGHz: 2.437, SignalDBm: -85}},
-		}}, output.ModePlain, 0, platform.ContainerContext{})
+		}}, output.ModePlain, 0, platform.ContainerContext{}, cleanVerdict())
 	})
 	if !strings.Contains(weakSignal, "2.44GHz") {
 		t.Errorf("a WiFi interface with no Band but a FreqGHz should fall back to the frequency, got:\n%s", weakSignal)
@@ -571,7 +571,7 @@ func TestPrintNetReportWiFiInterface(t *testing.T) {
 	mediumSignal := captureStdout(t, func() {
 		printNetReport(&models.NetworkInfo{PrimaryInterface: "wlan0", Interfaces: []models.InterfaceInfo{
 			{Name: "wlan0", IP: "10.0.0.9", Up: true, WiFi: &models.WiFiInfo{SSID: "Net", SignalDBm: -65}},
-		}}, output.ModePlain, 0, platform.ContainerContext{})
+		}}, output.ModePlain, 0, platform.ContainerContext{}, cleanVerdict())
 	})
 	if !strings.Contains(mediumSignal, "-65dBm") {
 		t.Errorf("a -65dBm signal should be shown, got:\n%s", mediumSignal)
@@ -580,7 +580,7 @@ func TestPrintNetReportWiFiInterface(t *testing.T) {
 	fairSignal := captureStdout(t, func() {
 		printNetReport(&models.NetworkInfo{PrimaryInterface: "wlan0", Interfaces: []models.InterfaceInfo{
 			{Name: "wlan0", IP: "10.0.0.9", Up: true, WiFi: &models.WiFiInfo{SSID: "Net", SignalDBm: -75}},
-		}}, output.ModePlain, 0, platform.ContainerContext{})
+		}}, output.ModePlain, 0, platform.ContainerContext{}, cleanVerdict())
 	})
 	if !strings.Contains(fairSignal, "-75dBm") {
 		t.Errorf("a -75dBm signal should be shown, got:\n%s", fairSignal)
@@ -594,7 +594,7 @@ func TestPrintNetReportWiredInterfaceDetail(t *testing.T) {
 	usbWithDriver := captureStdout(t, func() {
 		printNetReport(&models.NetworkInfo{PrimaryInterface: "eth0", Interfaces: []models.InterfaceInfo{
 			{Name: "eth0", IP: "10.0.0.5", Up: true, IsUSB: true, Driver: "r8152"},
-		}}, output.ModePlain, 0, platform.ContainerContext{})
+		}}, output.ModePlain, 0, platform.ContainerContext{}, cleanVerdict())
 	})
 	if !strings.Contains(usbWithDriver, "[USB:r8152]") {
 		t.Errorf("a USB interface with a known driver should name it, got:\n%s", usbWithDriver)
@@ -603,7 +603,7 @@ func TestPrintNetReportWiredInterfaceDetail(t *testing.T) {
 	usbNoDriver := captureStdout(t, func() {
 		printNetReport(&models.NetworkInfo{PrimaryInterface: "eth0", Interfaces: []models.InterfaceInfo{
 			{Name: "eth0", IP: "10.0.0.5", Up: true, IsUSB: true},
-		}}, output.ModePlain, 0, platform.ContainerContext{})
+		}}, output.ModePlain, 0, platform.ContainerContext{}, cleanVerdict())
 	})
 	if !strings.Contains(usbNoDriver, "[USB]") {
 		t.Errorf("a USB interface with no driver name should show the bare [USB] tag, got:\n%s", usbNoDriver)
@@ -612,7 +612,7 @@ func TestPrintNetReportWiredInterfaceDetail(t *testing.T) {
 	dropsAndErrors := captureStdout(t, func() {
 		printNetReport(&models.NetworkInfo{PrimaryInterface: "eth0", Interfaces: []models.InterfaceInfo{
 			{Name: "eth0", IP: "10.0.0.5", Up: true, RxDrops: 2, TxDrops: 1, RxErrors: 5, TxErrors: 3},
-		}}, output.ModePlain, 0, platform.ContainerContext{})
+		}}, output.ModePlain, 0, platform.ContainerContext{}, cleanVerdict())
 	})
 	if !strings.Contains(dropsAndErrors, "drops rx:2 tx:1") {
 		t.Errorf("nonzero rx/tx drops should be shown, got:\n%s", dropsAndErrors)
@@ -628,7 +628,7 @@ func TestPrintNetReportDownInterface(t *testing.T) {
 	out := captureStdout(t, func() {
 		printNetReport(&models.NetworkInfo{PrimaryInterface: "eth0", Interfaces: []models.InterfaceInfo{
 			{Name: "eth0", IP: "10.0.0.5", Up: false},
-		}}, output.ModePlain, 0, platform.ContainerContext{})
+		}}, output.ModePlain, 0, platform.ContainerContext{}, cleanVerdict())
 	})
 	if !strings.Contains(out, "eth0") {
 		t.Errorf("the down interface should still be listed, got:\n%s", out)
@@ -643,7 +643,7 @@ func TestPrintNetReportDeepMetrics(t *testing.T) {
 			SynRetransCount: 500, ListenOverflows: 10, RetransFailCount: 5,
 			TimeWaitCount: 100, ConntrackUsedPct: 70, UptimeSec: 3600,
 			ICMPBlocked: true,
-		}, output.ModePlain, 0, platform.ContainerContext{})
+		}, output.ModePlain, 0, platform.ContainerContext{}, cleanVerdict())
 	})
 	if !strings.Contains(deep, "TCP Kernel Counters") {
 		t.Errorf("nonzero deep TCP counters should render the kernel-counters section, got:\n%s", deep)
@@ -662,7 +662,7 @@ func TestPrintNetReportPacketLossAndJitter(t *testing.T) {
 	out := captureStdout(t, func() {
 		printNetReport(&models.NetworkInfo{
 			JitterMs: 30, GatewayPacketLossPct: 15, InternetPacketLossPct: 5,
-		}, output.ModePlain, 0, platform.ContainerContext{})
+		}, output.ModePlain, 0, platform.ContainerContext{}, cleanVerdict())
 	})
 	if !strings.Contains(out, "Jitter") {
 		t.Errorf("a nonzero jitter should be shown, got:\n%s", out)

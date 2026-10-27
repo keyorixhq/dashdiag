@@ -19,7 +19,7 @@ import (
 // socket" state is the absent case, not a fault.
 func TestPrintDockerReportAbsentVsDown(t *testing.T) {
 	absent := &models.DockerInfo{Available: false, StatusReason: ""}
-	out := captureStdout(t, func() { printDockerReport(absent, output.ModeHuman, 0) })
+	out := captureStdout(t, func() { printDockerReport(absent, output.ModeHuman, 0, cleanVerdict()) })
 	if strings.Contains(out, "installed but not running") {
 		t.Errorf("absent runtime must NOT claim 'installed but not running'; got:\n%s", out)
 	}
@@ -28,7 +28,7 @@ func TestPrintDockerReportAbsentVsDown(t *testing.T) {
 	}
 
 	down := &models.DockerInfo{Available: false, StatusReason: "Docker installed but daemon not running"}
-	out2 := captureStdout(t, func() { printDockerReport(down, output.ModeHuman, 0) })
+	out2 := captureStdout(t, func() { printDockerReport(down, output.ModeHuman, 0, cleanVerdict()) })
 	if !strings.Contains(out2, "installed but not running") {
 		t.Errorf("installed-but-down runtime should WARN 'installed but not running'; got:\n%s", out2)
 	}

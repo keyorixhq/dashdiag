@@ -6,6 +6,7 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/analysis"
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/platform"
+	"github.com/keyorixhq/dashdiag/internal/render"
 	"github.com/keyorixhq/dashdiag/internal/runner"
 )
 
@@ -92,9 +93,34 @@ func recordWorstInsight(insights []models.Insight) {
 // with the same code `dsd health` would for the same findings. Container and
 // cloud context are detected here to keep call sites to a single argument; the
 // cost is one cheap probe per command invocation.
-func recordResultSeverity(results []runner.Result) {
+//
+// It returns the run's render.Verdict, the single verdict the subcommand's
+// closing line must be worded from (DD-FOLLOWUPS-1): a subcommand never derives
+// "healthy" from its own counts alone. The exit code is that verdict's, so the
+// floor for an errored collector or an Unverified insight holds here too.
+func recordResultSeverity(results []runner.Result) render.VerdictInfo {
+	v := subcommandVerdict(results)
+	recordExitCode(v.ExitCode())
+	return v
+}
+
+// subcommandVerdict is render.Verdict over the insights the shared heuristics
+// raise for results, without recording an exit code (the runDiagnostic render
+// closures use it after runDiagnostic already recorded).
+func subcommandVerdict(results []runner.Result) render.VerdictInfo {
 	ctrCtx := platform.DetectContainerContext()
 	cloudEnv := platform.DetectCloudEnvironment()
 	thresh := analysis.DefaultThresholds(cloudEnv)
-	recordWorstInsight(analysis.ApplyThresholds(results, thresh, cloudEnv, ctrCtx))
+	return render.Verdict(results, analysis.ApplyThresholds(results, thresh, cloudEnv, ctrCtx))
+}
+
+// subcommandSummary renders a one-collector subcommand's closing line from the
+// run verdict. okPrefix and warnPrefix are the caller's icon (with any spacing)
+// so the clean line stays byte-identical to the pre-verdict wording.
+func subcommandSummary(v render.VerdictInfo, subject, okPrefix, warnPrefix, timing string) string {
+	level, text := v.SubcommandSummary(subject)
+	if level == "ok" {
+		return render.StyleOK.Render(okPrefix + text + timing)
+	}
+	return render.StyleWarn.Render(warnPrefix + text + timing)
 }

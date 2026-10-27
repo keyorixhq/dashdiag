@@ -40,7 +40,7 @@ import (
 // !APIReachable) — every count is 0 because nothing was queried. Must not read OK.
 func TestK8sReportUnreachableNotHealthy(t *testing.T) {
 	info := &models.K8sInfo{Detected: true, KubeBin: "kubectl", APIReachable: false}
-	out := captureStdout(t, func() { printK8sReport(info, output.ModeHuman, 0) })
+	out := captureStdout(t, func() { printK8sReport(info, output.ModeHuman, 0, cleanVerdict()) })
 	if strings.Contains(out, "Cluster healthy") || strings.Contains(out, "All pods healthy") {
 		t.Errorf("unreachable cluster must not render healthy; got:\n%s", out)
 	}
@@ -49,7 +49,7 @@ func TestK8sReportUnreachableNotHealthy(t *testing.T) {
 	}
 	// A reachable, clean cluster still reads healthy.
 	ok := &models.K8sInfo{Detected: true, KubeBin: "kubectl", APIReachable: true}
-	out2 := captureStdout(t, func() { printK8sReport(ok, output.ModeHuman, 0) })
+	out2 := captureStdout(t, func() { printK8sReport(ok, output.ModeHuman, 0, cleanVerdict()) })
 	if !strings.Contains(out2, "Cluster healthy") {
 		t.Errorf("reachable clean cluster should read healthy; got:\n%s", out2)
 	}
@@ -74,7 +74,7 @@ func TestCronReportUnreadableFailures(t *testing.T) {
 // assert "Logs healthy. Checks passed" — OOM/segfault/error scans were incomplete.
 func TestLogsReportUnverifiedNotHealthy(t *testing.T) {
 	unver := &models.LogsInfo{Available: true, ErrorCountUnverified: true}
-	out := captureStdout(t, func() { printLogsReport(unver, output.ModeHuman, 0, time.Hour) })
+	out := captureStdout(t, func() { printLogsReport(unver, output.ModeHuman, 0, time.Hour, cleanVerdict()) })
 	if strings.Contains(out, "Checks passed") {
 		t.Errorf("unverified error history must not say 'Checks passed'; got:\n%s", out)
 	}
@@ -83,13 +83,13 @@ func TestLogsReportUnverifiedNotHealthy(t *testing.T) {
 	}
 
 	nonRoot := &models.LogsInfo{Available: true, NeedsRoot: true}
-	out2 := captureStdout(t, func() { printLogsReport(nonRoot, output.ModeHuman, 0, time.Hour) })
+	out2 := captureStdout(t, func() { printLogsReport(nonRoot, output.ModeHuman, 0, time.Hour, cleanVerdict()) })
 	if strings.Contains(out2, "Checks passed") {
 		t.Errorf("non-root run must not assert a clean 'Checks passed'; got:\n%s", out2)
 	}
 
 	full := &models.LogsInfo{Available: true} // root, everything readable
-	out3 := captureStdout(t, func() { printLogsReport(full, output.ModeHuman, 0, time.Hour) })
+	out3 := captureStdout(t, func() { printLogsReport(full, output.ModeHuman, 0, time.Hour, cleanVerdict()) })
 	if !strings.Contains(out3, "Checks passed") {
 		t.Errorf("fully-verified clean logs should read 'Checks passed'; got:\n%s", out3)
 	}

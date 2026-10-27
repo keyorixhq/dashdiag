@@ -71,13 +71,13 @@ func runThermal(cmd *cobra.Command, _ []string) error {
 		// same "not available" message printThermalReport uses for an empty source.
 		info = &models.ThermalInfo{}
 	}
-	recordResultSeverity([]runner.Result{result})
+	v := recordResultSeverity([]runner.Result{result})
 
 	if mode == output.ModeJSON {
 		return outputJSON(os.Stdout, info)
 	}
 
-	printThermalReport(info, mode, elapsed)
+	printThermalReport(info, mode, elapsed, v)
 	return nil
 }
 
@@ -95,7 +95,7 @@ func watchThermal(ctx context.Context, interval time.Duration, mode output.Outpu
 			return
 		}
 		fmt.Printf("\n── %s ──\n", time.Now().Format("15:04:05"))
-		printThermalReport(info, mode, 0)
+		printThermalReport(info, mode, 0, subcommandVerdict([]runner.Result{result}))
 	}
 
 	run()
@@ -111,7 +111,7 @@ func watchThermal(ctx context.Context, interval time.Duration, mode output.Outpu
 	}
 }
 
-func printThermalReport(info *models.ThermalInfo, mode output.OutputMode, elapsed time.Duration) {
+func printThermalReport(info *models.ThermalInfo, mode output.OutputMode, elapsed time.Duration, v render.VerdictInfo) {
 	sep := strings.Repeat("─", 56)
 	timing := fmt.Sprintf(" in %.1fs", elapsed.Seconds())
 
@@ -177,7 +177,7 @@ func printThermalReport(info *models.ThermalInfo, mode output.OutputMode, elapse
 	}
 
 	if issues == 0 {
-		fmt.Println(render.StyleOK.Render(fmt.Sprintf("%s Thermal healthy. Checks passed%s", asciiOr("ok", iconOK, mode), timing)))
+		fmt.Println(subcommandSummary(v, "Thermal", asciiOr("ok", iconOK, mode)+" ", asciiOr("warn", iconWarnSp, mode), timing))
 	} else if info.CPUTempC >= 95 {
 		fmt.Println(render.StyleCrit.Render(fmt.Sprintf("%s CPU temperature critical%s", asciiOr("fail", iconFail, mode), timing)))
 	} else {

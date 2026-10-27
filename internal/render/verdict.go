@@ -158,6 +158,22 @@ func (v VerdictInfo) TerminalBanner(plain bool, timing string) string {
 	}
 }
 
+// SubcommandSummary is the closing line of a one-collector subcommand (dsd cpu,
+// disk, docker, ...). level is "ok" for a clean run and "warn" otherwise; the
+// caller picks the icon and style. A subcommand prints this only when its own
+// per-section concern count is zero, so the WARN/CRIT branch is the findings
+// its section checks do not count (insights the shared heuristics raise).
+func (v VerdictInfo) SubcommandSummary(subject string) (level, text string) {
+	switch {
+	case v.Clean():
+		return "ok", subject + " healthy. Checks passed"
+	case v.Floored():
+		return "warn", fmt.Sprintf("%s: Not fully verified: %s — re-run with sudo / see the INFO lines above", subject, v.couldNotRun())
+	default:
+		return "warn", fmt.Sprintf("%s: %d critical, %d warning finding(s) — see above", subject, v.Crit, v.Warn)
+	}
+}
+
 // MarkdownSummary is the --report Summary paragraph for the OK and floored
 // levels ("" otherwise: the report writes its own CRIT/WARN count lines).
 func (v VerdictInfo) MarkdownSummary() string {

@@ -496,14 +496,14 @@ func TestPrintDiskLVM_SanitizesControlChars(t *testing.T) {
 // false-OK dsd health avoids), and genuinely healthy.
 func TestPrintDiskReportSummary(t *testing.T) {
 	healthy := captureStdout(t, func() {
-		printDiskReport(&models.DiskInfo{}, nil, output.ModePlain, 0, false)
+		printDiskReport(&models.DiskInfo{}, nil, output.ModePlain, 0, false, cleanVerdict())
 	})
 	if !strings.Contains(healthy, "Disk healthy") {
 		t.Errorf("no issues, no unverified reads should read healthy, got:\n%s", healthy)
 	}
 
 	unverified := captureStdout(t, func() {
-		printDiskReport(&models.DiskInfo{ZFSListReadFailed: true}, nil, output.ModePlain, 0, false)
+		printDiskReport(&models.DiskInfo{ZFSListReadFailed: true}, nil, output.ModePlain, 0, false, cleanVerdict())
 	})
 	if strings.Contains(unverified, "Disk healthy") {
 		t.Errorf("an unverified read must not claim healthy, got:\n%s", unverified)
@@ -515,7 +515,7 @@ func TestPrintDiskReportSummary(t *testing.T) {
 	concern := captureStdout(t, func() {
 		printDiskReport(&models.DiskInfo{Filesystems: []models.FilesystemInfo{
 			{Mount: "/", FSType: "ext4", TotalGB: 100, UsedGB: 95, UsedPct: 95},
-		}}, nil, output.ModePlain, 0, false)
+		}}, nil, output.ModePlain, 0, false, cleanVerdict())
 	})
 	if !strings.Contains(concern, "concern(s) found") {
 		t.Errorf("a full filesystem should surface as a concern, got:\n%s", concern)
