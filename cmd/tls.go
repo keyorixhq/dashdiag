@@ -338,8 +338,15 @@ func tlsAutoDetectPatterns() []string {
 // e.g. a root-only /etc/letsencrypt/live): they must surface as a failed check,
 // never collapse into "no certificates found".
 func autoDetectCertPaths() (paths, unreadable []string) {
-	return detectCertPaths(source.Live{}, tlsAutoDetectPatterns())
+	return detectCertPaths(tlsAutoDetectSource, tlsAutoDetectPatternsFn())
 }
+
+// Seams so tests can scan a hermetic set instead of the host's /etc layout
+// (a root-only /etc/ssl/private on the CI runner is now, correctly, an ERR).
+var (
+	tlsAutoDetectSource     source.Source = source.Live{}
+	tlsAutoDetectPatternsFn               = tlsAutoDetectPatterns
+)
 
 func detectCertPaths(src source.Source, patterns []string) (paths, unreadable []string) {
 	seen := make(map[string]bool)

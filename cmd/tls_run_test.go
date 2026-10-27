@@ -299,6 +299,9 @@ func newBareTLSCmd() *cobra.Command {
 // TestRunTLSNoCertsFound exercises the "nothing to scan" path: explicit args
 // are empty and auto-detect finds nothing in this container.
 func TestRunTLSNoCertsFound(t *testing.T) {
+	prev := tlsAutoDetectPatternsFn
+	tlsAutoDetectPatternsFn = func() []string { return nil } // hermetic: ignore the host's /etc
+	t.Cleanup(func() { tlsAutoDetectPatternsFn = prev })
 	c := newBareTLSCmd()
 	out := captureStdout(t, func() {
 		if err := runTLS(c, nil); err != nil {
