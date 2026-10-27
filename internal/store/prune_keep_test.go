@@ -19,8 +19,8 @@ func TestPrune_KeepsLinesItCouldNotParse(t *testing.T) {
 		return `{"ts":"` + ts + `","host":"h","version":"v","verdict":"` + verdict + `","checks":{"Disk":"OK"}` + extra + `}`
 	}
 	futureVersion := line("2026-01-02T00:00:00Z", "ESCALATED", `,"schema":9`) // verdict outside the vocabulary
-	corrupt := `{"ts":"2026-01-02T12:00:00Z","host":"h","verd`                 // truncated write
-	oversized := `{"pad":"` + strings.Repeat("x", maxLineSizeBytes+10) + `"}`   // > maxLineSizeBytes
+	corrupt := `{"ts":"2026-01-02T12:00:00Z","host":"h","verd`                // truncated write
+	oversized := `{"pad":"` + strings.Repeat("x", maxLineSizeBytes+10) + `"}` // > maxLineSizeBytes
 	newestWithNewField := line("2026-01-05T00:00:00Z", "OK", `,"added_by_newer_dsd":{"a":1}`)
 
 	lines := []string{
