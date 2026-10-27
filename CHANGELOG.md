@@ -74,6 +74,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - macOS `SecurityCollector`: `ssh_config_unreadable` when no `sshd_config` could
     be read (as on Linux). macOS/generic `PackagesCollector`: a failed
     `brew outdated` is `status: query-failed`, `checked: false`, not "0 updates".
+- **The "unknown read as pass" class is closed and guarded.** No collector is
+  registered as a known bug any more (the `trackedBug` kind and its ratchet are
+  gone, so a new collector can only be `sentinel` or `exempt`). New guard tests:
+  `TestNoErrorDiscardInProduction` fails on `x, _ := readFile(...)`, `_ = cachedJSON(...)`
+  and the other source/exec/read helpers in `internal/collectors` (the helper set is
+  derived from `internal/source`; 64 existing sites are baselined with a reason each).
+  `errorlint` and `nilerr` are enabled in `.golangci.yml`. Four more silent paths
+  found while baselining are fixed: the cron root/user crontab scan reports
+  `quality_scan_unreadable`; the AWS spot-termination probe reports `spot_check_failed`
+  when it was not recorded; `NetworkCollector` also flags unreadable I/O counters
+  (`interfaces_unreadable`); the Kali apt path is `status: query-failed`, not 0 updates;
+  and macOS `FDLimits` returns an error instead of an empty result when `sysctl` fails.
 - **Seven more collectors no longer read "could not look" as a clean result
   (COLLECTOR-SWEEP.md Medium #6-#12).** Additive, `omitempty` fields, each with an
   `unverified` insight:

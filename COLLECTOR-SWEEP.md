@@ -88,15 +88,38 @@ convention gap, and fixing the helper once closes it everywhere it's used.
    outdated`, never corrected on failure — the only stub-vs-real-implementation
    asymmetry found).
 
-## Status after the follow-up engineering pass
+## Status: all fixed, and the class is closed
 
-Two of the 26 are now fixed: `LogsCollector`'s `/dev/kmsg` gap (C2 — the euid
-proxy replaced with a real read-result check) and `NetworkdConfigCollector`
-(the shared `globChecked` helper). The remaining 24 are tracked, not fixed,
-in `internal/collectors/unknown_vs_pass_registry_test.go` —
-`TestUnknownVsPassRegistryComplete` fails if a `Collect()` implementation
-(collector #100 included) has no entry, so this list cannot silently rot;
-each `trackedBug` entry there cites this ranking.
+All 26 gaps in this sweep (items 1-22 below, the two earlier fixes, and the
+`KernelRetentionCollector` and `PressureCollector` rows found later) are fixed
+(DD-COLLECTOR-GAPS-1: PRs #1136, #1140, #1142, #1143, #1144 and the task 5 PR). Each fixed collector
+carries a sentinel field and an Unverified insight, and its row in
+`internal/collectors/unknown_vs_pass_registry_test.go` is a `sentinel(...)`.
+
+The class cannot be re-introduced silently. It is guarded by Go tests that run in
+the normal `go test ./...` job:
+
+- `TestUnknownVsPassRegistryComplete` - a new `Collect()` implementation with no
+  registry row fails. There is no "known bug" kind any more (`trackedBugKind` and
+  its ratchet were deleted when the last row was fixed), so a new collector can only
+  be registered as `sentinel` or `exempt`, each with a note
+  (`TestUnknownVsPassRegistryRowsHaveNotes`).
+- `TestNoRawGlobInProduction` (`glob_guard_test.go`, exemptions in
+  `glob_exemptions_test.go`) - shape 1: no production `filepath.Glob`/`glob()`
+  outside `internal/source`, except vetted world-readable procfs/sysfs listings.
+- `TestNoErrorDiscardInProduction` (`discard_guard_test.go`, exemptions in
+  `discard_exemptions_test.go`) - shape 2: no `x, _ := <source/exec/read helper>`
+  or `_ = cachedJSON(...)` in `internal/collectors`. The helper set is derived
+  from `internal/source.Source` plus every package function that calls
+  `curSource()`. A negative example lives in `testdata/discardguard/`.
+- `TestUnverifiedSignalFieldsAllRegistered` (`internal/models`) and
+  `TestAllChecksRegistered` (`internal/analysis`) - every `*Unreadable`/`*Unverified`
+  field is consumed by a check that has a never-silent row.
+- `errorlint` and `nilerr` are enabled in `.golangci.yml`; every `nilerr`
+  site carries a `nolint:nilerr` with the reason the failure is carried elsewhere.
+
+The ranked list below is kept as the historical record of what was found and how
+it was prioritised.
 
 Ranked by consequence (likelihood a real host hits it × how bad the silent
 miss is), not file order — an unranked backlog gets worked top-to-bottom by
