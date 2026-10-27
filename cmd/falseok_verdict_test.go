@@ -189,3 +189,27 @@ func TestPrintTopCPUProcsWithCgroup_NeedsRootCaveat(t *testing.T) {
 		t.Errorf("a fully-visible scan must not print the caveat, got:\n%s", full)
 	}
 }
+
+// services deep (DD-COLLECTOR-GAPS-1 High #4): a failed masked-units query leaves
+// MaskedUnits empty NOT because nothing is masked. Like Failed units, it must not
+// render the green "none".
+func TestServicesDeepMaskedNotQueriedNotNone(t *testing.T) {
+	maskedLine := func(out string) string {
+		for _, l := range strings.Split(out, "\n") {
+			if strings.Contains(l, "Masked units") {
+				return l
+			}
+		}
+		return ""
+	}
+	notQueried := &models.ServicesDeepInfo{FailedUnitsQueried: true, MaskedUnitsQueried: false, JournalHealthy: true}
+	out := captureStdout(t, func() { printSystemdHealth(notQueried, output.ModeHuman) })
+	if line := maskedLine(out); !strings.Contains(line, "not queried") {
+		t.Errorf("un-queried 'Masked units' line should say 'not queried', got %q", line)
+	}
+	queried := &models.ServicesDeepInfo{FailedUnitsQueried: true, MaskedUnitsQueried: true, JournalHealthy: true}
+	out2 := captureStdout(t, func() { printSystemdHealth(queried, output.ModeHuman) })
+	if line := maskedLine(out2); !strings.Contains(line, "none") {
+		t.Errorf("queried-with-nothing-masked line should say 'none', got %q", line)
+	}
+}

@@ -44,6 +44,7 @@ var guardedUnverifiedSignals = map[string]string{
 	"LogsInfo.KmsgUnreadable":               "analysis/heuristics_round3_test.go TestCheckLogs_KmsgUnreadableIsUnverified + TestCheckLogs_KmsgUnreadableDoesNotClaimZeroOOMKills; collectors/logs_linux_collectors_test.go TestParseKmsg_UnreadableSetsSentinel (C2: derived from the real /dev/kmsg open error, not os.Getuid() — NeedsRoot above is a euid-only proxy that stays false on a root run a seccomp/LSM policy still blocks)",
 	"LogsInfo.ErrorScanFailed":              "analysis/cron_logs_unverified_test.go (scan-failed → not 'none')",
 	"ServicesDeepInfo.FailedUnitsQueried":   "cmd/falseok_verdict_test.go (services deep)",
+	"ServicesDeepInfo.MaskedUnitsQueried":   "cmd/falseok_verdict_test.go TestServicesDeepMaskedNotQueriedNotNone (a failed masked-units query must not render the green 'none')",
 	"ServicesDeepInfo.SSHDStatusUnverified": "cmd/falseok_verdict_test.go TestServicesDeepSSHDUnverifiedNotNone (a suppressed sshd@ instance's unreadable exit status must not render the same green 'none' a genuinely-clean host gets)",
 	"SystemdInfo.SSHDStatusUnverified":      "analysis/heuristics_round2_test.go TestCheckSystemd_SSHDStatusUnverified (INFO, not a silent fold into 'no non-benign sshd@ failures')",
 	"CVEAllResult.ScanFailed":               "cmd/falseok_verdict_test.go (cve) + collectors/cve_stale_metadata_test.go",

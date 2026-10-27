@@ -98,6 +98,7 @@ func (c *ServicesDeepCollector) Collect(ctx context.Context) (interface{}, error
 	// 4. Masked units
 	maskedOut, err := runCmd(ctx, "systemctl", svcListUnits,
 		"--type=service", "--state=masked", svcPlain, svcNoLegend, svcNoPager)
+	info.MaskedUnitsQueried = err == nil // false on systemctl error: not "no masked units"
 	if err == nil {
 		info.MaskedUnits = parseMaskedUnits(maskedOut)
 	}

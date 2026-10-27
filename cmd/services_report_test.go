@@ -79,7 +79,7 @@ func TestPrintSystemdHealthFailedUnitsQueried(t *testing.T) {
 	}
 
 	none := captureStdout(t, func() {
-		printSystemdHealth(&models.ServicesDeepInfo{FailedUnitsQueried: true, JournalHealthy: true}, output.ModePlain)
+		printSystemdHealth(&models.ServicesDeepInfo{FailedUnitsQueried: true, MaskedUnitsQueried: true, JournalHealthy: true}, output.ModePlain)
 	})
 	if !strings.Contains(none, "none") {
 		t.Errorf("a genuinely queried, clean host should say none, got:\n%s", none)

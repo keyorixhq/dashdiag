@@ -117,6 +117,9 @@ func TestServicesDeepCollector_Collect_HappyPath(t *testing.T) {
 	if len(info.MaskedUnits) != 1 || info.MaskedUnits[0] != "bluetooth.service" {
 		t.Errorf("MaskedUnits = %+v, want [bluetooth.service]", info.MaskedUnits)
 	}
+	if !info.MaskedUnitsQueried {
+		t.Error("MaskedUnitsQueried = false, want true after a successful query")
+	}
 
 	if len(info.BootOffenders) != 2 {
 		t.Fatalf("BootOffenders = %+v, want 2", info.BootOffenders)

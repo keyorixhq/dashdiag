@@ -266,7 +266,10 @@ func printSystemdHealth(info *models.ServicesDeepInfo, mode output.OutputMode) {
 		}
 	}
 
-	if len(info.MaskedUnits) == 0 {
+	if len(info.MaskedUnits) == 0 && !info.MaskedUnitsQueried {
+		// Same rule as Failed units: an unqueried list is "couldn't look", not none.
+		printLine(mode, "info", "Masked units", "not queried — systemctl error")
+	} else if len(info.MaskedUnits) == 0 {
 		printLine(mode, "ok", "Masked units", svcValNone)
 	} else {
 		printLine(mode, "info", "Masked units",
