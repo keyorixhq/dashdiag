@@ -38,20 +38,12 @@ func RenderShareText(snap *baseline.Snapshot, insights []models.Insight, osLabel
 	fmt.Fprintf(&b, "%s\n", strings.Join(head, " · "))
 	fmt.Fprintf(&b, "%s\n\n", snap.Timestamp.Format("2006-01-02 15:04:05 MST"))
 
-	crit := countLevel(insights, "CRIT")
-	warn := countLevel(insights, "WARN")
-	switch {
-	case crit > 0:
-		fmt.Fprintf(&b, "Verdict: CRIT — %d critical, %d warning\n", crit, warn)
-	case warn > 0:
-		fmt.Fprintf(&b, "Verdict: WARN — %d warning\n", warn)
-	default:
-		fmt.Fprintf(&b, "Verdict: OK — all checks passed\n")
-	}
+	verdict := Verdict(nil, insights)
+	fmt.Fprintf(&b, "%s\n", verdict.ShareLine())
 	if tc, ok := TopCatchLine(insights); ok {
 		fmt.Fprintf(&b, "Top catch: %s (%s) → %s\n\n", tc.Summary, tc.Topic, tc.Fix)
 	} else {
-		fmt.Fprintf(&b, "Top catch: none — %d checks passed.\n\n", len(snap.Checks))
+		fmt.Fprintf(&b, "Top catch: %s\n\n", verdict.TopCatchNone(len(snap.Checks)))
 	}
 
 	findings := filterActionable(insights)

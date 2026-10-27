@@ -43,7 +43,7 @@ const topCatchFallbackFix = "dsd health --explain"
 
 // ComputeTopCatch returns the single most salient finding, or nil when there
 // is no CRIT/WARN this run (an all-clear or INFO-only run — the caller
-// prints "Top catch: none — N checks passed." for that case instead).
+// prints Verdict.TopCatchNone for that case instead).
 func ComputeTopCatch(insights []models.Insight, corrs []analysis.Correlation) *TopCatch {
 	maxSev := 0
 	for _, ins := range insights {
@@ -124,7 +124,7 @@ func ComputeTopCatch(insights []models.Insight, corrs []analysis.Correlation) *T
 // (analysis.Correlate — no raw collector models available to these
 // renderers). Topic/Summary/Fix are sanitized for a rendered sink; ok is
 // false when there's no CRIT/WARN this run, in which case the caller should
-// print the "none — N checks passed" form instead.
+// print the Verdict.TopCatchNone form instead.
 func TopCatchLine(insights []models.Insight) (tc *TopCatch, ok bool) {
 	t := ComputeTopCatch(insights, analysis.Correlate(insights))
 	if t == nil {
@@ -144,7 +144,7 @@ func TopCatchLine(insights []models.Insight) (tc *TopCatch, ok bool) {
 func writeTopCatchMarkdown(b *strings.Builder, insights []models.Insight, checksTotal int) {
 	tc, ok := TopCatchLine(insights)
 	if !ok {
-		fmt.Fprintf(b, "**Top catch:** none — %d checks passed.\n\n", checksTotal)
+		fmt.Fprintf(b, "**Top catch:** %s\n\n", Verdict(nil, insights).TopCatchNone(checksTotal))
 		return
 	}
 	fmt.Fprintf(b, "**Top catch:** %s (`%s`) → %s\n\n",
@@ -154,7 +154,7 @@ func writeTopCatchMarkdown(b *strings.Builder, insights []models.Insight, checks
 // PrintTopCatch prints the single Top catch line — the highest-severity
 // finding, a correlated root cause preferred over a lone symptom — or an
 // all-clear line when there's no CRIT/WARN this run. checksTotal is only
-// used in that all-clear line ("Top catch: none — N checks passed.").
+// used in that all-clear line (see Verdict.TopCatchNone).
 // No-ops in JSON/YAML mode — those get the additive top_catch field on
 // JSONOutput instead (see ComputeTopCatch, called from buildOutput).
 func (r *Renderer) PrintTopCatch(insights []models.Insight, corrs []analysis.Correlation, checksTotal int) {
@@ -163,7 +163,7 @@ func (r *Renderer) PrintTopCatch(insights []models.Insight, corrs []analysis.Cor
 	}
 	tc := ComputeTopCatch(insights, corrs)
 	if tc == nil {
-		fmt.Fprintf(os.Stdout, "Top catch: none — %d checks passed.\n", checksTotal)
+		fmt.Fprintf(os.Stdout, "Top catch: %s\n", Verdict(nil, insights).TopCatchNone(checksTotal))
 		return
 	}
 	// Topic/Summary/Fix are derived from Correlation.Summary/Action or

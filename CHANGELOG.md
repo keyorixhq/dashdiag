@@ -11,6 +11,57 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **An unreadable directory no longer reads as "nothing found".** `filepath.Glob`
+  returns an empty, nil-error result for a directory it may not read, so several
+  scans reported a clean "none" for a directory they were denied. The fix helper
+  moved to `internal/source` as `source.GlobChecked` and is now used by
+  `dsd tls` (an unreadable cert directory such as a root-only
+  `/etc/letsencrypt/live` is reported as `could not read <dir>`, appears in
+  `uncheckable[]` in `--json`, and forces a non-ok status), by the
+  KernelRetention check (new additive `boot_unreadable` in its raw model; a
+  permission-denied `/boot` yields an Unverified insight instead of
+  "0 kernels / not applicable"), and by baseline history lookups
+  (`could not read baseline dir`).
+- A new AST guard test (`TestNoRawGlobInProduction`) fails on any production
+  call to `filepath.Glob` or the collectors' raw `glob()` helper outside
+  `internal/source`; the remaining uses are an explicit exemption list with a
+  reason per row. A ratchet test (`TestTrackedBugRatchetOnlyShrinks`) stops new
+  "known bug" rows from being added to the unknown-vs-pass registry.
+- **One verdict for every output (DEFECT-CLASSES.md C1).** The C1 fix had reached
+  only the exit code, the `--json`/`--yaml` verdict and `--nagios`; the terminal
+  summary, `--report` (Markdown), `--report-html`, `dsd share` text, the story
+  (`dsd story`, `dsd health --story`), `--prometheus` and the `--persist` history
+  entry each re-derived the verdict from CRIT/WARN counts. A run in which
+  collectors errored (exit 1, JSON `WARN`) printed "✅ System healthy. Checks
+  passed", wrote "All checks passed — system is healthy" to the shareable report
+  and recorded `OK` in history. All of them now ask one function,
+  `render.Verdict`, and a run that could not verify itself says so — the terminal
+  prints `⚠ Not fully verified: N checks could not run — see INFO below` (plain
+  mode: `WARN: Not fully verified: ...`), the HTML badge reads `NOT VERIFIED`,
+  Prometheus `dsd_health_status` (and that check's `dsd_check_status`) is `1`, and
+  history records `WARN`. Exit codes, the JSON schema and the history file
+  vocabulary are unchanged. See `COMPATIBILITY.md` §4.
+- **`--persist` pruning no longer deletes history lines it cannot parse.** Past
+  365 entries the prune rewrote `~/.dsd/store.jsonl` from a reader that skips
+  malformed, oversized and newer-version lines, deleting them permanently (and
+  re-serialising kept lines, dropping fields a newer `dsd` had added). Prune now
+  removes only the oldest parseable entries of the host, keeps every other line
+  byte-for-byte, and prints how many it kept.
+- **`dsd health --diff` and `--persist` no longer call an unreadable file "absent".**
+  A corrupt or unreadable baseline now prints the error and what happens next
+  instead of "No previous baseline"; an unreadable history warns on stderr
+  instead of reading as a silent first run.
+
+### Added
+
+- **Guards:** `TestGuardA_*` renders every output mode (and fails when a new
+  `OutputMode` or renderer is added without a row) for a run whose checks could
+  not run and forbids any "healthy"/OK; `TestGuardB_*` (go/ast) fails if any file
+  other than `internal/render/verdict.go` derives an overall verdict or spells
+  all-clear wording.
+
 ## [2.4.0] - 2026-09-23
 
 ### Added

@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -198,7 +199,7 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen // Cobra 
 
 	persistFlag, _ := cmd.Flags().GetBool("persist")
 	if persistFlag && snap != nil {
-		persistHealthRun(ctx, snap, insights)
+		persistHealthRun(ctx, snap, results, insights)
 	}
 
 	exitCode, noticeW := printHealthResults(cmd, ctrCtx, mode, results, insights, snap, elapsed, deepFlag)
@@ -223,28 +224,21 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen // Cobra 
 // local store. At one entry per day this is ~1 year of history.
 const defaultMaxHistory = 365
 
-func persistHealthRun(ctx context.Context, snap *baseline.Snapshot, insights []models.Insight) {
+func persistHealthRun(ctx context.Context, snap *baseline.Snapshot, results []runner.Result, insights []models.Insight) {
 	path := store.StorePath()
 
 	// Read the most-recent prior entry before we write — we need the pre-append
 	// state to compute a meaningful diff.
-	prior, _ := store.ReadAll(path, snap.Hostname, 1)
+	prior, perr := store.ReadAll(path, snap.Hostname, 1)
+	if perr != nil {
+		// An unreadable history is not a first run: say so, so a missing drift
+		// line is not mistaken for "nothing changed".
+		fmt.Fprintf(os.Stderr, "dsd: history is unreadable (%v) — no drift summary against the previous run; this run is still recorded if the store is writable\n", perr)
+	}
 
-	levels := make([]string, 0, len(insights))
-	for _, ins := range insights {
-		levels = append(levels, ins.Level)
-	}
-	checks := make(map[string]string, len(snap.Checks))
-	for _, c := range snap.Checks {
-		checks[c.Name] = c.Status
-	}
-	cur := store.Entry{
-		Timestamp: snap.Timestamp,
-		Hostname:  snap.Hostname,
-		Version:   snap.Version,
-		Verdict:   store.VerdictFromInsights(levels),
-		Checks:    checks,
-	}
+	// The verdict recorded in history is the same one every other output shows
+	// (render.Verdict): a run that could not verify itself is recorded WARN.
+	cur := render.HistoryEntry(snap, results, insights)
 	// Append and Prune run under one cross-process lock (store.PersistAndPrune)
 	// so a concurrent `dsd health --persist` invocation can't race this
 	// store's rename against our append and silently lose an entry.
@@ -512,9 +506,21 @@ func printHealthDiffNotice(w io.Writer, diffFlag bool, snap *baseline.Snapshot, 
 	prev, err := baseline.LoadBaseline("")
 	if err == nil {
 		_ = render.PrintDiff(w, prev, snap, mode)
-	} else {
-		fmt.Fprintln(os.Stderr, "ℹ️  No previous baseline. Run dsd health again to enable --diff.")
+		return
 	}
+	fmt.Fprintln(os.Stderr, diffBaselineNotice(err))
+}
+
+// diffBaselineNotice words why --diff has nothing to compare against. A baseline
+// that does not exist yet is the normal first run; one that exists but cannot be
+// read or parsed is not "absent" and the error is shown, because this run is
+// about to overwrite it (saveBaselineOrWarn).
+func diffBaselineNotice(err error) string {
+	if errors.Is(err, os.ErrNotExist) {
+		return "ℹ️  No previous baseline. Run dsd health again to enable --diff."
+	}
+	return fmt.Sprintf("⚠️  Could not read the previous baseline, so --diff has nothing to compare: %v\n"+
+		"   This run will replace it. To keep the damaged file for inspection, copy it from ~/.dsd/baselines/ before running dsd health again.", err)
 }
 
 // handleNagiosMode emits a single monitoring-plugin status line and exits with

@@ -333,14 +333,24 @@ func TestReport_FailedVsNotApplicableVsOK(t *testing.T) {
 			snap := baseline.BuildSnapshot(c.results, insights)
 			md := buildMarkdown(snap, insights, time.Second, nil)
 
-			// The Summary must never claim a clean pass is the same thing as
-			// "nothing to show" — but per health.go:1520-1531's deliberate
-			// design (do not change), the top-line stays keyed on CRIT/WARN
-			// only; a collector failure (INFO) must be visible elsewhere in
-			// the document instead, which the table/Issues assertions below
-			// cover.
-			if !strings.Contains(md, "All checks passed") {
-				t.Errorf("expected the healthy summary line (no CRIT/WARN present)\n%s", md)
+			// A collector that failed to run is a floored verdict (C1): the
+			// Summary must say the run was not fully verified, never "healthy"
+			// (it used to stay keyed on CRIT/WARN only), and the Issues section
+			// below carries the INFO that says which. Runs where every collector
+			// ran keep the all-clear line.
+			failed := false
+			for _, r := range c.results {
+				failed = failed || r.Err != nil
+			}
+			if failed {
+				if strings.Contains(md, "All checks passed") {
+					t.Errorf("a run with a failed collector must not claim all checks passed\n%s", md)
+				}
+				if !strings.Contains(md, "Not fully verified") {
+					t.Errorf("expected the not-fully-verified summary line\n%s", md)
+				}
+			} else if !strings.Contains(md, "All checks passed") {
+				t.Errorf("expected the all-clear summary line (every collector ran, no CRIT/WARN)\n%s", md)
 			}
 			for _, want := range c.wantTableHas {
 				if !strings.Contains(md, want) {
