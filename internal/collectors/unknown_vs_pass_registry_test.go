@@ -50,9 +50,8 @@ type collectorVerdict struct {
 	note string
 }
 
-func sentinel(note string) collectorVerdict   { return collectorVerdict{sentinelKind, note} }
-func exempt(note string) collectorVerdict     { return collectorVerdict{exemptKind, note} }
-func trackedBug(note string) collectorVerdict { return collectorVerdict{trackedBugKind, note} }
+func sentinel(note string) collectorVerdict { return collectorVerdict{sentinelKind, note} }
+func exempt(note string) collectorVerdict   { return collectorVerdict{exemptKind, note} }
 
 // unknownVsPassRegistry maps each Collect()-implementing type name to its
 // verdict. Keyed by type name (not file) — a collector with both a linux and
@@ -70,7 +69,7 @@ var unknownVsPassRegistry = map[string]collectorVerdict{
 	"BINDCollector":           sentinel("PortsChecked/QueryTested/PortsOwnershipUnverified"),
 	"CPUCollector":            sentinel("UsageSampleFailed (cpuSample.OK false on a read/parse failure or cancelled window; Linux only)"),
 	"CloudMetaCollector":      sentinel("IsCloudInstance retries once and, on a DMI-identified cloud VM, still registers the collector; Available=false then yields checkCloudMeta's Unverified INFO"),
-	"ContainerdCollector":     trackedBug("COLLECTOR-SWEEP.md Low #15: containerdNamespaces silent (nil,false) on `ctr` failure post-socket-dial"),
+	"ContainerdCollector":     sentinel("NamespacesUnreadable/ContainerCountsUnreadable (+ SocketPermDenied/CtrBinaryFound)"),
 	"CronCollector":           sentinel("FailureScanOK"),
 	"CVEHealthCollector":      sentinel("ScanFailed+StatusReason; stale-metadata guard"),
 	"DNSCollector":            sentinel("empty Nameservers surfaces as a misconfiguration finding, not silence; ProbeSkipped gates the live probe"),
@@ -84,7 +83,7 @@ var unknownVsPassRegistry = map[string]collectorVerdict{
 	"HardwareCollector":       sentinel("SMART/EDAC sentineled (SmartctlAvailable/Error/ZeroDevicesReported, EDACCountersUnreadable); RAM/System DMI blanks silently but isn't verdict-consulted"),
 	"GCPCollector":            sentinel("MaintenanceChecked/OSLoginChecked/TimeSyncChecked"),
 	"ClockCollector":          sentinel("adjtimex failure -> Synced=false -> CRIT (fails loud, not silently OK)"),
-	"KVMGuestCollector":       trackedBug("COLLECTOR-SWEEP.md Low #17: cumulativeStealPct malformed /proc/stat -> 0, same as genuine zero steal"),
+	"KVMGuestCollector":       sentinel("StealUnreadable (absent/short/zero-sum aggregate cpu line) + DiskBusesChecked/NICDriversChecked"),
 	"LaunchdCollector":        sentinel("Checked"),
 	"LVMCollector":            sentinel("PresenceReadFailed/VGReadFailed/PVReadFailed/LVReadFailed/RaidReadFailed"),
 	"MemcachedCollector":      sentinel("MetricsRead; an open :11211 whose listener cmdline is memcached but whose version probe fails is Detected with MetricsRead=false (Unverified INFO), not absent"),
@@ -100,11 +99,11 @@ var unknownVsPassRegistry = map[string]collectorVerdict{
 	"MySQLCollector":          sentinel("PeerVerified; MetricsRead/ConnStatsRead"),
 	"LogsCollector":           sentinel("KmsgUnreadable (C2); ErrorScanFailed/ErrorCountUnverified; CrashLoopsUnverified/CrashFilesUnreadable/JournalSizeUnreadable/JournalCorruptUnverified (one Unverified INFO naming each unread sub-path)"),
 	"NetworkDeepCollector":    sentinel("SockstatUnreadable/NetstatUnreadable"),
-	"NFSCollector":            trackedBug("COLLECTOR-SWEEP.md Low #19: nfsReadStats silent no-op on /proc/net/rpc/nfs failure; low practical impact, the retrans-rate denominator is also 0"),
+	"NFSCollector":            sentinel("StatsUnreadable (/proc/net/rpc/nfs read failure with mounts present)"),
 	"DockerCollector":         sentinel("SocketPermDenied/DetailUnavailable/UnverifiedContainers/IPForwardChecked"),
 	"MongoDBCollector":        sentinel("MetricsRead/ReplStatusRead; PeerVerified"),
-	"KdumpCollector":          trackedBug("COLLECTOR-SWEEP.md Low #13: no sentinel, unlike 5 siblings in maintenance_linux.go (KernelPatch/Ksplice/Transactional/ServiceRestart/LivePatch)"),
-	"TunedCollector":          trackedBug("COLLECTOR-SWEEP.md Low #13: same gap as KdumpCollector, same file"),
+	"KdumpCollector":          sentinel("StateUnverified (empty systemctl is-enabled/is-active answer)"),
+	"TunedCollector":          sentinel("StateUnverified (no is-active answer, or active profile/recommendation unreadable while running)"),
 	"KernelPatchCollector":    sentinel("CheckUnverified (cites BUG-088)"),
 	"KspliceCollector":        sentinel("CheckUnverified; one untracked secondary sub-field, low severity"),
 	"ServiceRestartCollector": sentinel("NeedsRoot — also catches the silent hidepid=2 case"),
@@ -114,17 +113,17 @@ var unknownVsPassRegistry = map[string]collectorVerdict{
 	"MTECollector":            sentinel("StatusReason set on both fallible reads (exception-trace file, journalctl+dmesg)"),
 	"FirmwareCollector":       sentinel("4 distinct StatusReason branches — not-installed / daemon-down / query-failed / unparseable"),
 	"EnvoyCollector":          sentinel("StatsRead"),
-	"SwapCollector":           trackedBug("COLLECTOR-SWEEP.md Low #18: /proc/swaps and zram reads have no sentinel, unlike this function's own vmstat -1 sentinel; /proc/swaps normally world-readable"),
+	"SwapCollector":           sentinel("SwapsUnreadable/ZramUnreadable (+ the -1 paging sentinel)"),
 	"SysctlCollector":         sentinel("-1 sentinels where 0 is a legitimate value; other fields' consuming thresholds are all >0 guards, so 0-on-failure never fires a false verdict"),
-	"ThermalCollector":        trackedBug("COLLECTOR-SWEEP.md Low #14 (linux): sensor file unreadable while the driver-name file is readable -> CPUTempC stays 0; analysis's own CPUTempC==0 skip compounds it. darwin/generic stub is CORRECT (Available=false is explicit)."),
-	"TimelineCollector":       trackedBug("COLLECTOR-SWEEP.md Low #16: SourcesUnavailable only fires when BOTH journalctl and dmesg fail — a dmesg-only failure (common: kernel.dmesg_restrict=1) is silent. Total-failure case is handled correctly."),
+	"ThermalCollector":        sentinel("SensorUnreadable (driver found, temp input unreadable) → Unverified INFO; darwin/generic stub Available=false is correct"),
+	"TimelineCollector":       sentinel("SourcesUnavailable (both sources) + UnreadSources (any single failed source), rendered as Timeline incomplete"),
 	"TraefikCollector":        sentinel("APIRead"),
 	"NVMeCollector":           sentinel("linux: SmartUnreadReason (needs_root/tool_absent/error), SmartRead, SmartDangerousFieldsUnread. darwin: DrivesListUnreadable."),
 	"VMwareCollector":         sentinel("ToolsRunningVerified/StatAvailable"),
-	"SecurityCollector":       trackedBug("COLLECTOR-SWEEP.md Low #21 (darwin only): parseDarwinSSHFile has no SSHConfigUnreadable-equivalent, unlike every other platform's SSH parser (including this file's own linux/notlinux siblings). linux implementation is CORRECT (~12 distinct sentinels)."),
+	"SecurityCollector":       sentinel("SSHConfigUnreadable on every platform incl. darwin (no readable sshd_config -> unreadable) + the linux *Unreadable family"),
 	"ZFSCollector":            sentinel("ListReadFailed/StatusReadFailed"),
 	"SnapperCollector":        sentinel("string sentinel on `snapper list` failure/no-permissions"),
-	"PackagesCollector":       trackedBug("COLLECTOR-SWEEP.md Low #22 (darwin/generic stub only): Checked:true is set BEFORE `brew outdated` runs and never corrected on failure — the only stub-vs-real-implementation asymmetry found. linux implementation is CORRECT (extensive, incl. stale-metadata guard)."),
+	"PackagesCollector":       sentinel("Status=query-failed + Checked=false on every platform incl. the darwin/generic brew stub"),
 	"SystemdCollector":        sentinel("FailedUnitsUnknown/SSHDStatusUnverified"),
 	"VaultCollector":          sentinel("Reachable/StatusRead/IdentityUnverified"),
 	"ISCSICollector":          sentinel("NeedsRoot/SessionsParseFailed, cross-checked against world-readable sysfs session count"),
@@ -147,7 +146,7 @@ var unknownVsPassRegistry = map[string]collectorVerdict{
 	"PVECollector":            sentinel("HAVerified is false for any pvesh failure except an explicit 501/not-implemented; Unverified INFO"),
 	"HAProxyCollector":        sentinel("ConfigTested via shared webConfigTest; StatusReason cosmetic gap only, does not affect the ConfigTested signal"),
 	"ServicesCollector":       sentinel("config.Load failure propagates as a real error; checkService returns an explicit WARN both when probing is off and when a replay bundle has no recorded probe"),
-	"HealthDeepCollector":     trackedBug("COLLECTOR-SWEEP.md Low #20: collectMemDetail's /proc/meminfo read has no sentinel on models.HealthDeepInfo (distinct model from MemoryInfo, which IS guarded); low likelihood, /proc/meminfo is normally world-readable. TopProcsNeedsRoot/TopCPUProcsNeedsRoot/TopIOProcsNeedsRoot sub-checks ARE correct."),
+	"HealthDeepCollector":     sentinel("MemDetailUnreadable + TopProcsNeedsRoot/TopCPUProcsNeedsRoot/TopIOProcsNeedsRoot"),
 	"SUSEConnectCollector":    sentinel("StatusUnverified (RHEL subscription-manager path and Ubuntu Pro JSON path both)"),
 	"SteamOSCollector":        sentinel("every sub-check that can fail carries its own explicit \"checked\" companion set only on success"),
 	"RancherCollector":        sentinel("ServerUnreadable/WebhookUnreadable (non-NotFound deployment query failure)"),
@@ -171,7 +170,7 @@ var unknownVsPassRegistry = map[string]collectorVerdict{
 	"KernelRetentionCollector": sentinel("BootUnreadable (globChecked on /boot/vmlinuz-*; permission-denied /boot is no longer InstalledKernels=0/not-applicable) -> analysis Unverified insight"),
 	"LivePatchCollector":       sentinel("UnverifiedPatches, per-patch enable-read failures — exemplary, explicit doc comment on the false-WARN this avoids. Top-level glob(\"/sys/kernel/livepatch/*\") is a kernel sysfs dir gated by LivePatchAvailable(); EACCES unrealistic."),
 	"NUMACollector":            exempt("glob(\"/sys/devices/system/node/node[0-9]*\") error discarded — same sysfs-class reasoning as BondingCollector/HBACollector"),
-	"PressureCollector":        trackedBug("New (this pass), Low: once Available=true (gated on fileExists), each of the 3 PSI file reads (memory/cpu/io) silently leaves its metric at zero on a mid-read failure (readPSIFile err discarded) — narrow race, the gate already confirmed the files exist moments earlier"),
+	"PressureCollector":        sentinel("UnreadableMetrics (each PSI file that failed or parsed empty after Available=true)"),
 	"RAIDCollector":            sentinel("ReadFailed, fs.ErrNotExist distinguished from a real failure (internal-models-11-01) — already registered in the models falseok registry"),
 	"RootFSCollector":          sentinel("/proc/mounts read failure returns a real error (cmd-09-04, explicit comment) -> checks[].status=ERROR"),
 	"SRIOVCollector":           exempt("glob(\"/sys/bus/pci/devices/*/sriov_numvfs\") error discarded — same sysfs-class reasoning as BondingCollector/HBACollector/NUMACollector"),
@@ -249,13 +248,7 @@ func TestUnknownVsPassRegistryComplete(t *testing.T) {
 // flip its registry row to sentinel(...) AND delete it from this list in the
 // same PR. When the list is empty, delete trackedBugKind (DD-COLLECTOR-GAPS-1
 // Task 5) and this test with it.
-var frozenTrackedBugs = map[string]bool{
-	"ContainerdCollector": true, "KVMGuestCollector": true, "NFSCollector": true,
-	"KdumpCollector": true, "TunedCollector": true,
-	"SwapCollector": true, "ThermalCollector": true, "TimelineCollector": true,
-	"SecurityCollector": true, "PackagesCollector": true,
-	"HealthDeepCollector": true, "PressureCollector": true,
-}
+var frozenTrackedBugs = map[string]bool{}
 
 func TestTrackedBugRatchetOnlyShrinks(t *testing.T) {
 	var added, stale []string

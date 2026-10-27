@@ -55,4 +55,7 @@ type KVMGuestInfo struct {
 	// CPU collector reports the point-in-time rate separately, so this is framed as
 	// provider evidence, not a duplicate live alarm.
 	StealPct float64 `json:"steal_pct"`
+	// StealUnreadable is true when /proc/stat could not be read or its aggregate
+	// "cpu" line was malformed, so StealPct 0 means "not measured", not "no steal".
+	StealUnreadable bool `json:"steal_unreadable,omitempty"`
 }

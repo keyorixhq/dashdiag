@@ -121,6 +121,11 @@ func kvmguestQGAInsight(v models.KVMGuestInfo) []models.Insight {
 // ratio. Framed as host-side evidence, not a guest fault — the whole point of the
 // guest-vs-provider split.
 func kvmguestStealInsight(v models.KVMGuestInfo) []models.Insight {
+	if v.StealUnreadable {
+		return []models.Insight{unverifiedInsight("INFO", "KVMGuest",
+			"CPU steal since boot could not be read from /proc/stat — host overcommit not measured",
+			[]string{"to inspect: head -1 /proc/stat"})}
+	}
 	if v.StealPct < kvmGuestStealWarnPct {
 		return nil
 	}

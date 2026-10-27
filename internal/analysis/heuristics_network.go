@@ -97,6 +97,11 @@ func checkNFS(nfs models.NFSInfo) []models.Insight {
 			},
 		))
 	}
+	if nfs.StatsUnreadable {
+		out = append(out, unverifiedInsight("INFO", netCatNFS,
+			"/proc/net/rpc/nfs could not be read — NFS retransmission and operation counts not measured",
+			[]string{"to inspect: cat /proc/net/rpc/nfs", "to inspect: nfsstat -c"}))
+	}
 	return out
 }
 

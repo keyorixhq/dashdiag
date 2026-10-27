@@ -30,6 +30,13 @@ type ContainerdInfo struct {
 	// namespaces. Callers must not treat that zero-value pair as "verified
 	// clean" when this is false.
 	CtrBinaryFound bool `json:"ctr_binary_found,omitempty"`
+	// NamespacesUnreadable is true when ctr was found and the socket is reachable
+	// but `ctr namespaces list` failed (timeout, permission): Namespaces/
+	// TotalContainers then mean "not enumerated", not "idle containerd".
+	NamespacesUnreadable bool `json:"namespaces_unreadable,omitempty"`
+	// ContainerCountsUnreadable is true when at least one per-namespace container
+	// listing failed, so TotalContainers is a lower bound.
+	ContainerCountsUnreadable bool `json:"container_counts_unreadable,omitempty"`
 	// NamespacesTruncated is true when `ctr namespaces list` reported more
 	// namespaces than the collector will fan a per-namespace `ctr containers
 	// list` subprocess out to (maxContainerdNamespaces in

@@ -14,6 +14,11 @@ import (
 // checkKdump flags the silent-failure case: kdump is enabled but not actually armed
 // (no crash kernel loaded / no memory reserved), so a real panic produces no dump.
 func checkKdump(d models.KdumpInfo) []models.Insight {
+	if d.Available && d.StateUnverified {
+		return []models.Insight{unverifiedInsight("INFO", "Kdump",
+			"kdump is present but its enabled/active state could not be read — crash-dump readiness not checked",
+			[]string{"to inspect: systemctl is-enabled kdump; systemctl is-active kdump"})}
+	}
 	if !d.Available || !d.Enabled {
 		return nil // not installed, or admin deliberately left it off — not a fault
 	}
@@ -49,6 +54,11 @@ func checkKdump(d models.KdumpInfo) []models.Insight {
 func checkTuned(d models.TunedInfo) []models.Insight {
 	if !d.Available {
 		return nil
+	}
+	if d.StateUnverified {
+		return []models.Insight{unverifiedInsight("INFO", "Tuned",
+			"tuned is installed but its state or profile could not be read — profile check not run",
+			[]string{"to inspect: tuned-adm active; tuned-adm recommend"})}
 	}
 	if !d.Active {
 		return []models.Insight{insight("INFO", "Tuned",

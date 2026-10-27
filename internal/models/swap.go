@@ -11,4 +11,10 @@ type SwapInfo struct {
 	MemPressureLevel int     `json:"mem_pressure_level,omitempty"` // Darwin only: kern.memorystatus_vm_pressure_level (1=normal,2=warn,3=urgent,4=critical; -1=could not be measured)
 	Status           string  `json:"status"`
 	StatusReason     string  `json:"status_reason"`
+	// SwapsUnreadable is true when /proc/swaps could not be opened or parsed, so
+	// TotalGB/UsedGB/UsedPct of 0 mean "not measured", not "no swap in use".
+	SwapsUnreadable bool `json:"swaps_unreadable,omitempty"`
+	// ZramUnreadable is true when the zram device list or a device's disksize/
+	// mm_stat could not be read, leaving ZramUsedPct a lower bound or 0.
+	ZramUnreadable bool `json:"zram_unreadable,omitempty"`
 }

@@ -490,7 +490,9 @@ func TestNfsReadStats(t *testing.T) {
 			))
 		})
 		info := &models.NFSInfo{}
-		nfsReadStats(info)
+		if !nfsReadStats(info) {
+			t.Error("nfsReadStats reported failure for a readable file")
+		}
 		if info.RPCCalls != 500 || info.RetransPerMin != 3 {
 			t.Errorf("rpc stats = %v/%v, want 500/3", info.RPCCalls, info.RetransPerMin)
 		}
@@ -502,7 +504,10 @@ func TestNfsReadStats(t *testing.T) {
 	t.Run("unreadable file is a no-op", func(t *testing.T) {
 		withFixtureSource(t, func(_ *source.Bundle) {})
 		info := &models.NFSInfo{}
-		nfsReadStats(info)
+		// DD-COLLECTOR-GAPS-1 Low #19: the failure is reported, not just a no-op.
+		if nfsReadStats(info) {
+			t.Error("nfsReadStats reported success for an unreadable file")
+		}
 		if info.RPCCalls != 0 || info.RetransPerMin != 0 {
 			t.Errorf("expected zero-value info when file unreadable, got %+v", info)
 		}

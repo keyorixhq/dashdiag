@@ -31,7 +31,7 @@ func (c *NFSCollector) Collect(ctx context.Context) (interface{}, error) {
 
 	info := &models.NFSInfo{}
 	info.RpcbindActive = nfsRpcbindActive(ctx)
-	nfsReadStats(info)
+	info.StatsUnreadable = !nfsReadStats(info)
 
 	for i := range mounts {
 		m := &mounts[i]
@@ -252,10 +252,11 @@ func nfsRpcbindActive(ctx context.Context) bool {
 
 // nfsReadStats reads /proc/net/rpc/nfs and parses operation counts.
 // Format: line starting with "rpc" has: calls retransmissions authrefrsh
-func nfsReadStats(info *models.NFSInfo) {
+// It reports whether the file could be read.
+func nfsReadStats(info *models.NFSInfo) (ok bool) {
 	data, err := readFile("/proc/net/rpc/nfs") // #nosec G304
 	if err != nil {
-		return
+		return false
 	}
 	for _, line := range strings.Split(string(data), "\n") {
 		fields := strings.Fields(line)
@@ -290,4 +291,5 @@ func nfsReadStats(info *models.NFSInfo) {
 			}
 		}
 	}
+	return true
 }

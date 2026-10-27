@@ -1274,6 +1274,11 @@ func checkPressure(p models.PressureInfo) []models.Insight {
 		return nil
 	}
 	var out []models.Insight
+	if len(p.UnreadableMetrics) > 0 {
+		out = append(out, unverifiedInsight("INFO", "Pressure",
+			"PSI could not be read for: "+strings.Join(p.UnreadableMetrics, ", ")+" — stall pressure for those resources not measured",
+			[]string{"to inspect: cat /proc/pressure/memory /proc/pressure/cpu /proc/pressure/io"}))
+	}
 	// Memory full stall > 10% in last 60s is severe
 	if p.MemoryFull.Avg60 >= 10 {
 		out = append(out, insight("CRIT", "Pressure",

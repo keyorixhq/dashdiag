@@ -20,4 +20,8 @@ type PressureInfo struct {
 	IOFull       PSILine `json:"io_full"`
 	Status       string  `json:"status,omitempty"`
 	StatusReason string  `json:"status_reason,omitempty"`
+	// UnreadableMetrics names each PSI file ("memory", "cpu", "io") that existed
+	// (Available is true) but could not be read or parsed mid-read; its fields are
+	// zero meaning "not measured", not "no pressure".
+	UnreadableMetrics []string `json:"unreadable_metrics,omitempty"`
 }

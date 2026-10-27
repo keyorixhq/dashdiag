@@ -40,16 +40,25 @@ func (c *PressureCollector) Collect(_ context.Context) (interface{}, error) {
 
 	// len()>0 guards are required: readPSIFile returns (nil, nil) when the file
 	// exists but no line parses (malformed/truncated), so a bare [0] would panic.
-	if m, err := readPSIFile(fmt.Sprintf("%s/memory%s", base, suffix)); err == nil && len(m) > 0 {
+	// A failed or empty read is recorded by name, not left as a quiet zero.
+	read := func(name string) []models.PSILine {
+		lines, err := readPSIFile(fmt.Sprintf("%s/%s%s", base, name, suffix))
+		if err != nil || len(lines) == 0 {
+			info.UnreadableMetrics = append(info.UnreadableMetrics, name)
+			return nil
+		}
+		return lines
+	}
+	if m := read("memory"); len(m) > 0 {
 		info.MemorySome = m[0]
 		if len(m) > 1 {
 			info.MemoryFull = m[1]
 		}
 	}
-	if cpu, err := readPSIFile(fmt.Sprintf("%s/cpu%s", base, suffix)); err == nil && len(cpu) > 0 {
+	if cpu := read("cpu"); len(cpu) > 0 {
 		info.CPUSome = cpu[0]
 	}
-	if io, err := readPSIFile(fmt.Sprintf("%s/io%s", base, suffix)); err == nil && len(io) > 0 {
+	if io := read("io"); len(io) > 0 {
 		info.IOSome = io[0]
 		if len(io) > 1 {
 			info.IOFull = io[1]

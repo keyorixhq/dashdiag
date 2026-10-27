@@ -110,6 +110,38 @@ var neverSilentChecks = []neverSilentCheck{
 		wantSubstr: "could not read /boot",
 	},
 	{
+		name:    "checkHealthDeep: /proc/meminfo unreadable",
+		checkFn: "checkHealthDeep",
+		run: func() []models.Insight {
+			return checkHealthDeep(models.HealthDeepInfo{MemDetailUnreadable: true})
+		},
+		wantSubstr: "/proc/meminfo could not be read",
+	},
+	{
+		name:    "checkNFS: rpc stats unreadable",
+		checkFn: "checkNFS",
+		run: func() []models.Insight {
+			return checkNFS(models.NFSInfo{StatsUnreadable: true, RpcbindActive: true})
+		},
+		wantSubstr: "/proc/net/rpc/nfs could not be read",
+	},
+	{
+		name:    "checkSwap: /proc/swaps and zram unreadable",
+		checkFn: "checkSwap",
+		run: func() []models.Insight {
+			return checkSwap(models.SwapInfo{SwapsUnreadable: true, ZramUnreadable: true}, DefaultThresholds(platform.EnvBareMetal))
+		},
+		wantSubstr: "/proc/swaps could not be read",
+	},
+	{
+		name:    "checkThermal: sensor unreadable",
+		checkFn: "checkThermal",
+		run: func() []models.Insight {
+			return checkThermal(models.ThermalInfo{Available: true, Source: "coretemp", SensorUnreadable: true}, Thresholds{})
+		},
+		wantSubstr: "could not be read",
+	},
+	{
 		name:    "checkProcesses: process list unreadable",
 		checkFn: "checkProcesses",
 		run: func() []models.Insight {

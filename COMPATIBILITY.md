@@ -118,6 +118,15 @@ Stable fields per insight: `level`, `check`, `message`, `hints`, `details`.
   `rancher.webhook_unreadable`, `cpu.usage_sample_failed`. `pve.ha_verified` is now
   `false` for a pvesh failure other than an explicit 501 (previously `true`). Each
   produces an `unverified` insight.
+- Task 4 adds, same rules (`true`/non-empty only when that read failed):
+  `kdump.state_unverified`, `tuned.state_unverified`, `thermal.sensor_unreadable`,
+  `containerd.namespaces_unreadable`, `containerd.container_counts_unreadable`,
+  `timeline.unread_sources[]`, `kvm_guest.steal_unreadable`, `swap.swaps_unreadable`,
+  `swap.zram_unreadable`, `nfs.stats_unreadable`, `health_deep.mem_detail_unreadable`,
+  `pressure.unreadable_metrics[]`. On macOS, `security.ssh_config_unreadable` is now
+  set when no sshd_config could be read, and `packages` reports `checked: false`,
+  `status: "query-failed"` when `brew outdated` fails (previously `checked: true`,
+  0 updates).
 
 ### 4. Exit codes
 

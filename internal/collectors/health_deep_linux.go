@@ -608,6 +608,7 @@ func computeTopCPURates(before, after map[int]procCPUCounters, sysDeltaTicks uin
 func collectMemDetail(info *models.HealthDeepInfo) {
 	data, err := readFile("/proc/meminfo") // #nosec G304
 	if err != nil {
+		info.MemDetailUnreadable = true
 		return
 	}
 	parse := func(line string) float64 {

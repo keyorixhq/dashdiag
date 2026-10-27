@@ -248,8 +248,25 @@ func checkMemory(mem models.MemoryInfo, thresh Thresholds, ctrCtx platform.Conta
 	return out
 }
 
-func checkSwap(swap models.SwapInfo, thresh Thresholds) []models.Insight {
+// swapUnreadableInsights discloses swap reads that failed: zero usage there means
+// "not measured", not "no swap in use".
+func swapUnreadableInsights(swap models.SwapInfo) []models.Insight {
 	var out []models.Insight
+	if swap.SwapsUnreadable {
+		out = append(out, unverifiedInsight("INFO", "Swap",
+			"/proc/swaps could not be read — swap occupancy not measured",
+			[]string{"to inspect: cat /proc/swaps", "to inspect: swapon --show"}))
+	}
+	if swap.ZramUnreadable {
+		out = append(out, unverifiedInsight("INFO", "Swap",
+			"zram swap devices could not be fully read — zram utilisation not measured",
+			[]string{"to inspect: zramctl", "to inspect: cat /sys/block/zram0/mm_stat"}))
+	}
+	return out
+}
+
+func checkSwap(swap models.SwapInfo, thresh Thresholds) []models.Insight {
+	out := swapUnreadableInsights(swap)
 	if swap.MemPressureLevel > 0 {
 		if swap.MemPressureLevel > 1 {
 			if l := levelPct(swap.UsedPct, 75, 90); l != "" {
@@ -366,6 +383,11 @@ func checkIO(io models.IOInfo, thresh Thresholds) []models.Insight {
 
 func checkHealthDeep(d models.HealthDeepInfo) []models.Insight {
 	var out []models.Insight
+	if d.MemDetailUnreadable {
+		out = append(out, unverifiedInsight("INFO", "CPUDeep",
+			"/proc/meminfo could not be read — dirty-page backlog and cache breakdown not measured",
+			[]string{"to inspect: cat /proc/meminfo"}))
+	}
 
 	// Core imbalance — one thread bottleneck. Gate on a SUSTAINED single-thread
 	// load: one hot core on an otherwise-idle box (e.g. loadavg 0.25 on 12 cores)

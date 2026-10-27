@@ -30,4 +30,8 @@ type NFSInfo struct {
 	WriteOpsPerMin float64    `json:"write_ops_per_min,omitempty"`
 	RetransPerMin  float64    `json:"retrans_per_min,omitempty"` // raw since-boot retrans count (misnamed; gate on RetransRate)
 	RPCCalls       float64    `json:"rpc_calls,omitempty"`       // total RPC calls since boot — denominator for the retrans rate
+	// StatsUnreadable is true when /proc/net/rpc/nfs could not be read although NFS
+	// mounts exist: retransmission and operation counts are then "not measured",
+	// not zero.
+	StatsUnreadable bool `json:"stats_unreadable,omitempty"`
 }

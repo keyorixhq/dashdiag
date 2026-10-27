@@ -324,3 +324,33 @@ func TestSwapCollector_Collect_InjectableReaders(t *testing.T) {
 		t.Errorf("PagesOutPerSec: got %v, want 10", info.PagesOutPerSec)
 	}
 }
+
+// DD-COLLECTOR-GAPS-1 Low #18: an unreadable /proc/swaps leaves usage at 0, which
+// must be disclosed, not read as "no swap in use".
+func TestSwapCollector_Collect_UnreadableSwapsIsFlagged(t *testing.T) {
+	t.Parallel()
+	if testing.Short() {
+		t.Skip("skipping 1s vmstat sampling in short mode")
+	}
+	if runtime.GOOS == "darwin" {
+		t.Skip("vmstat sampling not available on darwin")
+	}
+	c := &SwapCollector{
+		ContainerCtx: platform.ContainerContext{},
+		swapsPath:    "/nonexistent-dsd-test/swaps",
+		readers: swapReaders{
+			vmstatOpen: func() (io.ReadCloser, error) {
+				return io.NopCloser(strings.NewReader("pswpin 1\npswpout 1\n")), nil
+			},
+		},
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	defer cancel()
+	result, err := c.Collect(ctx)
+	if err != nil {
+		t.Fatalf("Collect error: %v", err)
+	}
+	if info := result.(*models.SwapInfo); !info.SwapsUnreadable {
+		t.Errorf("SwapsUnreadable = false for an unopenable /proc/swaps: %+v", info)
+	}
+}

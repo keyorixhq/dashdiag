@@ -48,6 +48,11 @@ type TimelineInfo struct {
 	// "no source was read", not "no incidents", so the renderer must say so rather
 	// than report a clean timeline.
 	SourcesUnavailable bool `json:"sources_unavailable,omitempty"`
+	// UnreadSources names each event source that failed to read ("journald",
+	// "kernel log"), including when only ONE failed (a non-root dmesg_restrict=1 run
+	// whose journal still reads). Events from a named source are missing, so a
+	// window with no events must not be reported as clean.
+	UnreadSources []string `json:"unread_sources,omitempty"`
 	// Load average spikes sampled at /proc/loadavg-like intervals
 	LoadSpikes []LoadSpike `json:"load_spikes,omitempty"`
 }

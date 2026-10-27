@@ -894,3 +894,13 @@ func TestReadCgroupSlice_MalformedIOStatKV(t *testing.T) {
 		t.Errorf("IOReadMBs = %.2f, want ~1.0 (malformed field skipped, valid field parsed)", s.IOReadMBs)
 	}
 }
+
+// DD-COLLECTOR-GAPS-1 Low #20: an unreadable /proc/meminfo must set the sentinel.
+func TestCollectMemDetail_UnreadableSetsSentinel(t *testing.T) {
+	withFixtureSource(t, func(_ *source.Bundle) {})
+	info := &models.HealthDeepInfo{}
+	collectMemDetail(info)
+	if !info.MemDetailUnreadable {
+		t.Error("MemDetailUnreadable = false for an unreadable /proc/meminfo")
+	}
+}

@@ -75,17 +75,27 @@ func parseDarwinSSHConfig(info *models.SecurityInfo) {
 	if dropins, err := glob("/etc/ssh/sshd_config.d/*.conf"); err == nil {
 		paths = append(paths, dropins...)
 	}
+	readAny := false
 	for _, p := range paths {
-		parseDarwinSSHFile(p, info)
+		if parseDarwinSSHFile(p, info) {
+			readAny = true
+		}
+	}
+	if !readAny {
+		// Same rule as the linux parser: with no readable config the OpenSSH
+		// defaults set above are assumptions, not an audit. Mark unreadable so
+		// analysis and CIS skip the SSH checks instead of reporting them as verdicts.
+		info.SSHConfigUnreadable = true
 	}
 }
 
 // parseDarwinSSHFile parses the SSH keys that drive checkSecurity() heuristics.
 // It deliberately covers only those keys — not a full sshd_config parse.
-func parseDarwinSSHFile(path string, info *models.SecurityInfo) {
+// It returns true when the file was read.
+func parseDarwinSSHFile(path string, info *models.SecurityInfo) bool {
 	data, err := readFile(path) // #nosec G304 -- well-known config path
 	if err != nil {
-		return
+		return false
 	}
 	scanner := bufio.NewScanner(strings.NewReader(string(data)))
 	for scanner.Scan() {
@@ -123,6 +133,7 @@ func parseDarwinSSHFile(path string, info *models.SecurityInfo) {
 			}
 		}
 	}
+	return true
 }
 
 // parseDarwinListeningPorts uses lsof (macOS has no /proc/net/tcp).

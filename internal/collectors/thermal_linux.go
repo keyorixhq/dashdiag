@@ -62,7 +62,9 @@ func (c *ThermalCollector) Collect(ctx context.Context) (interface{}, error) {
 		}
 
 		info.Source = driverName
-		readHwmonTemps(ctx, hwmon, info)
+		if readFailed := readHwmonTemps(ctx, hwmon, info); readFailed && info.CPUTempC == 0 {
+			info.SensorUnreadable = true
+		}
 		break // use first CPU thermal sensor found
 	}
 
@@ -80,19 +82,24 @@ func (c *ThermalCollector) Collect(ctx context.Context) (interface{}, error) {
 }
 
 // readHwmonTemps reads temp*_input files from a hwmon directory.
-// Values are in millidegrees Celsius.
-func readHwmonTemps(ctx context.Context, hwmon string, info *models.ThermalInfo) {
-	inputs, _ := glob(filepath.Join(hwmon, "temp*_input"))
+// Values are in millidegrees Celsius. readFailed is true when the sensor
+// directory could not be listed or any input could not be read or parsed, so the
+// caller can tell "no temperature" from "temperature not readable".
+func readHwmonTemps(ctx context.Context, hwmon string, info *models.ThermalInfo) (readFailed bool) {
+	inputs, dirUnreadable, _ := globChecked(filepath.Join(hwmon, "temp*_input"))
+	readFailed = dirUnreadable
 	for _, input := range inputs {
 		if ctx.Err() != nil {
-			return
+			return readFailed
 		}
 		raw, err := readFile(input)
 		if err != nil {
+			readFailed = true
 			continue
 		}
 		milliC, err := strconv.ParseFloat(strings.TrimSpace(string(raw)), 64)
 		if err != nil {
+			readFailed = true
 			continue
 		}
 		tempC := milliC / 1000.0
@@ -110,6 +117,7 @@ func readHwmonTemps(ctx context.Context, hwmon string, info *models.ThermalInfo)
 		}
 		info.CoreTemps[label] = tempC
 	}
+	return readFailed
 }
 
 // readSensorLabel reads a hwmon temp*_label file. internal-collectors-32-07:

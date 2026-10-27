@@ -63,6 +63,11 @@ func checkBattery(b models.BatteryInfo) []models.Insight {
 }
 
 func checkThermal(t models.ThermalInfo, thresh Thresholds) []models.Insight {
+	if t.SensorUnreadable {
+		return []models.Insight{unverifiedInsight("INFO", corrCatCPUThermal,
+			fmt.Sprintf("CPU thermal sensor (%s) found but its temperature could not be read — thermal state not measured", t.Source),
+			[]string{inspectHwmonTemp, "to inspect: sensors"})}
+	}
 	if t.CPUTempC == 0 || t.Source == "" {
 		return nil // no thermal data available on this platform
 	}
