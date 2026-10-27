@@ -50,3 +50,18 @@ func TestCheckDiskExtras_DrivesListUnreadableDoesNotSuppressRealFindings(t *test
 		t.Fatalf("expected both the DrivesListUnreadable disclosure and the real CRIT, got %+v", insights)
 	}
 }
+
+// DD-COLLECTOR-GAPS-1 High #1: a hung/stale mount (statfs failed) has no
+// numbers, so no usage CRIT/WARN can fire for it — it must surface as an
+// Unverified insight instead of vanishing.
+func TestCheckDiskExtras_UnreachableMountIsUnverified(t *testing.T) {
+	t.Parallel()
+
+	insights := checkDiskExtras(models.DiskInfo{UnreachableMounts: []models.UnreachableMount{
+		{Mount: "/mnt/nfs", FSType: "nfs4", Error: "statfs /mnt/nfs timed out (stale mount?)"},
+	}})
+	assertLevel(t, insights, "WARN")
+	if len(insights) != 1 || !insights[0].Unverified {
+		t.Fatalf("expected a single Unverified WARN insight, got %+v", insights)
+	}
+}

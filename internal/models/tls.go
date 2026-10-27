@@ -32,4 +32,7 @@ type TLSInfo struct {
 type TLSUncheckable struct {
 	Path  string `json:"path"`
 	Error string `json:"error"`
+	// NeedsRoot is true when an unprivileged run was denied reading the path:
+	// the check is Unverified, and re-running with sudo would resolve it.
+	NeedsRoot bool `json:"needs_root,omitempty"`
 }

@@ -44,9 +44,9 @@ func TestDetectCertPaths_UnreadableDirIsReportedNotDropped(t *testing.T) {
 		t.Fatalf("unreadable = %v, want exactly [/etc/letsencrypt/live]", unreadable)
 	}
 
-	results := unreadableDirResults(unreadable)
-	if len(results) != 1 || results[0].Level != tlsLvlERR || !strings.Contains(results[0].Err, "could not read /etc/letsencrypt/live") {
-		t.Fatalf("results = %+v, want one ERR 'could not read /etc/letsencrypt/live'", results)
+	results := unreadableDirResults(unreadable, 0) // root: plain error, sudo cannot help
+	if len(results) != 1 || results[0].Level != tlsLvlERR || !strings.Contains(results[0].Err, "could not read /etc/letsencrypt/live") || results[0].NeedsRoot {
+		t.Fatalf("results = %+v, want one plain ERR 'could not read /etc/letsencrypt/live'", results)
 	}
 
 	ti := buildTLSInfo(results, nil, 30)
@@ -63,5 +63,28 @@ func TestDetectCertPaths_ReadableEmptyDirIsClean(t *testing.T) {
 	paths, unreadable := detectCertPaths(deniedDirSource{}, []string{"/etc/nginx/ssl/*.crt"})
 	if len(paths) != 0 || len(unreadable) != 0 {
 		t.Errorf("got paths=%v unreadable=%v, want both empty", paths, unreadable)
+	}
+}
+
+// The Debian/Ubuntu default /etc/ssl/private is 0710 root:ssl-cert. For a
+// non-root run it is "needs root", Unverified in the JSON; as root the same
+// failure stays a plain error.
+func TestUnreadableDirResults_NonRootNeedsRoot(t *testing.T) {
+	src := deniedDirSource{denied: map[string]bool{"/etc/ssl/private": true}}
+	_, unreadable := detectCertPaths(src, []string{"/etc/ssl/private/*.pem"})
+
+	results := unreadableDirResults(unreadable, 1000)
+	want := "needs root: could not read /etc/ssl/private (re-run with sudo)"
+	if len(results) != 1 || results[0].Err != want || !results[0].NeedsRoot || results[0].Level != tlsLvlERR {
+		t.Fatalf("results = %+v, want one ERR %q with NeedsRoot", results, want)
+	}
+	ti := buildTLSInfo(results, nil, 30)
+	if len(ti.Uncheckable) != 1 || !ti.Uncheckable[0].NeedsRoot || ti.Status == "ok" {
+		t.Fatalf("Uncheckable=%+v Status=%q, want needs_root entry and non-ok status", ti.Uncheckable, ti.Status)
+	}
+
+	asRoot := unreadableDirResults(unreadable, 0)
+	if asRoot[0].NeedsRoot || strings.Contains(asRoot[0].Err, "needs root") {
+		t.Errorf("as root = %+v, want a plain error", asRoot[0])
 	}
 }

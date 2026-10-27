@@ -103,8 +103,8 @@ miss is), not file order — an unranked backlog gets worked top-to-bottom by
 accident, which is what this ranking is for.
 
 **High** — silently masks a check the collector specifically exists to catch, on a scenario common in production:
-1. `DiskCollector` — a stale/hung NFS/CIFS mount is silently dropped from `Filesystems` entirely (not shown as unreachable — absent, as if the mount didn't exist). No CRIT/WARN can ever fire for it.
-2. `K8sCollector` — Events/PVCs/Workloads fail independently of the `APIReachable` gate that "vouches" for them; an RBAC-scoped viewer kubeconfig (a realistic production setup) reads as 0 unbound PVCs/0 down workloads on a genuinely broken cluster.
+1. **FIXED** (DD-COLLECTOR-GAPS-1 task 2) — `DiskCollector` — a stale/hung NFS/CIFS mount is silently dropped from `Filesystems` entirely (not shown as unreachable — absent, as if the mount didn't exist). No CRIT/WARN can ever fire for it.
+2. **FIXED** (DD-COLLECTOR-GAPS-1 task 2) — `K8sCollector` — Events/PVCs/Workloads fail independently of the `APIReachable` gate that "vouches" for them; an RBAC-scoped viewer kubeconfig (a realistic production setup) reads as 0 unbound PVCs/0 down workloads on a genuinely broken cluster.
 3. `TLSCollector` — a top-level/directory `readDirEntries` failure silently drops the whole scan root (e.g. Debian/Ubuntu's default `/etc/ssl/private` 0710) — contradicts the model's own doc comment promising this can't happen.
 4. `ServicesDeepCollector` (masked units) — no sentinel, unlike its sibling `FailedUnitsQueried` in the same file; the file's own comment already calls masked units "a silent trap."
 5. `LogsCollector` (crash loops / crash files / journal size / corruption — 4 sub-paths beyond the now-fixed kmsg one) — crash-loop detection is a core reliability signal; `systemctl`/unreadable `/var/crash`/unreadable journal dir all fold silently to "clean."
@@ -211,8 +211,8 @@ row (the project's own documented, accepted convention — not a defect).
 | DBusCollector | dbus_linux.go:24 | CORRECT | `status="unknown"` tri-state |
 | HACollector | ha_collector.go:108 | CORRECT | `StatusReadable` |
 | **NetworkdConfigCollector** | networkd_config_linux.go:60 | **FIXED** | was: root cause of shape 1 (`filepath.Glob` swallows permission errors). Now uses `globChecked`; `ConfigDirUnreadable` set. |
-| **K8sCollector** | k8s.go:52 | **BUG** | Events/PVCs/Workloads fail independently of `APIReachable` (shape 4); `--deep` sub-checks (`K8sOSLayer`) are correct |
-| **DiskCollector** | disk.go:119 | **BUG** | stale/hung mount silently dropped from `Filesystems`, not flagged unreachable |
+| K8sCollector | k8s.go:52 | **FIXED** | `EventsUnreadable`/`PVCsUnreadable`/`WorkloadsUnreadable` independent of `APIReachable`; `--deep` sub-checks (`K8sOSLayer`) were already correct |
+| DiskCollector | disk.go | **FIXED** | `UnreachableMounts` + Unverified WARN per mount |
 | HWRaidCollector | hwraid_linux.go:56 | CORRECT | `NeedsRoot`/`ReadFailed`, `rawCount` schema-drift guard |
 | KernelSecurityCollector | kernel_security.go:371 | CORRECT | SELinux mode + AVC `-1` (doc claims verified) |
 | OOMCollector | oom_linux.go:30 | CORRECT | `StatusReason` gates `EventsLast24h` read order in consumer too |

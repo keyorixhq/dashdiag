@@ -406,6 +406,7 @@ func collectK8sEvents(ctx context.Context, bin string, info *models.K8sInfo) {
 		"--sort-by=.lastTimestamp",
 		k8sFlagNoHdr)
 	if err != nil {
+		info.EventsUnreadable = true // forbidden/timeout: not "no warning events"
 		return
 	}
 	info.Events = append(info.Events, parseK8sWarningEvents(out)...)
@@ -456,7 +457,10 @@ func parseK8sWarningEvents(out string) []models.K8sEvent {
 func collectK8sPVCs(ctx context.Context, bin string, info *models.K8sInfo) {
 	out, err := k8sRun(ctx, bin, k8sCmdGet, "pvc", "-A", k8sFlagNoHdr)
 	if err != nil {
-		return // no PVCs configured is normal
+		// No PVCs configured is normal and exits 0 ("No resources found"); a
+		// non-zero exit is forbidden/timeout, not "0 unbound PVCs".
+		info.PVCsUnreadable = true
+		return
 	}
 	for line := range strings.SplitSeq(out, "\n") {
 		fields := strings.Fields(line)
@@ -484,6 +488,7 @@ func collectK8sWorkloads(ctx context.Context, bin string, info *models.K8sInfo) 
 	for _, kind := range []string{"deploy", "statefulset"} {
 		out, err := k8sRun(ctx, bin, k8sCmdGet, kind, "-A", k8sFlagNoHdr)
 		if err != nil {
+			info.WorkloadsUnreadable = true
 			continue
 		}
 		for line := range strings.SplitSeq(out, "\n") {

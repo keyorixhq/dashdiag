@@ -416,3 +416,23 @@ func TestCheckPackages_ManagerVariants(t *testing.T) {
 	// Plain security updates (no critical/important) is a WARN.
 	assertLevel(t, checkPackages(models.PackagesInfo{SecurityUpdates: 4, PackageManager: "apt"}), "WARN")
 }
+
+// DD-COLLECTOR-GAPS-1 High #2: PVC/workload/event queries fail independently of
+// APIReachable; each failure is an Unverified INFO, and a clean read stays silent.
+func TestCheckK8sWorkloadsAndEvents_UnreadableQueriesAreUnverified(t *testing.T) {
+	t.Parallel()
+	got := checkK8sWorkloadsAndEvents(models.K8sInfo{
+		APIReachable: true, PVCsUnreadable: true, WorkloadsUnreadable: true, EventsUnreadable: true,
+	})
+	if len(got) != 3 {
+		t.Fatalf("want 3 insights, got %+v", got)
+	}
+	for _, in := range got {
+		if !in.Unverified || in.Level != "INFO" {
+			t.Errorf("insight %+v: want Unverified INFO", in)
+		}
+	}
+	if clean := checkK8sWorkloadsAndEvents(models.K8sInfo{APIReachable: true}); len(clean) != 0 {
+		t.Errorf("clean read produced insights: %+v", clean)
+	}
+}
