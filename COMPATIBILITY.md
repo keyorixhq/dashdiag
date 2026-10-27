@@ -112,6 +112,12 @@ Stable fields per insight: `level`, `check`, `message`, `hints`, `details`.
   `services_deep.journal_verify_unverified` (`true` when the archived journals
   could not be verified; `journal_healthy` stays `true`). Capture bundles may
   contain an optional `direrrs.json`; readers that do not know it ignore it.
+- Task 3 adds, same rules (`true` only when that read failed): `network.interfaces_unreadable`,
+  `network.connections_unreadable`, `processes.list_restricted`,
+  `processes.list_unreadable`, `rancher.server_unreadable`,
+  `rancher.webhook_unreadable`, `cpu.usage_sample_failed`. `pve.ha_verified` is now
+  `false` for a pvesh failure other than an explicit 501 (previously `true`). Each
+  produces an `unverified` insight.
 
 ### 4. Exit codes
 

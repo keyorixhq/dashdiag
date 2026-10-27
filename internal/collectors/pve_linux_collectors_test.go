@@ -440,13 +440,37 @@ func TestCollectPVEHAFencing_Fenced(t *testing.T) {
 	}
 }
 
-func TestCollectPVEHAFencing_APIAbsent(t *testing.T) {
+func TestCollectPVEHAFencing_EndpointNotImplementedIsAbsent(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutCmdNotFound("pvesh", []string{"get", "/cluster/ha/status/current", "--output-format", "json"})
+		b.PutCmd("pvesh", []string{"get", "/cluster/ha/status/current", "--output-format", "json"},
+			"501 Method 'GET /cluster/ha/status/current' not implemented\n", 2)
 	})
 	ok, msg, verified := collectPVEHAFencing(context.Background())
 	if !ok || msg != "" || !verified {
-		t.Errorf("ok=%v msg=%q verified=%v, want true/empty/true (HA not available is not a failure)", ok, msg, verified)
+		t.Errorf("ok=%v msg=%q verified=%v, want true/empty/true (HA endpoint absent is not a failure)", ok, msg, verified)
+	}
+}
+
+// DD-COLLECTOR-GAPS-1 Medium #11: any other pvesh failure (timeout, permission,
+// wedged pmxcfs, pvesh missing) is not "no HA configured" — fencing is unverified.
+func TestCollectPVEHAFencing_OtherFailuresAreUnverified(t *testing.T) {
+	cases := map[string]func(b *source.Bundle){
+		"timeout": func(b *source.Bundle) {
+			b.PutCmd("pvesh", []string{"get", "/cluster/ha/status/current", "--output-format", "json"},
+				"cluster not ready - no quorum? (500)\n", 2)
+		},
+		"spawn failure": func(b *source.Bundle) {
+			b.PutCmdNotFound("pvesh", []string{"get", "/cluster/ha/status/current", "--output-format", "json"})
+		},
+	}
+	for name, seed := range cases {
+		t.Run(name, func(t *testing.T) {
+			withFixtureSource(t, seed)
+			ok, _, verified := collectPVEHAFencing(context.Background())
+			if !ok || verified {
+				t.Errorf("ok=%v verified=%v, want true/false (not 'HA absent')", ok, verified)
+			}
+		})
 	}
 }
 

@@ -19,4 +19,11 @@ type ProcessInfo struct {
 	HungProcs    []ProcessState `json:"hung_procs"`
 	Status       string         `json:"status"`
 	StatusReason string         `json:"status_reason"`
+	// ListRestricted is true when the /proc listing hides other users' processes
+	// (hidepid=1/2, systemd ProtectProc=invisible): PID 1 is absent from it, so
+	// Total/ZombieCount/HungCount cover only what this UID could see, not the host.
+	ListRestricted bool `json:"list_restricted,omitempty"`
+	// ListUnreadable is true when the process table could not be listed at all
+	// (macOS `ps` failed), so zero counts mean "not measured", not "none".
+	ListUnreadable bool `json:"list_unreadable,omitempty"`
 }

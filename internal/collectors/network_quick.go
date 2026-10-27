@@ -66,9 +66,11 @@ func (c *NetworkCollector) Collect(ctx context.Context) (any, error) {
 	}
 
 	var ifaces gopsutilnet.InterfaceStatList
-	_ = cachedJSON("gopsutil/net/interfaces", func() (any, error) {
+	if err := cachedJSON("gopsutil/net/interfaces", func() (any, error) {
 		return gopsutilnet.InterfacesWithContext(ctx)
-	}, &ifaces)
+	}, &ifaces); err != nil {
+		result.InterfacesUnreadable = true
+	}
 	var ioCounters []gopsutilnet.IOCountersStat
 	_ = cachedJSON("gopsutil/net/iocounters", func() (any, error) {
 		return gopsutilnet.IOCountersWithContext(ctx, true)
@@ -130,9 +132,11 @@ func (c *NetworkCollector) Collect(ctx context.Context) (any, error) {
 	probeConnectivity(ctx, route.GatewayIP, route.SrcIP, result)
 
 	var conns []gopsutilnet.ConnectionStat
-	_ = cachedJSON("gopsutil/net/connections/tcp", func() (any, error) {
+	if err := cachedJSON("gopsutil/net/connections/tcp", func() (any, error) {
 		return gopsutilnet.ConnectionsWithContext(ctx, "tcp")
-	}, &conns)
+	}, &conns); err != nil {
+		result.ConnectionsUnreadable = true
+	}
 	for _, conn := range conns {
 		if conn.Status == "CLOSE_WAIT" {
 			result.CloseWaitCount++

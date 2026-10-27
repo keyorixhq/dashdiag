@@ -216,7 +216,16 @@ type cpuSample struct {
 	CtxSwitchRate float64 `json:"ctx_switch_rate"`
 	RunQueue      int     `json:"run_queue"`
 	ProcsBlocked  int     `json:"procs_blocked"`
+	// OK is true only when both /proc/stat snapshots were read and parsed. A false
+	// sample is all zeros — RunQueue 0 would otherwise read as "nothing queued" on
+	// exactly the loaded host where the sampling window got starved or cancelled.
+	OK bool `json:"ok"`
 }
+
+// cpuProcStatExpected is whether this platform has /proc/stat, i.e. whether a
+// failed sample is a real "could not look" rather than the normal macOS answer.
+// A variable so tests can exercise the Linux branch from any host.
+var cpuProcStatExpected = runtime.GOOS == "linux"
 
 // sampleCPUUsage takes two /proc/stat snapshots 500ms apart and returns the
 // derived usage/steal/iowait percentages, context-switch rate, and the
@@ -246,8 +255,11 @@ func (c *CPUCollector) sampleCPUUsage(ctx context.Context) cpuSample {
 	if err2 != nil {
 		return s
 	}
-	s2, _ := parseCPUStatFull(r2)
+	s2, parseErr2 := parseCPUStatFull(r2)
 	_ = r2.Close()
+	if parseErr2 != nil {
+		return s
+	}
 	self2 := readSelfJiffies(c.readers.selfStatOpen)
 	delta := float64(s2.total - s1.total)
 	if delta > 0 {
@@ -273,6 +285,7 @@ func (c *CPUCollector) sampleCPUUsage(ctx context.Context) cpuSample {
 			s.IowaitPct = float64(s2.iowait-s1.iowait) / delta * 100
 		}
 	}
+	s.OK = true
 	// Run-queue depth and blocked count are instantaneous — use the most recent
 	// (second) sample.
 	s.RunQueue = int(s2.procsRunning)
@@ -323,9 +336,13 @@ func (c *CPUCollector) Collect(ctx context.Context) (any, error) {
 	// "0% CPU — load avg N" CRIT that the live run never showed. Cache the DERIVED
 	// values so they replay faithfully (same fix as CPUDeep, #399).
 	var samp cpuSample
-	_ = cachedJSON("cpu/usage-sample", func() (any, error) {
+	sampErr := cachedJSON("cpu/usage-sample", func() (any, error) {
 		return c.sampleCPUUsage(ctx), nil
 	}, &samp)
+	// A failed sample leaves RunQueue/ProcsBlocked/usage at 0. Record that instead
+	// of letting the zeros read as a quiet host (Linux only: macOS has no
+	// /proc/stat and takes its usage from top below).
+	sampleFailed := cpuProcStatExpected && (sampErr != nil || !samp.OK)
 	usagePct := samp.UsagePct
 	stealPct := samp.StealPct
 	iowaitPct := samp.IowaitPct
@@ -356,6 +373,7 @@ func (c *CPUCollector) Collect(ctx context.Context) (any, error) {
 		StealPct:          stealPct,
 		IOwaitPct:         iowaitPct,
 		RunQueue:          runQueue,
+		UsageSampleFailed: sampleFailed,
 		ProcsBlocked:      procsBlocked,
 		ContextSwitchRate: ctxSwitchRate,
 		PresentCPUs:       present,

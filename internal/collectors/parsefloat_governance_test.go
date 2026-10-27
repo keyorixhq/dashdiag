@@ -58,6 +58,12 @@ func TestParseFloatCallSitesGuardNaNInf(t *testing.T) {
 	for _, dir := range dirs {
 		err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 			if err != nil {
+				// cmd/ tests create and remove temp directories (mcptest-*) while
+				// this walk runs in a parallel package; a vanished entry is not a
+				// violation and must not fail the guard.
+				if os.IsNotExist(err) {
+					return nil
+				}
 				return err
 			}
 			if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {
@@ -189,15 +195,15 @@ var parseFloatGateExemptions = map[string]string{
 	"internal/collectors/nvme_linux.go:177": "already guarded: err==nil && k>0 && !math.IsInf(k,0) in the same condition (k>0 rejects NaN too, since all NaN comparisons are false)",
 	"internal/collectors/nvme_linux.go:186": "already guarded: err==nil && !math.IsNaN(c) && !math.IsInf(c,0) in the same condition",
 
-	"internal/collectors/network_quick.go:443":    "ping RTT parse — a NaN/Inf RTT feeds a <100ms-style WARN threshold that fails loud (not a false-OK); low realistic attacker control (local ping output)",
-	"internal/collectors/network_quick.go:454":    "ping RTT parse, same shape as :443",
+	"internal/collectors/network_quick.go:447":    "ping RTT parse — a NaN/Inf RTT feeds a <100ms-style WARN threshold that fails loud (not a false-OK); low realistic attacker control (local ping output)",
+	"internal/collectors/network_quick.go:458":    "ping RTT parse, same shape as :447",
 	"internal/collectors/cpuinfo.go:57":           "cpu MHz — display-only field, no verdict threshold reads it",
 	"internal/collectors/pressure_linux.go:95":    "kernel-authored /proc/pressure/* value; a NaN PSI avg fails every WARN/CRIT threshold loud rather than false-OK",
 	"internal/collectors/postgres_linux.go:145":   "lag>=0 in the same condition rejects NaN and negative; +Inf slips through but only makes the >300s WARN/CRIT threshold fire, never a false-OK",
 	"internal/collectors/cpu.go:57":               "kernel-authored /proc/loadavg field 1; feeds a load-average WARN/CRIT threshold that fails loud on NaN, never false-OK",
 	"internal/collectors/cpu.go:60":               "kernel-authored /proc/loadavg field 2, same shape as :57",
 	"internal/collectors/cpu.go:63":               "kernel-authored /proc/loadavg field 3, same shape as :57",
-	"internal/collectors/cpu.go:420":              "per-core busy%% from /proc/stat deltas; a NaN core percentage is a display-only anomaly, not a verdict input",
+	"internal/collectors/cpu.go:438":              "per-core busy%% from /proc/stat deltas; a NaN core percentage is a display-only anomaly, not a verdict input",
 	"internal/collectors/thermal_linux.go:94":     "milliC parse — the caller's TempPlausible(c,ceiling) range check (analysis/temp.go) already rejects NaN/Inf before any verdict reads the value",
 	"internal/collectors/thermal_linux.go:137":    "same TempPlausible downstream guard as :94",
 	"internal/collectors/thermal_notlinux.go:83":  "v>0 in the same condition rejects NaN; TempPlausible (analysis/temp.go) rejects +Inf downstream before any verdict reads the value",

@@ -230,26 +230,6 @@ func computeCoreUsage(s1, s2 []coreSnapshot) []models.CoreStat {
 	return stats
 }
 
-// procVisibilityRestricted reports whether a /proc directory listing is
-// hiding other processes' entries entirely — most commonly the hidepid=2
-// mount option, a documented hardening default on shared/hardened hosts.
-// Unlike a per-PID permission denial (where the directory entry IS visible
-// but its contents aren't readable — os.IsPermission on the file read),
-// hidepid=2 omits the directory entries themselves, so a glob of /proc/[0-9]*
-// silently returns fewer PIDs with no error raised anywhere. PID 1
-// (init/systemd, or a container's own PID-1) always exists on a running
-// Linux system and its directory entry is hidden by hidepid=2 exactly like
-// every other process not owned by the caller — so its absence from the
-// listing is a reliable signal that the sample is incomplete.
-func procVisibilityRestricted(entries []string) bool {
-	for _, e := range entries {
-		if filepath.Base(e) == "1" {
-			return false
-		}
-	}
-	return true
-}
-
 // topMemoryProcs reads /proc/<pid>/status for RSS and returns top N by RSS,
 // plus whether the scan had restricted visibility (see procVisibilityRestricted
 // and readAllProcIO's identical per-PID permission tracking) — TopProcs/

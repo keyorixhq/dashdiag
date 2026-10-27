@@ -41,7 +41,7 @@ func TestDetectMemcached(t *testing.T) {
 		withCombinedFixture(t, map[string][]byte{
 			"memcached/tcp/127.0.0.1:11211/version": memcachedJSON("VERSION 1.6.29\r\n", true),
 		}, nil, nil)
-		network, addr, version := detectMemcached(context.Background())
+		network, addr, version, _ := detectMemcached(context.Background())
 		if network != "tcp" || addr != "127.0.0.1:11211" || version != "1.6.29" {
 			t.Errorf("got network=%q addr=%q version=%q, want tcp/127.0.0.1:11211/1.6.29", network, addr, version)
 		}
@@ -52,7 +52,7 @@ func TestDetectMemcached(t *testing.T) {
 			"memcached/tcp/127.0.0.1:11211/version": memcachedJSON("", false),
 			"memcached/tcp/[::1]:11211/version":     memcachedJSON("VERSION 1.6.29\r\n", true),
 		}, nil, nil)
-		network, addr, version := detectMemcached(context.Background())
+		network, addr, version, _ := detectMemcached(context.Background())
 		if network != "tcp" || addr != "[::1]:11211" || version != "1.6.29" {
 			t.Errorf("got network=%q addr=%q version=%q, want tcp/[::1]:11211/1.6.29", network, addr, version)
 		}
@@ -60,7 +60,7 @@ func TestDetectMemcached(t *testing.T) {
 
 	t.Run("neither responds", func(t *testing.T) {
 		withCombinedFixture(t, nil, nil, nil)
-		_, addr, _ := detectMemcached(context.Background())
+		_, addr, _, _ := detectMemcached(context.Background())
 		if addr != "" {
 			t.Errorf("addr = %q, want empty", addr)
 		}

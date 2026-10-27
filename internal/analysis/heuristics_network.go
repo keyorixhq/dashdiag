@@ -573,6 +573,17 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyc
 		))
 	}
 
+	if net.InterfacesUnreadable {
+		out = append(out, unverifiedInsight("INFO", catNetwork,
+			"could not read the network interface list — link state, errors and drops not measured",
+			[]string{"to inspect: ip -s link"}))
+	}
+	if net.ConnectionsUnreadable {
+		out = append(out, unverifiedInsight("INFO", catNetwork,
+			"could not read the TCP connection table — CLOSE_WAIT leak check not run",
+			[]string{"to inspect: ss -tan state close-wait | head -20"}))
+	}
+
 	// Deep TCP metrics — only populated when NetworkDeepCollector is used.
 	// Shared with dsd net (analysis.TimeWaitLevel): WARN 1000, CRIT 5000 — health
 	// previously had no CRIT tier, so a host with 60k TIME_WAIT read the same WARN

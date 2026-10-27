@@ -1054,6 +1054,16 @@ func checkEntropy(e models.EntropyInfo) []models.Insight {
 
 func checkProcesses(proc models.ProcessInfo, thresh Thresholds) []models.Insight {
 	var out []models.Insight
+	if proc.ListUnreadable {
+		out = append(out, unverifiedInsight("INFO", "Processes",
+			"could not list processes — zombie and hung (D-state) counts not measured",
+			[]string{"to inspect: ps axo pid,ppid,stat,comm"}))
+	}
+	if proc.ListRestricted {
+		out = append(out, unverifiedInsight("INFO", "Processes",
+			"process list hides other users' processes (hidepid / ProtectProc) — zombie and hung counts cover only this user's view",
+			[]string{"to inspect: mount | grep 'proc.*hidepid'", "to fix: re-run with sudo"}))
+	}
 	// Zombie CRIT stays at the fixed 10 (no policy knob); WARN is configurable
 	// via zombie_warn_count (default 1 = warn on any zombie).
 	if proc.ZombieCount >= 10 {

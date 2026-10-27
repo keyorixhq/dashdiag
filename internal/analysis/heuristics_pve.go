@@ -164,11 +164,12 @@ func checkPVECluster(p models.PVEInfo) []models.Insight {
 			},
 		))
 	} else if !p.HAVerified {
-		// The HA endpoint answered but the response was unparseable — we cannot say
-		// fencing is healthy. (A node without HA configured stays verified, so this
+		// The HA endpoint failed or answered with an unparseable response — we cannot
+		// say fencing is healthy. (A node without HA configured answers with just the
+		// quorum entry, and an explicit 501 "not implemented" stays verified, so this
 		// does not fire on the common standalone case.)
 		out = append(out, unverifiedInsight("INFO", pveCatPVE,
-			"HA fencing state could NOT be verified — the HA status response was unreadable",
+			"HA fencing state could NOT be verified — the HA status query failed or its response was unreadable",
 			[]string{
 				"to inspect: pvesh get /cluster/ha/status/current",
 				"to inspect: ha-manager status",

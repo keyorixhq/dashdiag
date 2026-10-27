@@ -415,6 +415,46 @@ func collectOCI(ctx context.Context, info *models.CloudInfo) bool {
 // would otherwise have caught. Now checks all four providers, each with the
 // same minimal presence probe its own collectXXX function relies on.
 func IsCloudInstance() bool {
+	if probeCloudInstance() {
+		return true
+	}
+	// Every probe failed. On a bare-metal host that is the normal answer, but on a
+	// real cloud VM a transient IMDS hiccup looks identical, and treating it as
+	// "not cloud" would silently drop the spot-termination / maintenance-event
+	// check for the run. Only when DMI says this is a cloud VM (and a live probe
+	// was actually allowed — an offline run is policy, not a failure): retry once,
+	// then register the collector anyway so it reports "cloud instance detected
+	// but its metadata could not be read" (Unverified) instead of nothing.
+	if (!platform.NetworkAllowed() && !sourceIsReplaying()) || !cloudDMIHint() {
+		return false
+	}
+	_ = probeCloudInstance() // the retry: its result no longer matters, DMI already says cloud
+	return true
+}
+
+// cloudDMIHint reports whether DMI identifies the host as a public-cloud VM
+// (AWS, GCP, Azure, OCI). Read through the active source so it replays.
+func cloudDMIHint() bool {
+	read := func(name string) string {
+		b, err := readFile("/sys/class/dmi/id/" + name)
+		if err != nil {
+			return ""
+		}
+		return strings.ToLower(strings.TrimSpace(string(b)))
+	}
+	all := read("sys_vendor") + " " + read("product_name") + " " + read("bios_vendor") + " " + read("board_vendor")
+	if strings.Contains(all, "amazon") || strings.Contains(all, "google") || strings.Contains(all, "microsoft azure") {
+		return true
+	}
+	switch read("chassis_asset_tag") {
+	case "7783-7084-3265-9085-8269-3286-77", "oraclecloud.com":
+		return true
+	}
+	return false
+}
+
+// probeCloudInstance is one pass of the four-provider presence probe.
+func probeCloudInstance() bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 500*time.Millisecond)
 	defer cancel()
 

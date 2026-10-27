@@ -53,6 +53,17 @@ func detectGrafana(ctx context.Context) (base string, info *models.GrafanaInfo) 
 			IdentityUnverified: !tcpPortIdentityVerified(ctx, "3000", "grafana"),
 		}
 	}
+	// The port accepts connections but no probe produced a Grafana-shaped answer.
+	// An overloaded Grafana fails exactly this way, at the moment visibility matters
+	// most, and reads as "no Grafana here". If the listener's own cmdline says it IS
+	// grafana, report it as present with an unread health endpoint (the analysis
+	// turns that into an Unverified INFO) instead of absent.
+	if tcpPortIdentityVerified(ctx, "3000", "grafana") {
+		return "http://127.0.0.1:3000", &models.GrafanaInfo{
+			Detected: true, HealthRead: false,
+			StatusReason: "grafana is listening on :3000 but /api/health did not answer in time",
+		}
+	}
 	return "", nil
 }
 

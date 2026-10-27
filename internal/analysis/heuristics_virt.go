@@ -1341,6 +1341,16 @@ func checkRancher(d models.RancherInfo) []models.Insight {
 		return nil
 	}
 	var out []models.Insight
+	if d.ServerUnreadable {
+		out = append(out, unverifiedInsight("INFO", "Rancher",
+			"Rancher is installed but its server deployment could not be read — replica health not measured (RBAC or API error)",
+			[]string{"to inspect: kubectl -n cattle-system get deploy rancher", "to inspect: kubectl auth can-i get deployments -n cattle-system"}))
+	}
+	if d.WebhookUnreadable {
+		out = append(out, unverifiedInsight("INFO", "Rancher",
+			"Rancher is installed but its rancher-webhook deployment could not be read — replica health not measured (RBAC or API error)",
+			[]string{"to inspect: kubectl -n cattle-system get deploy rancher-webhook"}))
+	}
 	if d.ServerDesired > 0 && d.ServerReady < d.ServerDesired {
 		out = append(out, insight("WARN", "Rancher",
 			fmt.Sprintf("Rancher server has %d/%d replicas ready — the management plane is degraded; downstream cluster management and the UI may be unavailable", d.ServerReady, d.ServerDesired),
