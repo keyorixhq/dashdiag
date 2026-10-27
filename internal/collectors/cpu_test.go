@@ -770,3 +770,29 @@ func TestParseCPUStatFull_ScannerError(t *testing.T) {
 		t.Error("expected error from scanner when reader injects an error mid-scan")
 	}
 }
+
+// DD-COLLECTOR-GAPS-1 Medium #12: when the /proc/stat sample fails (the starved,
+// contended host the field exists for) RunQueue is a zero meaning "not measured".
+func TestCPUCollector_Collect_FailedSampleIsFlagged(t *testing.T) {
+	prevExpected := cpuProcStatExpected
+	cpuProcStatExpected = true
+	t.Cleanup(func() { cpuProcStatExpected = prevExpected })
+	prev := SetSource(source.NewReplay(source.NewBundle())) // no recorded cpu/usage-sample either
+	t.Cleanup(func() { SetSource(prev) })
+
+	c := &CPUCollector{
+		readers: cpuReaders{
+			loadAvgOpen: func() (io.ReadCloser, error) {
+				return io.NopCloser(strings.NewReader("1.50 1.20 0.90 3/412 8932")), nil
+			},
+			statOpen: func() (io.ReadCloser, error) { return nil, fmt.Errorf("open /proc/stat: permission denied") },
+		},
+	}
+	got, err := c.Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	if info := got.(*models.CPUInfo); !info.UsageSampleFailed {
+		t.Errorf("UsageSampleFailed = false for an unreadable /proc/stat: %+v", info)
+	}
+}

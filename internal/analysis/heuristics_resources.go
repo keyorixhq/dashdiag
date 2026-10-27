@@ -20,6 +20,11 @@ const (
 
 func checkCPU(cpu models.CPUInfo, thresh Thresholds, ctrCtx platform.ContainerContext) []models.Insight {
 	var out []models.Insight
+	if cpu.UsageSampleFailed {
+		out = append(out, unverifiedInsight("INFO", catCPULoadRunQ,
+			"CPU usage sample failed — run queue, steal, iowait and usage are not measured (load average is)",
+			[]string{"to inspect: vmstat 1 5", "to inspect: head -8 /proc/stat"}))
+	}
 
 	// Choose the right metric for the threshold:
 	// - UsagePct (real user+sys%) is accurate on Linux (/proc/stat) and macOS (top).

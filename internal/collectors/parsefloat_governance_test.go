@@ -197,7 +197,7 @@ var parseFloatGateExemptions = map[string]string{
 	"internal/collectors/cpu.go:57":               "kernel-authored /proc/loadavg field 1; feeds a load-average WARN/CRIT threshold that fails loud on NaN, never false-OK",
 	"internal/collectors/cpu.go:60":               "kernel-authored /proc/loadavg field 2, same shape as :57",
 	"internal/collectors/cpu.go:63":               "kernel-authored /proc/loadavg field 3, same shape as :57",
-	"internal/collectors/cpu.go:420":              "per-core busy%% from /proc/stat deltas; a NaN core percentage is a display-only anomaly, not a verdict input",
+	"internal/collectors/cpu.go:438":              "per-core busy%% from /proc/stat deltas; a NaN core percentage is a display-only anomaly, not a verdict input",
 	"internal/collectors/thermal_linux.go:94":     "milliC parse — the caller's TempPlausible(c,ceiling) range check (analysis/temp.go) already rejects NaN/Inf before any verdict reads the value",
 	"internal/collectors/thermal_linux.go:137":    "same TempPlausible downstream guard as :94",
 	"internal/collectors/thermal_notlinux.go:83":  "v>0 in the same condition rejects NaN; TempPlausible (analysis/temp.go) rejects +Inf downstream before any verdict reads the value",

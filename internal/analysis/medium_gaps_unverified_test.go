@@ -61,3 +61,12 @@ func TestCheckRancher_UnreadableDeploymentsAreUnverified(t *testing.T) {
 		t.Error("healthy Rancher produced insights")
 	}
 }
+
+func TestCheckCPU_UsageSampleFailedIsUnverified(t *testing.T) {
+	t.Parallel()
+	th := DefaultThresholds(platform.EnvBareMetal)
+	got := checkCPU(models.CPUInfo{NumCPU: 4, UsageSampleFailed: true}, th, platform.ContainerContext{})
+	if !hasUnverified(got, "CPU usage sample failed") {
+		t.Errorf("no Unverified insight for a failed CPU sample: %+v", got)
+	}
+}

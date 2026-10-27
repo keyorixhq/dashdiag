@@ -18,6 +18,11 @@ type CPUInfo struct {
 	// waiting for CPU — run-queue saturation. Distinct from UsagePct (how busy
 	// cores are) and LoadAvg (which also counts D-state tasks). 0 on non-Linux.
 	RunQueue int `json:"run_queue"`
+	// UsageSampleFailed is true when the two-snapshot /proc/stat sample failed or
+	// was cancelled (typically on a starved host). UsagePct, StealPct, IOwaitPct,
+	// RunQueue, ProcsBlocked and ContextSwitchRate are then zeros meaning "not
+	// measured", not "idle".
+	UsageSampleFailed bool `json:"usage_sample_failed,omitempty"`
 	// ProcsBlocked is the number of processes in uninterruptible sleep (D state),
 	// blocked on I/O (procs_blocked from /proc/stat). Complements IOwaitPct.
 	ProcsBlocked int `json:"procs_blocked"`

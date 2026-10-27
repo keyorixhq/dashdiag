@@ -68,7 +68,7 @@ var unknownVsPassRegistry = map[string]collectorVerdict{
 	"AuthCollector":           sentinel("linux: Checked. darwin: Checked unset on SIP-restricted `log show`."),
 	"AzureCollector":          sentinel("TimeSyncChecked/DisksChecked/NVMeIOTimeoutChecked"),
 	"BINDCollector":           sentinel("PortsChecked/QueryTested/PortsOwnershipUnverified"),
-	"CPUCollector":            trackedBug("COLLECTOR-SWEEP.md Medium #12: sampleCPUUsage zero-value on ctx timeout/`/proc/stat` failure; RunQueue has no fallback (unlike UsagePct)"),
+	"CPUCollector":            sentinel("UsageSampleFailed (cpuSample.OK false on a read/parse failure or cancelled window; Linux only)"),
 	"CloudMetaCollector":      sentinel("IsCloudInstance retries once and, on a DMI-identified cloud VM, still registers the collector; Available=false then yields checkCloudMeta's Unverified INFO"),
 	"ContainerdCollector":     trackedBug("COLLECTOR-SWEEP.md Low #15: containerdNamespaces silent (nil,false) on `ctr` failure post-socket-dial"),
 	"CronCollector":           sentinel("FailureScanOK"),
