@@ -58,6 +58,12 @@ func TestParseFloatCallSitesGuardNaNInf(t *testing.T) {
 	for _, dir := range dirs {
 		err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
 			if err != nil {
+				// cmd/ tests create and remove temp directories (mcptest-*) while
+				// this walk runs in a parallel package; a vanished entry is not a
+				// violation and must not fail the guard.
+				if os.IsNotExist(err) {
+					return nil
+				}
 				return err
 			}
 			if d.IsDir() || !strings.HasSuffix(path, ".go") || strings.HasSuffix(path, "_test.go") {

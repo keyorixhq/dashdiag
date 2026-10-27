@@ -425,7 +425,7 @@ func IsCloudInstance() bool {
 	// was actually allowed — an offline run is policy, not a failure): retry once,
 	// then register the collector anyway so it reports "cloud instance detected
 	// but its metadata could not be read" (Unverified) instead of nothing.
-	if !(platform.NetworkAllowed() || sourceIsReplaying()) || !cloudDMIHint() {
+	if (!platform.NetworkAllowed() && !sourceIsReplaying()) || !cloudDMIHint() {
 		return false
 	}
 	_ = probeCloudInstance() // the retry: its result no longer matters, DMI already says cloud
