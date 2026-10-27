@@ -69,10 +69,14 @@ func (c *KdumpCollector) Collect(ctx context.Context) (interface{}, error) {
 	if out, _ := runCmdOutput(ctx, maintCmdSystemctl, "is-enabled", "kdump"); out != "" {
 		s := strings.TrimSpace(out)
 		info.Enabled = s == maintValEnabled || s == "static" || s == "enabled-runtime"
+	} else {
+		info.StateUnverified = true // no answer is not "disabled"
 	}
 	if out, _ := runCmdOutput(ctx, maintCmdSystemctl, "is-active", "kdump"); out != "" {
 		info.ServiceState = strings.TrimSpace(out)
 		info.ServiceActive = info.ServiceState == secValActive
+	} else {
+		info.StateUnverified = true
 	}
 	if b, err := readFile("/sys/kernel/kexec_crash_loaded"); err == nil {
 		info.CrashLoaded = strings.TrimSpace(string(b)) == "1"
@@ -112,16 +116,22 @@ func (c *TunedCollector) Collect(ctx context.Context) (interface{}, error) {
 
 	if out, _ := runCmdOutput(ctx, maintCmdSystemctl, "is-active", "tuned"); strings.TrimSpace(out) == secValActive {
 		info.Active = true
+	} else if strings.TrimSpace(out) == "" {
+		info.StateUnverified = true // no answer is not "inactive"
 	}
 	// "Current active profile: virtual-guest"
 	if out, err := runCmd(ctx, maintCmdTunedAdm, secValActive); err == nil {
 		if i := strings.LastIndex(out, ":"); i >= 0 {
 			info.Profile = strings.TrimSpace(out[i+1:])
 		}
+	} else if info.Active {
+		info.StateUnverified = true // running, but the profile could not be read
 	}
 	// tuned's own verdict for this hardware (e.g. "virtual-guest" on a VM).
 	if out, err := runCmd(ctx, maintCmdTunedAdm, "recommend"); err == nil {
 		info.Recommended = strings.TrimSpace(out)
+	} else if info.Active {
+		info.StateUnverified = true
 	}
 	return info, nil
 }

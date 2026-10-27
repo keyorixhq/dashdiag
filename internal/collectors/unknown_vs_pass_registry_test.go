@@ -103,8 +103,8 @@ var unknownVsPassRegistry = map[string]collectorVerdict{
 	"NFSCollector":            trackedBug("COLLECTOR-SWEEP.md Low #19: nfsReadStats silent no-op on /proc/net/rpc/nfs failure; low practical impact, the retrans-rate denominator is also 0"),
 	"DockerCollector":         sentinel("SocketPermDenied/DetailUnavailable/UnverifiedContainers/IPForwardChecked"),
 	"MongoDBCollector":        sentinel("MetricsRead/ReplStatusRead; PeerVerified"),
-	"KdumpCollector":          trackedBug("COLLECTOR-SWEEP.md Low #13: no sentinel, unlike 5 siblings in maintenance_linux.go (KernelPatch/Ksplice/Transactional/ServiceRestart/LivePatch)"),
-	"TunedCollector":          trackedBug("COLLECTOR-SWEEP.md Low #13: same gap as KdumpCollector, same file"),
+	"KdumpCollector":          sentinel("StateUnverified (empty systemctl is-enabled/is-active answer)"),
+	"TunedCollector":          sentinel("StateUnverified (no is-active answer, or active profile/recommendation unreadable while running)"),
 	"KernelPatchCollector":    sentinel("CheckUnverified (cites BUG-088)"),
 	"KspliceCollector":        sentinel("CheckUnverified; one untracked secondary sub-field, low severity"),
 	"ServiceRestartCollector": sentinel("NeedsRoot — also catches the silent hidepid=2 case"),
@@ -251,7 +251,6 @@ func TestUnknownVsPassRegistryComplete(t *testing.T) {
 // Task 5) and this test with it.
 var frozenTrackedBugs = map[string]bool{
 	"ContainerdCollector": true, "KVMGuestCollector": true, "NFSCollector": true,
-	"KdumpCollector": true, "TunedCollector": true,
 	"SwapCollector": true, "ThermalCollector": true, "TimelineCollector": true,
 	"SecurityCollector": true, "PackagesCollector": true,
 	"HealthDeepCollector": true, "PressureCollector": true,

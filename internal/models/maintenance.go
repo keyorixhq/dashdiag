@@ -17,6 +17,10 @@ type KdumpInfo struct {
 	CrashLoaded   bool   `json:"crash_loaded"`          // /sys/kernel/kexec_crash_loaded == 1
 	ReservedBytes int64  `json:"reserved_bytes"`        // /sys/kernel/kexec_crash_size
 	Crashkernel   string `json:"crashkernel,omitempty"` // crashkernel= token from /proc/cmdline ("" = absent)
+	// StateUnverified is true when `systemctl is-enabled`/`is-active kdump` produced
+	// no answer (systemctl failed or is absent). Enabled=false would otherwise read
+	// as "admin left kdump off" and silence every kdump check.
+	StateUnverified bool `json:"state_unverified,omitempty"`
 }
 
 // TunedInfo captures the active vs. recommended tuned profile. tuned ships on
@@ -28,6 +32,9 @@ type TunedInfo struct {
 	Active      bool   `json:"active"`    // tuned.service is running
 	Profile     string `json:"profile,omitempty"`
 	Recommended string `json:"recommended,omitempty"` // tuned-adm recommend (tuned's own verdict for this host)
+	// StateUnverified is true when the service state or the active/recommended
+	// profile could not be read, so the "wrong profile" comparison could not run.
+	StateUnverified bool `json:"state_unverified,omitempty"`
 }
 
 // KernelPatchInfo flags "you patched but you're still running the old kernel": a
