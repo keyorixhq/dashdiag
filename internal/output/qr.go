@@ -27,7 +27,7 @@ func PrintQRCode(url string, mode OutputMode) error {
 	qr, err := qrcode.New(url, qrcode.Medium)
 	if err != nil {
 		fmt.Println("QR: " + url)
-		return nil
+		return nil //nolint:nilerr // QR rendering is decoration; the share URL itself is printed on the line above, so nothing is lost
 	}
 	fmt.Println(qr.ToString(false))
 	fmt.Println(url)

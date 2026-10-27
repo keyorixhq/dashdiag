@@ -51,7 +51,7 @@ func topProcessesByCPULinuxAt(ctx context.Context, n int, procRoot string) (*mod
 			path := filepath.Join(procRoot, fmt.Sprintf("%d", pid), "stat")
 			data, err := os.ReadFile(path)
 			if err != nil {
-				return nil
+				return nil //nolint:nilerr // the process exited between the /proc listing and this read; a vanished PID has no sample, and the caller ranks whatever was sampled
 			}
 			// comm may contain spaces/parens — parse from the last ')' so the
 			// utime/stime indices don't shift (e.g. a "Web Content" process).
