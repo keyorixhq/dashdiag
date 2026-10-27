@@ -2,6 +2,7 @@ package cmd
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"os"
@@ -228,7 +229,12 @@ func persistHealthRun(ctx context.Context, snap *baseline.Snapshot, results []ru
 
 	// Read the most-recent prior entry before we write — we need the pre-append
 	// state to compute a meaningful diff.
-	prior, _ := store.ReadAll(path, snap.Hostname, 1)
+	prior, perr := store.ReadAll(path, snap.Hostname, 1)
+	if perr != nil {
+		// An unreadable history is not a first run: say so, so a missing drift
+		// line is not mistaken for "nothing changed".
+		fmt.Fprintf(os.Stderr, "dsd: history is unreadable (%v) — no drift summary against the previous run; this run is still recorded if the store is writable\n", perr)
+	}
 
 	// The verdict recorded in history is the same one every other output shows
 	// (render.Verdict): a run that could not verify itself is recorded WARN.
@@ -500,9 +506,21 @@ func printHealthDiffNotice(w io.Writer, diffFlag bool, snap *baseline.Snapshot, 
 	prev, err := baseline.LoadBaseline("")
 	if err == nil {
 		_ = render.PrintDiff(w, prev, snap, mode)
-	} else {
-		fmt.Fprintln(os.Stderr, "ℹ️  No previous baseline. Run dsd health again to enable --diff.")
+		return
 	}
+	fmt.Fprintln(os.Stderr, diffBaselineNotice(err))
+}
+
+// diffBaselineNotice words why --diff has nothing to compare against. A baseline
+// that does not exist yet is the normal first run; one that exists but cannot be
+// read or parsed is not "absent" and the error is shown, because this run is
+// about to overwrite it (saveBaselineOrWarn).
+func diffBaselineNotice(err error) string {
+	if errors.Is(err, os.ErrNotExist) {
+		return "ℹ️  No previous baseline. Run dsd health again to enable --diff."
+	}
+	return fmt.Sprintf("⚠️  Could not read the previous baseline, so --diff has nothing to compare: %v\n"+
+		"   This run will replace it. To keep the damaged file for inspection, copy it from ~/.dsd/baselines/ before running dsd health again.", err)
 }
 
 // handleNagiosMode emits a single monitoring-plugin status line and exits with
