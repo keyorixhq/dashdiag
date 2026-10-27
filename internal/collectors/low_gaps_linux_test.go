@@ -44,3 +44,20 @@ func TestTunedCollector_ActiveButProfileUnreadableIsUnverified(t *testing.T) {
 		t.Errorf("StateUnverified = false although tuned-adm active failed: %+v", info)
 	}
 }
+
+func TestThermalCollector_DriverFoundInputUnreadableIsFlagged(t *testing.T) {
+	withFixtureSource(t, func(b *source.Bundle) {
+		b.PutGlob("/sys/class/hwmon/hwmon*", []string{"/sys/class/hwmon/hwmon0"})
+		b.PutFile("/sys/class/hwmon/hwmon0/name", []byte("coretemp\n"))
+		b.PutGlob("/sys/class/hwmon/hwmon0/temp*_input", []string{"/sys/class/hwmon/hwmon0/temp1_input"})
+		// temp1_input deliberately not seeded: the read fails.
+	})
+	raw, err := NewThermalCollector().Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect: %v", err)
+	}
+	info, ok := raw.(*models.ThermalInfo)
+	if !ok || info == nil || !info.SensorUnreadable {
+		t.Fatalf("SensorUnreadable not set: %#v", raw)
+	}
+}

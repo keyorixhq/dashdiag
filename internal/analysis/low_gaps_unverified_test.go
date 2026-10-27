@@ -27,3 +27,11 @@ func TestCheckTuned_StateUnverified(t *testing.T) {
 		t.Errorf("no Unverified insight: %+v", got)
 	}
 }
+
+func TestCheckThermal_SensorUnreadable(t *testing.T) {
+	t.Parallel()
+	got := checkThermal(models.ThermalInfo{Available: true, Source: "coretemp", SensorUnreadable: true}, Thresholds{})
+	if !hasUnverified(got, "could not be read") {
+		t.Errorf("no Unverified insight: %+v", got)
+	}
+}
