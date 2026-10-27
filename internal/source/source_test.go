@@ -5,6 +5,7 @@ import (
 	"compress/gzip"
 	"context"
 	"errors"
+	"io/fs"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -576,11 +577,11 @@ func TestRecorderGlobReadDir(t *testing.T) {
 	}
 }
 
-// TestRecorderGlobReadDirErrorNotRecorded verifies a failed ReadDir at the
-// inner Source is forwarded but NOT recorded into the bundle (mirroring
-// ReadFile/Stat which always record — Glob/ReadDir only record on success
-// since the bundle has no "not exist" encoding for them).
-func TestRecorderGlobReadDirErrorNotRecorded(t *testing.T) {
+// TestRecorderReadDirMissingReplaysAsNotExist verifies a failed ReadDir at the
+// inner Source is forwarded and recorded (like ReadFile/Stat), so a missing
+// directory replays as ErrNotExist rather than ErrNotRecorded. Glob still only
+// records on success. See dir_error_record_test.go for the permission case.
+func TestRecorderReadDirMissingReplaysAsNotExist(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()
 	missing := filepath.Join(dir, "does-not-exist")
@@ -591,7 +592,7 @@ func TestRecorderGlobReadDirErrorNotRecorded(t *testing.T) {
 	}
 
 	rp := NewReplay(rec.Bundle())
-	if _, err := rp.ReadDir(missing); !errors.Is(err, ErrNotRecorded) {
-		t.Fatalf("a failed ReadDir should not be recorded, replay should be ErrNotRecorded, got %v", err)
+	if _, err := rp.ReadDir(missing); !errors.Is(err, fs.ErrNotExist) {
+		t.Fatalf("a failed ReadDir is recorded; replay should be ErrNotExist, got %v", err)
 	}
 }

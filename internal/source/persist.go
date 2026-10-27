@@ -43,6 +43,13 @@ type statIndexEntry struct {
 	Err      string   `json:"err,omitempty"`
 }
 
+type dirErrIndexEntry struct {
+	Path     string `json:"path"`
+	NotExist bool   `json:"not_exist,omitempty"`
+	Perm     bool   `json:"perm,omitempty"`
+	Err      string `json:"err,omitempty"`
+}
+
 type statfsIndexEntry struct {
 	Path     string     `json:"path"`
 	Info     StatfsInfo `json:"info"`
@@ -122,6 +129,16 @@ func (b *Bundle) Save(dir string) error {
 	}
 	if err := writeJSON(filepath.Join(dir, "dirs.json"), b.dirs); err != nil {
 		return err
+	}
+	if len(b.dirErrs) > 0 { // absent file = none recorded, so older readers/bundles are unaffected
+		didx := make([]dirErrIndexEntry, 0, len(b.dirErrs))
+		for _, path := range sortedKeys(b.dirErrs) {
+			rec := b.dirErrs[path]
+			didx = append(didx, dirErrIndexEntry{Path: path, NotExist: rec.notExist, Perm: rec.permission, Err: rec.errText})
+		}
+		if err := writeJSON(filepath.Join(dir, "direrrs.json"), didx); err != nil {
+			return err
+		}
 	}
 
 	// Links, stats, statfs — inline metadata sections, no blobs.
@@ -238,6 +255,13 @@ func Load(dir string) (*Bundle, error) {
 
 	_ = readJSON(filepath.Join(dir, "globs.json"), &b.globs)
 	_ = readJSON(filepath.Join(dir, "dirs.json"), &b.dirs)
+
+	// Failed ReadDirs — optional so older bundles (pre-direrrs) still load.
+	var didx []dirErrIndexEntry
+	_ = readJSON(filepath.Join(dir, "direrrs.json"), &didx)
+	for _, e := range didx {
+		b.dirErrs[e.Path] = dirErrRec{notExist: e.NotExist, permission: e.Perm, errText: e.Err}
+	}
 
 	// Symlinks — optional so older bundles (pre-links) still load.
 	var lidx []linkIndexEntry

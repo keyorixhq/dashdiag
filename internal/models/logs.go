@@ -40,6 +40,22 @@ type LogsInfo struct {
 	// that root-but-still-blocked case reports OOMKills/Segfaults at their
 	// zero value with no caveat at all, identical to a genuinely quiet host.
 	KmsgUnreadable bool `json:"kmsg_unreadable,omitempty"`
+	// The four sentinels below are KmsgUnreadable's siblings for the remaining
+	// sub-paths (DD-COLLECTOR-GAPS-1 High #5). Each is true when that read FAILED
+	// (not when it found nothing), so its zero value — no crash loops, no crash
+	// files, a 0 GB journal, no corruption — is never read as a clean result.
+	// CrashLoopsUnverified: `systemctl list-units --failed`/`show` errored on a
+	// systemd host, so CrashLoops is not evidence that nothing is looping.
+	CrashLoopsUnverified bool `json:"crash_loops_unverified,omitempty"`
+	// CrashFilesUnreadable: /var/crash, /var/lib/systemd/coredump or pstore exists
+	// but could not be listed (permission denied), so CrashFiles may be incomplete.
+	CrashFilesUnreadable bool `json:"crash_files_unreadable,omitempty"`
+	// JournalSizeUnreadable: a journal directory could not be listed, so
+	// JournalSizeGB (and the unbounded-growth check built on it) undercounts.
+	JournalSizeUnreadable bool `json:"journal_size_unreadable,omitempty"`
+	// JournalCorruptUnverified: archived journals could not be listed or
+	// `journalctl --verify` could not run, so JournalCorrupt=false is unproven.
+	JournalCorruptUnverified bool `json:"journal_corrupt_unverified,omitempty"`
 
 	// Journal health
 	// JournalCorrupt reflects corruption found in an ARCHIVED (rotated, *.journal~)

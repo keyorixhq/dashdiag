@@ -53,6 +53,16 @@ type ServicesDeepInfo struct {
 	// FailedUnits stays empty because nothing was queried — NOT because there are no
 	// failed units. The renderer must read this so an empty list isn't a false "none".
 	FailedUnitsQueried bool `json:"failed_units_queried,omitempty"`
+	// MaskedUnitsQueried is FailedUnitsQueried's sibling for the masked-unit
+	// list: true only when `systemctl list-units --state=masked` actually ran.
+	// An empty MaskedUnits with this false means "could not look", not "none".
+	MaskedUnitsQueried bool `json:"masked_units_queried,omitempty"`
+	// JournalVerifyUnverified is true when the archived-journal corruption check
+	// could not prove its answer (directory unlistable, or `journalctl --verify`
+	// could not run). JournalHealthy stays true in that case — nothing was shown
+	// corrupt — but the renderer must say "not verified", never "healthy". Same
+	// signal as LogsInfo.JournalCorruptUnverified.
+	JournalVerifyUnverified bool `json:"journal_verify_unverified,omitempty"`
 	// SSHDStatusUnverified mirrors SystemdInfo's field of the same name: at least
 	// one blanket-suppressed sshd@ per-connection instance's ExecMainStatus lookup
 	// failed, so a genuine per-connection sshd fault could be hiding among the

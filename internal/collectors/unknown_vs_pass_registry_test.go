@@ -98,7 +98,7 @@ var unknownVsPassRegistry = map[string]collectorVerdict{
 	"PostBootCollector":       sentinel("explicit FOUND/ABSENT/UNMEASURABLE trichotomy, per-finding *Checked booleans"),
 	"PrometheusCollector":     sentinel("MetricsRead/ConfigReloadRead"),
 	"MySQLCollector":          sentinel("PeerVerified; MetricsRead/ConnStatsRead"),
-	"LogsCollector":           trackedBug("COLLECTOR-SWEEP.md High #5 (kmsg sub-path FIXED — C2): crash-loop detection, crash-file scanning, and journal-size/corruption checks (logs_linux.go detectCrashLoops/collectCrashFiles/dirSizeViaSource/hasCorruptArchived) have no sentinel, unlike this same file's own journal-severity sub-path (ErrorScanFailed/ErrorCountUnverified)"),
+	"LogsCollector":           sentinel("KmsgUnreadable (C2); ErrorScanFailed/ErrorCountUnverified; CrashLoopsUnverified/CrashFilesUnreadable/JournalSizeUnreadable/JournalCorruptUnverified (one Unverified INFO naming each unread sub-path)"),
 	"NetworkDeepCollector":    sentinel("SockstatUnreadable/NetstatUnreadable"),
 	"NFSCollector":            trackedBug("COLLECTOR-SWEEP.md Low #19: nfsReadStats silent no-op on /proc/net/rpc/nfs failure; low practical impact, the retrans-rate denominator is also 0"),
 	"DockerCollector":         sentinel("SocketPermDenied/DetailUnavailable/UnverifiedContainers/IPForwardChecked"),
@@ -110,7 +110,7 @@ var unknownVsPassRegistry = map[string]collectorVerdict{
 	"ServiceRestartCollector": sentinel("NeedsRoot — also catches the silent hidepid=2 case"),
 	"TransactionalCollector":  sentinel("Unverified"),
 	"ProcCollector":           sentinel("missing-PID propagates a real error; FDReadable gates the one field (FDPressure) that feeds a threshold — the rest is display-only detail"),
-	"ServicesDeepCollector":   trackedBug("COLLECTOR-SWEEP.md High #4: MaskedUnits has no *Queried sentinel, unlike sibling FailedUnitsQueried in the same file — the file's own comment calls masked units \"a silent trap\""),
+	"ServicesDeepCollector":   sentinel("FailedUnitsQueried / MaskedUnitsQueried / SSHDStatusUnverified"),
 	"MTECollector":            sentinel("StatusReason set on both fallible reads (exception-trace file, journalctl+dmesg)"),
 	"FirmwareCollector":       sentinel("4 distinct StatusReason branches — not-installed / daemon-down / query-failed / unparseable"),
 	"EnvoyCollector":          sentinel("StatsRead"),
@@ -153,7 +153,7 @@ var unknownVsPassRegistry = map[string]collectorVerdict{
 	"RancherCollector":        trackedBug("COLLECTOR-SWEEP.md Medium #10: rancherDeployReady returns (0,0) both when the Deployment genuinely doesn't exist AND when the kubectl call itself fails (RBAC denial) — no distinct field, and checkRancher only fires when ServerDesired>0, so a query failure is total silence"),
 	"NspawnCollector":         sentinel("Status=\"query-failed\"+StatusReason, distinct from the genuine \"no containers\" empty-output case"),
 	"SessionsCollector":       sentinel("Checked"),
-	"TLSCollector":            trackedBug("COLLECTOR-SWEEP.md High #3: a top-level/directory readDirEntries failure silently drops the whole scan root (e.g. Debian/Ubuntu's default /etc/ssl/private 0710) — contradicts the model's own doc comment promising this can't happen. Per-FILE read/parse failures ARE correctly reported via Uncheckable."),
+	"TLSCollector":            sentinel("Uncheckable: per-file read/parse failures AND a permission-denied scan-root/subdirectory are reported, with NeedsRoot for a non-root permission denial"),
 	"BatteryCollector":        sentinel("darwin: StatusReason distinct from the genuine no-battery empty-output case. Only implementation (no cross-platform Collect() found)."),
 
 	// The 16 below use `_ context.Context` (unnamed param) rather than `ctx
@@ -252,13 +252,12 @@ func TestUnknownVsPassRegistryComplete(t *testing.T) {
 var frozenTrackedBugs = map[string]bool{
 	"CPUCollector": true, "CloudMetaCollector": true, "ContainerdCollector": true,
 	"GrafanaCollector": true, "KVMGuestCollector": true, "MemcachedCollector": true,
-	"NetworkCollector": true, "LogsCollector": true, "NFSCollector": true,
-	"KdumpCollector": true, "TunedCollector": true, "ServicesDeepCollector": true,
+	"NetworkCollector": true, "NFSCollector": true,
+	"KdumpCollector": true, "TunedCollector": true,
 	"SwapCollector": true, "ThermalCollector": true, "TimelineCollector": true,
 	"SecurityCollector": true, "PackagesCollector": true,
 	"ProcessesCollector": true, "PVECollector": true,
-	"HealthDeepCollector": true, "RancherCollector": true, "TLSCollector": true,
-	"PressureCollector": true,
+	"HealthDeepCollector": true, "RancherCollector": true, "PressureCollector": true,
 }
 
 func TestTrackedBugRatchetOnlyShrinks(t *testing.T) {

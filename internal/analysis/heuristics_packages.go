@@ -510,9 +510,14 @@ func checkTLS(tls models.TLSInfo) []models.Insight {
 	// endpoint, garbled PEM). Surface as WARN so a "0 expired" verdict is never
 	// mistaken for "all healthy" when some certs were never actually evaluated.
 	for _, u := range tls.Uncheckable {
+		hints := []string{fmt.Sprintf("to inspect: openssl x509 -in %s -noout -dates", u.Path)}
+		if u.NeedsRoot {
+			// A permission-denied scan directory, not a bad cert: sudo resolves it.
+			hints = []string{"to fix: re-run with sudo so the certificate directory can be read"}
+		}
 		out = append(out, unverifiedInsight("WARN", "TLS",
 			fmt.Sprintf("certificate could not be checked: %s (%s)", u.Path, u.Error),
-			[]string{fmt.Sprintf("to inspect: openssl x509 -in %s -noout -dates", u.Path)},
+			hints,
 		))
 	}
 

@@ -328,7 +328,7 @@ func TestJournalDiskUsage(t *testing.T) {
 		b.PutDir(journalVarPath+"/machine-id-dir", []string{"system.journal"})
 		b.PutStat(journalVarPath+"/machine-id-dir/system.journal", source.FileMeta{Size: 2 * 1024 * 1024 * 1024})
 	})
-	gb := journalDiskUsage()
+	gb, _ := journalDiskUsage()
 	if gb < 1.9 || gb > 2.1 {
 		t.Errorf("expected ~2GB journal usage, got %v", gb)
 	}
@@ -336,7 +336,7 @@ func TestJournalDiskUsage(t *testing.T) {
 
 func TestJournalDiskUsage_MissingDirs(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {})
-	if got := journalDiskUsage(); got != 0 {
+	if got, _ := journalDiskUsage(); got != 0 {
 		t.Errorf("expected 0 when neither journal dir exists, got %v", got)
 	}
 }
@@ -351,7 +351,7 @@ func TestDetectCrashLoops_Found(t *testing.T) {
 		b.PutCmd("systemctl", []string{"show", "myapp.service", "--property=NRestarts", "--property=InactiveEnterTimestamp"},
 			"NRestarts=7\nInactiveEnterTimestamp="+recentTS+"\n", 0)
 	})
-	loops := detectCrashLoops(context.Background())
+	loops, _ := detectCrashLoops(context.Background())
 	if len(loops) != 1 {
 		t.Fatalf("expected 1 crash loop, got %v", loops)
 	}
@@ -367,7 +367,7 @@ func TestDetectCrashLoops_BelowThreshold(t *testing.T) {
 		b.PutCmd("systemctl", []string{"show", "myapp.service", "--property=NRestarts", "--property=InactiveEnterTimestamp"},
 			"NRestarts=2\nInactiveEnterTimestamp=\n", 0)
 	})
-	if loops := detectCrashLoops(context.Background()); loops != nil {
+	if loops, _ := detectCrashLoops(context.Background()); loops != nil {
 		t.Errorf("expected no crash loop below the restart threshold, got %v", loops)
 	}
 }
@@ -376,7 +376,7 @@ func TestDetectCrashLoops_NoFailedUnits(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("systemctl", []string{"list-units", "--state=failed", "--no-legend", "--no-pager", "--plain"}, "", 0)
 	})
-	if loops := detectCrashLoops(context.Background()); loops != nil {
+	if loops, _ := detectCrashLoops(context.Background()); loops != nil {
 		t.Errorf("expected nil on a clean host, got %v", loops)
 	}
 }
@@ -387,7 +387,7 @@ func TestDetectCrashLoops_ListUnitsFails(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("systemctl", []string{"list-units", "--state=failed", "--no-legend", "--no-pager", "--plain"}, "", 1)
 	})
-	if loops := detectCrashLoops(context.Background()); loops != nil {
+	if loops, _ := detectCrashLoops(context.Background()); loops != nil {
 		t.Errorf("expected nil when list-units fails, got %v", loops)
 	}
 }
@@ -400,7 +400,7 @@ func TestDetectCrashLoops_UnitWithoutDotSkipped(t *testing.T) {
 		b.PutCmd("systemctl", []string{"list-units", "--state=failed", "--no-legend", "--no-pager", "--plain"},
 			"nodotunit    loaded failed failed No Dot\n", 0)
 	})
-	if loops := detectCrashLoops(context.Background()); loops != nil {
+	if loops, _ := detectCrashLoops(context.Background()); loops != nil {
 		t.Errorf("expected nil for a unit token without a '.', got %v", loops)
 	}
 }
@@ -413,7 +413,7 @@ func TestDetectCrashLoops_NoiseUnitSkipped(t *testing.T) {
 		b.PutCmd("systemctl", []string{"list-units", "--state=failed", "--no-legend", "--no-pager", "--plain"},
 			"cloud-init.service    loaded failed failed Cloud Init\n", 0)
 	})
-	if loops := detectCrashLoops(context.Background()); loops != nil {
+	if loops, _ := detectCrashLoops(context.Background()); loops != nil {
 		t.Errorf("expected nil for a noise unit (cloud-init.service), got %v", loops)
 	}
 }
@@ -428,7 +428,7 @@ func TestDetectCrashLoops_ShowFails(t *testing.T) {
 		b.PutCmd("systemctl", []string{"show", "myapp.service", "--property=NRestarts", "--property=InactiveEnterTimestamp"},
 			"", 1)
 	})
-	if loops := detectCrashLoops(context.Background()); loops != nil {
+	if loops, _ := detectCrashLoops(context.Background()); loops != nil {
 		t.Errorf("expected nil when systemctl show fails, got %v", loops)
 	}
 }
@@ -445,7 +445,7 @@ func TestDetectCrashLoops_StaleLoopSkipped(t *testing.T) {
 		b.PutCmd("systemctl", []string{"show", "myapp.service", "--property=NRestarts", "--property=InactiveEnterTimestamp"},
 			"NRestarts=7\nInactiveEnterTimestamp="+staleTS+"\n", 0)
 	})
-	if loops := detectCrashLoops(context.Background()); loops != nil {
+	if loops, _ := detectCrashLoops(context.Background()); loops != nil {
 		t.Errorf("expected nil for a stale (30-day-old) crash loop, got %v", loops)
 	}
 }
@@ -788,7 +788,7 @@ func TestHasCorruptArchived_EmptySubdir(t *testing.T) {
 		// The empty sub-dir has no .journal~ entries → hasCorruptArchived returns
 		// false for it → the `continue` at line 534 executes.
 	})
-	if got := hasCorruptArchived("/var/log/journal"); got {
+	if got, _ := hasCorruptArchived("/var/log/journal"); got {
 		t.Error("hasCorruptArchived must return false when all sub-dirs are empty (no archived journals)")
 	}
 }

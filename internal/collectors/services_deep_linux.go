@@ -98,6 +98,7 @@ func (c *ServicesDeepCollector) Collect(ctx context.Context) (interface{}, error
 	// 4. Masked units
 	maskedOut, err := runCmd(ctx, "systemctl", svcListUnits,
 		"--type=service", "--state=masked", svcPlain, svcNoLegend, svcNoPager)
+	info.MaskedUnitsQueried = err == nil // false on systemctl error: not "no masked units"
 	if err == nil {
 		info.MaskedUnits = parseMaskedUnits(maskedOut)
 	}
@@ -108,8 +109,13 @@ func (c *ServicesDeepCollector) Collect(ctx context.Context) (interface{}, error
 	// corruption detected" on essentially every running systemd host (and
 	// disagreed with `dsd logs`, which already verifies archived-only). Reuse the
 	// logs collector's archived-only check so the two paths agree.
-	if fileExists(journalVarPath) && hasCorruptArchived(journalVarPath) {
-		info.JournalHealthy = false
+	if fileExists(journalVarPath) {
+		corrupt, unverified := hasCorruptArchived(journalVarPath)
+		if corrupt {
+			info.JournalHealthy = false
+		} else if unverified {
+			info.JournalVerifyUnverified = true
+		}
 	}
 
 	// 6. Boot offenders (top 5 real services, exclude .device/.socket/.mount)

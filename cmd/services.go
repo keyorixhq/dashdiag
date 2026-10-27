@@ -266,25 +266,17 @@ func printSystemdHealth(info *models.ServicesDeepInfo, mode output.OutputMode) {
 		}
 	}
 
-	if len(info.MaskedUnits) == 0 {
+	if len(info.MaskedUnits) == 0 && !info.MaskedUnitsQueried {
+		// Same rule as Failed units: an unqueried list is "couldn't look", not none.
+		printLine(mode, "info", "Masked units", "not queried — systemctl error")
+	} else if len(info.MaskedUnits) == 0 {
 		printLine(mode, "ok", "Masked units", svcValNone)
 	} else {
 		printLine(mode, "info", "Masked units",
 			fmt.Sprintf("%d: %s", len(info.MaskedUnits), strings.Join(capSlice(info.MaskedUnits, 3), ", ")))
 	}
 
-	if info.JournalHealthy {
-		printLine(mode, "ok", "Journal", "healthy")
-	} else {
-		printLine(mode, "warn", "Journal", "corruption detected")
-		if info.JournalLastValid != "" {
-			fmt.Printf("     last valid: %s\n", info.JournalLastValid)
-		}
-		if human {
-			fmt.Fprintln(os.Stdout, "     → journalctl --verify")
-			fmt.Fprintln(os.Stdout, "     → journalctl --rotate && journalctl --vacuum-time=1s")
-		}
-	}
+	printJournalHealth(info, mode, human)
 
 	if len(info.BootOffenders) > 0 {
 		if human {
@@ -347,4 +339,24 @@ func capSlice(ss []string, n int) []string {
 		return ss
 	}
 	return ss[:n]
+}
+
+// printJournalHealth renders the archived-journal verdict: corrupt, healthy, or
+// (nothing proven corrupt but the archives could not be checked) not verified.
+func printJournalHealth(info *models.ServicesDeepInfo, mode output.OutputMode, human bool) {
+	if info.JournalHealthy && info.JournalVerifyUnverified {
+		// Nothing proven corrupt, but the archived journals could not be checked.
+		printLine(mode, "info", "Journal", "not verified — archived journals could not be checked (re-run with sudo)")
+	} else if info.JournalHealthy {
+		printLine(mode, "ok", "Journal", "healthy")
+	} else {
+		printLine(mode, "warn", "Journal", "corruption detected")
+		if info.JournalLastValid != "" {
+			fmt.Printf("     last valid: %s\n", info.JournalLastValid)
+		}
+		if human {
+			fmt.Fprintln(os.Stdout, "     → journalctl --verify")
+			fmt.Fprintln(os.Stdout, "     → journalctl --rotate && journalctl --vacuum-time=1s")
+		}
+	}
 }

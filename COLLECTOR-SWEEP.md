@@ -105,9 +105,9 @@ accident, which is what this ranking is for.
 **High** — silently masks a check the collector specifically exists to catch, on a scenario common in production:
 1. **FIXED** (DD-COLLECTOR-GAPS-1 task 2) — `DiskCollector` — a stale/hung NFS/CIFS mount is silently dropped from `Filesystems` entirely (not shown as unreachable — absent, as if the mount didn't exist). No CRIT/WARN can ever fire for it.
 2. **FIXED** (DD-COLLECTOR-GAPS-1 task 2) — `K8sCollector` — Events/PVCs/Workloads fail independently of the `APIReachable` gate that "vouches" for them; an RBAC-scoped viewer kubeconfig (a realistic production setup) reads as 0 unbound PVCs/0 down workloads on a genuinely broken cluster.
-3. `TLSCollector` — a top-level/directory `readDirEntries` failure silently drops the whole scan root (e.g. Debian/Ubuntu's default `/etc/ssl/private` 0710) — contradicts the model's own doc comment promising this can't happen.
-4. `ServicesDeepCollector` (masked units) — no sentinel, unlike its sibling `FailedUnitsQueried` in the same file; the file's own comment already calls masked units "a silent trap."
-5. `LogsCollector` (crash loops / crash files / journal size / corruption — 4 sub-paths beyond the now-fixed kmsg one) — crash-loop detection is a core reliability signal; `systemctl`/unreadable `/var/crash`/unreadable journal dir all fold silently to "clean."
+3. **FIXED** (DD-COLLECTOR-GAPS-1 task 2b) — `TLSCollector` — a top-level/directory `readDirEntries` failure silently drops the whole scan root (e.g. Debian/Ubuntu's default `/etc/ssl/private` 0710) — contradicts the model's own doc comment promising this can't happen.
+4. **FIXED** (DD-COLLECTOR-GAPS-1 task 2b) — `ServicesDeepCollector` (masked units) — no sentinel, unlike its sibling `FailedUnitsQueried` in the same file; the file's own comment already calls masked units "a silent trap."
+5. **FIXED** (DD-COLLECTOR-GAPS-1 task 2b) — `LogsCollector` (crash loops / crash files / journal size / corruption — 4 sub-paths beyond the now-fixed kmsg one) — crash-loop detection is a core reliability signal; `systemctl`/unreadable `/var/crash`/unreadable journal dir all fold silently to "clean."
 
 **Medium** — real miss, narrower window or lower stakes:
 6. `NetworkCollector` — `cachedJSON` errors discarded (`_ = ...`); a `/proc/net/*` read failure silently disables interface checks AND the CLOSE_WAIT leak detector together.
@@ -177,7 +177,7 @@ row (the project's own documented, accepted convention — not a defect).
 | MySQLCollector | mysql_linux.go:45 | CORRECT | `PeerVerified`/`MetricsRead`/`ConnStatsRead` |
 | **LogsCollector — kmsg** | logs_linux.go:69,178-200 | **FIXED** | was: euid proxy, not a read-result check (C2). Now `KmsgUnreadable` set from the real `readKmsgLive` open error. |
 | LogsCollector — journal severity | logs_linux.go:787-848 | CORRECT | `ErrorScanFailed`/`ErrorCountUnverified` — the good sibling |
-| **LogsCollector — crash loops/files/journal size/corruption** | logs_linux.go:340-567,1008-1043 | **BUG** | no sentinel for any of 4 sub-paths (shape 3) |
+| LogsCollector — crash loops/files/journal size/corruption | logs_linux.go | **FIXED** | `CrashLoopsUnverified`/`CrashFilesUnreadable`/`JournalSizeUnreadable`/`JournalCorruptUnverified` → one Unverified INFO |
 | NetworkDeepCollector | network_deep.go:26 | CORRECT | `SockstatUnreadable`/`NetstatUnreadable` |
 | **NFSCollector** | nfs_linux.go:26 | **BUG (minor)** | `nfsReadStats` silent no-op; denominator also 0 so low practical impact |
 | DockerCollector | docker.go:70 | CORRECT | `SocketPermDenied`/`DetailUnavailable`/`UnverifiedContainers` |
@@ -189,7 +189,7 @@ row (the project's own documented, accepted convention — not a defect).
 | ServiceRestartCollector | maintenance_linux.go:357 | CORRECT | `NeedsRoot` — also catches silent hidepid=2 |
 | TransactionalCollector | maintenance_linux.go:609 | CORRECT | `Unverified` |
 | ProcCollector | proc_linux.go:29 | CORRECT/N/A | real error propagation; most fields are display-only detail |
-| **ServicesDeepCollector — masked units** | services_deep_linux.go:99-103 | **BUG** | no `*Queried` sentinel, unlike sibling `FailedUnitsQueried` (shape 3); file's own comment calls this "a silent trap" |
+| ServicesDeepCollector — masked units | services_deep_linux.go | **FIXED** | `MaskedUnitsQueried`, rendered as "not queried" |
 | ServicesDeepCollector — failed units | services_deep_linux.go:43-55 | CORRECT | `FailedUnitsQueried` |
 | MTECollector | mte_linux.go:54 | CORRECT | `StatusReason` on both fallible reads |
 | FirmwareCollector | firmware.go:24 | CORRECT | 4 distinct `StatusReason` branches |
@@ -235,7 +235,7 @@ row (the project's own documented, accepted convention — not a defect).
 | **RancherCollector** | rancher_collector.go:50-65 | **BUG** | RBAC-scoped kubeconfig collapses "can't query" into "0" (shape 4) |
 | NspawnCollector | nspawn_linux.go:22 | CORRECT | `Status="query-failed"` |
 | SessionsCollector | sessions.go:46 | CORRECT | `Checked` |
-| **TLSCollector** | tls.go:104,111-114 | **BUG** | top-level/directory `readDirEntries` failure silently drops whole scan roots (e.g. Debian's 0710 `/etc/ssl/private`) — contradicts the model's own doc comment (shape 5) |
+| TLSCollector | tls.go | **FIXED** | permission-denied scan root/subdir → `Uncheckable` (+ `NeedsRoot` for non-root) |
 | AuthCollector (darwin) | auth_darwin.go:19 | CORRECT | `Checked` unset on SIP-restricted `log show` |
 | BatteryCollector (darwin) | battery_darwin.go:23 | CORRECT | `StatusReason` |
 | LaunchdCollector (darwin) | launchd_darwin.go:24 | CORRECT | `Checked` |

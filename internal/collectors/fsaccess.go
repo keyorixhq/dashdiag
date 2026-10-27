@@ -288,10 +288,14 @@ func readDirEntries(dir string) ([]fs.DirEntry, error) {
 }
 
 // probeIsDir returns true if path appears to be a directory in the active
-// source: ReadDir succeeds (even if empty — an empty dir is still a dir).
+// source: ReadDir succeeds (even if empty — an empty dir is still a dir). A
+// permission error also means a directory (a regular file fails with ENOTDIR),
+// so an unreadable subdirectory is still walked and its own readDirEntries call
+// reports the failure, instead of the entry being treated as a plain file and
+// skipped without a trace.
 func probeIsDir(path string) bool {
 	_, err := curSource().ReadDir(path)
-	return err == nil
+	return err == nil || errors.Is(err, fs.ErrPermission)
 }
 
 // fakeDirEntry satisfies fs.DirEntry with name and isDir only.
