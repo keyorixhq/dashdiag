@@ -18,6 +18,7 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/collectors"
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 const (
@@ -93,17 +94,18 @@ func runTLS(cmd *cobra.Command, args []string) error {
 	// Collect local paths to scan. Only auto-detect when no remote endpoints and
 	// no explicit paths were given — otherwise an empty local set is fine.
 	paths := args
+	var unreadableDirs []string
 	if len(paths) == 0 && len(remotes) == 0 {
-		paths = autoDetectCertPaths()
+		paths, unreadableDirs = autoDetectCertPaths()
 	}
 
-	if len(paths) == 0 && len(remotes) == 0 {
+	if len(paths) == 0 && len(remotes) == 0 && len(unreadableDirs) == 0 {
 		fmt.Println("no certificates found — pass paths explicitly or configure ~/.dsd/certs/")
 		return nil
 	}
 
 	// Scan local paths.
-	var results []certResult
+	results := unreadableDirResults(unreadableDirs)
 	for _, p := range paths {
 		res := scanCertFile(p, warnDays, critDays)
 		results = append(results, res...)
@@ -300,8 +302,9 @@ func scanCertFile(path string, warnDays, critDays int) []certResult {
 	return results
 }
 
-// autoDetectCertPaths finds certificates in common locations.
-func autoDetectCertPaths() []string {
+// tlsAutoDetectPatterns lists the common certificate locations, plus the
+// user-configured ~/.dsd/certs directory.
+func tlsAutoDetectPatterns() []string {
 	patterns := []string{
 		"/etc/letsencrypt/live/*/cert.pem",
 		"/etc/letsencrypt/live/*/fullchain.pem",
@@ -327,10 +330,28 @@ func autoDetectCertPaths() []string {
 		)
 	}
 
-	var paths []string
+	return patterns
+}
+
+// autoDetectCertPaths finds certificates in common locations. unreadable lists
+// the pattern directories that exist but could not be read (permission denied,
+// e.g. a root-only /etc/letsencrypt/live): they must surface as a failed check,
+// never collapse into "no certificates found".
+func autoDetectCertPaths() (paths, unreadable []string) {
+	return detectCertPaths(source.Live{}, tlsAutoDetectPatterns())
+}
+
+func detectCertPaths(src source.Source, patterns []string) (paths, unreadable []string) {
 	seen := make(map[string]bool)
+	seenDir := make(map[string]bool)
 	for _, pattern := range patterns {
-		matches, _ := filepath.Glob(pattern)
+		matches, dirUnreadable, _ := source.GlobChecked(src, pattern)
+		if dirUnreadable {
+			if dir := source.GlobParentDir(pattern); !seenDir[dir] {
+				seenDir[dir] = true
+				unreadable = append(unreadable, dir)
+			}
+		}
 		for _, m := range matches {
 			if !seen[m] {
 				seen[m] = true
@@ -338,7 +359,17 @@ func autoDetectCertPaths() []string {
 			}
 		}
 	}
-	return paths
+	return paths, unreadable
+}
+
+// unreadableDirResults turns unreadable scan directories into ERR results so
+// they reach Uncheckable in --json and the ERR count in text mode.
+func unreadableDirResults(dirs []string) []certResult {
+	out := make([]certResult, 0, len(dirs))
+	for _, d := range dirs {
+		out = append(out, certResult{Path: d, Level: tlsLvlERR, Err: "could not read " + d})
+	}
+	return out
 }
 
 func levelIcon(level string, mode output.OutputMode) string {

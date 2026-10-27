@@ -170,7 +170,7 @@ func TestAutoDetectCertPathsNoPanic(t *testing.T) {
 	t.Parallel()
 	// No fixtures are seeded on this host — just confirm it runs without
 	// error and returns a (possibly empty) slice.
-	_ = autoDetectCertPaths()
+	_, _ = autoDetectCertPaths()
 }
 
 // TestAutoDetectCertPathsFindsUserCerts covers the "glob found matches"
@@ -195,7 +195,7 @@ func TestAutoDetectCertPathsFindsUserCerts(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	got := autoDetectCertPaths()
+	got, _ := autoDetectCertPaths()
 	found := map[string]bool{}
 	for _, p := range got {
 		found[p] = true
