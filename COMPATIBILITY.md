@@ -108,7 +108,10 @@ Stable fields per insight: `level`, `check`, `message`, `hints`, `details`.
   `failed_units_queried`), and `logs.crash_loops_unverified` /
   `logs.crash_files_unreadable` / `logs.journal_size_unreadable` /
   `logs.journal_corrupt_unverified`. A permission-denied TLS scan root is now an
-  `tls.uncheckable[]` entry instead of being dropped.
+  `tls.uncheckable[]` entry instead of being dropped. Also additive:
+  `services_deep.journal_verify_unverified` (`true` when the archived journals
+  could not be verified; `journal_healthy` stays `true`). Capture bundles may
+  contain an optional `direrrs.json`; readers that do not know it ignore it.
 
 ### 4. Exit codes
 

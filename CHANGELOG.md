@@ -47,6 +47,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   - `LogsCollector`: `crash_loops_unverified`, `crash_files_unreadable`,
     `journal_size_unreadable`, `journal_corrupt_unverified`, summarised in one
     Unverified INFO that names each unread sub-check.
+  - `dsd services deep` no longer prints `Journal: healthy` when the archived
+    journals could not be verified: new additive `journal_verify_unverified`, and
+    the line reads `not verified`.
+  - A capture-time permission error on a directory now replays as unreadable
+    (`source.Recorder.ReadDir` records failures like `Stat`/`Statfs`; bundles gain
+    an optional `direrrs.json`, older bundles still load), and a permission-denied
+    subdirectory of a readable scan root is reported by the TLS walker instead of
+    being skipped as if it were a file.
 - **An unreadable directory no longer reads as "nothing found".** `filepath.Glob`
   returns an empty, nil-error result for a directory it may not read, so several
   scans reported a clean "none" for a directory they were denied. The fix helper
