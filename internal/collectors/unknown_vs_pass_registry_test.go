@@ -69,7 +69,7 @@ var unknownVsPassRegistry = map[string]collectorVerdict{
 	"AzureCollector":          sentinel("TimeSyncChecked/DisksChecked/NVMeIOTimeoutChecked"),
 	"BINDCollector":           sentinel("PortsChecked/QueryTested/PortsOwnershipUnverified"),
 	"CPUCollector":            trackedBug("COLLECTOR-SWEEP.md Medium #12: sampleCPUUsage zero-value on ctx timeout/`/proc/stat` failure; RunQueue has no fallback (unlike UsagePct)"),
-	"CloudMetaCollector":      trackedBug("COLLECTOR-SWEEP.md Medium #7: registration gate is itself a live IMDS probe; a transient hiccup on a real cloud host reads as \"not cloud\""),
+	"CloudMetaCollector":      sentinel("IsCloudInstance retries once and, on a DMI-identified cloud VM, still registers the collector; Available=false then yields checkCloudMeta's Unverified INFO"),
 	"ContainerdCollector":     trackedBug("COLLECTOR-SWEEP.md Low #15: containerdNamespaces silent (nil,false) on `ctr` failure post-socket-dial"),
 	"CronCollector":           sentinel("FailureScanOK"),
 	"CVEHealthCollector":      sentinel("ScanFailed+StatusReason; stale-metadata guard"),
