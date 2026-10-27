@@ -150,7 +150,7 @@ var unknownVsPassRegistry = map[string]collectorVerdict{
 	"HealthDeepCollector":     trackedBug("COLLECTOR-SWEEP.md Low #20: collectMemDetail's /proc/meminfo read has no sentinel on models.HealthDeepInfo (distinct model from MemoryInfo, which IS guarded); low likelihood, /proc/meminfo is normally world-readable. TopProcsNeedsRoot/TopCPUProcsNeedsRoot/TopIOProcsNeedsRoot sub-checks ARE correct."),
 	"SUSEConnectCollector":    sentinel("StatusUnverified (RHEL subscription-manager path and Ubuntu Pro JSON path both)"),
 	"SteamOSCollector":        sentinel("every sub-check that can fail carries its own explicit \"checked\" companion set only on success"),
-	"RancherCollector":        trackedBug("COLLECTOR-SWEEP.md Medium #10: rancherDeployReady returns (0,0) both when the Deployment genuinely doesn't exist AND when the kubectl call itself fails (RBAC denial) — no distinct field, and checkRancher only fires when ServerDesired>0, so a query failure is total silence"),
+	"RancherCollector":        sentinel("ServerUnreadable/WebhookUnreadable (non-NotFound deployment query failure)"),
 	"NspawnCollector":         sentinel("Status=\"query-failed\"+StatusReason, distinct from the genuine \"no containers\" empty-output case"),
 	"SessionsCollector":       sentinel("Checked"),
 	"TLSCollector":            sentinel("Uncheckable: per-file read/parse failures AND a permission-denied scan-root/subdirectory are reported, with NeedsRoot for a non-root permission denial"),

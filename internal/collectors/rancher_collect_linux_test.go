@@ -131,4 +131,45 @@ func TestRancherCollector_Collect_DeploysUnreadable(t *testing.T) {
 	if info.ServerReady != 0 || info.ServerDesired != 0 || info.WebhookReady != 0 || info.WebhookDesired != 0 {
 		t.Errorf("expected all-zero ready/desired on query failure, got %+v", info)
 	}
+	// DD-COLLECTOR-GAPS-1 Medium #10: a failed (non-NotFound) query is "could not
+	// look", not "no replicas" — both must be flagged.
+	if !info.ServerUnreadable || !info.WebhookUnreadable {
+		t.Errorf("failed deployment queries not flagged unreadable: %+v", info)
+	}
+}
+
+// A genuinely absent deployment (kubectl NotFound) is not "unreadable": a missing
+// rancher-webhook must stay unflagged.
+func TestRancherCollector_Collect_NotFoundIsNotUnreadable(t *testing.T) {
+	withCombinedFixture(t, map[string][]byte{"lookpath/kubectl": []byte("/usr/bin/kubectl")}, nil, func(b *source.Bundle) {
+		b.PutCmd("kubectl", []string{"get", "namespace", "cattle-system", "-o", "name"}, "namespace/cattle-system\n", 0)
+		b.PutCmd("kubectl", []string{"get", "deploy", "rancher", "-n", "cattle-system", "--no-headers"},
+			"rancher   3/3     3            3           10d\n", 0)
+		b.PutCmd("kubectl", []string{"get", "deploy", "rancher-webhook", "-n", "cattle-system", "--no-headers"},
+			"Error from server (NotFound): deployments.apps \"rancher-webhook\" not found\n", 1)
+	})
+	raw, err := NewRancherCollector().Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.RancherInfo)
+	if info.ServerUnreadable || info.WebhookUnreadable {
+		t.Errorf("NotFound / readable deployments flagged unreadable: %+v", info)
+	}
+}
+
+// Forbidden on the server deployment (RBAC-scoped kubeconfig) is unreadable.
+func TestRancherCollector_Collect_ForbiddenIsUnreadable(t *testing.T) {
+	withCombinedFixture(t, map[string][]byte{"lookpath/kubectl": []byte("/usr/bin/kubectl")}, nil, func(b *source.Bundle) {
+		b.PutCmd("kubectl", []string{"get", "namespace", "cattle-system", "-o", "name"}, "namespace/cattle-system\n", 0)
+		b.PutCmd("kubectl", []string{"get", "deploy", "rancher", "-n", "cattle-system", "--no-headers"},
+			"Error from server (Forbidden): deployments.apps \"rancher\" is forbidden\n", 1)
+		b.PutCmd("kubectl", []string{"get", "deploy", "rancher-webhook", "-n", "cattle-system", "--no-headers"},
+			"rancher-webhook   1/1     1            1           10d\n", 0)
+	})
+	raw, _ := NewRancherCollector().Collect(context.Background())
+	info := raw.(*models.RancherInfo)
+	if !info.ServerUnreadable || info.WebhookUnreadable {
+		t.Errorf("want ServerUnreadable only, got %+v", info)
+	}
 }

@@ -50,3 +50,14 @@ func TestCheckProcesses_RestrictedAndUnreadableListAreUnverified(t *testing.T) {
 		}
 	}
 }
+
+func TestCheckRancher_UnreadableDeploymentsAreUnverified(t *testing.T) {
+	t.Parallel()
+	got := checkRancher(models.RancherInfo{Available: true, ServerUnreadable: true, WebhookUnreadable: true})
+	if !hasUnverified(got, "server deployment") || !hasUnverified(got, "rancher-webhook deployment") {
+		t.Errorf("missing Unverified insights for unreadable deployments: %+v", got)
+	}
+	if len(checkRancher(models.RancherInfo{Available: true, ServerReady: 3, ServerDesired: 3})) != 0 {
+		t.Error("healthy Rancher produced insights")
+	}
+}

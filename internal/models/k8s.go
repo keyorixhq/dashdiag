@@ -105,6 +105,13 @@ type RancherInfo struct {
 	ServerDesired  int  `json:"server_desired"` // desired replicas
 	WebhookReady   int  `json:"webhook_ready"`
 	WebhookDesired int  `json:"webhook_desired"`
+	// ServerUnreadable / WebhookUnreadable are true when the deployment query
+	// failed for a reason other than "not found" (RBAC forbidden, API timeout):
+	// 0/0 then means "could not look", not "no replicas to be unhappy about". An
+	// RBAC-scoped kubeconfig that can read namespaces but not deployments is the
+	// realistic trigger, and it masks a crash-looping management plane.
+	ServerUnreadable  bool `json:"server_unreadable,omitempty"`
+	WebhookUnreadable bool `json:"webhook_unreadable,omitempty"`
 }
 
 // K8sOSLayer holds OS-level diagnostics for the k8s node.

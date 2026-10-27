@@ -15,9 +15,9 @@ func TestRancherDeployReady(t *testing.T) {
 		return source.Result{Stdout: []byte("rancher   0/1     1            0           2m")}
 	}}
 	defer SetSource(SetSource(fake))
-	ready, desired := rancherDeployReady(context.Background(), "kubectl", "rancher", "cattle-system")
-	if ready != 0 || desired != 1 {
-		t.Fatalf("got %d/%d, want 0/1", ready, desired)
+	ready, desired, ok := rancherDeployReady(context.Background(), "kubectl", "rancher", "cattle-system")
+	if ready != 0 || desired != 1 || !ok {
+		t.Fatalf("got %d/%d ok=%v, want 0/1 ok=true", ready, desired, ok)
 	}
 }
 
@@ -30,8 +30,8 @@ func TestRancherDeployReadyTooFewFields(t *testing.T) {
 		return source.Result{Stdout: []byte("rancher")}
 	}}
 	defer SetSource(SetSource(fake))
-	if r, d := rancherDeployReady(context.Background(), "kubectl", "rancher", "cattle-system"); r != 0 || d != 0 {
-		t.Fatalf("too-few-fields output must be 0/0, got %d/%d", r, d)
+	if r, d, ok := rancherDeployReady(context.Background(), "kubectl", "rancher", "cattle-system"); r != 0 || d != 0 || ok {
+		t.Fatalf("too-few-fields output must be 0/0 and unreadable, got %d/%d ok=%v", r, d, ok)
 	}
 }
 
@@ -43,8 +43,8 @@ func TestRancherDeployReadyNoSlashInReadyColumn(t *testing.T) {
 		return source.Result{Stdout: []byte("rancher   garbled     1            0           2m")}
 	}}
 	defer SetSource(SetSource(fake))
-	if r, d := rancherDeployReady(context.Background(), "kubectl", "rancher", "cattle-system"); r != 0 || d != 0 {
-		t.Fatalf("a READY column with no '/' must be 0/0, got %d/%d", r, d)
+	if r, d, ok := rancherDeployReady(context.Background(), "kubectl", "rancher", "cattle-system"); r != 0 || d != 0 || ok {
+		t.Fatalf("a READY column with no '/' must be 0/0 and unreadable, got %d/%d ok=%v", r, d, ok)
 	}
 }
 
@@ -55,7 +55,7 @@ func TestRancherDeployReadyAbsent(t *testing.T) {
 		return source.Result{Stderr: []byte("Error from server (NotFound)"), ExitCode: 1}
 	}}
 	defer SetSource(SetSource(fake))
-	if r, d := rancherDeployReady(context.Background(), "kubectl", "rancher-webhook", "cattle-system"); r != 0 || d != 0 {
-		t.Fatalf("absent deploy must be 0/0, got %d/%d", r, d)
+	if r, d, ok := rancherDeployReady(context.Background(), "kubectl", "rancher-webhook", "cattle-system"); r != 0 || d != 0 || !ok {
+		t.Fatalf("absent deploy must be 0/0 and readable, got %d/%d ok=%v", r, d, ok)
 	}
 }
