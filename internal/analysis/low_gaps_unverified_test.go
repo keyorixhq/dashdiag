@@ -4,6 +4,7 @@ import (
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/platform"
 )
 
 // DD-COLLECTOR-GAPS-1 Low items: each "could not look" sentinel produces an
@@ -49,5 +50,13 @@ func TestCheckKVMGuest_StealUnreadable(t *testing.T) {
 	got := checkKVMGuest(models.KVMGuestInfo{IsGuest: true, StealUnreadable: true})
 	if !hasUnverified(got, "CPU steal since boot could not be read") {
 		t.Errorf("no Unverified insight: %+v", got)
+	}
+}
+
+func TestCheckSwap_UnreadableIsUnverified(t *testing.T) {
+	t.Parallel()
+	got := checkSwap(models.SwapInfo{SwapsUnreadable: true, ZramUnreadable: true}, DefaultThresholds(platform.EnvBareMetal))
+	if !hasUnverified(got, "/proc/swaps could not be read") || !hasUnverified(got, "zram") {
+		t.Errorf("missing Unverified insights: %+v", got)
 	}
 }

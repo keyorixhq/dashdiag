@@ -114,7 +114,7 @@ var unknownVsPassRegistry = map[string]collectorVerdict{
 	"MTECollector":            sentinel("StatusReason set on both fallible reads (exception-trace file, journalctl+dmesg)"),
 	"FirmwareCollector":       sentinel("4 distinct StatusReason branches — not-installed / daemon-down / query-failed / unparseable"),
 	"EnvoyCollector":          sentinel("StatsRead"),
-	"SwapCollector":           trackedBug("COLLECTOR-SWEEP.md Low #18: /proc/swaps and zram reads have no sentinel, unlike this function's own vmstat -1 sentinel; /proc/swaps normally world-readable"),
+	"SwapCollector":           sentinel("SwapsUnreadable/ZramUnreadable (+ the -1 paging sentinel)"),
 	"SysctlCollector":         sentinel("-1 sentinels where 0 is a legitimate value; other fields' consuming thresholds are all >0 guards, so 0-on-failure never fires a false verdict"),
 	"ThermalCollector":        sentinel("SensorUnreadable (driver found, temp input unreadable) → Unverified INFO; darwin/generic stub Available=false is correct"),
 	"TimelineCollector":       sentinel("SourcesUnavailable (both sources) + UnreadSources (any single failed source), rendered as Timeline incomplete"),
@@ -251,7 +251,6 @@ func TestUnknownVsPassRegistryComplete(t *testing.T) {
 // Task 5) and this test with it.
 var frozenTrackedBugs = map[string]bool{
 	"NFSCollector":      true,
-	"SwapCollector":     true,
 	"SecurityCollector": true, "PackagesCollector": true,
 	"HealthDeepCollector": true, "PressureCollector": true,
 }
