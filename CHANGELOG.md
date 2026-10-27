@@ -25,6 +25,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   covers all of `cmd/`, and `TestGuardA_SubcommandsNeverHealthyWhenNotVerified`
   feeds every subcommand renderer an errored and an Unverified run. Before/after
   rows: COMPATIBILITY.md §4.
+- **Swallowed errors outside the collectors surface or say why they are
+  swallowed** (`errorlint` + `nilerr`, 20 of the 39 findings on main). CIS
+  rule 4.2.7 returned PASS over a `/var/log` path it could not read; it is now
+  Unverified. `dsd health --since-deploy` reported "No pre-deploy baseline" when
+  the baseline directory was unreadable; it now returns the error. `dsd hook
+  install` reported "No hooks selected" when the prompt itself failed, and the
+  first-run wizard returned silently; both now say so. `dsd fleet` matches
+  `*exec.ExitError` with `errors.As`. The deliberate swallow sites carry a
+  `nolint:nilerr` comment with the reason. The 19 findings in
+  `internal/collectors` and `internal/source` are left to DD-COLLECTOR-GAPS-1,
+  which enables both linters.
 
 - **An unreadable directory no longer reads as "nothing found".** `filepath.Glob`
   returns an empty, nil-error result for a directory it may not read, so several
