@@ -184,7 +184,7 @@ func ReadAll(path, hostname string, n int) ([]Entry, error) {
 }
 
 // validVerdicts is Entry.Verdict's documented vocabulary (store.go: "OK |
-// WARN | CRIT" — VerdictFromInsights never produces anything else).
+// WARN | CRIT" — render.Verdict, the only deriver, never produces anything else).
 var validVerdicts = map[string]bool{"OK": true, "WARN": true, "CRIT": true}
 
 // validCheckStatuses is Entry.Checks' documented per-check status

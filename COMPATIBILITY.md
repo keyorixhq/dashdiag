@@ -127,6 +127,26 @@ Monitoring integrations (`--nagios`) follow the Nagios convention (0/1/2/3)
 and are likewise stable — 3 there has always been reserved, per Nagios's own
 spec, even though this dsd version is the first to ever produce it.
 
+**All outputs agree with the exit code.** The "a run that could not verify itself
+is not OK" floor above applies to every rendering of the verdict, not only
+`--json`/exit/`--nagios`. For a run in which a collector errored or an insight is
+`unverified` and nothing is WARN/CRIT (so exit code 1):
+
+| Output | Before | Now |
+|--------|--------|-----|
+| terminal summary (human) | `✅ System healthy. Checks passed` | `⚠ Not fully verified: N checks could not run — see INFO below` |
+| `--plain` / CI summary | `OK: All checks passed` | `WARN: Not fully verified: N checks could not run — see INFO below` |
+| `--report` (Markdown) | `✅ **All checks passed** — system is healthy.` | `⚠️ **Not fully verified** — N checks could not run; see Issues below.` |
+| `--report-html` badge | `HEALTHY` (class `ok`) | `NOT VERIFIED` (class `warn`) |
+| `dsd share --format text` | `Verdict: OK — all checks passed` | `Verdict: WARN — not fully verified: N checks could not run` |
+| `--prometheus` | `dsd_health_status 0` | `dsd_health_status 1` (and `dsd_check_status{check="x"} 1` for the affected check) |
+| `--persist` history entry | `"verdict":"OK"` | `"verdict":"WARN"` (closed vocabulary unchanged) |
+
+A run where every collector ran and nothing is WARN/CRIT prints exactly the
+strings it always did. A script that greps for `All checks passed`/`healthy` and
+treats a match as "all good" will no longer match on a run that could not verify
+itself — that is the intent; gate on the exit code or `--json` `verdict` instead.
+
 ### 5. The `--blob` / `decode` round-trip
 
 `dsd health --blob` emits a gzip+base64 report block; `dsd decode` reads it back.

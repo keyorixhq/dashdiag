@@ -1576,25 +1576,24 @@ func (r *Renderer) PrintSummary(insights []models.Insight, elapsed time.Duration
 		timing = fmt.Sprintf(" in %.1fs", elapsed.Seconds())
 	}
 
+	// The verdict is derived once, in verdict.go: a run whose checks could not
+	// run gets the "Not fully verified" banner instead of "healthy" (C1).
+	v := Verdict(nil, insights)
 	if len(crits)+len(warns) == 0 {
-		if r.mode == output.ModeHuman {
-			fmt.Fprintln(os.Stdout, StyleOK.Render(fmt.Sprintf("✅ System healthy. Checks passed%s", timing)))
-		} else {
-			fmt.Fprintf(os.Stdout, "OK: All checks passed%s\n", timing)
-		}
-		// A "healthy" verdict (no CRIT/WARN) is not the same as "nothing to show" —
-		// INFO includes "could not measure" disclosures (e.g. checkMemory's
-		// unmeasurable-cgroup case) that must never be silently dropped just because
-		// the top-line verdict is clean.
+		fmt.Fprintln(os.Stdout, v.TerminalBanner(r.mode != output.ModeHuman, timing))
+		// A clean (or not-fully-verified) top line is not the same as "nothing to
+		// show" — INFO includes "could not measure" disclosures (e.g. checkMemory's
+		// unmeasurable-cgroup case) that must never be silently dropped, and the
+		// banner points the reader at them.
 		r.printInsightGroup(infos)
-		return exitCodeFromInsights(insights)
+		return v.ExitCode()
 	}
 
 	r.printInsightGroup(crits)
 	r.printInsightGroup(warns)
 	r.printInsightGroup(infos)
 
-	return exitCodeFromInsights(insights)
+	return v.ExitCode()
 }
 
 func (r *Renderer) printInsightGroup(ins []models.Insight) {
@@ -1733,37 +1732,17 @@ func (r *Renderer) printHintsPlain(hints []string) {
 	}
 }
 
-// exitCodeFromInsights derives the process exit code from the worst insight:
-// 0 = OK, 1 = WARN, 2 = CRIT. A CRIT anywhere wins outright.
+// exitCodeFromInsights derives the process exit code from the run's verdict
+// (see Verdict): 0 = OK, 1 = WARN, 2 = CRIT. A CRIT anywhere wins outright.
 //
 // C1: an insight whose Unverified bit is set means the underlying check could
 // NOT be determined this run (permission denied, a collector error, a read
 // that failed) — its Level is usually a downgraded INFO, which on its own
-// never raises the exit code. Without this floor, a run where every check
-// hit exactly this shape (see C2, /dev/kmsg) exits 0 — a confident "healthy"
-// from a run that determined nothing. Unverified floors at WARN(1), never
+// never raises the exit code. Verdict floors such a run at WARN(1), never
 // higher: "couldn't check this" is real cause to look, but it must not
-// outrank an actual CRIT finding elsewhere in the same run (that would let a
-// single flaky check mask a genuine critical result) — see
-// internal/render/nagios.go's identical, previously-shipped precedent for
-// collector errors (internal-render-03-03), which this generalizes to cover
-// in-collector Unverified insights, not just outright collector errors.
+// outrank an actual CRIT finding elsewhere in the same run.
 func exitCodeFromInsights(insights []models.Insight) int {
-	code := 0
-	for _, ins := range insights {
-		switch ins.Level {
-		case "CRIT":
-			return 2
-		case "WARN":
-			if code < 1 {
-				code = 1
-			}
-		}
-		if ins.Unverified && code < 1 {
-			code = 1
-		}
-	}
-	return code
+	return Verdict(nil, insights).ExitCode()
 }
 
 // PrintContainerBanner tells the operator dsd is diagnosing the container it

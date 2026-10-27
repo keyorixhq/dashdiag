@@ -168,7 +168,7 @@ var unknownVsPassRegistry = map[string]collectorVerdict{
 	"HBACollector":             exempt("glob(\"/sys/class/fc_host/host*\") error discarded — same sysfs-class reasoning as BondingCollector: world-readable when the class exists, EACCES unrealistic"),
 	"HugePagesCollector":       sentinel("StatusReason set on /proc/meminfo read failure — comment explicitly documents this as a fix for a prior backwards Available:true-on-failed-read bug"),
 	"InfiniBandCollector":      sentinel("ReadFailed, with an explicit Stat-first (not glob) check specifically to distinguish EACCES from ENOENT — already registered in the models falseok registry"),
-	"KernelRetentionCollector": trackedBug("New (this pass), Medium: glob(\"/boot/vmlinuz-*\") error discarded. Unlike the sysfs-class collectors above, /boot IS realistically permission-restricted on some hardened images (0700) — a permission-denied /boot silently reports InstalledKernels=0, and Available becomes false (looks not-applicable, not couldn't-verify)."),
+	"KernelRetentionCollector": sentinel("BootUnreadable (globChecked on /boot/vmlinuz-*; permission-denied /boot is no longer InstalledKernels=0/not-applicable) -> analysis Unverified insight"),
 	"LivePatchCollector":       sentinel("UnverifiedPatches, per-patch enable-read failures — exemplary, explicit doc comment on the false-WARN this avoids. Top-level glob(\"/sys/kernel/livepatch/*\") is a kernel sysfs dir gated by LivePatchAvailable(); EACCES unrealistic."),
 	"NUMACollector":            exempt("glob(\"/sys/devices/system/node/node[0-9]*\") error discarded — same sysfs-class reasoning as BondingCollector/HBACollector"),
 	"PressureCollector":        trackedBug("New (this pass), Low: once Available=true (gated on fileExists), each of the 3 PSI file reads (memory/cpu/io) silently leaves its metric at zero on a mid-read failure (readPSIFile err discarded) — narrow race, the gate already confirmed the files exist moments earlier"),
@@ -239,5 +239,46 @@ func TestUnknownVsPassRegistryComplete(t *testing.T) {
 	if len(stale) > 0 {
 		t.Errorf("%d unknownVsPassRegistry entr(y/ies) no longer match a real Collect() type (remove or rename):\n  %s",
 			len(stale), strings.Join(stale, "\n  "))
+	}
+}
+
+// frozenTrackedBugs is the RATCHET for the "unknown vs pass" backlog: the set of
+// collectors allowed to be registered as trackedBug may only shrink. A new
+// collector (or a newly discovered gap) cannot be parked as a "known bug" — it
+// must ship a sentinel or a justified exempt row. When a collector is fixed,
+// flip its registry row to sentinel(...) AND delete it from this list in the
+// same PR. When the list is empty, delete trackedBugKind (DD-COLLECTOR-GAPS-1
+// Task 5) and this test with it.
+var frozenTrackedBugs = map[string]bool{
+	"CPUCollector": true, "CloudMetaCollector": true, "ContainerdCollector": true,
+	"GrafanaCollector": true, "KVMGuestCollector": true, "MemcachedCollector": true,
+	"NetworkCollector": true, "LogsCollector": true, "NFSCollector": true,
+	"KdumpCollector": true, "TunedCollector": true, "ServicesDeepCollector": true,
+	"SwapCollector": true, "ThermalCollector": true, "TimelineCollector": true,
+	"SecurityCollector": true, "PackagesCollector": true, "K8sCollector": true,
+	"DiskCollector": true, "ProcessesCollector": true, "PVECollector": true,
+	"HealthDeepCollector": true, "RancherCollector": true, "TLSCollector": true,
+	"PressureCollector": true,
+}
+
+func TestTrackedBugRatchetOnlyShrinks(t *testing.T) {
+	var added, stale []string
+	for name, v := range unknownVsPassRegistry {
+		if v.kind == trackedBugKind && !frozenTrackedBugs[name] {
+			added = append(added, name)
+		}
+	}
+	for name := range frozenTrackedBugs {
+		if v, ok := unknownVsPassRegistry[name]; !ok || v.kind != trackedBugKind {
+			stale = append(stale, name)
+		}
+	}
+	sort.Strings(added)
+	sort.Strings(stale)
+	for _, n := range added {
+		t.Errorf("%s is registered trackedBug but is not in frozenTrackedBugs: no NEW known-bug rows; ship a sentinel or a justified exempt", n)
+	}
+	for _, n := range stale {
+		t.Errorf("%s is in frozenTrackedBugs but no longer a trackedBug registry row: delete it from the frozen list (the list only shrinks)", n)
 	}
 }

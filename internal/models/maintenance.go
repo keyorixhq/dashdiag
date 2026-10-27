@@ -117,4 +117,8 @@ type KernelRetentionInfo struct {
 	Unbounded        bool    `json:"unbounded"`                  // policy keeps "all" / no limit → kernels accumulate
 	BootTotalGB      float64 `json:"boot_total_gb"`              // size of the fs holding /boot (small ⇒ separate /boot at risk)
 	BootUsedPct      float64 `json:"boot_used_pct"`
+	// BootUnreadable is true when /boot itself could not be listed (permission
+	// denied — some hardened images ship it 0700). InstalledKernels is then 0
+	// because nothing was seen, not because no kernels are installed.
+	BootUnreadable bool `json:"boot_unreadable,omitempty"`
 }

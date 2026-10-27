@@ -28,39 +28,6 @@ func TestNullStore(t *testing.T) {
 	}
 }
 
-func TestVerdictFromInsights(t *testing.T) {
-	t.Parallel()
-	cases := []struct {
-		levels []string
-		want   string
-	}{
-		{nil, "OK"},
-		{[]string{"OK"}, "OK"},
-		{[]string{"INFO", "OK"}, "OK"},
-		{[]string{"WARN"}, "WARN"},
-		{[]string{"OK", "WARN"}, "WARN"},
-		{[]string{"WARN", "CRIT"}, "CRIT"},
-		{[]string{"CRIT", "WARN"}, "CRIT"},
-		{[]string{"INFO", "WARN", "CRIT"}, "CRIT"},
-	}
-	for _, tc := range cases {
-		t.Run(tc.want+"_"+joinLevels(tc.levels), func(t *testing.T) {
-			t.Parallel()
-			if got := VerdictFromInsights(tc.levels); got != tc.want {
-				t.Errorf("VerdictFromInsights(%v) = %q, want %q", tc.levels, got, tc.want)
-			}
-		})
-	}
-}
-
-func joinLevels(ls []string) string {
-	s := ""
-	for _, l := range ls {
-		s += l
-	}
-	return s
-}
-
 func TestJSONLStore_AppendAndHistory(t *testing.T) {
 	t.Parallel()
 	dir := t.TempDir()

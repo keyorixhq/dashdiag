@@ -170,7 +170,7 @@ func TestAutoDetectCertPathsNoPanic(t *testing.T) {
 	t.Parallel()
 	// No fixtures are seeded on this host — just confirm it runs without
 	// error and returns a (possibly empty) slice.
-	_ = autoDetectCertPaths()
+	_, _ = autoDetectCertPaths()
 }
 
 // TestAutoDetectCertPathsFindsUserCerts covers the "glob found matches"
@@ -195,7 +195,7 @@ func TestAutoDetectCertPathsFindsUserCerts(t *testing.T) {
 		t.Fatalf("WriteFile: %v", err)
 	}
 
-	got := autoDetectCertPaths()
+	got, _ := autoDetectCertPaths()
 	found := map[string]bool{}
 	for _, p := range got {
 		found[p] = true
@@ -299,6 +299,9 @@ func newBareTLSCmd() *cobra.Command {
 // TestRunTLSNoCertsFound exercises the "nothing to scan" path: explicit args
 // are empty and auto-detect finds nothing in this container.
 func TestRunTLSNoCertsFound(t *testing.T) {
+	prev := tlsAutoDetectPatternsFn
+	tlsAutoDetectPatternsFn = func() []string { return nil } // hermetic: ignore the host's /etc
+	t.Cleanup(func() { tlsAutoDetectPatternsFn = prev })
 	c := newBareTLSCmd()
 	out := captureStdout(t, func() {
 		if err := runTLS(c, nil); err != nil {

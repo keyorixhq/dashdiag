@@ -155,6 +155,11 @@ func checkServiceRestart(d models.ServiceRestartInfo) []models.Insight {
 // checkKernelRetention flags old kernels at risk of filling /boot (the next kernel
 // update can fail mid-write), and the unbounded-retention policy that leads there.
 func checkKernelRetention(d models.KernelRetentionInfo) []models.Insight {
+	if d.BootUnreadable {
+		return []models.Insight{unverifiedInsight("INFO", "KernelRetention",
+			"could not read /boot — kernel retention / boot-space risk was not checked this run",
+			[]string{"to inspect: ls -la /boot", "to fix: re-run as root (sudo dsd health)"})}
+	}
 	if !d.Available {
 		return nil
 	}

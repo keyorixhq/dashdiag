@@ -1,0 +1,20 @@
+package bad
+
+import "path/filepath"
+
+// Negative example for TestNoRawGlobInProduction: every call below must be
+// flagged. (Stored as .go.txt so the go tool never compiles it.)
+
+func direct(dir string) []string {
+	m, _ := filepath.Glob(dir + "/*.crt") // unreadable dir reads as "no certs"
+	return m
+}
+
+func helper() []string {
+	m, _ := glob("/etc/sudoers.d/*") // the collectors' raw helper, same hole
+	return m
+}
+
+func globChecked(string) {} // a *Checked call is fine and must NOT be flagged
+
+func ok() { globChecked("/boot/vmlinuz-*") }
