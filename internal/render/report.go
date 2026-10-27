@@ -247,16 +247,6 @@ func filterActionable(insights []models.Insight) []models.Insight {
 	return out
 }
 
-func countLevel(insights []models.Insight, level string) int {
-	n := 0
-	for _, ins := range insights {
-		if ins.Level == level {
-			n++
-		}
-	}
-	return n
-}
-
 // escapeMarkdownBackticks neutralizes literal backtick characters in
 // attacker-influenced text (an Insight's Message/Hints, a check's
 // Name/Value) before it is embedded inside a markdown backtick-delimited

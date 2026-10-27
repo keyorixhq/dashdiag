@@ -71,53 +71,7 @@ func renderStoryFromHistory(history []*baseline.Snapshot) string {
 	hostname := output.SanitizeControl(last.Hostname)
 	n := len(history)
 
-	// Track events: when each check changed status
-	type event struct {
-		ts      string
-		check   string
-		from    string
-		to      string
-		message string
-	}
-	var events []event
-	prevStatus := make(map[string]string)
-	prevMsg := make(map[string]string)
-
-	// Seed from first snapshot
-	for _, c := range first.Checks {
-		prevStatus[c.Name] = c.Status
-		prevMsg[c.Name] = c.Value
-	}
-
-	// Walk history looking for status changes
-	for _, snap := range history[1:] {
-		ts := snap.Timestamp.Local().Format(storyTimeFmt)
-		for _, c := range snap.Checks {
-			prev := prevStatus[c.Name]
-			if prev != "" && prev != c.Status {
-				// c.Value can carry attacker-controlled substrings the same
-				// way ins.Message does elsewhere; extractZombieOffender pulls
-				// ParentName straight from /proc/PID/comm (attacker-settable
-				// via prctl(PR_SET_NAME)) — both need stripping before this
-				// narration reaches the terminal.
-				msg := output.SanitizeControl(c.Value)
-				if c.Name == "Processes" && (c.Status == "WARN" || c.Status == "CRIT") {
-					if offender := extractZombieOffender(c.Raw); offender != "" {
-						msg = fmt.Sprintf("%s (offender: %s)", msg, offender)
-					}
-				}
-				events = append(events, event{
-					ts:      ts,
-					check:   c.Name,
-					from:    prev,
-					to:      c.Status,
-					message: msg,
-				})
-			}
-			prevStatus[c.Name] = c.Status
-			prevMsg[c.Name] = c.Value
-		}
-	}
+	events := storyEvents(history)
 
 	// Current state of last snapshot
 	var currentIssues []string
@@ -160,6 +114,56 @@ func renderStoryFromHistory(history []*baseline.Snapshot) string {
 	}
 
 	return strings.TrimRight(sb.String(), "\n")
+}
+
+// storyEvent is one check changing status between two consecutive snapshots.
+type storyEvent struct {
+	ts      string
+	check   string
+	from    string
+	to      string
+	message string
+}
+
+// storyEvents walks the history and records when each check changed status.
+func storyEvents(history []*baseline.Snapshot) []storyEvent {
+	var events []storyEvent
+	prevStatus := make(map[string]string)
+
+	// Seed from first snapshot
+	for _, c := range history[0].Checks {
+		prevStatus[c.Name] = c.Status
+	}
+
+	// Walk history looking for status changes
+	for _, snap := range history[1:] {
+		ts := snap.Timestamp.Local().Format(storyTimeFmt)
+		for _, c := range snap.Checks {
+			prev := prevStatus[c.Name]
+			if prev != "" && prev != c.Status {
+				// c.Value can carry attacker-controlled substrings the same
+				// way ins.Message does elsewhere; extractZombieOffender pulls
+				// ParentName straight from /proc/PID/comm (attacker-settable
+				// via prctl(PR_SET_NAME)) — both need stripping before this
+				// narration reaches the terminal.
+				msg := output.SanitizeControl(c.Value)
+				if c.Name == "Processes" && (c.Status == "WARN" || c.Status == "CRIT") {
+					if offender := extractZombieOffender(c.Raw); offender != "" {
+						msg = fmt.Sprintf("%s (offender: %s)", msg, offender)
+					}
+				}
+				events = append(events, storyEvent{
+					ts:      ts,
+					check:   c.Name,
+					from:    prev,
+					to:      c.Status,
+					message: msg,
+				})
+			}
+			prevStatus[c.Name] = c.Status
+		}
+	}
+	return events
 }
 
 func degradeArrow(from, to string) string {
