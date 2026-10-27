@@ -124,7 +124,7 @@ var unknownVsPassRegistry = map[string]collectorVerdict{
 	"SecurityCollector":       sentinel("SSHConfigUnreadable on every platform incl. darwin (no readable sshd_config -> unreadable) + the linux *Unreadable family"),
 	"ZFSCollector":            sentinel("ListReadFailed/StatusReadFailed"),
 	"SnapperCollector":        sentinel("string sentinel on `snapper list` failure/no-permissions"),
-	"PackagesCollector":       trackedBug("COLLECTOR-SWEEP.md Low #22 (darwin/generic stub only): Checked:true is set BEFORE `brew outdated` runs and never corrected on failure — the only stub-vs-real-implementation asymmetry found. linux implementation is CORRECT (extensive, incl. stale-metadata guard)."),
+	"PackagesCollector":       sentinel("Status=query-failed + Checked=false on every platform incl. the darwin/generic brew stub"),
 	"SystemdCollector":        sentinel("FailedUnitsUnknown/SSHDStatusUnverified"),
 	"VaultCollector":          sentinel("Reachable/StatusRead/IdentityUnverified"),
 	"ISCSICollector":          sentinel("NeedsRoot/SessionsParseFailed, cross-checked against world-readable sysfs session count"),
@@ -250,7 +250,6 @@ func TestUnknownVsPassRegistryComplete(t *testing.T) {
 // same PR. When the list is empty, delete trackedBugKind (DD-COLLECTOR-GAPS-1
 // Task 5) and this test with it.
 var frozenTrackedBugs = map[string]bool{
-	"PackagesCollector": true,
 	"PressureCollector": true,
 }
 

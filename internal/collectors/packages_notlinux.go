@@ -44,7 +44,12 @@ func (c *PackagesCollector) Collect(ctx context.Context) (any, error) {
 
 	out, err := runCmd(ctx, brewPath, "outdated", "--quiet")
 	if err != nil {
-		// brew failed to run
+		// brew failed to run: "0 outdated" is not a result. Checked was optimistically
+		// true above; correct it and use the linux collector's query-failed
+		// convention so the analysis layer says "could not verify" instead of OK.
+		info.Checked = false
+		info.Status = "query-failed"
+		info.StatusReason = "brew outdated failed to run: " + err.Error()
 		return info, nil
 	}
 
