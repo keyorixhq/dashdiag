@@ -27,7 +27,7 @@ func (c *HugePagesCollector) Collect(_ context.Context) (interface{}, error) {
 		// pages configured" (Configured==0, THPEnabled==false is also what a
 		// successful read of an unconfigured host produces) — and Available:true
 		// here was actively backwards, asserting availability off a failed read.
-		return &models.HugePagesInfo{StatusReason: "/proc/meminfo unreadable — huge pages status not verified"}, nil
+		return &models.HugePagesInfo{StatusReason: "/proc/meminfo unreadable — huge pages status not verified"}, nil //nolint:nilerr // read failure is carried in StatusReason, not the error
 	}
 	info := parseHugePagesMeminfo(string(data))
 	info.Available = true

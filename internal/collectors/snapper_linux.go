@@ -41,7 +41,7 @@ func CollectSnapper(ctx context.Context) (*models.SnapperInfo, error) {
 	info := &models.SnapperInfo{}
 
 	if _, err := lookPath("snapper"); err != nil {
-		return info, nil // not installed — not an error
+		return info, nil //nolint:nilerr // snapper not installed: genuinely N/A
 	}
 	info.Available = true
 
@@ -62,7 +62,7 @@ func CollectSnapper(ctx context.Context) (*models.SnapperInfo, error) {
 	listOut, err := runCmd(ctx, "snapper", "list")
 	if err != nil || strings.Contains(listOut, "No permissions") {
 		info.Error = "run as root for snapshot details"
-		return info, nil
+		return info, nil //nolint:nilerr // permission failure is carried in Error (run as root), not the error
 	}
 	return parseSnapperPlain(listOut, info), nil
 }

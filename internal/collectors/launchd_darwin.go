@@ -34,7 +34,7 @@ func (c *LaunchdCollector) Collect(ctx context.Context) (any, error) {
 		// A total scan failure must not read the same as "checked every
 		// service, zero failures" — Checked stays false so checkLaunchd can
 		// tell the difference.
-		return info, nil
+		return info, nil //nolint:nilerr // launchctl failure: Checked stays false, which checkLaunchd reports as unverified
 	}
 
 	info.Checked = true

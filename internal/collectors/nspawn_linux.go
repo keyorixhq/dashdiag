@@ -23,7 +23,7 @@ func (c *NspawnCollector) Collect(ctx context.Context) (interface{}, error) {
 	info := &models.NspawnInfo{}
 
 	if _, err := lookPath(cmdMachineCtl); err != nil {
-		return info, nil // genuinely N/A — machinectl not installed
+		return info, nil //nolint:nilerr // machinectl not installed: genuinely N/A
 	}
 
 	out, err := runCmd(ctx, cmdMachineCtl, "list", "--no-legend", "--no-pager")
@@ -35,7 +35,7 @@ func (c *NspawnCollector) Collect(ctx context.Context) (interface{}, error) {
 		info.Status = "query-failed"
 		info.StatusReason = "machinectl list failed: " + err.Error()
 		info.FailedCount = countFailedNspawnUnits(ctx)
-		return info, nil
+		return info, nil //nolint:nilerr // machinectl failure is carried in Status=query-failed/StatusReason, not the error
 	}
 	info.FailedCount = countFailedNspawnUnits(ctx)
 	if strings.TrimSpace(out) == "" {

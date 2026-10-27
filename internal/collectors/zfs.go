@@ -31,7 +31,7 @@ func (c *ZFSCollector) Collect(ctx context.Context) (any, error) {
 
 	// zpool not installed — silent OK
 	if _, err := lookPath("zpool"); err != nil {
-		return info, nil
+		return info, nil //nolint:nilerr // zpool not installed: silent by design
 	}
 
 	// zpool list -H -o name,size,free,frag,cap,health
@@ -41,7 +41,7 @@ func (c *ZFSCollector) Collect(ctx context.Context) (any, error) {
 		// zpool is installed but the list query failed (commonly permission denied).
 		// Returning empty pools here would read as a silent "no ZFS problems"; flag it.
 		info.ListReadFailed = true
-		return info, nil
+		return info, nil //nolint:nilerr // zpool list failure is carried in ListReadFailed, not the error
 	}
 
 	pools := parseZpoolList(listOut)

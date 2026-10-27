@@ -63,7 +63,7 @@ func (c *MongoDBCollector) Collect(ctx context.Context) (interface{}, error) {
 	out, err := runCmd(ctx, cli, "--quiet", "--eval", mongoEvalScript)
 	if err != nil {
 		info.StatusReason = "mongo metrics unavailable (authentication required, or the shell could not connect)"
-		return info, nil
+		return info, nil //nolint:nilerr // shell failure is carried in StatusReason, not the error
 	}
 	parseMongoEval(out, info)
 	return info, nil

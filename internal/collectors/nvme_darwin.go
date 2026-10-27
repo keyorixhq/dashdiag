@@ -33,7 +33,7 @@ func collectDrivesDarwinText(ctx context.Context) (*models.NVMeInfo, error) {
 		// A total enumeration failure must not read the same as "genuinely no
 		// drives" — checkNVMe would otherwise emit zero insights either way.
 		info.DrivesListUnreadable = true
-		return info, nil
+		return info, nil //nolint:nilerr // diskutil failure is carried in DrivesListUnreadable, not the error
 	}
 
 	// Extract disk identifiers like disk0, disk1 (not diskNsM which are partitions)

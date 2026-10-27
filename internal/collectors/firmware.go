@@ -28,7 +28,7 @@ func (c *FirmwareCollector) Collect(ctx context.Context) (any, error) {
 	if _, err := lookPath("fwupdmgr"); err != nil {
 		info.Status = "unavailable"
 		info.StatusReason = "fwupd not installed"
-		return info, nil
+		return info, nil //nolint:nilerr // fwupd not installed: Status=unavailable with a reason
 	}
 	// fwupdmgr IS installed, but the version probe itself failed (fwupd daemon
 	// down, D-Bus unreachable). That's a real gap, not "not installed" — collapsing
@@ -39,7 +39,7 @@ func (c *FirmwareCollector) Collect(ctx context.Context) (any, error) {
 	if _, err := runCmd(ctx, "fwupdmgr", "--version"); err != nil {
 		info.Available = true
 		info.StatusReason = "fwupdmgr --version failed: " + err.Error()
-		return info, nil
+		return info, nil //nolint:nilerr // fwupdmgr failure is carried in StatusReason (Available=true), not the error
 	}
 	info.Available = true
 
@@ -78,7 +78,7 @@ func (c *FirmwareCollector) Collect(ctx context.Context) (any, error) {
 
 	if err := json.Unmarshal([]byte(out), &result); err != nil {
 		info.StatusReason = "failed to parse fwupdmgr output"
-		return info, nil
+		return info, nil //nolint:nilerr // unparseable fwupdmgr output is carried in StatusReason, not the error
 	}
 
 	for _, dev := range result.Devices {

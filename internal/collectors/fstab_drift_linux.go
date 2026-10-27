@@ -29,7 +29,7 @@ func FstabAvailable() bool { return fileExists("/etc/fstab") }
 func (c *FstabDriftCollector) Collect(_ context.Context) (interface{}, error) {
 	data, err := readFile("/etc/fstab")
 	if err != nil {
-		return &models.FstabInfo{Checked: false}, nil
+		return &models.FstabInfo{Checked: false}, nil //nolint:nilerr // unreadable fstab: Checked=false is the sentinel
 	}
 	byUUID := lowerDirNameSet("/dev/disk/by-uuid")
 	byPart := lowerDirNameSet("/dev/disk/by-partuuid")

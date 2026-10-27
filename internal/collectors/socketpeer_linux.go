@@ -109,7 +109,7 @@ func lookupUserUID(username string) (uid uint32, ok bool) {
 	data, err := curSource().Cached("userlookup/"+username, func() ([]byte, error) {
 		u, uerr := user.Lookup(username)
 		if uerr != nil {
-			return []byte("-1"), nil
+			return []byte("-1"), nil //nolint:nilerr // failed user lookup is cached as the explicit "-1" unknown marker, not an error
 		}
 		return []byte(u.Uid), nil
 	})

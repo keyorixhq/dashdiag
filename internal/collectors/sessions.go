@@ -47,7 +47,7 @@ func (c *SessionsCollector) Collect(ctx context.Context) (any, error) {
 	out, err := runCmd(ctx, "w", "-h")
 	if err != nil {
 		// `w` not available — return empty, not an error
-		return &models.SessionsInfo{}, nil
+		return &models.SessionsInfo{}, nil //nolint:nilerr // `w` unavailable: Checked stays false (SessionsCollector sentinel)
 	}
 	info := parseSessions(out)
 	// PVE requires root SSH for cluster management; record it so the root-SSH

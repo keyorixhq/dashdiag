@@ -60,7 +60,7 @@ func networkdIsActive() bool {
 func (c *NetworkdConfigCollector) Collect(ctx context.Context) (interface{}, error) {
 	// Only meaningful when systemd-networkd is the active network manager.
 	if _, err := runCmd(ctx, "systemctl", "is-active", "systemd-networkd"); err != nil {
-		return &models.NetworkdConfigInfo{Detected: false}, nil
+		return &models.NetworkdConfigInfo{Detected: false}, nil //nolint:nilerr // systemd-networkd not active (is-active exits non-zero): Detected=false, not a failure
 	}
 
 	info := &models.NetworkdConfigInfo{Detected: true}

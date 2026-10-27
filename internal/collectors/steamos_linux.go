@@ -376,7 +376,7 @@ func (c *SteamOSCollector) collectNetwork(_ context.Context, info *models.SteamO
 		start := time.Now()
 		conn, err := net.DialTimeout("tcp", steamdeckUpdateHost, 2*time.Second)
 		if err != nil {
-			return steamProbeResult{}, nil
+			return steamProbeResult{}, nil //nolint:nilerr // unreachable update server is the probe result (zero steamProbeResult = not reachable), not an error
 		}
 		_ = conn.Close()
 		return steamProbeResult{OK: true, Ms: int(time.Since(start).Milliseconds())}, nil

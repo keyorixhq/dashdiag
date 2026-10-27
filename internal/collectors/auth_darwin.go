@@ -34,7 +34,7 @@ func (c *AuthCollector) Collect(ctx context.Context) (any, error) {
 	if err != nil {
 		// log show may fail if SIP restricts access — still mark as available
 		// since sshd is running, just mark not checked
-		return info, nil
+		return info, nil //nolint:nilerr // log show denied by SIP: Checked stays false, which checkAuth reports as unverified
 	}
 
 	info.Checked = true

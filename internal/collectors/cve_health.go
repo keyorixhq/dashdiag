@@ -53,7 +53,7 @@ func (c *CVEHealthCollector) Collect(ctx context.Context) (any, error) {
 	if err != nil || out == nil {
 		// Replaying a bundle captured without --cve-scan: nothing recorded. Surface
 		// it honestly rather than running a live scan against the replaying machine.
-		return &models.CVEAllResult{
+		return &models.CVEAllResult{ //nolint:nilerr // nothing recorded in this bundle: StatusReason says so, replay must not run a live scan
 			StatusReason: "CVE scan not captured in this bundle (re-capture with: dsd capture --raw --cve-scan)",
 		}, nil
 	}

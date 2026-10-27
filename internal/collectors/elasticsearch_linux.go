@@ -99,7 +99,7 @@ func (c *ElasticsearchCollector) Collect(ctx context.Context) (interface{}, erro
 	body, code, err := esHTTPGet(ctx, info.BaseURL+"/_cluster/health")
 	if err != nil || code != http.StatusOK {
 		info.StatusReason = "cluster health unavailable (authentication required — pass credentials)"
-		return info, nil
+		return info, nil //nolint:nilerr // auth/HTTP failure is carried in StatusReason, not the error
 	}
 	var h struct {
 		ClusterName      string  `json:"cluster_name"`
@@ -110,7 +110,7 @@ func (c *ElasticsearchCollector) Collect(ctx context.Context) (interface{}, erro
 	}
 	if json.Unmarshal(body, &h) != nil || h.Status == "" {
 		info.StatusReason = "cluster health response could not be parsed"
-		return info, nil
+		return info, nil //nolint:nilerr // unparseable health body is carried in StatusReason, not the error
 	}
 	info.HealthRead = true
 	info.Status = h.Status

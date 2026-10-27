@@ -432,7 +432,7 @@ func collectTDNF(ctx context.Context) (*models.PackagesInfo, error) {
 		if len(entries) == 0 && textErr != nil && err != nil {
 			info.Status = pkgQueryFailed
 			info.StatusReason = "tdnf updateinfo unavailable"
-			return info, nil
+			return info, nil //nolint:nilerr // tdnf failure is carried in Status=query-failed/StatusReason, not the error
 		}
 	}
 
@@ -486,7 +486,7 @@ func collectAPT(ctx context.Context) (*models.PackagesInfo, error) {
 		// sources) — we didn't verify, so don't read as a clean 0-updates result.
 		info.Status = pkgQueryFailed
 		info.StatusReason = "apt-get unavailable"
-		return info, nil
+		return info, nil //nolint:nilerr // apt-get failure is carried in Status=query-failed/StatusReason, not the error
 	}
 
 	// Packages considered critical — kernel, crypto, core libs, remote access
@@ -567,8 +567,11 @@ func collectAPTKali(ctx context.Context, info *models.PackagesInfo) (*models.Pac
 
 	out, err := runCmd(ctx, pkgCmdAptGet, "-s", "upgrade")
 	if err != nil {
+		// StatusReason alone left Status empty, so checkPackageUpdates read the
+		// zero updates as "up to date". query-failed makes it "could not verify".
+		info.Status = pkgQueryFailed
 		info.StatusReason = "apt-get unavailable"
-		return info, nil
+		return info, nil //nolint:nilerr // failure is carried in Status/StatusReason (query-failed), not the error
 	}
 
 	criticalPkgs := map[string]bool{

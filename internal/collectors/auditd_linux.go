@@ -22,7 +22,7 @@ func (c *AuditCollector) Collect(ctx context.Context) (interface{}, error) {
 	info := &models.AuditInfo{}
 
 	if _, err := lookPath("auditctl"); err != nil {
-		return info, nil
+		return info, nil //nolint:nilerr // auditctl not installed: collector gate, Available stays false (row hidden)
 	}
 	info.Available = true
 
