@@ -2,6 +2,7 @@ package cmd_test
 
 import (
 	"encoding/json"
+	"errors"
 	"os/exec"
 	"strings"
 	"testing"
@@ -18,7 +19,8 @@ func run(t *testing.T, args ...string) (string, int) {
 	err := cmd.Run()
 	code := 0
 	if err != nil {
-		if exitErr, ok := err.(*exec.ExitError); ok {
+		var exitErr *exec.ExitError
+		if errors.As(err, &exitErr) {
 			code = exitErr.ExitCode()
 		}
 	}

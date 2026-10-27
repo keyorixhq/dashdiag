@@ -8,6 +8,7 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"net/netip"
 	"os/exec"
@@ -403,7 +404,8 @@ func sshFailureReason(err error) string {
 	if err == nil {
 		return "no health output (is dsd installed on the remote?)"
 	}
-	if ee, ok := err.(*exec.ExitError); ok && len(ee.Stderr) > 0 {
+	var ee *exec.ExitError
+	if errors.As(err, &ee) && len(ee.Stderr) > 0 {
 		return firstLine(strings.TrimSpace(string(ee.Stderr)))
 	}
 	return firstLine(strings.TrimSpace(err.Error()))
@@ -473,7 +475,8 @@ func sshRun(ctx context.Context, opts Options, host, cmd string) ([]byte, error)
 	c.Stderr = stderr
 	err := c.Run()
 	if err != nil {
-		if ee, ok := err.(*exec.ExitError); ok {
+		var ee *exec.ExitError
+		if errors.As(err, &ee) {
 			ee.Stderr = stderr.buf.Bytes()
 		}
 	}

@@ -32,7 +32,7 @@ func TestFirstErr(t *testing.T) {
 	}
 	wantErr := errors.New("collector failed")
 	got := firstErr([]runner.Result{{Name: "A"}, {Name: "B", Err: wantErr}})
-	if got != wantErr {
+	if !errors.Is(got, wantErr) {
 		t.Errorf("firstErr should surface the first non-nil error, got %v", got)
 	}
 }

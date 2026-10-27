@@ -53,7 +53,7 @@ func TestFatalPreflightErrorUnwraps(t *testing.T) {
 	inner := errors.New("boom")
 	wrapped := fatalPreflight(inner)
 
-	if got := errors.Unwrap(wrapped); got != inner {
+	if got := errors.Unwrap(wrapped); got != inner { //nolint:errorlint // asserts the exact value Unwrap hands back, which errors.Is would not
 		t.Errorf("errors.Unwrap(fatalPreflight(inner)) = %v, want %v", got, inner)
 	}
 	if !errors.Is(wrapped, inner) {
