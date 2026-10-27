@@ -60,3 +60,11 @@ func TestCheckSwap_UnreadableIsUnverified(t *testing.T) {
 		t.Errorf("missing Unverified insights: %+v", got)
 	}
 }
+
+func TestCheckNFS_StatsUnreadable(t *testing.T) {
+	t.Parallel()
+	got := checkNFS(models.NFSInfo{StatsUnreadable: true, RpcbindActive: true})
+	if !hasUnverified(got, "/proc/net/rpc/nfs could not be read") {
+		t.Errorf("no Unverified insight: %+v", got)
+	}
+}

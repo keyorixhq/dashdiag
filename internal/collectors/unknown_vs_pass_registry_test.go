@@ -100,7 +100,7 @@ var unknownVsPassRegistry = map[string]collectorVerdict{
 	"MySQLCollector":          sentinel("PeerVerified; MetricsRead/ConnStatsRead"),
 	"LogsCollector":           sentinel("KmsgUnreadable (C2); ErrorScanFailed/ErrorCountUnverified; CrashLoopsUnverified/CrashFilesUnreadable/JournalSizeUnreadable/JournalCorruptUnverified (one Unverified INFO naming each unread sub-path)"),
 	"NetworkDeepCollector":    sentinel("SockstatUnreadable/NetstatUnreadable"),
-	"NFSCollector":            trackedBug("COLLECTOR-SWEEP.md Low #19: nfsReadStats silent no-op on /proc/net/rpc/nfs failure; low practical impact, the retrans-rate denominator is also 0"),
+	"NFSCollector":            sentinel("StatsUnreadable (/proc/net/rpc/nfs read failure with mounts present)"),
 	"DockerCollector":         sentinel("SocketPermDenied/DetailUnavailable/UnverifiedContainers/IPForwardChecked"),
 	"MongoDBCollector":        sentinel("MetricsRead/ReplStatusRead; PeerVerified"),
 	"KdumpCollector":          sentinel("StateUnverified (empty systemctl is-enabled/is-active answer)"),
@@ -250,7 +250,6 @@ func TestUnknownVsPassRegistryComplete(t *testing.T) {
 // same PR. When the list is empty, delete trackedBugKind (DD-COLLECTOR-GAPS-1
 // Task 5) and this test with it.
 var frozenTrackedBugs = map[string]bool{
-	"NFSCollector":      true,
 	"SecurityCollector": true, "PackagesCollector": true,
 	"HealthDeepCollector": true, "PressureCollector": true,
 }
