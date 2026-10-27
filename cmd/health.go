@@ -198,7 +198,7 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen // Cobra 
 
 	persistFlag, _ := cmd.Flags().GetBool("persist")
 	if persistFlag && snap != nil {
-		persistHealthRun(ctx, snap, insights)
+		persistHealthRun(ctx, snap, results, insights)
 	}
 
 	exitCode, noticeW := printHealthResults(cmd, ctrCtx, mode, results, insights, snap, elapsed, deepFlag)
@@ -223,28 +223,16 @@ func runHealth(cmd *cobra.Command, _ []string) error { //nolint:funlen // Cobra 
 // local store. At one entry per day this is ~1 year of history.
 const defaultMaxHistory = 365
 
-func persistHealthRun(ctx context.Context, snap *baseline.Snapshot, insights []models.Insight) {
+func persistHealthRun(ctx context.Context, snap *baseline.Snapshot, results []runner.Result, insights []models.Insight) {
 	path := store.StorePath()
 
 	// Read the most-recent prior entry before we write — we need the pre-append
 	// state to compute a meaningful diff.
 	prior, _ := store.ReadAll(path, snap.Hostname, 1)
 
-	levels := make([]string, 0, len(insights))
-	for _, ins := range insights {
-		levels = append(levels, ins.Level)
-	}
-	checks := make(map[string]string, len(snap.Checks))
-	for _, c := range snap.Checks {
-		checks[c.Name] = c.Status
-	}
-	cur := store.Entry{
-		Timestamp: snap.Timestamp,
-		Hostname:  snap.Hostname,
-		Version:   snap.Version,
-		Verdict:   store.VerdictFromInsights(levels),
-		Checks:    checks,
-	}
+	// The verdict recorded in history is the same one every other output shows
+	// (render.Verdict): a run that could not verify itself is recorded WARN.
+	cur := render.HistoryEntry(snap, results, insights)
 	// Append and Prune run under one cross-process lock (store.PersistAndPrune)
 	// so a concurrent `dsd health --persist` invocation can't race this
 	// store's rename against our append and silently lose an entry.

@@ -200,22 +200,13 @@ func buildOutput(results []runner.Result, insights []models.Insight) JSONOutput 
 		return a.Message < b.Message
 	})
 
-	verdict, counts := summarizeInsights(insights)
-	for _, c := range checks {
-		if c.Status == "ERROR" {
-			counts.Errored++
-		}
-	}
-	// internal-render-03-04, extended for C1: at least one collector errored
-	// outright, OR at least one insight is Unverified (ran fine, but could
-	// not determine the specific thing it checks — see C2, /dev/kmsg) — and
-	// there's no WARN/CRIT insight to already explain it — don't let the
-	// verdict read "OK". WARN is the closed enum's (schema/dsd-output.json)
-	// best fit for "not confirmed healthy" without overstating severity; a
-	// real CRIT/WARN insight is left as-is (it already outranks this).
-	if (counts.Errored > 0 || counts.Unverified > 0) && verdict == "OK" {
-		verdict = "WARN"
-	}
+	// One verdict for every output (verdict.go): worst of CRIT/WARN, floored at
+	// WARN when a collector errored (internal-render-03-04) or an insight is
+	// Unverified (C1/C2). WARN is the closed enum's (schema/dsd-output.json)
+	// best fit for "not confirmed healthy" without overstating severity.
+	v := Verdict(results, insights)
+	verdict := v.Level
+	counts := JSONCounts{Crit: v.Crit, Warn: v.Warn, Info: v.Info, Errored: v.Errored, Unverified: v.Unverified}
 
 	return JSONOutput{
 		Hostname:  hostname,
@@ -228,31 +219,4 @@ func buildOutput(results []runner.Result, insights []models.Insight) JSONOutput 
 		Insights:  jsonInsights,
 		TopCatch:  ComputeTopCatch(insights, analysis.Correlate(insights)),
 	}
-}
-
-// summarizeInsights returns the overall verdict (worst level) and per-level
-// counts. CRIT outranks WARN outranks OK; INFO/OK never raise the verdict.
-func summarizeInsights(insights []models.Insight) (string, JSONCounts) {
-	var c JSONCounts
-	for _, ins := range insights {
-		switch ins.Level {
-		case "CRIT":
-			c.Crit++
-		case "WARN":
-			c.Warn++
-		case "INFO":
-			c.Info++
-		}
-		if ins.Unverified {
-			c.Unverified++
-		}
-	}
-	verdict := "OK"
-	switch {
-	case c.Crit > 0:
-		verdict = "CRIT"
-	case c.Warn > 0:
-		verdict = "WARN"
-	}
-	return verdict, c
 }

@@ -11,7 +11,7 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/runner"
 )
 
-func TestSummarizeInsights(t *testing.T) {
+func TestVerdictCountsAndLevel(t *testing.T) {
 	cases := []struct {
 		name        string
 		insights    []models.Insight
@@ -31,9 +31,10 @@ func TestSummarizeInsights(t *testing.T) {
 	}
 	for _, tc := range cases {
 		t.Run(tc.name, func(t *testing.T) {
-			v, c := summarizeInsights(tc.insights)
-			if v != tc.wantVerdict {
-				t.Errorf("verdict = %q, want %q", v, tc.wantVerdict)
+			v := Verdict(nil, tc.insights)
+			c := JSONCounts{Crit: v.Crit, Warn: v.Warn, Info: v.Info}
+			if v.Level != tc.wantVerdict {
+				t.Errorf("verdict = %q, want %q", v.Level, tc.wantVerdict)
 			}
 			if c != tc.wantCounts {
 				t.Errorf("counts = %+v, want %+v", c, tc.wantCounts)

@@ -17,14 +17,19 @@ import (
 //	dsd_check_status{check="x"}  per-subsystem severity (0=OK, 1=WARN, 2=CRIT)
 //	dsd_health_status            worst severity across all checks
 //
-// Severity is the same 0/1/2 scale as dsd's exit code (INFO counts as OK). A
+// Severity is the same 0/1/2 scale as dsd's exit code (INFO counts as OK, but a
+// check that could not run or be verified counts as WARN — C1). A
 // per-check series is emitted for every subsystem that actually ran, so a check
 // flipping OK→WARN is a value change, not a series appearing/disappearing.
 func PrometheusMetrics(results []runner.Result, insights []models.Insight) string {
 	worstByCheck := map[string]int{}
-	overall := 0
 	for _, ins := range insights {
 		v := promSeverity(ins.Level)
+		// C1: a check that could not be verified is not "0=OK": floor it at WARN,
+		// the same floor the JSON verdict and the exit code apply.
+		if ins.Unverified && v < 1 {
+			v = 1
+		}
 		// Roll a subsystem-qualified Check ("Network/DNS", "Memory/Slab",
 		// "CPU Load/Steal") up to its base collector name ("Network", "Memory",
 		// "CPU Load"), since the per-check series below is keyed by collector name.
@@ -37,8 +42,10 @@ func PrometheusMetrics(results []runner.Result, insights []models.Insight) strin
 		if v > worstByCheck[base] {
 			worstByCheck[base] = v
 		}
-		if v > overall {
-			overall = v
+	}
+	for _, res := range results {
+		if res.Err != nil && worstByCheck[res.Name] < 1 {
+			worstByCheck[res.Name] = 1
 		}
 	}
 
@@ -68,7 +75,7 @@ func PrometheusMetrics(results []runner.Result, insights []models.Insight) strin
 
 	b.WriteString("# HELP dsd_health_status Worst severity across all checks (0=OK, 1=WARN, 2=CRIT).\n")
 	b.WriteString("# TYPE dsd_health_status gauge\n")
-	fmt.Fprintf(&b, "dsd_health_status %d\n", overall)
+	fmt.Fprintf(&b, "dsd_health_status %d\n", Verdict(results, insights).Severity())
 	return b.String()
 }
 

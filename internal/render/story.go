@@ -32,8 +32,20 @@ func renderStorySinglePoint(insights []models.Insight, snap *baseline.Snapshot) 
 	hostname := output.SanitizeControl(snap.Hostname)
 	active := activeInsights(insights)
 	if len(active) == 0 {
-		return fmt.Sprintf("System health at %s on %s — all %d checks passed.",
-			ts, hostname, len(snap.Checks))
+		v := Verdict(nil, insights)
+		head := fmt.Sprintf("System health at %s on %s — %s", ts, hostname, v.StoryClean(len(snap.Checks)))
+		if !v.Floored() {
+			return head
+		}
+		// Not fully verified: name the checks that could not run, so the reader
+		// knows what to look at instead of reading a bare "OK".
+		var lines []string
+		for _, ins := range insights {
+			if ins.Unverified {
+				lines = append(lines, fmt.Sprintf("  %s: %s", ins.Check, output.SanitizeControl(ins.Message)))
+			}
+		}
+		return head + "\n" + strings.Join(lines, "\n")
 	}
 	var lines []string
 	for _, ins := range active {
@@ -120,8 +132,9 @@ func renderStoryFromHistory(history []*baseline.Snapshot) string {
 		n, start, end, hostname)
 	fmt.Fprintf(&sb, "%s\n", strings.Repeat("─", 56))
 
+	latest := SnapshotVerdict(last)
 	if len(events) == 0 && len(currentIssues) == 0 {
-		sb.WriteString("All checks remained healthy throughout this period.")
+		sb.WriteString(latest.StoryPeriodLine())
 		return sb.String()
 	}
 
@@ -143,7 +156,7 @@ func renderStoryFromHistory(history []*baseline.Snapshot) string {
 			fmt.Fprintln(&sb, issue)
 		}
 	} else if len(events) > 0 {
-		sb.WriteString("\nAll checks currently healthy.\n")
+		sb.WriteString("\n" + latest.StoryCurrentLine() + "\n")
 	}
 
 	return strings.TrimRight(sb.String(), "\n")

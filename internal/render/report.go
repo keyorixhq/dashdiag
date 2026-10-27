@@ -47,9 +47,8 @@ func GenerateReport(snap *baseline.Snapshot, insights []models.Insight, elapsed 
 func buildMarkdown(snap *baseline.Snapshot, insights []models.Insight, elapsed time.Duration, cve *models.CVEAllResult) string { //nolint:funlen // report renderer — each section is a distinct block
 	var b strings.Builder
 
-	crits := countLevel(insights, "CRIT")
-	warns := countLevel(insights, "WARN")
-	total := crits + warns
+	verdict := Verdict(nil, insights)
+	crits, warns := verdict.Crit, verdict.Warn
 
 	// Header
 	fmt.Fprintf(&b, "# DashDiag Health Report\n\n")
@@ -60,8 +59,8 @@ func buildMarkdown(snap *baseline.Snapshot, insights []models.Insight, elapsed t
 
 	// Summary
 	fmt.Fprintf(&b, "## Summary\n\n")
-	if total == 0 {
-		fmt.Fprintf(&b, "✅ **All checks passed** — system is healthy.\n\n")
+	if crits+warns == 0 {
+		b.WriteString(verdict.MarkdownSummary())
 	} else {
 		if crits > 0 {
 			fmt.Fprintf(&b, "🔴 **%d critical** issue(s) require immediate attention.  \n", crits)
