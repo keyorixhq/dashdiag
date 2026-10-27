@@ -81,7 +81,9 @@ func (c *KVMGuestCollector) Collect(ctx context.Context) (interface{}, error) {
 
 	info.BalloonLoaded = kernelModulePresent(readFileTrimmedLocal("/proc/modules"), "virtio_balloon")
 	info.Clocksource = readFileTrimmedLocal("/sys/devices/system/clocksource/clocksource0/current_clocksource")
-	info.StealPct = cumulativeStealPct(readFileTrimmedLocal("/proc/stat"))
+	var stealOK bool
+	info.StealPct, stealOK = cumulativeStealPctChecked(readFileTrimmedLocal("/proc/stat"))
+	info.StealUnreadable = !stealOK
 
 	return info, nil
 }
@@ -181,18 +183,28 @@ func kvmDiskBus(dev, blockDir string) string {
 // boot, parsed from the aggregate "cpu " line of /proc/stat (field 8 = steal).
 // Since-boot ratio = a chronic-overcommit signal; 0 on any parse failure.
 func cumulativeStealPct(procStat string) float64 {
+	pct, _ := cumulativeStealPctChecked(procStat)
+	return pct
+}
+
+// cumulativeStealPctChecked is cumulativeStealPct plus ok=false when the aggregate
+// line was absent, too short, or summed to zero, so 0 can be told from "no steal".
+func cumulativeStealPctChecked(procStat string) (pct float64, ok bool) {
 	for _, line := range strings.Split(procStat, "\n") {
 		if !strings.HasPrefix(line, "cpu ") {
 			continue // skip per-core "cpu0"/"cpu1" lines; want the aggregate
 		}
 		fields := strings.Fields(line) // cpu user nice system idle iowait irq softirq steal ...
 		if len(fields) < 9 {
-			return 0
+			return 0, false
 		}
 		var total, steal uint64
 		for i := 1; i < len(fields); i++ {
 			v, err := strconv.ParseUint(fields[i], 10, 64)
 			if err != nil {
+				if i == 8 {
+					return 0, false // the steal field itself is malformed: not "0% steal"
+				}
 				continue
 			}
 			total += v
@@ -201,9 +213,9 @@ func cumulativeStealPct(procStat string) float64 {
 			}
 		}
 		if total == 0 {
-			return 0
+			return 0, false
 		}
-		return float64(steal) / float64(total) * 100
+		return float64(steal) / float64(total) * 100, true
 	}
-	return 0
+	return 0, false
 }

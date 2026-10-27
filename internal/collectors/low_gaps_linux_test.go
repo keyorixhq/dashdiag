@@ -112,3 +112,26 @@ func TestUnreadTimelineSources(t *testing.T) {
 		}
 	}
 }
+
+func TestCumulativeStealPctChecked(t *testing.T) {
+	cases := []struct {
+		name   string
+		stat   string
+		wantOK bool
+	}{
+		{"healthy", "cpu  100 0 100 700 0 0 0 100 0 0\ncpu0 1 1 1 1 1 1 1 1 1 1\n", true},
+		{"genuine zero steal", "cpu  100 0 100 800 0 0 0 0 0 0\n", true},
+		{"empty read", "", false},
+		{"no aggregate line", "cpu0 1 1 1 1 1 1 1 1\n", false},
+		{"short line", "cpu  1 2 3\n", false},
+		{"malformed steal field", "cpu  100 0 100 700 0 0 0 xx 0 0\n", false},
+	}
+	for _, tc := range cases {
+		if _, ok := cumulativeStealPctChecked(tc.stat); ok != tc.wantOK {
+			t.Errorf("%s: ok=%v, want %v", tc.name, ok, tc.wantOK)
+		}
+	}
+	if pct, _ := cumulativeStealPctChecked("cpu  100 0 100 700 0 0 0 100 0 0\n"); pct < 9.9 || pct > 10.1 {
+		t.Errorf("steal pct = %v, want ~10", pct)
+	}
+}

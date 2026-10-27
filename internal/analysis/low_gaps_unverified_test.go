@@ -43,3 +43,11 @@ func TestCheckContainerd_UnreadableNamespacesAndCounts(t *testing.T) {
 		t.Errorf("missing Unverified insights: %+v", got)
 	}
 }
+
+func TestCheckKVMGuest_StealUnreadable(t *testing.T) {
+	t.Parallel()
+	got := checkKVMGuest(models.KVMGuestInfo{IsGuest: true, StealUnreadable: true})
+	if !hasUnverified(got, "CPU steal since boot could not be read") {
+		t.Errorf("no Unverified insight: %+v", got)
+	}
+}

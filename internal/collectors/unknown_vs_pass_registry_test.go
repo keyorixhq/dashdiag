@@ -84,7 +84,7 @@ var unknownVsPassRegistry = map[string]collectorVerdict{
 	"HardwareCollector":       sentinel("SMART/EDAC sentineled (SmartctlAvailable/Error/ZeroDevicesReported, EDACCountersUnreadable); RAM/System DMI blanks silently but isn't verdict-consulted"),
 	"GCPCollector":            sentinel("MaintenanceChecked/OSLoginChecked/TimeSyncChecked"),
 	"ClockCollector":          sentinel("adjtimex failure -> Synced=false -> CRIT (fails loud, not silently OK)"),
-	"KVMGuestCollector":       trackedBug("COLLECTOR-SWEEP.md Low #17: cumulativeStealPct malformed /proc/stat -> 0, same as genuine zero steal"),
+	"KVMGuestCollector":       sentinel("StealUnreadable (absent/short/zero-sum aggregate cpu line) + DiskBusesChecked/NICDriversChecked"),
 	"LaunchdCollector":        sentinel("Checked"),
 	"LVMCollector":            sentinel("PresenceReadFailed/VGReadFailed/PVReadFailed/LVReadFailed/RaidReadFailed"),
 	"MemcachedCollector":      sentinel("MetricsRead; an open :11211 whose listener cmdline is memcached but whose version probe fails is Detected with MetricsRead=false (Unverified INFO), not absent"),
@@ -250,7 +250,7 @@ func TestUnknownVsPassRegistryComplete(t *testing.T) {
 // same PR. When the list is empty, delete trackedBugKind (DD-COLLECTOR-GAPS-1
 // Task 5) and this test with it.
 var frozenTrackedBugs = map[string]bool{
-	"KVMGuestCollector": true, "NFSCollector": true,
+	"NFSCollector":      true,
 	"SwapCollector":     true,
 	"SecurityCollector": true, "PackagesCollector": true,
 	"HealthDeepCollector": true, "PressureCollector": true,
