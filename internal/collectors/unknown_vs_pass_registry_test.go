@@ -153,7 +153,7 @@ var unknownVsPassRegistry = map[string]collectorVerdict{
 	"RancherCollector":        trackedBug("COLLECTOR-SWEEP.md Medium #10: rancherDeployReady returns (0,0) both when the Deployment genuinely doesn't exist AND when the kubectl call itself fails (RBAC denial) — no distinct field, and checkRancher only fires when ServerDesired>0, so a query failure is total silence"),
 	"NspawnCollector":         sentinel("Status=\"query-failed\"+StatusReason, distinct from the genuine \"no containers\" empty-output case"),
 	"SessionsCollector":       sentinel("Checked"),
-	"TLSCollector":            trackedBug("COLLECTOR-SWEEP.md High #3: a top-level/directory readDirEntries failure silently drops the whole scan root (e.g. Debian/Ubuntu's default /etc/ssl/private 0710) — contradicts the model's own doc comment promising this can't happen. Per-FILE read/parse failures ARE correctly reported via Uncheckable."),
+	"TLSCollector":            sentinel("Uncheckable: per-file read/parse failures AND an unreadable scan-root/subdirectory (readDirEntries error other than ENOENT) are reported, with NeedsRoot for a non-root permission denial"),
 	"BatteryCollector":        sentinel("darwin: StatusReason distinct from the genuine no-battery empty-output case. Only implementation (no cross-platform Collect() found)."),
 
 	// The 16 below use `_ context.Context` (unnamed param) rather than `ctx
@@ -257,8 +257,7 @@ var frozenTrackedBugs = map[string]bool{
 	"SwapCollector": true, "ThermalCollector": true, "TimelineCollector": true,
 	"SecurityCollector": true, "PackagesCollector": true,
 	"ProcessesCollector": true, "PVECollector": true,
-	"HealthDeepCollector": true, "RancherCollector": true, "TLSCollector": true,
-	"PressureCollector": true,
+	"HealthDeepCollector": true, "RancherCollector": true, "PressureCollector": true,
 }
 
 func TestTrackedBugRatchetOnlyShrinks(t *testing.T) {
