@@ -109,8 +109,12 @@ func (c *ServicesDeepCollector) Collect(ctx context.Context) (interface{}, error
 	// corruption detected" on essentially every running systemd host (and
 	// disagreed with `dsd logs`, which already verifies archived-only). Reuse the
 	// logs collector's archived-only check so the two paths agree.
-	if fileExists(journalVarPath) && hasCorruptArchived(journalVarPath) {
-		info.JournalHealthy = false
+	if fileExists(journalVarPath) {
+		// The "unverified" half is not surfaced here (no ServicesDeep sentinel yet;
+		// `dsd logs` carries JournalCorruptUnverified): noted as a follow-up.
+		if corrupt, _ := hasCorruptArchived(journalVarPath); corrupt {
+			info.JournalHealthy = false
+		}
 	}
 
 	// 6. Boot offenders (top 5 real services, exclude .device/.socket/.mount)

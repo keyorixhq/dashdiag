@@ -559,7 +559,7 @@ func TestHasCorruptArchived_ErrorWithoutFAILIsNotCorrupt(t *testing.T) {
 		t.Run(tc.name, func(t *testing.T) {
 			prev := SetSource(source.Live{Exec: tc.exec})
 			defer SetSource(prev)
-			if got := hasCorruptArchived(dir); got != tc.want {
+			if got, _ := hasCorruptArchived(dir); got != tc.want {
 				t.Errorf("hasCorruptArchived() = %v, want %v", got, tc.want)
 			}
 		})
@@ -576,7 +576,7 @@ func (*fakeCmdErr) Error() string { return "exit status 1" }
 // report no corruption (nothing to verify).
 func TestHasCorruptArchived_DirUnreadable(t *testing.T) {
 	t.Parallel()
-	if got := hasCorruptArchived(filepath.Join(t.TempDir(), "does-not-exist")); got {
+	if got, _ := hasCorruptArchived(filepath.Join(t.TempDir(), "does-not-exist")); got {
 		t.Error("expected false for an unreadable/missing journal directory")
 	}
 }
@@ -596,7 +596,7 @@ func TestHasCorruptArchived_NonArchivedSuffixSkipped(t *testing.T) {
 		return source.Result{}, nil
 	}})
 	defer SetSource(prev)
-	if got := hasCorruptArchived(dir); got {
+	if got, _ := hasCorruptArchived(dir); got {
 		t.Error("expected false when only an active *.journal file is present")
 	}
 }
@@ -619,7 +619,7 @@ func TestHasCorruptArchived_RecursesIntoSubdirs(t *testing.T) {
 		return source.Result{Stdout: []byte("FAIL: bad message\n"), ExitCode: 1}, &fakeCmdErr{}
 	}})
 	defer SetSource(prev)
-	if got := hasCorruptArchived(dir); !got {
+	if got, _ := hasCorruptArchived(dir); !got {
 		t.Error("expected true: a corrupt archive nested under a machine-ID subdir must be found by recursion")
 	}
 }
@@ -657,7 +657,7 @@ func TestHasCorruptArchived_NonCorruptSubdirContinues(t *testing.T) {
 	if err := os.WriteFile(filepath.Join(sub, "active.journal"), []byte("x"), 0o644); err != nil {
 		t.Fatal(err)
 	}
-	if got := hasCorruptArchived(dir); got {
+	if got, _ := hasCorruptArchived(dir); got {
 		t.Error("expected false: a clean (archive-free) subdirectory must not flag corruption")
 	}
 }

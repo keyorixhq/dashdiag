@@ -98,7 +98,7 @@ var unknownVsPassRegistry = map[string]collectorVerdict{
 	"PostBootCollector":       sentinel("explicit FOUND/ABSENT/UNMEASURABLE trichotomy, per-finding *Checked booleans"),
 	"PrometheusCollector":     sentinel("MetricsRead/ConfigReloadRead"),
 	"MySQLCollector":          sentinel("PeerVerified; MetricsRead/ConnStatsRead"),
-	"LogsCollector":           trackedBug("COLLECTOR-SWEEP.md High #5 (kmsg sub-path FIXED — C2): crash-loop detection, crash-file scanning, and journal-size/corruption checks (logs_linux.go detectCrashLoops/collectCrashFiles/dirSizeViaSource/hasCorruptArchived) have no sentinel, unlike this same file's own journal-severity sub-path (ErrorScanFailed/ErrorCountUnverified)"),
+	"LogsCollector":           sentinel("KmsgUnreadable (C2); ErrorScanFailed/ErrorCountUnverified; CrashLoopsUnverified/CrashFilesUnreadable/JournalSizeUnreadable/JournalCorruptUnverified (one Unverified INFO naming each unread sub-path)"),
 	"NetworkDeepCollector":    sentinel("SockstatUnreadable/NetstatUnreadable"),
 	"NFSCollector":            trackedBug("COLLECTOR-SWEEP.md Low #19: nfsReadStats silent no-op on /proc/net/rpc/nfs failure; low practical impact, the retrans-rate denominator is also 0"),
 	"DockerCollector":         sentinel("SocketPermDenied/DetailUnavailable/UnverifiedContainers/IPForwardChecked"),
@@ -153,7 +153,7 @@ var unknownVsPassRegistry = map[string]collectorVerdict{
 	"RancherCollector":        trackedBug("COLLECTOR-SWEEP.md Medium #10: rancherDeployReady returns (0,0) both when the Deployment genuinely doesn't exist AND when the kubectl call itself fails (RBAC denial) — no distinct field, and checkRancher only fires when ServerDesired>0, so a query failure is total silence"),
 	"NspawnCollector":         sentinel("Status=\"query-failed\"+StatusReason, distinct from the genuine \"no containers\" empty-output case"),
 	"SessionsCollector":       sentinel("Checked"),
-	"TLSCollector":            sentinel("Uncheckable: per-file read/parse failures AND an unreadable scan-root/subdirectory (readDirEntries error other than ENOENT) are reported, with NeedsRoot for a non-root permission denial"),
+	"TLSCollector":            sentinel("Uncheckable: per-file read/parse failures AND a permission-denied scan-root/subdirectory are reported, with NeedsRoot for a non-root permission denial"),
 	"BatteryCollector":        sentinel("darwin: StatusReason distinct from the genuine no-battery empty-output case. Only implementation (no cross-platform Collect() found)."),
 
 	// The 16 below use `_ context.Context` (unnamed param) rather than `ctx
@@ -252,7 +252,7 @@ func TestUnknownVsPassRegistryComplete(t *testing.T) {
 var frozenTrackedBugs = map[string]bool{
 	"CPUCollector": true, "CloudMetaCollector": true, "ContainerdCollector": true,
 	"GrafanaCollector": true, "KVMGuestCollector": true, "MemcachedCollector": true,
-	"NetworkCollector": true, "LogsCollector": true, "NFSCollector": true,
+	"NetworkCollector": true, "NFSCollector": true,
 	"KdumpCollector": true, "TunedCollector": true,
 	"SwapCollector": true, "ThermalCollector": true, "TimelineCollector": true,
 	"SecurityCollector": true, "PackagesCollector": true,

@@ -788,6 +788,28 @@ func checkLogs(logs models.LogsInfo, thresh Thresholds) []models.Insight {
 			[]string{"to inspect: dmesg | tail -50"},
 		))
 	}
+	// DD-COLLECTOR-GAPS-1 High #5: one disclosure naming every sub-check that
+	// could not be read, so a zero crash-loop / crash-file / journal-size /
+	// corruption count is never taken as a measured clean result.
+	var unmeasured []string
+	if logs.CrashLoopsUnverified {
+		unmeasured = append(unmeasured, "crash loops")
+	}
+	if logs.CrashFilesUnreadable {
+		unmeasured = append(unmeasured, "crash/core dump files")
+	}
+	if logs.JournalSizeUnreadable {
+		unmeasured = append(unmeasured, "journal size")
+	}
+	if logs.JournalCorruptUnverified {
+		unmeasured = append(unmeasured, "journal corruption")
+	}
+	if len(unmeasured) > 0 {
+		out = append(out, unverifiedInsight("INFO", "Logs",
+			"could not verify: "+strings.Join(unmeasured, ", ")+" — a zero here is not a measured clean result",
+			[]string{"to inspect: systemctl list-units --state=failed", inspectJournalDiskUse, "check: re-run as root (journal group / /var/crash access)"},
+		))
+	}
 	if l := levelPct(logs.JournalSizeGB, thresh.JournalSizeWarnGB, thresh.JournalSizeCritGB); l != "" {
 		out = append(out, insight(l, "Logs",
 			fmt.Sprintf("journal is %.1f GB", logs.JournalSizeGB),

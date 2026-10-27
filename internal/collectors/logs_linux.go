@@ -4,6 +4,7 @@ package collectors
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -90,11 +91,11 @@ func (c *LogsCollector) Collect(ctx context.Context) (interface{}, error) {
 	kmsgParseFn(kmsgCtx, info, c.Lookback)
 	kmsgCancel()
 
-	info.JournalSizeGB = journalDiskUsage()
+	info.JournalSizeGB, info.JournalSizeUnreadable = journalDiskUsage()
 
 	loopCtx, loopCancel := context.WithTimeout(ctx, 5*time.Second)
 	defer loopCancel()
-	info.CrashLoops = detectCrashLoops(loopCtx)
+	info.CrashLoops, info.CrashLoopsUnverified = detectCrashLoops(loopCtx)
 
 	// Check pstore for panic records from previous boots
 	info.KernelPanics += countPstorePanics()
@@ -365,12 +366,16 @@ func extractBracketProc(s string) string {
 }
 
 // journalDiskUsage returns total journal size in GB by walking journal directories.
-func journalDiskUsage() float64 {
+// unreadable is true when any journal directory exists but could not be listed
+// (a non-root run without journal-group access), so the size is a lower bound.
+func journalDiskUsage() (sizeGB float64, unreadable bool) {
 	var total int64
 	for _, dir := range []string{journalRunPath, journalVarPath} {
-		total += dirSizeViaSource(dir)
+		n, bad := dirSizeViaSource(dir)
+		total += n
+		unreadable = unreadable || bad
 	}
-	return float64(total) / (1024 * 1024 * 1024)
+	return float64(total) / (1024 * 1024 * 1024), unreadable
 }
 
 // dirSizeViaSource recursively sums file sizes under dir via the active source
@@ -378,35 +383,44 @@ func journalDiskUsage() float64 {
 // filesystem directly and so, under `dsd replay`/`diff`/`migrate certify`,
 // reports the REPLAYING machine's journal size instead of the captured
 // bundle's. A missing/unreadable directory contributes 0, matching the old
-// Walk's silent-skip-on-error behavior.
-func dirSizeViaSource(dir string) int64 {
+// Walk's silent-skip-on-error behavior in the SIZE, but a directory that exists
+// and could not be listed is reported via unreadable so the caller never reads
+// the undercount as a measured size. Only a genuine permission error counts (the
+// same rule as source.GlobChecked): an absent dir, or one a replay bundle never
+// recorded, is the normal "no such journal dir", not a read failure.
+func dirSizeViaSource(dir string) (total int64, unreadable bool) {
 	entries, err := readDirEntries(dir)
 	if err != nil {
-		return 0
+		return 0, errors.Is(err, os.ErrPermission)
 	}
-	var total int64
 	for _, e := range entries {
 		path := filepath.Join(dir, e.Name())
 		if e.IsDir() {
-			total += dirSizeViaSource(path)
+			n, bad := dirSizeViaSource(path)
+			total += n
+			unreadable = unreadable || bad
 			continue
 		}
 		if fi, err := statFile(path); err == nil {
 			total += fi.Size
 		}
 	}
-	return total
+	return total, unreadable
 }
 
 // detectCrashLoops uses systemctl to find units that have restarted frequently.
 // This is an acceptable wrapper — crash loop state isn't in /proc or /sys.
-func detectCrashLoops(ctx context.Context) []string {
+//
+// unverified is true when the query failed on a host that has systemd (the
+// listing itself, or a per-unit NRestarts lookup), so an empty result is "could
+// not look", not "nothing is looping". A non-systemd host is not unverified: there
+// is no systemd crash-loop state to read.
+func detectCrashLoops(ctx context.Context) (loops []string, unverified bool) {
 	out, err := runCmd(ctx, "systemctl", "list-units", "--state=failed", "--no-legend", logsNoPager, "--plain")
 	if err != nil {
-		return nil
+		return nil, systemdPresentViaSource()
 	}
 	now := NowViaSource() // capture-time under replay, so recency is hermetic
-	var loops []string
 	for _, line := range strings.Split(out, "\n") {
 		fields := strings.Fields(line)
 		if len(fields) == 0 {
@@ -426,6 +440,7 @@ func detectCrashLoops(ctx context.Context) []string {
 		showOut, err := runCmd(ctx, "systemctl", "show", unit,
 			"--property=NRestarts", "--property=InactiveEnterTimestamp")
 		if err != nil {
+			unverified = true // this unit's restart count is unknown
 			continue
 		}
 		var restarts int
@@ -450,7 +465,7 @@ func detectCrashLoops(ctx context.Context) []string {
 		}
 		loops = append(loops, fmt.Sprintf("%s (restarted %d times)", unit, restarts))
 	}
-	return loops
+	return loops, unverified
 }
 
 // crashLoopRecent reports whether a failed unit's last state change (systemd's
@@ -527,9 +542,9 @@ func checkJournalHealth(_ context.Context, info *models.LogsInfo, profile platfo
 	//    ones. journalctl --verify races with active writers and produces false
 	//    corruption reports on healthy live journals (systemd issue #35916).
 	if fileExists(journalVarPath) {
-		if hasCorruptArchived(journalVarPath) {
-			info.JournalCorrupt = true
-		}
+		corrupt, unverified := hasCorruptArchived(journalVarPath)
+		info.JournalCorrupt = corrupt
+		info.JournalCorruptUnverified = unverified
 	}
 
 	// 2. Volatile storage — logs lost on reboot.
@@ -558,18 +573,25 @@ func checkJournalHealth(_ context.Context, info *models.LogsInfo, profile platfo
 // hasCorruptArchived checks only archived (*.journal~) files for corruption.
 // Active *.journal files are skipped — they're written live and always appear
 // "corrupt" to the verifier due to an unflushed tail segment (systemd#35916).
-func hasCorruptArchived(dir string) bool {
+//
+// unverified is true when the answer false is not proven: the directory could
+// not be listed, or `journalctl --verify` could not run / exited non-zero without
+// a verdict (EACCES, timeout, tool absent) for an archive. A bare "not corrupt"
+// must never come from a verifier that never looked.
+func hasCorruptArchived(dir string) (corrupt, unverified bool) {
 	entries, err := readDirEntries(dir)
 	if err != nil {
-		return false
+		return false, errors.Is(err, os.ErrPermission)
 	}
 	for _, e := range entries {
 		if e.IsDir() {
 			// recurse into machine-ID subdirectories
 			sub := dir + "/" + e.Name()
-			if hasCorruptArchived(sub) {
-				return true
+			c, u := hasCorruptArchived(sub)
+			if c {
+				return true, unverified || u
 			}
+			unverified = unverified || u
 			continue
 		}
 		// Only check archived files (*.journal~), skip active (*.journal)
@@ -585,13 +607,16 @@ func hasCorruptArchived(dir string) bool {
 		// archive" WARN on an otherwise-healthy host. Only the verifier's own FAIL
 		// marker is evidence of real corruption.
 		ctx2, cancel := context.WithTimeout(context.Background(), 5*time.Second)
-		out, _ := runCmdCombined(ctx2, "journalctl", "--verify", "--file="+dir+"/"+e.Name())
+		out, verr := runCmdCombined(ctx2, "journalctl", "--verify", "--file="+dir+"/"+e.Name())
 		cancel()
 		if strings.Contains(out, "FAIL") {
-			return true
+			return true, unverified
+		}
+		if verr != nil {
+			unverified = true // no FAIL marker, but the verifier did not run cleanly
 		}
 	}
-	return false
+	return false, unverified
 }
 
 // detectUnboundedJournal returns true when no SystemMaxUse cap is configured
@@ -1033,6 +1058,10 @@ func crashFileFromEntry(path string, now time.Time) (models.CrashFile, bool) {
 //   - /var/crash/       — kernel crash dumps (kdump), some distros' apport output
 //   - /var/lib/systemd/coredump/ — systemd-coredump managed core files
 //   - /sys/fs/pstore/   — pstore panic records (read-only, from previous boot)
+//
+// A directory that exists but cannot be listed sets CrashFilesUnreadable: no
+// dump found there is not evidence that none exist. Only a genuine permission
+// error counts (absent / never-recorded dirs are the normal case).
 func collectCrashFiles(info *models.LogsInfo) {
 	dirs := []string{
 		"/var/crash",
@@ -1043,6 +1072,9 @@ func collectCrashFiles(info *models.LogsInfo) {
 	for _, dir := range dirs {
 		entries, err := readDirEntries(dir)
 		if err != nil {
+			if errors.Is(err, os.ErrPermission) {
+				info.CrashFilesUnreadable = true
+			}
 			continue
 		}
 		for _, e := range entries {
@@ -1057,7 +1089,10 @@ func collectCrashFiles(info *models.LogsInfo) {
 	}
 
 	// pstore — count panic records (each file is one event, filenames contain type)
-	pstoreEntries, _ := readDirEntries("/sys/fs/pstore")
+	pstoreEntries, perr := readDirEntries("/sys/fs/pstore")
+	if perr != nil && errors.Is(perr, os.ErrPermission) {
+		info.CrashFilesUnreadable = true
+	}
 	for _, e := range pstoreEntries {
 		name := e.Name()
 		if strings.Contains(name, "panic") || strings.Contains(name, "oops") ||

@@ -113,15 +113,16 @@ func walkCertDir(ctx context.Context, dir string, depth int, now time.Time, resu
 	entries, err := readDirEntries(dir)
 	if err != nil {
 		// A scan root that does not exist is normal (most hosts have no
-		// /etc/haproxy). Anything else — typically permission denied on the
-		// Debian/Ubuntu default /etc/ssl/private (0710) — means certs may be
-		// there that we never read: record the directory as Uncheckable instead
-		// of letting the whole root vanish into a clean "0 expired".
-		if !errors.Is(err, os.ErrNotExist) {
+		// /etc/haproxy), as is one a replay bundle never recorded. A permission
+		// error — typically the Debian/Ubuntu default /etc/ssl/private (0710) —
+		// means certs may be there that we never read: record the directory as
+		// Uncheckable instead of letting the whole root vanish into a clean
+		// "0 expired". Same rule as source.GlobChecked.
+		if errors.Is(err, os.ErrPermission) {
 			*uncheckable = append(*uncheckable, models.TLSUncheckable{
 				Path:      dir,
 				Error:     "could not read directory: " + err.Error(),
-				NeedsRoot: errors.Is(err, os.ErrPermission) && os.Geteuid() != 0,
+				NeedsRoot: os.Geteuid() != 0,
 			})
 		}
 		return
