@@ -110,10 +110,11 @@ func (c *ServicesDeepCollector) Collect(ctx context.Context) (interface{}, error
 	// disagreed with `dsd logs`, which already verifies archived-only). Reuse the
 	// logs collector's archived-only check so the two paths agree.
 	if fileExists(journalVarPath) {
-		// The "unverified" half is not surfaced here (no ServicesDeep sentinel yet;
-		// `dsd logs` carries JournalCorruptUnverified): noted as a follow-up.
-		if corrupt, _ := hasCorruptArchived(journalVarPath); corrupt {
+		corrupt, unverified := hasCorruptArchived(journalVarPath)
+		if corrupt {
 			info.JournalHealthy = false
+		} else if unverified {
+			info.JournalVerifyUnverified = true
 		}
 	}
 

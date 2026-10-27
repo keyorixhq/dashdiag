@@ -562,3 +562,33 @@ func TestCollectNeedsDaemonReload_ShowFails(t *testing.T) {
 		t.Errorf("got %+v, want nil", got)
 	}
 }
+
+// DD-COLLECTOR-GAPS-1 follow-up: archived journals that could not be verified
+// (unlistable directory) must not leave a bare JournalHealthy=true behind; the
+// sentinel lets the renderer say "not verified" instead of "healthy".
+func TestServicesDeepCollector_Collect_JournalVerifyUnverified(t *testing.T) {
+	b := source.NewBundle()
+	b.PutCmdNotFound("systemctl", []string{"list-units", "--failed", "--plain", "--no-legend", "--no-pager"})
+	b.PutCmdNotFound("systemctl", []string{"list-units", "--type=service", "--state=loaded", "--plain", "--no-legend", "--no-pager"})
+	b.PutCmdNotFound("systemctl", []string{"list-units", "--type=service", "--state=masked", "--plain", "--no-legend", "--no-pager"})
+	b.PutCmdNotFound("systemd-analyze", []string{"blame", "--no-pager"})
+	b.PutCmdNotFound("systemctl", []string{"--user", "is-system-running"})
+	b.PutStat("/var/log/journal", source.FileMeta{IsDir: true, Mode: 0o750})
+	prev := SetSource(readDirErrSource{
+		Source: source.NewReplay(b),
+		errs:   map[string]error{"/var/log/journal": permDenied("/var/log/journal")},
+	})
+	t.Cleanup(func() { SetSource(prev) })
+
+	raw, err := NewServicesDeepCollector().Collect(context.Background())
+	if err != nil {
+		t.Fatalf("Collect() error: %v", err)
+	}
+	info := raw.(*models.ServicesDeepInfo)
+	if !info.JournalVerifyUnverified {
+		t.Error("JournalVerifyUnverified = false for an unlistable journal directory")
+	}
+	if !info.JournalHealthy {
+		t.Error("JournalHealthy = false, but nothing was proven corrupt")
+	}
+}

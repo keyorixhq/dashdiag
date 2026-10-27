@@ -213,3 +213,26 @@ func TestServicesDeepMaskedNotQueriedNotNone(t *testing.T) {
 		t.Errorf("queried-with-nothing-masked line should say 'none', got %q", line)
 	}
 }
+
+// A journal whose archives could not be verified is "not verified", never the
+// green "healthy" a clean host gets (DD-COLLECTOR-GAPS-1 follow-up).
+func TestServicesDeepJournalUnverifiedNotHealthy(t *testing.T) {
+	journalLine := func(out string) string {
+		for _, l := range strings.Split(out, "\n") {
+			if strings.Contains(l, "Journal") {
+				return l
+			}
+		}
+		return ""
+	}
+	unv := &models.ServicesDeepInfo{FailedUnitsQueried: true, MaskedUnitsQueried: true, JournalHealthy: true, JournalVerifyUnverified: true}
+	out := captureStdout(t, func() { printSystemdHealth(unv, output.ModeHuman) })
+	if line := journalLine(out); strings.Contains(line, "healthy") || !strings.Contains(line, "not verified") {
+		t.Errorf("unverified journal line should say 'not verified', not 'healthy', got %q", line)
+	}
+	ok := &models.ServicesDeepInfo{FailedUnitsQueried: true, MaskedUnitsQueried: true, JournalHealthy: true}
+	out2 := captureStdout(t, func() { printSystemdHealth(ok, output.ModeHuman) })
+	if line := journalLine(out2); !strings.Contains(line, "healthy") {
+		t.Errorf("verified journal line should say 'healthy', got %q", line)
+	}
+}

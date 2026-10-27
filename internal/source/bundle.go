@@ -125,7 +125,7 @@ func NewBundle() *Bundle {
 		globs:    map[string][]string{},
 		dirs:     map[string][]string{},
 		dirErrs:  map[string]dirErrRec{},
-		cmds:    map[string]cmdRec{},
+		cmds:     map[string]cmdRec{},
 		links:    map[string]linkRec{},
 		stats:    map[string]statRec{},
 		statfss:  map[string]statfsRec{},
