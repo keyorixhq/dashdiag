@@ -144,7 +144,7 @@ var unknownVsPassRegistry = map[string]collectorVerdict{
 	"OCICollector":            sentinel("per-check *Checked (IMDSChecked/AgentChecked/TimeSyncChecked/VNICChecked)"),
 	"RabbitMQCollector":       sentinel("DiagnosticsRead/Pinged/AlarmsRead"),
 	"RedisCollector":          sentinel("MetricsRead/MaxClientsRead"),
-	"PVECollector":            trackedBug("COLLECTOR-SWEEP.md Medium #11: collectPVEHAFencing assumes a pvesh error means \"endpoint absent\" without checking, unlike its sibling collectPVECluster which does. Every other sub-check (Storages/Guests/Backups/TaskErrors/Bridges) is CORRECT (explicit verified bools)."),
+	"PVECollector":            sentinel("HAVerified is false for any pvesh failure except an explicit 501/not-implemented; Unverified INFO"),
 	"HAProxyCollector":        sentinel("ConfigTested via shared webConfigTest; StatusReason cosmetic gap only, does not affect the ConfigTested signal"),
 	"ServicesCollector":       sentinel("config.Load failure propagates as a real error; checkService returns an explicit WARN both when probing is off and when a replay bundle has no recorded probe"),
 	"HealthDeepCollector":     trackedBug("COLLECTOR-SWEEP.md Low #20: collectMemDetail's /proc/meminfo read has no sentinel on models.HealthDeepInfo (distinct model from MemoryInfo, which IS guarded); low likelihood, /proc/meminfo is normally world-readable. TopProcsNeedsRoot/TopCPUProcsNeedsRoot/TopIOProcsNeedsRoot sub-checks ARE correct."),

@@ -256,13 +256,17 @@ func collectPVECluster(ctx context.Context) (name string, quorumOK bool, nodes [
 // ARRAY of status entries — on a node without HA configured, just the quorum entry
 // ([{"id":"quorum",pveFldStatus:"OK",...}]); with HA, additional lrm/crm/service entries.
 // (The previous single-object struct never matched this array, so fence detection
-// was dead and always fell through to a clean OK.) verified is false only when the
-// API answered but the body was unparseable; a runCmd error means the endpoint is
-// absent (HA not available) and stays verified — nothing to read.
+// was dead and always fell through to a clean OK.) verified is false when the API
+// answered but the body was unparseable, AND when pvesh failed for any reason other
+// than the endpoint being explicitly absent (501 / not implemented): a timeout, a
+// permission error or a wedged pmxcfs must not read as "HA not configured" — the
+// sibling collectPVECluster likewise reports a pvesh error as unreachable.
 func collectPVEHAFencing(ctx context.Context) (ok bool, msg string, verified bool) {
-	out, err := runCmd(ctx, pveCmdPvesh, pveCmdGet, "/cluster/ha/status/current", pveFlagOutFmt, pveFmtJSON)
+	out, err := runCmdCombined(ctx, pveCmdPvesh, pveCmdGet, "/cluster/ha/status/current", pveFlagOutFmt, pveFmtJSON)
 	if err != nil {
-		return true, "", true
+		lower := strings.ToLower(out)
+		absent := strings.Contains(lower, "501") || strings.Contains(lower, "not implemented")
+		return true, "", absent
 	}
 	var entries []struct {
 		ID     string `json:"id"`
