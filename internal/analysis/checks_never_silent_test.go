@@ -110,6 +110,14 @@ var neverSilentChecks = []neverSilentCheck{
 		wantSubstr: "could not read /boot",
 	},
 	{
+		name:    "checkProcesses: process list unreadable",
+		checkFn: "checkProcesses",
+		run: func() []models.Insight {
+			return checkProcesses(models.ProcessInfo{ListUnreadable: true}, DefaultThresholds(platform.EnvBareMetal))
+		},
+		wantSubstr: "could not list processes",
+	},
+	{
 		name:    "checkNetwork: /proc/net/sockstat read failed",
 		checkFn: "checkNetwork",
 		run: func() []models.Insight {

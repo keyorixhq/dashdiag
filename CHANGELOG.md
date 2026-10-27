@@ -55,6 +55,26 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     an optional `direrrs.json`, older bundles still load), and a permission-denied
     subdirectory of a readable scan root is reported by the TLS walker instead of
     being skipped as if it were a file.
+- **Seven more collectors no longer read "could not look" as a clean result
+  (COLLECTOR-SWEEP.md Medium #6-#12).** Additive, `omitempty` fields, each with an
+  `unverified` insight:
+  - `NetworkCollector`: `interfaces_unreadable`, `connections_unreadable` (a failed
+    read no longer leaves an empty interface list and CLOSE_WAIT 0).
+  - `CloudMetaCollector`: the registration gate retries once, and a host whose DMI
+    says AWS/GCP/Azure/OCI stays registered after a transient IMDS miss, so the
+    existing "metadata could not be read" insight appears instead of nothing.
+    Offline runs (the default) are unchanged.
+  - `ProcessesCollector`: `list_restricted` (hidepid / `ProtectProc=invisible`:
+    PID 1 absent from `/proc`) and `list_unreadable` (macOS `ps` failure).
+  - `GrafanaCollector` / `MemcachedCollector`: a service that accepts connections
+    and whose own cmdline names it, but stalls its handshake, is reported as
+    present with unread health/stats instead of "not installed".
+  - `RancherCollector`: `server_unreadable`, `webhook_unreadable` (kubectl
+    `NotFound` is still "absent"; forbidden/timeout is "unreadable").
+  - `PVECollector`: only an explicit 501/not-implemented from `pvesh` means "no HA";
+    any other failure sets `ha_verified: false`.
+  - `CPUCollector`: `usage_sample_failed` when the `/proc/stat` sample fails or is
+    cancelled, instead of RunQueue/steal/iowait reading 0.
 - **An unreadable directory no longer reads as "nothing found".** `filepath.Glob`
   returns an empty, nil-error result for a directory it may not read, so several
   scans reported a clean "none" for a directory they were denied. The fix helper

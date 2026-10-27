@@ -110,13 +110,13 @@ accident, which is what this ranking is for.
 5. **FIXED** (DD-COLLECTOR-GAPS-1 task 2b) — `LogsCollector` (crash loops / crash files / journal size / corruption — 4 sub-paths beyond the now-fixed kmsg one) — crash-loop detection is a core reliability signal; `systemctl`/unreadable `/var/crash`/unreadable journal dir all fold silently to "clean."
 
 **Medium** — real miss, narrower window or lower stakes:
-6. `NetworkCollector` — `cachedJSON` errors discarded (`_ = ...`); a `/proc/net/*` read failure silently disables interface checks AND the CLOSE_WAIT leak detector together.
-7. `CloudMetaCollector` — the registration gate is itself a live IMDS probe; a transient hiccup on a real cloud host masks time-sensitive spot-termination/maintenance-event warnings.
-8. `ProcessesCollector` — `hidepid=2`/`ProtectProc=invisible` yields a valid, short, no-error process list; `ZombieCount`/`HungCount` are real verdict inputs, not just display.
-9. `GrafanaCollector` / `MemcachedCollector` — a service overloaded enough to fail its handshake probe (exactly when visibility matters most) reads as "not installed."
-10. `RancherCollector` — an RBAC-scoped kubeconfig that can list namespaces but not deployments masks a crash-looping management plane.
-11. `PVECollector` (HA fencing) — assumes a `pvesh` error means "endpoint absent," unlike its sibling `collectPVECluster`, which checks.
-12. `CPUCollector` (`RunQueue`) — zeroes out on exactly the host-contention scenario the field exists to detect (2s ctx timeout under load).
+6. **FIXED** (DD-COLLECTOR-GAPS-1 task 3) — `NetworkCollector` — `cachedJSON` errors discarded (`_ = ...`); a `/proc/net/*` read failure silently disables interface checks AND the CLOSE_WAIT leak detector together.
+7. **FIXED** (DD-COLLECTOR-GAPS-1 task 3) — `CloudMetaCollector` — the registration gate is itself a live IMDS probe; a transient hiccup on a real cloud host masks time-sensitive spot-termination/maintenance-event warnings.
+8. **FIXED** (DD-COLLECTOR-GAPS-1 task 3) — `ProcessesCollector` — `hidepid=2`/`ProtectProc=invisible` yields a valid, short, no-error process list; `ZombieCount`/`HungCount` are real verdict inputs, not just display.
+9. **FIXED** (DD-COLLECTOR-GAPS-1 task 3) — `GrafanaCollector` / `MemcachedCollector` — a service overloaded enough to fail its handshake probe (exactly when visibility matters most) reads as "not installed."
+10. **FIXED** (DD-COLLECTOR-GAPS-1 task 3) — `RancherCollector` — an RBAC-scoped kubeconfig that can list namespaces but not deployments masks a crash-looping management plane.
+11. **FIXED** (DD-COLLECTOR-GAPS-1 task 3) — `PVECollector` (HA fencing) — assumes a `pvesh` error means "endpoint absent," unlike its sibling `collectPVECluster`, which checks.
+12. **FIXED** (DD-COLLECTOR-GAPS-1 task 3) — `CPUCollector` (`RunQueue`) — zeroes out on exactly the host-contention scenario the field exists to detect (2s ctx timeout under load).
 
 **Low** — real gap, low likelihood or low blast radius:
 13. `KdumpCollector` / `TunedCollector` — no sentinel, unlike 5 siblings in the same file; lower-stakes maintenance checks.
@@ -146,8 +146,8 @@ row (the project's own documented, accepted convention — not a defect).
 | AuthCollector (linux) | auth_linux.go:23 | CORRECT | `Checked` |
 | AzureCollector | azure_linux.go:60 | CORRECT | `TimeSyncChecked`/`DisksChecked`/`NVMeIOTimeoutChecked` |
 | BINDCollector | bind_linux.go:30 | CORRECT | `PortsChecked`/`QueryTested` |
-| **CPUCollector** | cpu.go:287 | **BUG** | `sampleCPUUsage` zero-value on ctx timeout/`/proc/stat` failure; `RunQueue` has no fallback (unlike `UsagePct`) |
-| **CloudMetaCollector** | cloudmeta_linux.go:66 | **BUG** | Gate itself is a live IMDS probe; transient IMDS hiccup on a real cloud host reads as "not cloud" |
+| CPUCollector | cpu.go | **FIXED** | `UsageSampleFailed` (cpuSample.OK) → Unverified INFO |
+| CloudMetaCollector | cloudmeta_linux.go | **FIXED** | gate retries once; a DMI-identified cloud VM still registers, `Available=false` → Unverified INFO |
 | **ContainerdCollector** | containerd_linux.go:107 | **BUG (narrow)** | `containerdNamespaces` silent `(nil,false)` on `ctr` failure post-socket-dial |
 | CronCollector | cron_linux.go:26 | CORRECT | `FailureScanOK` |
 | CVEHealthCollector | cve_health.go:33 | CORRECT | `ScanFailed`+`StatusReason`, stale-metadata guard |
@@ -158,18 +158,18 @@ row (the project's own documented, accepted convention — not a defect).
 | ElasticsearchCollector | elasticsearch_linux.go:93 | CORRECT | `HealthRead` |
 | FDLimitsCollector | fdlimits.go:145 | CORRECT | real error → `checks[].status=ERROR` |
 | GPUCollector | gpu_linux.go:42 | CORRECT | `Unreadable` (NVIDIA); AMD/Intel sysfs absence isn't privilege-gated |
-| **GrafanaCollector** | grafana_linux.go:72 | **BUG** | reachable-but-slow `/api/health` reads as "not installed" (shape 2) |
+| GrafanaCollector | grafana_linux.go | **FIXED** | open port + grafana cmdline but silent `/api/health` → Detected, `HealthRead=false` |
 | HardwareCollector | hardware_linux.go:27 | CORRECT (mixed) | SMART/EDAC sentineled; RAM/System DMI blank silently but not verdict-consulted |
 | GCPCollector | gcp_linux.go:60 | CORRECT | `MaintenanceChecked` etc. |
 | ClockCollector | clock.go:20 | CORRECT (fails loud) | `Synced=false`→CRIT, opposite-direction risk only |
 | **KVMGuestCollector** | kvmguest_linux.go:47 | **BUG (narrow)** | `cumulativeStealPct` malformed `/proc/stat` → 0 (shape 5) |
 | LVMCollector | lvm_linux.go:73 | CORRECT | per-subcommand `*ReadFailed` |
-| **MemcachedCollector** | memcached_linux.go:135 | **BUG** | overloaded server fails version probe → "not installed" (shape 2) |
+| MemcachedCollector | memcached_linux.go | **FIXED** | open port + memcached cmdline but no VERSION → Detected, `MetricsRead=false` |
 | CephCollector | ceph_linux.go:19 | CORRECT | `Health="HEALTH_UNKNOWN"` |
 | MemoryCollector | memory.go:57 | CORRECT | `MeminfoUnreadable` |
 | KafkaCollector | kafka_linux.go:69 | CORRECT | `Detected`/`MetricsRead`/`UnderReplicatedRead` |
 | CloudInitCollector | cloudinit_linux.go:45 | CORRECT | `StatusUnverified` |
-| **NetworkCollector** | network_quick.go:59 | **BUG** | `cachedJSON` errors discarded (`_ = ...`) — interfaces + CLOSE_WAIT both silently empty |
+| NetworkCollector | network_quick.go | **FIXED** | `InterfacesUnreadable`/`ConnectionsUnreadable` |
 | KVMCollector | kvm_linux.go:40 | CORRECT | `kvmStatusEnumFailed`/`VMsUnreadable`/`PoolsCapUnknown` — exemplary |
 | IPMICollector | ipmi_linux.go:37 | CORRECT | read-result-first, euid-second — the correct order C2 lacks |
 | PostBootCollector | postboot_linux.go:50 | CORRECT | explicit FOUND/ABSENT/UNMEASURABLE trichotomy (doc claim verified) |
@@ -219,12 +219,12 @@ row (the project's own documented, accepted convention — not a defect).
 | PostgresCollector | postgres_linux.go:47 | CORRECT | `MetricsRead` |
 | NVMeCollector (linux) | nvme_linux.go:52 | CORRECT | `SmartUnreadReason` (doc claims verified) |
 | NginxCollector | nginx_linux.go:26 | CORRECT | `ConfigTested` |
-| **ProcessesCollector** | processes.go:67 | **BUG** | `hidepid=2`/`ProtectProc=invisible` — valid short glob result, no error, no sentinel (shape 1, structurally) |
+| ProcessesCollector | processes.go | **FIXED** | `ListRestricted` (PID 1 absent) / `ListUnreadable` (darwin ps) |
 | OCICollector | oci_linux.go:47 | CORRECT | per-check `*Checked` |
 | RabbitMQCollector | rabbitmq_linux.go:58 | CORRECT | `DiagnosticsRead`/`AlarmsRead` |
 | PackagesCollector (linux) | packages_linux.go:69 | CORRECT | extensive, incl. stale-metadata guard |
 | RedisCollector | redis_linux.go:77 | CORRECT | `MetricsRead`/`MaxClientsRead` |
-| **PVECollector — HA fencing** | pve_linux.go:262-285 | **BUG** | assumes `pvesh` error = absent without checking, unlike sibling `collectPVECluster` (shape 4) |
+| PVECollector — HA fencing | pve_linux.go | **FIXED** | only an explicit 501 is "HA absent"; any other pvesh failure → `HAVerified=false` |
 | PVECollector — other sub-checks | pve_linux.go:215-253 | CORRECT | `reachable`/`verified` bools |
 | HAProxyCollector | haproxy_linux.go:25 | CORRECT | `ConfigTested` (StatusReason cosmetic gap only) |
 | ServicesCollector | services.go:24 | CORRECT | explicit WARN+`Error` on missing probe/config |
@@ -232,7 +232,7 @@ row (the project's own documented, accepted convention — not a defect).
 | HealthDeepCollector — top-procs/CPU/IO | health_deep_linux.go:79,101-116 | CORRECT | `TopProcsNeedsRoot` etc., registered |
 | SUSEConnectCollector | suseconnect_collector.go:78 | CORRECT | `StatusUnverified` |
 | SteamOSCollector | steamos_linux.go:53 | CORRECT | every sub-check has a "checked" companion |
-| **RancherCollector** | rancher_collector.go:50-65 | **BUG** | RBAC-scoped kubeconfig collapses "can't query" into "0" (shape 4) |
+| RancherCollector | rancher_collector.go | **FIXED** | `ServerUnreadable`/`WebhookUnreadable` (NotFound vs forbidden/timeout) |
 | NspawnCollector | nspawn_linux.go:22 | CORRECT | `Status="query-failed"` |
 | SessionsCollector | sessions.go:46 | CORRECT | `Checked` |
 | TLSCollector | tls.go | **FIXED** | permission-denied scan root/subdir → `Uncheckable` (+ `NeedsRoot` for non-root) |

@@ -250,14 +250,11 @@ func TestUnknownVsPassRegistryComplete(t *testing.T) {
 // same PR. When the list is empty, delete trackedBugKind (DD-COLLECTOR-GAPS-1
 // Task 5) and this test with it.
 var frozenTrackedBugs = map[string]bool{
-	"CPUCollector": true, "CloudMetaCollector": true, "ContainerdCollector": true,
-	"GrafanaCollector": true, "KVMGuestCollector": true, "MemcachedCollector": true,
-	"NetworkCollector": true, "NFSCollector": true,
+	"ContainerdCollector": true, "KVMGuestCollector": true, "NFSCollector": true,
 	"KdumpCollector": true, "TunedCollector": true,
 	"SwapCollector": true, "ThermalCollector": true, "TimelineCollector": true,
 	"SecurityCollector": true, "PackagesCollector": true,
-	"ProcessesCollector": true, "PVECollector": true,
-	"HealthDeepCollector": true, "RancherCollector": true, "PressureCollector": true,
+	"HealthDeepCollector": true, "PressureCollector": true,
 }
 
 func TestTrackedBugRatchetOnlyShrinks(t *testing.T) {

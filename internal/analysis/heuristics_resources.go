@@ -18,13 +18,20 @@ const (
 	catCPULoadRunQ   = "CPU Load/RunQueue"
 )
 
+// cpuSampleFailedInsight discloses a failed /proc/stat sample: the zeros it leaves
+// in RunQueue/steal/iowait/usage mean "not measured", not "idle".
+func cpuSampleFailedInsight(cpu models.CPUInfo) []models.Insight {
+	if !cpu.UsageSampleFailed {
+		return nil
+	}
+	return []models.Insight{unverifiedInsight("INFO", catCPULoadRunQ,
+		"CPU usage sample failed — run queue, steal, iowait and usage are not measured (load average is)",
+		[]string{"to inspect: vmstat 1 5", "to inspect: head -8 /proc/stat"})}
+}
+
 func checkCPU(cpu models.CPUInfo, thresh Thresholds, ctrCtx platform.ContainerContext) []models.Insight {
 	var out []models.Insight
-	if cpu.UsageSampleFailed {
-		out = append(out, unverifiedInsight("INFO", catCPULoadRunQ,
-			"CPU usage sample failed — run queue, steal, iowait and usage are not measured (load average is)",
-			[]string{"to inspect: vmstat 1 5", "to inspect: head -8 /proc/stat"}))
-	}
+	out = append(out, cpuSampleFailedInsight(cpu)...)
 
 	// Choose the right metric for the threshold:
 	// - UsagePct (real user+sys%) is accurate on Linux (/proc/stat) and macOS (top).
