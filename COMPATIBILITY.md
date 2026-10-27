@@ -96,6 +96,13 @@ Stable fields per insight: `level`, `check`, `message`, `hints`, `details`.
   (permission denied, an unreadable file, a collector error) — not a genuine
   "nothing wrong here" finding. Additive, `omitempty`: existing consumers
   validating against the frozen schema are unaffected when it's absent.
+- New "could not read" sentinels (DD-COLLECTOR-GAPS-1 task 2), all additive and
+  `omitempty`, `true` only when that specific read failed — absent means no
+  caveat: `disk.unreachable_mounts[]` (`mount`, `device`, `fstype`, `error`; a
+  mount whose statfs hung or failed), `k8s.events_unreadable` /
+  `k8s.pvcs_unreadable` / `k8s.workloads_unreadable`, and
+  `tls.uncheckable[].needs_root`. Each also produces an `unverified` insight
+  (or, for `dsd tls`, a non-ok status).
 
 ### 4. Exit codes
 

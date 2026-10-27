@@ -35,6 +35,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   with an additive `needs_root` flag on its `uncheckable[]` entry in `--json`
   (Unverified, non-ok status). As root an unreadable directory stays a plain
   `could not read <dir>` error.
+- **Two more collectors no longer read "could not look" as a clean result
+  (COLLECTOR-SWEEP.md High #1-#2).** Each gets an additive, `omitempty` field and
+  an `unverified` insight instead of a silent zero:
+  - `DiskCollector`: a hung or stale NFS/CIFS/FUSE mount (statfs timeout/error)
+    is listed in `unreachable_mounts[]` with an Unverified WARN, instead of being
+    dropped from `filesystems[]` so that no usage alert could ever fire for it.
+  - `K8sCollector`: `events_unreadable`, `pvcs_unreadable`, `workloads_unreadable`
+    are set independently of `api_reachable`, so an RBAC-scoped kubeconfig no
+    longer reads as 0 unbound PVCs / 0 down workloads.
 - **One verdict for every output (DEFECT-CLASSES.md C1).** The C1 fix had reached
   only the exit code, the `--json`/`--yaml` verdict and `--nagios`; the terminal
   summary, `--report` (Markdown), `--report-html`, `dsd share` text, the story
