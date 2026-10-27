@@ -82,6 +82,9 @@ func (c *ProcessesCollector) collectLinux(ctx context.Context) (*models.ProcessI
 		ZombieProcs: make([]models.ProcessState, 0),
 		HungProcs:   make([]models.ProcessState, 0),
 	}
+	// hidepid=2 / ProtectProc=invisible omit other users' /proc/<pid> entries with
+	// no error anywhere: the counts below would be a valid-looking undercount.
+	info.ListRestricted = procVisibilityRestricted(dirs)
 	selfPID := os.Getpid()
 	for _, dir := range dirs {
 		// internal-collectors-27-03: dirs can hold up to maxCappedDirEntries
@@ -147,7 +150,7 @@ func (c *ProcessesCollector) collectDarwin(ctx context.Context) (*models.Process
 	// hermetically — a direct exec here re-counts the live process table on replay.
 	out, err := runCmd(ctx, "ps", "axo", "pid,ppid,stat,comm")
 	if err != nil {
-		return &models.ProcessInfo{}, nil
+		return &models.ProcessInfo{ListUnreadable: true}, nil
 	}
 	lines := strings.Split(out, "\n")
 	info := &models.ProcessInfo{
@@ -213,6 +216,26 @@ func (c *ProcessesCollector) collectDarwin(ctx context.Context) (*models.Process
 		}
 	}
 	return info, nil
+}
+
+// procVisibilityRestricted reports whether a /proc directory listing is
+// hiding other processes' entries entirely — most commonly the hidepid=2
+// mount option, a documented hardening default on shared/hardened hosts.
+// Unlike a per-PID permission denial (where the directory entry IS visible
+// but its contents aren't readable — os.IsPermission on the file read),
+// hidepid=2 omits the directory entries themselves, so a glob of /proc/[0-9]*
+// silently returns fewer PIDs with no error raised anywhere. PID 1
+// (init/systemd, or a container's own PID-1) always exists on a running
+// Linux system and its directory entry is hidden by hidepid=2 exactly like
+// every other process not owned by the caller — so its absence from the
+// listing is a reliable signal that the sample is incomplete.
+func procVisibilityRestricted(entries []string) bool {
+	for _, e := range entries {
+		if filepath.Base(e) == "1" {
+			return false
+		}
+	}
+	return true
 }
 
 // procFlagKthread is PF_KTHREAD (include/linux/sched.h), the bit in

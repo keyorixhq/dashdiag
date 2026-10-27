@@ -5,6 +5,7 @@ import (
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/platform"
 )
 
 // DD-COLLECTOR-GAPS-1 Medium items: each "could not look" sentinel must produce an
@@ -30,6 +31,22 @@ func TestCheckNetwork_InterfacesAndConnectionsUnreadable(t *testing.T) {
 	for _, ins := range checkNetwork(models.NetworkInfo{}) {
 		if ins.Unverified {
 			t.Errorf("clean read produced an Unverified insight: %+v", ins)
+		}
+	}
+}
+
+func TestCheckProcesses_RestrictedAndUnreadableListAreUnverified(t *testing.T) {
+	t.Parallel()
+	th := DefaultThresholds(platform.EnvBareMetal)
+	if !hasUnverified(checkProcesses(models.ProcessInfo{ListRestricted: true}, th), "other users") {
+		t.Error("no Unverified insight for a hidepid-restricted process list")
+	}
+	if !hasUnverified(checkProcesses(models.ProcessInfo{ListUnreadable: true}, th), "could not list") {
+		t.Error("no Unverified insight for an unreadable process list")
+	}
+	for _, ins := range checkProcesses(models.ProcessInfo{Total: 100}, th) {
+		if ins.Unverified {
+			t.Errorf("full listing produced an Unverified insight: %+v", ins)
 		}
 	}
 }

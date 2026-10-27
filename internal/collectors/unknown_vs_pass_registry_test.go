@@ -140,7 +140,7 @@ var unknownVsPassRegistry = map[string]collectorVerdict{
 	"OOMCollector":            sentinel("StatusReason set before EventsLast24h is touched on a kernel-log-unreadable failure; checkOOM consults StatusReason first"),
 	"PostgresCollector":       sentinel("MetricsRead; PeerVerified"),
 	"NginxCollector":          sentinel("ConfigTested distinguishes a real syntax failure from \"couldn't run\""),
-	"ProcessesCollector":      trackedBug("COLLECTOR-SWEEP.md Medium #8: hidepid=2/ProtectProc=invisible yields a valid, short, NO-ERROR glob result — Total/ZombieCount/HungCount silently reflect only the caller's own process tree, and these ARE real verdict inputs"),
+	"ProcessesCollector":      sentinel("ListRestricted (hidepid/ProtectProc: PID 1 absent from the listing) / ListUnreadable (darwin ps failure)"),
 	"OCICollector":            sentinel("per-check *Checked (IMDSChecked/AgentChecked/TimeSyncChecked/VNICChecked)"),
 	"RabbitMQCollector":       sentinel("DiagnosticsRead/Pinged/AlarmsRead"),
 	"RedisCollector":          sentinel("MetricsRead/MaxClientsRead"),
