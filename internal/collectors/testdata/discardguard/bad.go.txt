@@ -1,0 +1,44 @@
+package bad
+
+// Negative examples for TestDiscardGuardFlagsNegativeExample (kept as .txt so the
+// compiler and the production walk never see it). Each function marked blank*
+// throws away a helper's error and must be flagged; the others must not be.
+
+func blankData(p string) []byte {
+	data, _ := readFile(p)
+	return data
+}
+
+func blankOnly() {
+	_ = cachedJSON("k", nil, nil)
+}
+
+func blankInIf(p string) bool {
+	if _, _ = readFile(p); true {
+		return true
+	}
+	return false
+}
+
+func blankViaSource() []byte {
+	b, _ := curSource().Cached("k", nil)
+	return b
+}
+
+func handled(p string) []byte {
+	data, err := readFile(p)
+	if err != nil {
+		return nil
+	}
+	return data
+}
+
+func namedErr(p string) error {
+	_, err := readFile(p)
+	return err
+}
+
+func unrelatedCall() int {
+	n, _ := somethingElse()
+	return n
+}
