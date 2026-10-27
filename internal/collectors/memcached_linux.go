@@ -105,7 +105,13 @@ func memcachedCmdLive(ctx context.Context, network, addr, cmd string, untilEND b
 // detectMemcached returns the (network, addr) of a local server that answers the
 // memcached protocol with a VERSION line, plus the version. Confirms it's really
 // memcached, not just any process on 11211; tries both loopback families.
-func detectMemcached(ctx context.Context) (network, addr, version string) {
+//
+// timedOut is true when a loopback port accepts connections and its listener's own
+// cmdline says memcached, yet no probe got a VERSION line: an overloaded server
+// fails the handshake exactly when visibility matters most, and that must read as
+// "present, probe timed out", not "not installed". addr is still returned so the
+// collector registers and reports the stats as unreadable.
+func detectMemcached(ctx context.Context) (network, addr, version string, timedOut bool) {
 	for _, a := range []struct{ net, addr string }{
 		{"tcp", "127.0.0.1:11211"},
 		{"tcp", "[::1]:11211"},
@@ -113,15 +119,23 @@ func detectMemcached(ctx context.Context) (network, addr, version string) {
 		out, ok := memcachedCmd(ctx, a.net, a.addr, "version", false)
 		if ok && strings.HasPrefix(out, "VERSION ") {
 			v := strings.TrimSpace(strings.TrimPrefix(strings.SplitN(out, "\r\n", 2)[0], "VERSION "))
-			return a.net, a.addr, v
+			return a.net, a.addr, v, false
 		}
 	}
-	return "", "", ""
+	for _, a := range []struct{ net, addr string }{
+		{"tcp", "127.0.0.1:11211"},
+		{"tcp", "[::1]:11211"},
+	} {
+		if dialOutcome(a.net, a.addr, 300*time.Millisecond) == dialOK && tcpPortIdentityVerified(ctx, "11211", "memcached") {
+			return a.net, a.addr, "", true
+		}
+	}
+	return "", "", "", false
 }
 
 // MemcachedAvailable reports whether a local memcached server is answering.
 func MemcachedAvailable() bool {
-	_, addr, _ := detectMemcached(context.Background())
+	_, addr, _, _ := detectMemcached(context.Background())
 	return addr != ""
 }
 
@@ -133,9 +147,15 @@ func (c *MemcachedCollector) Name() string           { return "Memcached" }
 func (c *MemcachedCollector) Timeout() time.Duration { return 4 * time.Second }
 
 func (c *MemcachedCollector) Collect(ctx context.Context) (interface{}, error) {
-	network, addr, version := detectMemcached(ctx)
+	network, addr, version, timedOut := detectMemcached(ctx)
 	if addr == "" {
 		return &models.MemcachedInfo{Detected: false}, nil
+	}
+	if timedOut {
+		return &models.MemcachedInfo{
+			Detected: true, Addr: addr,
+			StatusReason: "memcached is listening but did not answer the version probe in time",
+		}, nil
 	}
 	info := &models.MemcachedInfo{Detected: true, Addr: addr, Version: version}
 
