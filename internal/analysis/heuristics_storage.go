@@ -1435,6 +1435,18 @@ func checkDiskExtras(disk models.DiskInfo) []models.Insight {
 			"could not enumerate physical drives — diskutil list failed or returned no output",
 			[]string{"to inspect: diskutil list"}))
 	}
+	// A mount whose statfs hung or failed has no numbers to evaluate, so no
+	// CRIT/WARN can fire for it: say so instead of letting it vanish.
+	for _, m := range disk.UnreachableMounts {
+		safeMount := m.Mount
+		if !looksLikeSafeToken(safeMount) {
+			safeMount = "<mount>"
+		}
+		hints := []string{"to inspect: findmnt " + safeMount}
+		out = append(out, unverifiedInsight("WARN", "Disk",
+			fmt.Sprintf("mount %s (%s) is unreachable — statfs failed or hung (stale mount?); its usage is NOT verified", m.Mount, m.FSType),
+			hints))
+	}
 	// SMART health
 	for _, d := range disk.Drives {
 		if d.SMART == nil || d.SMART.Error != "" {

@@ -134,7 +134,7 @@ var unknownVsPassRegistry = map[string]collectorVerdict{
 	"HACollector":             sentinel("StatusReadable"),
 	"NetworkdConfigCollector": sentinel("ConfigDirUnreadable (FIXED via globChecked — was the root cause example for the shared glob fix)"),
 	"K8sCollector":            trackedBug("COLLECTOR-SWEEP.md High #2: Events/PVCs/Workloads fail independently of the APIReachable gate that \"vouches\" for them — an RBAC-scoped viewer kubeconfig reads as 0 unbound PVCs/0 down workloads. --deep K8sOSLayer sub-checks ARE correct (explicit *Checked fields throughout)."),
-	"DiskCollector":           trackedBug("COLLECTOR-SWEEP.md High #1: a stale/hung mount is silently dropped from Filesystems entirely on a statfs timeout/error — not shown as unreachable, just absent"),
+	"DiskCollector":           sentinel("UnreachableMounts: a statfs timeout/error is reported per mount (-> Unverified WARN insight), not dropped from Filesystems"),
 	"HWRaidCollector":         sentinel("NeedsRoot/ReadFailed; rawCount schema-drift guard distinguishes a garbled response from a genuine \"no card\""),
 	"KernelSecurityCollector": sentinel("SELinux mode resolveSELinuxMode two-source fallback; AVC denial count -1 sentinel (not 0) on full read failure"),
 	"OOMCollector":            sentinel("StatusReason set before EventsLast24h is touched on a kernel-log-unreadable failure; checkOOM consults StatusReason first"),
@@ -256,7 +256,7 @@ var frozenTrackedBugs = map[string]bool{
 	"KdumpCollector": true, "TunedCollector": true, "ServicesDeepCollector": true,
 	"SwapCollector": true, "ThermalCollector": true, "TimelineCollector": true,
 	"SecurityCollector": true, "PackagesCollector": true, "K8sCollector": true,
-	"DiskCollector": true, "ProcessesCollector": true, "PVECollector": true,
+	"ProcessesCollector": true, "PVECollector": true,
 	"HealthDeepCollector": true, "RancherCollector": true, "TLSCollector": true,
 	"PressureCollector": true,
 }

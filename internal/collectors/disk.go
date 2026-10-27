@@ -116,21 +116,9 @@ func statfsToFS(e mountEntry) (models.FilesystemInfo, error) {
 	}
 }
 
-func (c *DiskCollector) Collect(ctx context.Context) (any, error) {
-	if runtime.GOOS == "darwin" {
-		return c.collectDarwin(ctx)
-	}
-	f, err := openFile(c.mountsPath)
-	if err != nil {
-		return nil, fmt.Errorf("opening mounts: %w", err)
-	}
-	defer func() { _ = f.Close() }()
-
-	entries, err := readMounts(f)
-	if err != nil {
-		return nil, fmt.Errorf("parsing mounts: %w", err)
-	}
-
+// collectMountTable stats every mount in entries. A mount whose statfs hangs or
+// fails is recorded in UnreachableMounts, never dropped.
+func collectMountTable(ctx context.Context, entries []mountEntry) (*models.DiskInfo, error) {
 	seen := make(map[string]bool)
 	result := &models.DiskInfo{}
 	for _, e := range entries {
@@ -153,9 +141,35 @@ func (c *DiskCollector) Collect(ctx context.Context) (any, error) {
 		seen[e.mountPoint] = true
 		fs, err := statfsToFS(e)
 		if err != nil {
+			// Reported as unreachable, never dropped as if the mount did not exist.
+			result.UnreachableMounts = append(result.UnreachableMounts, models.UnreachableMount{
+				Mount: e.mountPoint, Device: e.device, FSType: e.fsType, Error: err.Error(),
+			})
 			continue
 		}
 		result.Filesystems = append(result.Filesystems, fs)
+	}
+	return result, nil
+}
+
+func (c *DiskCollector) Collect(ctx context.Context) (any, error) {
+	if runtime.GOOS == "darwin" {
+		return c.collectDarwin(ctx)
+	}
+	f, err := openFile(c.mountsPath)
+	if err != nil {
+		return nil, fmt.Errorf("opening mounts: %w", err)
+	}
+	defer func() { _ = f.Close() }()
+
+	entries, err := readMounts(f)
+	if err != nil {
+		return nil, fmt.Errorf("parsing mounts: %w", err)
+	}
+
+	result, err := collectMountTable(ctx, entries)
+	if err != nil {
+		return result, err
 	}
 
 	if runtime.GOOS == "linux" {

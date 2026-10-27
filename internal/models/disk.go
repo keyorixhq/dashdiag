@@ -140,6 +140,11 @@ type FSBusyProcess struct {
 
 type DiskInfo struct {
 	Filesystems []FilesystemInfo `json:"filesystems"`
+	// UnreachableMounts lists mounts whose statfs timed out or failed (a stale or
+	// hung NFS/CIFS/FUSE mount). They are absent from Filesystems because there
+	// are no numbers to show, but they must never read as "no such mount": each
+	// one is an Unverified insight, not a clean pass.
+	UnreachableMounts []UnreachableMount `json:"unreachable_mounts,omitempty"`
 	Drives      []PhysicalDrive  `json:"drives,omitempty"`
 	// DrivesListUnreadable is true (macOS only) when `diskutil list` itself
 	// failed or returned nothing — distinct from a genuine zero-physical-
@@ -161,6 +166,14 @@ type DiskInfo struct {
 	ImmutableRootFS bool   `json:"-"`
 	Status          string `json:"status"`
 	StatusReason    string `json:"status_reason"`
+}
+
+// UnreachableMount is a mount that statfs could not read this run.
+type UnreachableMount struct {
+	Mount  string `json:"mount"`
+	Device string `json:"device,omitempty"`
+	FSType string `json:"fstype,omitempty"`
+	Error  string `json:"error"`
 }
 
 // BtrfsVolume holds health data for a mounted btrfs filesystem.
