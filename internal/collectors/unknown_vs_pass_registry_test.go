@@ -147,7 +147,7 @@ var unknownVsPassRegistry = map[string]collectorVerdict{
 	"PVECollector":            sentinel("HAVerified is false for any pvesh failure except an explicit 501/not-implemented; Unverified INFO"),
 	"HAProxyCollector":        sentinel("ConfigTested via shared webConfigTest; StatusReason cosmetic gap only, does not affect the ConfigTested signal"),
 	"ServicesCollector":       sentinel("config.Load failure propagates as a real error; checkService returns an explicit WARN both when probing is off and when a replay bundle has no recorded probe"),
-	"HealthDeepCollector":     trackedBug("COLLECTOR-SWEEP.md Low #20: collectMemDetail's /proc/meminfo read has no sentinel on models.HealthDeepInfo (distinct model from MemoryInfo, which IS guarded); low likelihood, /proc/meminfo is normally world-readable. TopProcsNeedsRoot/TopCPUProcsNeedsRoot/TopIOProcsNeedsRoot sub-checks ARE correct."),
+	"HealthDeepCollector":     sentinel("MemDetailUnreadable + TopProcsNeedsRoot/TopCPUProcsNeedsRoot/TopIOProcsNeedsRoot"),
 	"SUSEConnectCollector":    sentinel("StatusUnverified (RHEL subscription-manager path and Ubuntu Pro JSON path both)"),
 	"SteamOSCollector":        sentinel("every sub-check that can fail carries its own explicit \"checked\" companion set only on success"),
 	"RancherCollector":        sentinel("ServerUnreadable/WebhookUnreadable (non-NotFound deployment query failure)"),
@@ -251,7 +251,7 @@ func TestUnknownVsPassRegistryComplete(t *testing.T) {
 // Task 5) and this test with it.
 var frozenTrackedBugs = map[string]bool{
 	"SecurityCollector": true, "PackagesCollector": true,
-	"HealthDeepCollector": true, "PressureCollector": true,
+	"PressureCollector": true,
 }
 
 func TestTrackedBugRatchetOnlyShrinks(t *testing.T) {

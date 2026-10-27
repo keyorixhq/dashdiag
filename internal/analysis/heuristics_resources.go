@@ -383,6 +383,11 @@ func checkIO(io models.IOInfo, thresh Thresholds) []models.Insight {
 
 func checkHealthDeep(d models.HealthDeepInfo) []models.Insight {
 	var out []models.Insight
+	if d.MemDetailUnreadable {
+		out = append(out, unverifiedInsight("INFO", "CPUDeep",
+			"/proc/meminfo could not be read — dirty-page backlog and cache breakdown not measured",
+			[]string{"to inspect: cat /proc/meminfo"}))
+	}
 
 	// Core imbalance — one thread bottleneck. Gate on a SUSTAINED single-thread
 	// load: one hot core on an otherwise-idle box (e.g. loadavg 0.25 on 12 cores)

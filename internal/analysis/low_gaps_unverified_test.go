@@ -68,3 +68,11 @@ func TestCheckNFS_StatsUnreadable(t *testing.T) {
 		t.Errorf("no Unverified insight: %+v", got)
 	}
 }
+
+func TestCheckHealthDeep_MemDetailUnreadable(t *testing.T) {
+	t.Parallel()
+	got := checkHealthDeep(models.HealthDeepInfo{MemDetailUnreadable: true})
+	if !hasUnverified(got, "/proc/meminfo could not be read") {
+		t.Errorf("no Unverified insight: %+v", got)
+	}
+}

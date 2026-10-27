@@ -114,6 +114,10 @@ type HealthDeepInfo struct {
 	BuffersMB   float64 `json:"buffers_mb"`
 	DirtyMB     float64 `json:"dirty_mb"`
 	AnonPagesMB float64 `json:"anon_pages_mb"`
+	// MemDetailUnreadable is true when /proc/meminfo could not be read for the
+	// breakdown above, so the zeros mean "not measured" (the dirty-page backlog
+	// check never ran), not an empty write-back queue.
+	MemDetailUnreadable bool `json:"mem_detail_unreadable,omitempty"`
 
 	// cgroup v2 slice summary
 	Cgroup *CgroupV2Info `json:"cgroup,omitempty"`
