@@ -71,6 +71,7 @@ type certResult struct {
 	Err        string
 	Remote     bool // true when from a --endpoint / --endpoints-file scan
 	SelfSigned bool
+	NeedsRoot  bool // an unprivileged run was denied reading a scan dir: re-run as root
 }
 
 func runTLS(cmd *cobra.Command, args []string) error {
@@ -105,7 +106,7 @@ func runTLS(cmd *cobra.Command, args []string) error {
 	}
 
 	// Scan local paths.
-	results := unreadableDirResults(unreadableDirs)
+	results := unreadableDirResults(unreadableDirs, tlsEuid())
 	for _, p := range paths {
 		res := scanCertFile(p, warnDays, critDays)
 		results = append(results, res...)
@@ -369,12 +370,23 @@ func detectCertPaths(src source.Source, patterns []string) (paths, unreadable []
 	return paths, unreadable
 }
 
+// tlsEuid is a seam so tests can run as root or non-root without sudo.
+var tlsEuid = os.Geteuid
+
 // unreadableDirResults turns unreadable scan directories into ERR results so
-// they reach Uncheckable in --json and the ERR count in text mode.
-func unreadableDirResults(dirs []string) []certResult {
+// they reach Uncheckable in --json and the ERR count in text mode. Following
+// the NeedsRoot convention, a permission-denied dir seen by a non-root run is
+// "needs root ... (re-run with sudo)"; as root an unreadable dir stays a plain
+// error, since sudo cannot help.
+func unreadableDirResults(dirs []string, euid int) []certResult {
 	out := make([]certResult, 0, len(dirs))
 	for _, d := range dirs {
-		out = append(out, certResult{Path: d, Level: tlsLvlERR, Err: "could not read " + d})
+		r := certResult{Path: d, Level: tlsLvlERR, Err: "could not read " + d}
+		if euid != 0 {
+			r.Err = "needs root: could not read " + d + " (re-run with sudo)"
+			r.NeedsRoot = true
+		}
+		out = append(out, r)
 	}
 	return out
 }
@@ -467,7 +479,7 @@ func buildTLSInfo(results []certResult, remotes []string, warnDays int) *models.
 			// A cert we could NOT check (unreachable endpoint, unreadable file).
 			// Record it instead of dropping it — otherwise --json shows 0 expired /
 			// 0 expiring and a monitor reads an unreachable host as healthy.
-			ti.Uncheckable = append(ti.Uncheckable, models.TLSUncheckable{Path: r.Path, Error: r.Err})
+			ti.Uncheckable = append(ti.Uncheckable, models.TLSUncheckable{Path: r.Path, Error: r.Err, NeedsRoot: r.NeedsRoot})
 			continue
 		}
 		ci := models.CertInfo{

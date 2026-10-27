@@ -29,6 +29,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `internal/source`; the remaining uses are an explicit exemption list with a
   reason per row. A ratchet test (`TestTrackedBugRatchetOnlyShrinks`) stops new
   "known bug" rows from being added to the unknown-vs-pass registry.
+- **`dsd tls` as non-root no longer reports a generic error for a root-only scan
+  directory.** The Debian/Ubuntu default `/etc/ssl/private` (0710 root:ssl-cert)
+  is reported as `needs root: could not read /etc/ssl/private (re-run with sudo)`,
+  with an additive `needs_root` flag on its `uncheckable[]` entry in `--json`
+  (Unverified, non-ok status). As root an unreadable directory stays a plain
+  `could not read <dir>` error.
 - **One verdict for every output (DEFECT-CLASSES.md C1).** The C1 fix had reached
   only the exit code, the `--json`/`--yaml` verdict and `--nagios`; the terminal
   summary, `--report` (Markdown), `--report-html`, `dsd share` text, the story
