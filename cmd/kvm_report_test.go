@@ -14,7 +14,7 @@ import (
 // equivalents of this file).
 
 func TestPrintKVMReportNotDetected(t *testing.T) {
-	out := captureStdout(t, func() { printKVMReport(&models.KVMInfo{Detected: false}, 0, output.ModePlain) })
+	out := captureStdout(t, func() { printKVMReport(&models.KVMInfo{Detected: false}, 0, output.ModePlain, cleanVerdict()) })
 	if !strings.Contains(out, "libvirt not found") {
 		t.Errorf("undetected libvirt should say so, got:\n%s", out)
 	}
@@ -131,7 +131,7 @@ func TestPrintKVMPools(t *testing.T) {
 // against drifting from checkKVM.
 func TestPrintKVMReportSummary(t *testing.T) {
 	healthy := captureStdout(t, func() {
-		printKVMReport(&models.KVMInfo{Detected: true}, 0, output.ModePlain)
+		printKVMReport(&models.KVMInfo{Detected: true}, 0, output.ModePlain, cleanVerdict())
 	})
 	if !strings.Contains(healthy, "KVM healthy") {
 		t.Errorf("no VMs/concerns should read healthy, got:\n%s", healthy)
@@ -141,7 +141,7 @@ func TestPrintKVMReportSummary(t *testing.T) {
 		printKVMReport(&models.KVMInfo{
 			Detected: true,
 			VMs:      []models.KVMVM{{Name: "vm1", State: models.KVMRunning, EmulatedDisks: []string{"vda (ide)"}}},
-		}, 0, output.ModePlain)
+		}, 0, output.ModePlain, cleanVerdict())
 	})
 	if !strings.Contains(concern, "concern(s) found") {
 		t.Errorf("an emulated-disk finding should surface as a concern, got:\n%s", concern)
@@ -151,7 +151,7 @@ func TestPrintKVMReportSummary(t *testing.T) {
 // A non-empty LibvirtVer/QEMUVer prints the version suffix on the identity line.
 func TestPrintKVMReportVersionString(t *testing.T) {
 	out := captureStdout(t, func() {
-		printKVMReport(&models.KVMInfo{Detected: true, LibvirtVer: "9.0.0", QEMUVer: "7.2.0"}, 0, output.ModePlain)
+		printKVMReport(&models.KVMInfo{Detected: true, LibvirtVer: "9.0.0", QEMUVer: "7.2.0"}, 0, output.ModePlain, cleanVerdict())
 	})
 	if !strings.Contains(out, "[libvirt 9.0.0 / QEMU 7.2.0]") {
 		t.Errorf("libvirt/QEMU versions should be shown, got:\n%s", out)

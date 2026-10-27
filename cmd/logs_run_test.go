@@ -284,7 +284,7 @@ func TestFormatDurationBranches(t *testing.T) {
 // clean).
 func TestPrintLogsReportSummaryLines(t *testing.T) {
 	issues := captureStdout(t, func() {
-		printLogsReport(&models.LogsInfo{Segfaults: 1}, output.ModePlain, time.Second, time.Hour)
+		printLogsReport(&models.LogsInfo{Segfaults: 1}, output.ModePlain, time.Second, time.Hour, cleanVerdict())
 	})
 	if !strings.Contains(issues, "log issue(s) found") {
 		t.Errorf("a segfault should be reported as an issue, got:\n%s", issues)
@@ -293,28 +293,28 @@ func TestPrintLogsReportSummaryLines(t *testing.T) {
 	// The summary tally's own OOMKills>0 branch — distinct from Segfaults
 	// above and from printLogsOOM's own direct test (TestPrintLogsOOMBranches).
 	oomIssue := captureStdout(t, func() {
-		printLogsReport(&models.LogsInfo{OOMKills: 1}, output.ModePlain, time.Second, time.Hour)
+		printLogsReport(&models.LogsInfo{OOMKills: 1}, output.ModePlain, time.Second, time.Hour, cleanVerdict())
 	})
 	if !strings.Contains(oomIssue, "log issue(s) found") {
 		t.Errorf("an OOM kill should be reported as an issue in the summary tally, got:\n%s", oomIssue)
 	}
 
 	unverified := captureStdout(t, func() {
-		printLogsReport(&models.LogsInfo{ErrorCountUnverified: true}, output.ModePlain, time.Second, time.Hour)
+		printLogsReport(&models.LogsInfo{ErrorCountUnverified: true}, output.ModePlain, time.Second, time.Hour, cleanVerdict())
 	})
 	if !strings.Contains(unverified, "NOT verified") {
 		t.Errorf("an unverified error scan should say so, got:\n%s", unverified)
 	}
 
 	needsRoot := captureStdout(t, func() {
-		printLogsReport(&models.LogsInfo{NeedsRoot: true}, output.ModePlain, time.Second, time.Hour)
+		printLogsReport(&models.LogsInfo{NeedsRoot: true}, output.ModePlain, time.Second, time.Hour, cleanVerdict())
 	})
 	if !strings.Contains(needsRoot, "run as root") {
 		t.Errorf("a non-root run should note the limitation, got:\n%s", needsRoot)
 	}
 
 	clean := captureStdout(t, func() {
-		printLogsReport(&models.LogsInfo{}, output.ModePlain, time.Second, time.Hour)
+		printLogsReport(&models.LogsInfo{}, output.ModePlain, time.Second, time.Hour, cleanVerdict())
 	})
 	if !strings.Contains(clean, "Checks passed") {
 		t.Errorf("a clean report should say checks passed, got:\n%s", clean)

@@ -123,7 +123,7 @@ func runNet(cmd *cobra.Command, _ []string) error {
 	if !ok || info == nil {
 		return netResult.Err
 	}
-	recordResultSeverity(allResults)
+	verdict := recordResultSeverity(allResults)
 
 	if mode == output.ModeJSON {
 		return outputJSON(os.Stdout, netJSONResult{
@@ -135,7 +135,7 @@ func runNet(cmd *cobra.Command, _ []string) error {
 		})
 	}
 
-	printNetReport(info, mode, elapsed, ctrCtx)
+	printNetReport(info, mode, elapsed, ctrCtx, verdict)
 	if nfsInfo != nil {
 		printNFSReport(nfsInfo, mode)
 	}
@@ -252,7 +252,7 @@ func netConcerns(info *models.NetworkInfo) int {
 	return issues
 }
 
-func printNetReport(info *models.NetworkInfo, mode output.OutputMode, elapsed time.Duration, ctrCtx platform.ContainerContext) { //nolint:cyclop,funlen // NOSONAR — report renderer; each branch is a distinct display condition, not nested logic
+func printNetReport(info *models.NetworkInfo, mode output.OutputMode, elapsed time.Duration, ctrCtx platform.ContainerContext, v render.VerdictInfo) { //nolint:cyclop,funlen // NOSONAR — report renderer; each branch is a distinct display condition, not nested logic
 	sep := strings.Repeat("─", 56)
 	timing := fmt.Sprintf(" in %.1fs", elapsed.Seconds())
 
@@ -410,7 +410,7 @@ func printNetReport(info *models.NetworkInfo, mode output.OutputMode, elapsed ti
 	issues := netConcerns(info)
 
 	if issues == 0 {
-		fmt.Println(render.StyleOK.Render(fmt.Sprintf("%s Network healthy. Checks passed%s", netMark("ok", mode), timing)))
+		fmt.Println(subcommandSummary(v, "Network", netMark("ok", mode)+" ", netMark("warn", mode)+" ", timing))
 	} else {
 		fmt.Println(render.StyleWarn.Render(fmt.Sprintf("%s %d network concern(s) found%s", netMark("warn", mode), issues, timing)))
 	}

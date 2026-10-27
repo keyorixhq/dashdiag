@@ -63,13 +63,13 @@ func runDocker(cmd *cobra.Command, _ []string) error {
 		return result.Err
 	}
 
-	recordResultSeverity([]runner.Result{result}) // BUG-022: honour 0/1/2 exit contract
+	v := recordResultSeverity([]runner.Result{result}) // BUG-022: honour 0/1/2 exit contract
 
 	if mode == output.ModeJSON {
 		return outputJSON(os.Stdout, info)
 	}
 
-	printDockerReport(info, mode, elapsed)
+	printDockerReport(info, mode, elapsed, v)
 	return nil
 }
 
@@ -121,7 +121,7 @@ func dockerConcerns(info *models.DockerInfo) int {
 	return issues
 }
 
-func printDockerReport(info *models.DockerInfo, mode output.OutputMode, elapsed time.Duration) { //nolint:cyclop // NOSONAR — flat display renderer — each branch is a distinct display condition
+func printDockerReport(info *models.DockerInfo, mode output.OutputMode, elapsed time.Duration, v render.VerdictInfo) { //nolint:cyclop // NOSONAR — flat display renderer — each branch is a distinct display condition
 	sep := strings.Repeat("─", 56)
 	timing := fmt.Sprintf(" in %.1fs", elapsed.Seconds())
 
@@ -160,7 +160,7 @@ func printDockerReport(info *models.DockerInfo, mode output.OutputMode, elapsed 
 	fmt.Println()
 	fmt.Println(sep)
 	if issues == 0 {
-		fmt.Println(render.StyleOK.Render(fmt.Sprintf("%s Docker healthy. Checks passed%s", asciiOr("ok", iconOK, mode), timing)))
+		fmt.Println(subcommandSummary(v, "Docker", asciiOr("ok", iconOK, mode)+" ", asciiOr("warn", iconWarnSp, mode), timing))
 	} else {
 		fmt.Println(render.StyleWarn.Render(fmt.Sprintf("%s %d container concern(s) found%s", asciiOr("warn", iconWarnSp, mode), issues, timing)))
 	}

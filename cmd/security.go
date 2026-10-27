@@ -87,7 +87,7 @@ func runSecurity(cmd *cobra.Command, _ []string) error {
 		return runDrift(info, mode)
 	}
 
-	recordResultSeverity([]runner.Result{result}) // BUG-022: honour 0/1/2 exit contract
+	v := recordResultSeverity([]runner.Result{result}) // BUG-022: honour 0/1/2 exit contract
 
 	if mode == output.ModeJSON {
 		return outputJSON(os.Stdout, info)
@@ -96,7 +96,7 @@ func runSecurity(cmd *cobra.Command, _ []string) error {
 	// Snapper runs in parallel (requires root; silently skipped if unavailable)
 	snapInfo, _ := collectors.CollectSnapper(ctx)
 
-	printSecurityReport(info, snapInfo, mode, elapsed)
+	printSecurityReport(info, snapInfo, mode, elapsed, v)
 	return nil
 }
 
@@ -239,7 +239,7 @@ func hasCrit(insights []models.Insight) bool {
 // Each print*Section below covers one independent theme and writes straight
 // to stdout with no shared buffer — split out of a single ~290-line function
 // (was `//nolint:cyclop,funlen`) the same way checkSecurity was split.
-func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mode output.OutputMode, elapsed time.Duration) {
+func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mode output.OutputMode, elapsed time.Duration, v render.VerdictInfo) {
 	sep := strings.Repeat("─", 56)
 	timing := fmt.Sprintf(" in %.1fs", elapsed.Seconds())
 
@@ -280,7 +280,7 @@ func printSecurityReport(info *models.SecurityInfo, snap *models.SnapperInfo, mo
 		fmt.Printf("%s Security checks limited — run as root (sudo dsd security) to fully verify; no issues found in what could be checked%s\n",
 			asciiOr(secLvlInfo, secIconInfo, mode), timing)
 	default:
-		fmt.Println(render.StyleOK.Render(fmt.Sprintf("%s Security posture healthy. Checks passed%s", asciiOr("ok", secIconOK, mode), timing)))
+		fmt.Println(subcommandSummary(v, "Security posture", asciiOr("ok", secIconOK, mode)+" ", asciiOr(secLvlWarn, secIconWarn, mode)+" ", timing))
 	}
 }
 

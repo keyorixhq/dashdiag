@@ -82,7 +82,7 @@ func TestPrintK8sSummary(t *testing.T) {
 		{"os-layer issue", &models.K8sInfo{OSLayer: &models.K8sOSLayer{IPForwardChecked: true, IPForwardEnabled: false}}, "OS-layer issue(s)"},
 	}
 	for _, c := range cases {
-		out := captureStdout(t, func() { printK8sSummary(c.info, "", output.ModePlain) })
+		out := captureStdout(t, func() { printK8sSummary(c.info, "", output.ModePlain, cleanVerdict()) })
 		if !strings.Contains(out, c.want) {
 			t.Errorf("%s: printK8sSummary output missing %q, got:\n%s", c.name, c.want, out)
 		}
@@ -91,7 +91,7 @@ func TestPrintK8sSummary(t *testing.T) {
 		}
 	}
 
-	healthy := captureStdout(t, func() { printK8sSummary(&models.K8sInfo{}, "", output.ModePlain) })
+	healthy := captureStdout(t, func() { printK8sSummary(&models.K8sInfo{}, "", output.ModePlain, cleanVerdict()) })
 	if !strings.Contains(healthy, "Cluster healthy") {
 		t.Errorf("no concerns should read healthy, got:\n%s", healthy)
 	}
@@ -193,14 +193,14 @@ func TestPrintK8sAllPodsTable(t *testing.T) {
 // not detected, API unreachable, and the full report (with OS-layer section).
 func TestPrintK8sReportDispatch(t *testing.T) {
 	notDetected := captureStdout(t, func() {
-		printK8sReport(&models.K8sInfo{Detected: false}, output.ModePlain, 0)
+		printK8sReport(&models.K8sInfo{Detected: false}, output.ModePlain, 0, cleanVerdict())
 	})
 	if !strings.Contains(notDetected, "No Kubernetes installation detected") {
 		t.Errorf("undetected k8s should say so, got:\n%s", notDetected)
 	}
 
 	apiDown := captureStdout(t, func() {
-		printK8sReport(&models.K8sInfo{Detected: true, KubeBin: "kubectl", APIReachable: false}, output.ModePlain, 0)
+		printK8sReport(&models.K8sInfo{Detected: true, KubeBin: "kubectl", APIReachable: false}, output.ModePlain, 0, cleanVerdict())
 	})
 	if !strings.Contains(apiDown, "cluster API unreachable") {
 		t.Errorf("an unreachable API should say so, got:\n%s", apiDown)
@@ -212,7 +212,7 @@ func TestPrintK8sReportDispatch(t *testing.T) {
 			Nodes:   []models.K8sNodeInfo{{Name: "node-a", Status: "Ready"}},
 			Pods:    []models.K8sPodInfo{{Status: "Running", Ready: "1/1"}},
 			OSLayer: &models.K8sOSLayer{},
-		}, output.ModePlain, 0)
+		}, output.ModePlain, 0, cleanVerdict())
 	})
 	if !strings.Contains(full, "node-a") || !strings.Contains(full, "OS layer") {
 		t.Errorf("a full report should show nodes and the OS-layer section, got:\n%s", full)

@@ -86,7 +86,7 @@ func TestPrintProcessTable(t *testing.T) {
 
 func TestPrintProcessesReportCounters(t *testing.T) {
 	clean := captureStdout(t, func() {
-		printProcessesReport(context.Background(), &models.ProcessInfo{}, output.ModePlain, 0)
+		printProcessesReport(context.Background(), &models.ProcessInfo{}, output.ModePlain, 0, cleanVerdict())
 	})
 	if !strings.Contains(clean, "Zombie Processes: 0") || !strings.Contains(clean, "Hung (D-state) Processes: 0") {
 		t.Errorf("counters should be shown even at zero, got:\n%s", clean)
@@ -96,7 +96,7 @@ func TestPrintProcessesReportCounters(t *testing.T) {
 	}
 
 	zombies := captureStdout(t, func() {
-		printProcessesReport(context.Background(), &models.ProcessInfo{ZombieCount: 3}, output.ModePlain, 0)
+		printProcessesReport(context.Background(), &models.ProcessInfo{ZombieCount: 3}, output.ModePlain, 0, cleanVerdict())
 	})
 	if !strings.Contains(zombies, "Zombie Processes: 3") {
 		t.Errorf("the zombie count should be shown, got:\n%s", zombies)
@@ -109,7 +109,7 @@ func TestPrintProcessesReportCounters(t *testing.T) {
 	}
 
 	hung := captureStdout(t, func() {
-		printProcessesReport(context.Background(), &models.ProcessInfo{HungCount: 2}, output.ModePlain, 0)
+		printProcessesReport(context.Background(), &models.ProcessInfo{HungCount: 2}, output.ModePlain, 0, cleanVerdict())
 	})
 	if !strings.Contains(hung, "Hung (D-state) Processes: 2") {
 		t.Errorf("the hung count should be shown, got:\n%s", hung)

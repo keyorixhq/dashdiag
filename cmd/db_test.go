@@ -6,19 +6,21 @@ import (
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
+	"github.com/keyorixhq/dashdiag/internal/render"
 )
 
 // TestPrintDBVerdict pins the CRIT/WARN/healthy tally so a future insight type
 // added to a DB collector can't silently land in neither bucket (the cmd
 // verdict tally drift class, #275).
 func TestPrintDBVerdict(t *testing.T) {
-	healthy := captureStdout(t, func() { printDBVerdict(nil, output.ModePlain) })
+	healthy := captureStdout(t, func() { printDBVerdict(nil, output.ModePlain, cleanVerdict()) })
 	if !strings.Contains(healthy, "Databases healthy") {
 		t.Errorf("no insights should read healthy, got:\n%s", healthy)
 	}
 
 	warnOnly := captureStdout(t, func() {
-		printDBVerdict([]models.Insight{{Level: "WARN", Message: "replica lag high"}}, output.ModePlain)
+		warnIns := []models.Insight{{Level: "WARN", Message: "replica lag high"}}
+		printDBVerdict(warnIns, output.ModePlain, render.Verdict(nil, warnIns))
 	})
 	if !strings.Contains(warnOnly, "1 database concern(s) found") {
 		t.Errorf("one WARN insight should report 1 concern, got:\n%s", warnOnly)
@@ -31,10 +33,11 @@ func TestPrintDBVerdict(t *testing.T) {
 	// and the count must be the combined crit+warn total, not crit alone,
 	// since the WARN detail line above it still needs accounting for.
 	mixed := captureStdout(t, func() {
-		printDBVerdict([]models.Insight{
+		mixedIns := []models.Insight{
 			{Level: "CRIT", Message: "primary unreachable"},
 			{Level: "WARN", Message: "replica lag high"},
-		}, output.ModePlain)
+		}
+		printDBVerdict(mixedIns, output.ModePlain, render.Verdict(nil, mixedIns))
 	})
 	if !strings.Contains(mixed, "2 database issue(s) found") {
 		t.Errorf("1 CRIT + 1 WARN should report 2 issue(s), got:\n%s", mixed)

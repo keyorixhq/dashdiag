@@ -60,17 +60,17 @@ func runK8s(cmd *cobra.Command, _ []string) error {
 		return result.Err
 	}
 
-	recordResultSeverity([]runner.Result{result}) // BUG-022: honour 0/1/2 exit contract
+	v := recordResultSeverity([]runner.Result{result}) // BUG-022: honour 0/1/2 exit contract
 
 	if mode == output.ModeJSON {
 		return outputJSON(os.Stdout, info)
 	}
 
-	printK8sReport(info, mode, elapsed)
+	printK8sReport(info, mode, elapsed, v)
 	return nil
 }
 
-func printK8sReport(info *models.K8sInfo, mode output.OutputMode, elapsed time.Duration) {
+func printK8sReport(info *models.K8sInfo, mode output.OutputMode, elapsed time.Duration, v render.VerdictInfo) {
 	sep := strings.Repeat("─", 56)
 	timing := fmt.Sprintf(" in %.1fs", elapsed.Seconds())
 
@@ -110,7 +110,7 @@ func printK8sReport(info *models.K8sInfo, mode output.OutputMode, elapsed time.D
 	// Summary
 	fmt.Println()
 	fmt.Println(sep)
-	printK8sSummary(info, timing, mode)
+	printK8sSummary(info, timing, mode, v)
 }
 
 func printK8sNodes(nodes []models.K8sNodeInfo, mode output.OutputMode) {
@@ -254,9 +254,9 @@ func printK8sOSLayer(l models.K8sOSLayer, mode output.OutputMode) {
 	}
 }
 
-func printK8sSummary(info *models.K8sInfo, timing string, mode output.OutputMode) {
+func printK8sSummary(info *models.K8sInfo, timing string, mode output.OutputMode, v render.VerdictInfo) {
 	if !k8sHasConcern(info) {
-		fmt.Println(render.StyleOK.Render(fmt.Sprintf("%s Cluster healthy. Checks passed%s", asciiOr("ok", iconOK, mode), timing)))
+		fmt.Println(subcommandSummary(v, "Cluster", asciiOr("ok", iconOK, mode)+" ", asciiOr("warn", iconWarnSp, mode), timing))
 		return
 	}
 	var parts []string

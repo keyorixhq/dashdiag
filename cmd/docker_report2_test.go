@@ -315,7 +315,7 @@ func TestPrintDockerReportFullDispatch(t *testing.T) {
 			Available: true, Runtime: "docker",
 			TotalContainers: 1, RunningCount: 1,
 			Containers: []models.ContainerInfo{{Name: "web", State: "running"}},
-		}, output.ModePlain, 0)
+		}, output.ModePlain, 0, cleanVerdict())
 	})
 	if !strings.Contains(out, "Runtime: docker") {
 		t.Errorf("the runtime name should be shown, got:\n%s", out)
@@ -330,7 +330,7 @@ func TestPrintDockerReportFullDispatch(t *testing.T) {
 		printDockerReport(&models.DockerInfo{
 			Available: true, Runtime: "docker",
 			LogDriver: &models.DockerLogDriverInfo{Driver: "json-file"},
-		}, output.ModePlain, 0)
+		}, output.ModePlain, 0, cleanVerdict())
 	})
 	if !strings.Contains(withLogDriver, "json-file") {
 		t.Errorf("a set LogDriver should be rendered by the top-level report, got:\n%s", withLogDriver)

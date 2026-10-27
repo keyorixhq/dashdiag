@@ -59,17 +59,17 @@ func runSteamOS(cmd *cobra.Command, _ []string) error {
 		return result.Err
 	}
 
-	recordResultSeverity([]runner.Result{result}) // BUG-022: honour 0/1/2 exit contract
+	v := recordResultSeverity([]runner.Result{result}) // BUG-022: honour 0/1/2 exit contract
 
 	if mode == output.ModeJSON {
 		return outputJSON(os.Stdout, info)
 	}
 
-	printSteamOSReport(info, elapsed, mode)
+	printSteamOSReport(info, elapsed, mode, v)
 	return nil
 }
 
-func printSteamOSReport(info *models.SteamOSInfo, elapsed time.Duration, mode output.OutputMode) {
+func printSteamOSReport(info *models.SteamOSInfo, elapsed time.Duration, mode output.OutputMode, v render.VerdictInfo) {
 	sep := strings.Repeat("─", 56)
 	timing := fmt.Sprintf(" in %.1fs", elapsed.Seconds())
 
@@ -98,7 +98,7 @@ func printSteamOSReport(info *models.SteamOSInfo, elapsed time.Duration, mode ou
 	fmt.Println()
 	fmt.Println(sep)
 	if c := steamOSConcernCount(info); c == 0 {
-		fmt.Println(render.StyleOK.Render(fmt.Sprintf("%sSteamOS healthy. Checks passed%s", asciiOr("ok", iconOKSp, mode), timing)))
+		fmt.Println(subcommandSummary(v, "SteamOS", asciiOr("ok", iconOKSp, mode), asciiOr("warn", iconWarnSp, mode), timing))
 	} else {
 		fmt.Println(render.StyleWarn.Render(fmt.Sprintf("%s%d SteamOS concern(s) found%s", asciiOr("warn", "⚠️  ", mode), c, timing)))
 	}

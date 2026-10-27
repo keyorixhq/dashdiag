@@ -59,13 +59,13 @@ func runDisk(cmd *cobra.Command, _ []string) error {
 			if info == nil {
 				return firstErr(r)
 			}
-			printDiskReport(info, resultData[*models.LVMInfo](r), mode, elapsed, deep)
+			printDiskReport(info, resultData[*models.LVMInfo](r), mode, elapsed, deep, subcommandVerdict(r))
 			return nil
 		},
 	})
 }
 
-func printDiskReport(info *models.DiskInfo, lvmInfo *models.LVMInfo, mode output.OutputMode, elapsed time.Duration, _ bool) {
+func printDiskReport(info *models.DiskInfo, lvmInfo *models.LVMInfo, mode output.OutputMode, elapsed time.Duration, _ bool, v render.VerdictInfo) {
 	sep := strings.Repeat("─", 56)
 	timing := fmt.Sprintf(" in %.1fs", elapsed.Seconds())
 
@@ -84,12 +84,12 @@ func printDiskReport(info *models.DiskInfo, lvmInfo *models.LVMInfo, mode output
 	case issues > 0:
 		fmt.Println(render.StyleWarn.Render(fmt.Sprintf("%s%d disk concern(s) found%s", asciiOr("warn", "⚠️  ", mode), issues, timing)))
 	case diskHasUnverifiedReads(info, lvmInfo):
-		// Reads failed (ZFS/LVM, commonly non-root) — checks that DID run passed, but
-		// some couldn't run. Don't claim "healthy. Checks passed" (the false-OK dsd
+		// Reads failed (ZFS/LVM, commonly non-root) — the checks that DID run found
+		// nothing, but some couldn't run. Never worded as healthy (the false-OK dsd
 		// health avoids with an INFO); say so explicitly instead.
-		fmt.Println(render.StyleInfo.Render(fmt.Sprintf("%sDisk: checks passed, but some state could not be verified — run as root%s", asciiOr("info", "ℹ️  ", mode), timing)))
+		fmt.Println(render.StyleInfo.Render(fmt.Sprintf("%sDisk: no finding, but some state could not be verified — run as root%s", asciiOr("info", "ℹ️  ", mode), timing)))
 	default:
-		fmt.Println(render.StyleOK.Render(fmt.Sprintf("%sDisk healthy. Checks passed%s", asciiOr("ok", iconOKSp, mode), timing)))
+		fmt.Println(subcommandSummary(v, "Disk", asciiOr("ok", iconOKSp, mode), asciiOr("warn", iconWarnSp, mode), timing))
 	}
 }
 

@@ -56,8 +56,8 @@ func runLogs(cmd *cobra.Command, _ []string) error {
 		return result.Err
 	}
 
-	printLogsReport(info, mode, elapsed, since)
-	recordResultSeverity([]runner.Result{result})
+	v := recordResultSeverity([]runner.Result{result})
+	printLogsReport(info, mode, elapsed, since, v)
 	return nil
 }
 
@@ -76,7 +76,7 @@ func parseSinceDuration(s string) time.Duration {
 	return d
 }
 
-func printLogsReport(info *models.LogsInfo, mode output.OutputMode, elapsed time.Duration, since time.Duration) {
+func printLogsReport(info *models.LogsInfo, mode output.OutputMode, elapsed time.Duration, since time.Duration, v render.VerdictInfo) {
 	if mode == output.ModeJSON {
 		printLogsJSON(info)
 		return
@@ -116,7 +116,7 @@ func printLogsReport(info *models.LogsInfo, mode output.OutputMode, elapsed time
 		// Mirrors the health Logs verdict, which renders INFO (not OK) when non-root.
 		fmt.Println(render.StyleInfo.Render(fmt.Sprintf("%s Logs OK so far, but limited — run as root for OOM/segfault detection via /dev/kmsg and auth-log analysis%s", asciiOr("info", "ℹ️ ", mode), timing)))
 	default:
-		fmt.Println(render.StyleOK.Render(fmt.Sprintf("%s Logs healthy. Checks passed%s", asciiOr("ok", "✅", mode), timing)))
+		fmt.Println(subcommandSummary(v, "Logs", asciiOr("ok", "✅", mode)+" ", asciiOr("warn", iconWarnSp, mode), timing))
 	}
 }
 

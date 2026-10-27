@@ -317,14 +317,14 @@ func TestPrintPVEBridges_VerifiedEmptyStaysSilent(t *testing.T) {
 // shape as the cmd verdict tally drift class elsewhere in cmd/.
 func TestPrintPVEReportSummary(t *testing.T) {
 	healthy := captureStdout(t, func() {
-		printPVEReport(&models.PVEInfo{IsPVE: true, APIReachable: true}, false, 0, output.ModePlain)
+		printPVEReport(&models.PVEInfo{IsPVE: true, APIReachable: true}, false, 0, output.ModePlain, cleanVerdict())
 	})
 	if !strings.Contains(healthy, "Proxmox VE healthy") {
 		t.Errorf("no concerns should read healthy, got:\n%s", healthy)
 	}
 
 	unreachable := captureStdout(t, func() {
-		printPVEReport(&models.PVEInfo{IsPVE: true, NeedsRoot: false, APIReachable: false}, false, 0, output.ModePlain)
+		printPVEReport(&models.PVEInfo{IsPVE: true, NeedsRoot: false, APIReachable: false}, false, 0, output.ModePlain, cleanVerdict())
 	})
 	if !strings.Contains(unreachable, "not responding") {
 		t.Errorf("unreachable pvesh API must be surfaced up front, got:\n%s", unreachable)
@@ -337,7 +337,7 @@ func TestPrintPVEReportSummary(t *testing.T) {
 		printPVEReport(&models.PVEInfo{
 			IsPVE: true, APIReachable: true,
 			Storages: []models.PVEStorage{{Name: "local", Active: true, UsedPct: 95}},
-		}, false, 0, output.ModePlain)
+		}, false, 0, output.ModePlain, cleanVerdict())
 	})
 	if !strings.Contains(concern, "concern(s) found") {
 		t.Errorf("a full storage pool should surface as a concern, got:\n%s", concern)
