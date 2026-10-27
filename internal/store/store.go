@@ -46,20 +46,3 @@ type NullStore struct{}
 func (NullStore) Append(_ context.Context, _ Entry) error                     { return nil }
 func (NullStore) History(_ context.Context, _ string, _ int) ([]Entry, error) { return nil, nil }
 func (NullStore) Close() error                                                { return nil }
-
-// VerdictFromInsights derives the overall verdict string from insight levels.
-// Matches the exit-code contract: CRIT > WARN > OK.
-func VerdictFromInsights(levels []string) string {
-	v := "OK"
-	for _, l := range levels {
-		switch l {
-		case "CRIT":
-			return "CRIT"
-		case "WARN":
-			if v != "CRIT" {
-				v = "WARN"
-			}
-		}
-	}
-	return v
-}

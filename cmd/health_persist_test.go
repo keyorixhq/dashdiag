@@ -33,7 +33,7 @@ func TestPersistHealthRun_OK(t *testing.T) {
 	}
 	insights := []models.Insight{{Level: "OK", Check: "memory"}}
 
-	persistHealthRun(context.Background(), snap, insights)
+	persistHealthRun(context.Background(), snap, nil, insights)
 
 	storePath := filepath.Join(dir, ".dsd", "store.jsonl")
 	if _, err := os.Stat(storePath); err != nil {
@@ -61,7 +61,7 @@ func TestPersistHealthRun_DriftSummary(t *testing.T) {
 
 	// First run: no prior entry — no drift line.
 	stderr1 := captureStderr(t, func() {
-		persistHealthRun(ctx, snap1, nil)
+		persistHealthRun(ctx, snap1, nil, nil)
 	})
 	if strings.Contains(stderr1, "persist:") {
 		t.Errorf("first run should not emit a drift line, got %q", stderr1)
@@ -89,7 +89,7 @@ func TestPersistHealthRun_DriftSummary(t *testing.T) {
 		Checks:    []baseline.CheckResult{{Name: "memory", Status: "OK"}},
 	}
 	stderr2 := captureStderr(t, func() {
-		persistHealthRun(ctx, snap2, nil)
+		persistHealthRun(ctx, snap2, nil, nil)
 	})
 	if !strings.Contains(stderr2, "persist:") || !strings.Contains(stderr2, "memory") {
 		t.Errorf("expected drift line mentioning 'memory', got %q", stderr2)
@@ -114,7 +114,7 @@ func TestPersistHealthRun_StoreOpenError(t *testing.T) {
 
 	snap := &baseline.Snapshot{Hostname: "h"}
 	stderr := captureStderr(t, func() {
-		persistHealthRun(context.Background(), snap, nil)
+		persistHealthRun(context.Background(), snap, nil, nil)
 	})
 	if !strings.Contains(stderr, "store:") {
 		t.Errorf("expected 'store:' on stderr when Open fails, got %q", stderr)

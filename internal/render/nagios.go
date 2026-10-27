@@ -41,7 +41,7 @@ func NagiosLine(results []runner.Result, insights []models.Insight) (string, int
 	// (the live table, --report, --report-html) already accounts for. This
 	// renderer only ever inspected `insights` for CRIT/WARN, so a run where every
 	// collector failed (nothing to derive a finding from, hence zero CRIT/WARN)
-	// still printed a clean "DASHDIAG OK - all checks passed" to Icinga/Nagios/
+	// still printed a clean "DASHDIAG OK" line to Icinga/Nagios/
 	// check_mk — the exact false-OK a monitoring plugin must never emit.
 	var failed []string
 	failedSeen := map[string]bool{}
@@ -68,8 +68,11 @@ func NagiosLine(results []runner.Result, insights []models.Insight) (string, int
 		}
 	}
 
+	// The level comes from Verdict (the one derivation every output shares);
+	// the lists above only name WHICH checks to print.
+	v := Verdict(results, insights)
 	switch {
-	case len(crit) > 0:
+	case v.Level == "CRIT":
 		detail := fmt.Sprintf("%d critical", len(crit))
 		if len(warn) > 0 {
 			detail += fmt.Sprintf(", %d warning", len(warn))
@@ -81,7 +84,7 @@ func NagiosLine(results []runner.Result, insights []models.Insight) (string, int
 		all = append(all, failed...)
 		all = append(all, unverified...)
 		return fmt.Sprintf("DASHDIAG CRITICAL - %s: %s", detail, strings.Join(all, ", ")), 2
-	case len(warn) > 0:
+	case v.Warn > 0:
 		detail := fmt.Sprintf("%d warning", len(warn))
 		all := append([]string{}, warn...)
 		if n := len(failed) + len(unverified); n > 0 {
@@ -90,10 +93,10 @@ func NagiosLine(results []runner.Result, insights []models.Insight) (string, int
 			all = append(all, unverified...)
 		}
 		return fmt.Sprintf("DASHDIAG WARNING - %s: %s", detail, strings.Join(all, ", ")), 1
-	case len(failed)+len(unverified) > 0:
+	case v.Level == "WARN":
 		all := append(append([]string{}, failed...), unverified...)
 		return fmt.Sprintf("DASHDIAG WARNING - %d check(s) failed to run: %s", len(all), strings.Join(all, ", ")), 1
 	default:
-		return "DASHDIAG OK - all checks passed", 0
+		return v.NagiosOK(), v.ExitCode()
 	}
 }

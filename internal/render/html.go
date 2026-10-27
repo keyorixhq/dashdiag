@@ -107,9 +107,8 @@ func BuildHTMLReport(snap *baseline.Snapshot, insights []models.Insight, elapsed
 }
 
 func buildHTML(snap *baseline.Snapshot, insights []models.Insight, elapsed time.Duration, cve *models.CVEAllResult) (string, error) {
-	crit := countLevel(insights, "CRIT")
-	warn := countLevel(insights, "WARN")
-	info := countLevel(insights, "INFO")
+	verdict := Verdict(nil, insights)
+	crit, warn, info := verdict.Crit, verdict.Warn, verdict.Info
 
 	data := htmlReportData{
 		Hostname: snap.Hostname,
@@ -124,7 +123,7 @@ func buildHTML(snap *baseline.Snapshot, insights []models.Insight, elapsed time.
 	if tc, ok := TopCatchLine(insights); ok {
 		data.TopCatch = fmt.Sprintf("%s (%s) → %s", tc.Summary, tc.Topic, tc.Fix)
 	} else {
-		data.TopCatch = fmt.Sprintf("none — %d checks passed.", len(snap.Checks))
+		data.TopCatch = verdict.TopCatchNone(len(snap.Checks))
 	}
 
 	if b := activeBrand(); b.Company != "" || b.Logo != "" {
@@ -139,17 +138,7 @@ func buildHTML(snap *baseline.Snapshot, insights []models.Insight, elapsed time.
 		}
 	}
 
-	switch {
-	case crit > 0:
-		data.Verdict, data.VerdictClass = "CRITICAL", "crit"
-		data.VerdictText = fmt.Sprintf("%d critical issue(s) require immediate attention.", crit)
-	case warn > 0:
-		data.Verdict, data.VerdictClass = "WARNING", "warn"
-		data.VerdictText = fmt.Sprintf("%d warning(s) found — review recommended.", warn)
-	default:
-		data.Verdict, data.VerdictClass = "HEALTHY", "ok"
-		data.VerdictText = "All checks passed — system is healthy."
-	}
+	data.Verdict, data.VerdictClass, data.VerdictText = verdict.HTMLVerdict()
 
 	for _, ins := range filterActionable(insights) {
 		cls := "warn"
