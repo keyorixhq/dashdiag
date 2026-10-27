@@ -40,7 +40,14 @@ func RunWizard(_ output.OutputMode) error {
 		"Confirm server profile (affects default thresholds):",
 		[]string{"web", "database", "kubernetes", "proxmox", "general"},
 	)
-	if err != nil || chosen == "" {
+	if err != nil {
+		// The prompt failed, so no profile was chosen or saved. The wizard is
+		// optional and must not block a first run, but say it was skipped rather
+		// than returning as if the operator had declined.
+		fmt.Fprintf(os.Stderr, "Profile selection skipped: %v\n", err)
+		return nil
+	}
+	if chosen == "" {
 		return nil
 	}
 	writeProfileConfig(chosen)

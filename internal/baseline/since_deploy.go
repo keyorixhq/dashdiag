@@ -5,6 +5,7 @@ import (
 	"bytes"
 	"compress/zlib"
 	"context"
+	"errors"
 	"fmt"
 	"io"
 	"math"
@@ -332,6 +333,11 @@ func parseBootTime(r io.Reader) (time.Time, bool) {
 	return time.Time{}, false
 }
 
+// errNoBaseline marks "there is no usable baseline", as opposed to "the
+// baseline directory could not be read": RunSinceDeployDiff reports the first as
+// an info line and propagates the second.
+var errNoBaseline = errors.New("no baseline")
+
 func FindBaselineBeforeTime(t time.Time, hostname string) (*Snapshot, error) {
 	dir, err := baselineDir()
 	if err != nil {
@@ -342,7 +348,7 @@ func FindBaselineBeforeTime(t time.Time, hostname string) (*Snapshot, error) {
 		return nil, fmt.Errorf("could not read baseline dir %s", dir)
 	}
 	if err != nil || len(entries) == 0 {
-		return nil, fmt.Errorf("no baselines found for %s", hostname)
+		return nil, fmt.Errorf("no baselines found for %s: %w", hostname, errNoBaseline)
 	}
 	var best *Snapshot
 	var bestTime time.Time
@@ -361,7 +367,7 @@ func FindBaselineBeforeTime(t time.Time, hostname string) (*Snapshot, error) {
 		}
 	}
 	if best == nil {
-		return nil, fmt.Errorf("no baseline found before %s", t.Format(time.RFC3339))
+		return nil, fmt.Errorf("no baseline found before %s: %w", t.Format(time.RFC3339), errNoBaseline)
 	}
 	return best, nil
 }
@@ -369,18 +375,31 @@ func FindBaselineBeforeTime(t time.Time, hostname string) (*Snapshot, error) {
 func RunSinceDeployDiff(mode output.OutputMode) error {
 	deployTime, signal, err := DetectLastDeployTime()
 	if err != nil {
+		// DetectLastDeployTime's only error is "no deploy signal found" (every
+		// probe it runs that fails is skipped inside it), so this is a normal state.
 		fmt.Println("info:  No deploy signal detected.")
 		fmt.Println("       Run dsd health before your next deploy to enable this check.")
 		fmt.Println("       Or: dsd health --diff  to compare against your last run.")
-		return nil
+		return nil //nolint:nilerr // see above: absence of a deploy signal is reported as info, not an error
 	}
+	return reportSinceDeploy(deployTime, signal)
+}
+
+// reportSinceDeploy is RunSinceDeployDiff once a deploy signal is in hand
+// (split out so the baseline lookup branches can be tested without one).
+func reportSinceDeploy(deployTime time.Time, signal string) error {
 	hostname, _ := os.Hostname()
-	_, err = FindBaselineBeforeTime(deployTime, hostname)
+	_, err := FindBaselineBeforeTime(deployTime, hostname)
+	if err != nil && !errors.Is(err, errNoBaseline) {
+		// The baseline directory could not be resolved or read: we do not know
+		// whether a pre-deploy baseline exists, so "none found" would be false.
+		return err
+	}
 	if err != nil {
 		mins := int(time.Since(deployTime).Minutes())
 		fmt.Printf("info:  No pre-deploy baseline found (%s, %d min ago).\n", signal, mins)
 		fmt.Println("       Run dsd health before your next deploy to enable this check.")
-		return nil
+		return nil //nolint:nilerr // err is errNoBaseline here (anything else returned above): no baseline is an expected state, reported as info
 	}
 	mins := int(time.Since(deployTime).Minutes())
 	fmt.Printf("Changes since last deploy (%s, %d min ago)\n\n", signal, mins)

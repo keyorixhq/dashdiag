@@ -51,7 +51,7 @@ func walkProcsByState(ctx context.Context, procRoot, stateChar string) ([]procSt
 		path := filepath.Join(procRoot, fmt.Sprintf("%d", pid), "stat")
 		data, err := os.ReadFile(path)
 		if err != nil {
-			return nil
+			return nil //nolint:nilerr // the process exited between the /proc listing and this read (see the func doc: silently skipped by design); /proc/PID/stat of a visible PID is world-readable
 		}
 		name, rest, ok := parseProcStatComm(string(data))
 		if !ok || len(rest) < 2 {

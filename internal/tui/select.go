@@ -109,7 +109,7 @@ func singleSelectText(title string, options []string) (string, error) {
 	}
 	n, err := strconv.Atoi(strings.TrimSpace(scanner.Text()))
 	if err != nil || n < 1 || n > len(options) {
-		return "", nil
+		return "", nil //nolint:nilerr // non-numeric or out-of-range input is documented as "no selection" (empty string) and every caller treats that as cancelled
 	}
 	return options[n-1], nil
 }

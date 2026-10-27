@@ -57,7 +57,7 @@ func topProcessesByFDLinuxAt(ctx context.Context, n int, procRoot string) (*mode
 			return nil
 		}
 		if err != nil {
-			return nil
+			return nil //nolint:nilerr // permission errors are caught above and set partial; any other ReadDir error is the process having exited, so it has no fd count to rank
 		}
 		open := len(fds)
 		limit := fdSoftLimit(procRoot, pid)

@@ -191,7 +191,7 @@ func dirSize(ctx context.Context, path string) (int64, error) {
 		var visited int64
 		err := filepath.WalkDir(path, func(_ string, d os.DirEntry, err error) error {
 			if err != nil {
-				return nil
+				return nil //nolint:nilerr // best-effort lower bound: an entry that vanished or denies access contributes 0, like the entry/byte caps below; the result is a ranking hint (TestDirSize_NonexistentPath pins this)
 			}
 			visited++
 			if visited > maxDirSizeWalkEntries || total > maxDirSizeWalkBytes {

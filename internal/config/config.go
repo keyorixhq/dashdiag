@@ -128,7 +128,7 @@ const maxImplicitConfigBytes = 1 << 20 // 1 MiB, generously larger than any real
 func implicitConfigSafe(path string) (bool, error) {
 	fi, err := os.Lstat(path)
 	if err != nil {
-		return true, nil // doesn't exist (or unreadable) — ReadInConfig reports that as usual
+		return true, nil //nolint:nilerr // nothing to judge: if the file is absent or unreadable, ReadInConfig reports that error to the caller right after
 	}
 	if fi.Mode()&os.ModeSymlink != 0 {
 		return false, nil

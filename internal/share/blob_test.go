@@ -2,6 +2,7 @@ package share
 
 import (
 	"encoding/base64"
+	"errors"
 	"strings"
 	"testing"
 )
@@ -54,7 +55,7 @@ func TestDecodeToleratesSurroundingNoise(t *testing.T) {
 }
 
 func TestDecodeNoBlob(t *testing.T) {
-	if _, err := Decode("just some text, no report here"); err != ErrNoBlob {
+	if _, err := Decode("just some text, no report here"); !errors.Is(err, ErrNoBlob) {
 		t.Errorf("expected ErrNoBlob, got %v", err)
 	}
 }

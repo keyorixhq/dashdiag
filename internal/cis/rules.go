@@ -3005,15 +3005,27 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 					return skipr(r, "/var/log not readable")
 				}
 				var bad []string
+				unreadable := 0
+				var firstUnreadable error
 				walkErr := filepath.WalkDir(varLogPath, func(path string, d fs.DirEntry, err error) error {
 					if err != nil {
-						return nil // skip unreadable dirs/files
+						// Keep walking, but remember it: a path we could not read is a
+						// path whose permissions we did not check.
+						unreadable++
+						if firstUnreadable == nil {
+							firstUnreadable = err
+						}
+						return nil
 					}
 					if d.IsDir() {
 						return nil
 					}
 					fi, siErr := d.Info()
 					if siErr != nil {
+						unreadable++
+						if firstUnreadable == nil {
+							firstUnreadable = siErr
+						}
 						return nil
 					}
 					if fi.Mode().Perm()&0o006 != 0 {
@@ -3028,6 +3040,9 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 						fmt.Sprintf("%d log file(s) have world-readable/writable permissions: %s",
 							len(bad), strings.Join(shown, ", ")),
 						"chmod go-rw /var/log/*.log")
+				}
+				if unreadable > 0 {
+					return unverifiedr(r, fmt.Sprintf("%d path(s) under /var/log could not be read, so their permissions were not checked (%v)", unreadable, firstUnreadable))
 				}
 				return pass(r)
 			}},

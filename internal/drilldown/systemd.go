@@ -17,7 +17,7 @@ func FailedUnitLogs(ctx context.Context, unit string, lines int) (*models.Detail
 	// lookPath (not exec.LookPath) — the package-level var so tests can swap it,
 	// same seam every other drilldown file uses (see swapLookPath).
 	if _, err := lookPath("journalctl"); err != nil {
-		return nil, nil // no journald on this host — nothing to report, not a gap
+		return nil, nil //nolint:nilerr // no journald on this host: nothing to report, not a gap (the caller treats nil Details as absent)
 	}
 
 	out, err := runCmd(ctx, "journalctl", "-u", unit,
