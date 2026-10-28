@@ -57,7 +57,7 @@ var execAllowlistContract = map[string]toolRule{
 	}},
 
 	// --- process / host introspection (structurally read-only binaries: no destructive verb exists for any of these) ---
-	"ps":    {prefixes: [][]string{{"aux"}, {"axo", "pid,ppid,stat,comm"}}}, // "aux" (init/detector.go), "axo ..." (processes.go zombie/hung-parent scan)
+	"ps":    {prefixes: [][]string{{"aux"}, {"axo", "pid,ppid,stat,comm"}, {"-axro", "pid,pmem,rss,comm"}, {"-axro", "pid,pcpu,comm"}}}, // "aux" (init/detector.go), "axo ..." (processes.go zombie/hung-parent scan), "-axro ..." (drilldown/memory.go + cpu.go macOS top-N; BSD ps has no --sort)
 	"pgrep": {prefixes: [][]string{{"-x", "sshd"}, {"timed"}}},
 	"w":     {prefixes: [][]string{{"-h"}}}, // sessions.go
 	"lsof": {prefixes: [][]string{
