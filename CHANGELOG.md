@@ -11,8 +11,66 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.5.0] - 2026-10-28
+
+### Behaviour changes
+
+Every exit-code, Prometheus and field-meaning change in this release, with the
+misreporting it fixes. All are allowed in a minor by `COMPATIBILITY.md`: they make
+a run that could not look stop reading as "fine"; none renames or removes a
+covered field, and the `verdict` vocabulary (`OK`/`WARN`/`CRIT`) and exit codes
+0/1/2/3 keep their meaning. Before/after rows: `COMPATIBILITY.md` §4. Measured on
+49 real captures and live hosts: `docs/validation-v2.5.0.md`.
+
+- **`dsd <sub>` exits 0 -> 1 when its collector errored or a check is
+  unverified** (`cpu`, `db`, `disk`, `docker`, `gpu`, `k8s`, `kvm`, `logs`, `net`,
+  `processes`, `pve`, `security`, `steamos`, `thermal`). They used to exit 0 and
+  print "healthy" over a collector that failed, so a CI gate on the exit code read
+  a host it never looked at as fine. They now take the exit code of the same
+  verdict `dsd health` uses.
+- **`dsd pve` and `dsd processes` now follow the 0/1/2 contract.** They never set
+  an exit code (always 0, even with a CRIT finding, and 0 with no output when the
+  collector returned an error). A real WARN is now 1, a CRIT 2, a collector error
+  non-zero (BUG-022).
+- **Prometheus `dsd_health_status` (and that check's `dsd_check_status`) is 1,
+  not 0, for a run that could not verify itself.** The metric was derived from
+  CRIT/WARN counts only, so an alert on `dsd_health_status > 0` never fired for a
+  host whose checks had not run.
+- **"System healthy" / "All checks passed" -> "Not fully verified: N checks could
+  not run"** in the terminal summary, `--plain`, `--report`, the `--report-html`
+  badge (`HEALTHY` -> `NOT VERIFIED`), `dsd share` text and the story, and the
+  `--persist` history entry records `WARN`, not `OK`, for such a run. A script
+  that greps for the old all-clear strings no longer matches; gate on the exit code
+  or `--json` `verdict`.
+- **`pve.ha_verified` (new, additive) changes what "no HA" means.** A `pvesh`
+  failure used to be read as "this node has no HA". Only an explicit 501 / not
+  implemented is "no HA" now; any other failure sets `ha_verified: false` and an
+  unverified insight.
+- **`dsd tls` reports a directory it was denied** (for example the Debian/Ubuntu
+  `/etc/ssl/private`, mode 0710) in `uncheckable[]` instead of silently scanning
+  nothing. As root an unreadable scan directory raises the status and the exit
+  code to WARN/1; as a non-root user it is `needs root: could not read <dir>
+  (re-run with sudo)` and, per the next entry, does not change the exit code.
+- **A skipped root-only check on a non-root run does not floor the verdict.**
+  Measured on the e2e VM and on a Proxmox host: a non-root `dsd health` carries
+  9-22 unverified insights, almost all root-only reads (`/etc/shadow`, auth logs,
+  `/dev/kmsg`, the journal), against 2-4 as root, and `dsd tls`/`processes`/`pve`
+  went 0 -> 1 for a non-root user on a stock host. Such an insight is now shown
+  (`needs root: N checks skipped - re-run with sudo`) but does not by itself make
+  the run WARN/exit 1; any other unverified insight and any errored collector
+  still does. As root the same read failing is a plain unverified and still
+  floors. `unverified` counts stay truthful; `counts.needs_root` and
+  `insights[].needs_root` are additive. **Relative to v2.4.0, a non-root
+  `dsd health` with no other finding is now `OK`/exit 0, not `WARN`/exit 1.**
+
 ### Fixed
 
+- **A bundle recorded before the CPU sample's `ok` field replays as a successful
+  sample.** The sample gained `ok` in this release; every older recording lacks
+  it, so all 49 bundles in the corpus replayed with "CPU usage sample failed" and
+  a healthy captured host would have read as "Not fully verified". A recording
+  without `ok` is a success unless it is the all-zero struct a failed sample used
+  to be; an explicit `ok` always wins.
 - **A subcommand whose collector failed or returned Unverified no longer prints
   "healthy".** `dsd cpu`, `db`, `disk`, `docker`, `gpu`, `k8s`, `kvm`, `logs`,
   `net`, `processes`, `pve`, `security`, `steamos` and `thermal` derived their
@@ -168,7 +226,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `OutputMode` or renderer is added without a row) for a run whose checks could
   not run and forbids any "healthy"/OK; `TestGuardB_*` (go/ast) fails if any file
   other than `internal/render/verdict.go` derives an overall verdict or spells
-  all-clear wording.
+  all-clear wording. `TestGuardA_NeedsRootOnlyRunIsOKWithVisibleSkip` pins the
+  other half: a non-root run whose only unverified insights are root-only reads
+  is OK with the skip named in every output and never "healthy", while the same
+  run plus any other unverified insight stays WARN.
+- **`docs/validation-v2.5.0.md`:** the v2.4.0 vs main replay (49 captures) and
+  live-host record behind this release.
 
 ## [2.4.0] - 2026-09-23
 

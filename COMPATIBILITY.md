@@ -147,7 +147,7 @@ finding about the host.
 | Code | Meaning |
 |------|---------|
 | `0`  | OK — all checks ran, nothing found |
-| `1`  | WARN — at least one WARN or CRIT finding, or one or more checks could not determine something (an `unverified` insight) with no CRIT present |
+| `1`  | WARN — at least one WARN or CRIT finding, or one or more checks could not determine something (an `unverified` insight, other than a root-only read skipped by a non-root run, below) with no CRIT present |
 | `2`  | CRIT — at least one CRIT finding |
 | `3`  | **New.** UNKNOWN — no meaningful verdict at all: an unparseable `--policy` file, zero collectors ran, or another fatal error before any check ran. Matches the Nagios plugin spec's reserved `UNKNOWN` code; `dsd health --nagios` already followed this convention and previously just never produced it. |
 
@@ -161,6 +161,19 @@ mappings, including the new code, are stable going forward.
 Monitoring integrations (`--nagios`) follow the Nagios convention (0/1/2/3)
 and are likewise stable — 3 there has always been reserved, per Nagios's own
 spec, even though this dsd version is the first to ever produce it.
+
+**Root-only reads skipped by a non-root run do not floor the verdict (2.5.0).**
+An `unverified` insight that carries `needs_root: true` (a root-only file, log or
+ioctl that a non-root `dsd` could not read) is shown as
+`needs root: N checks skipped - re-run with sudo` but does not by itself turn an
+otherwise OK run into WARN/exit 1. `needs_root` is only ever set when `dsd` is not
+root; the same read failing as root is a plain `unverified` and floors. Any other
+`unverified` insight and any errored collector still floors. `counts.unverified`
+stays the truthful total; `counts.needs_root` is how many of them are root-only.
+`dsd tls` follows the same rule: a root-only scan directory seen by a non-root run
+stays in `uncheckable[]` with `needs_root: true` but does not raise `status` or the
+exit code. Before 2.5.0 (2.4.0) every unverified insight floored, so a non-root
+`dsd health` with no finding exited 1.
 
 **All outputs agree with the exit code.** The "a run that could not verify itself
 is not OK" floor above applies to every rendering of the verdict, not only
