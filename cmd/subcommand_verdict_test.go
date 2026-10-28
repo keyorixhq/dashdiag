@@ -37,7 +37,7 @@ func subcommandRenderers() []subcommandRenderer {
 	plain := output.ModePlain
 	return []subcommandRenderer{
 		{"cpu", func(v render.VerdictInfo) {
-			printCPUReport(ctx, &models.CPUInfo{NumCPU: 4, UsagePct: 10}, nil, nil, nil, plain, 0, v)
+			printCPUReport(ctx, cpuReportData{CPU: &models.CPUInfo{NumCPU: 4, UsagePct: 10}}, plain, 0, v)
 		}},
 		{"db", func(v render.VerdictInfo) { printDBVerdict(nil, plain, v) }},
 		{"disk", func(v render.VerdictInfo) { printDiskReport(&models.DiskInfo{}, nil, plain, 0, false, v) }},

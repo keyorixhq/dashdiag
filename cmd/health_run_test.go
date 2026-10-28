@@ -521,7 +521,7 @@ func TestPrintHealthMainOutputModes(t *testing.T) {
 
 	jsonOut := captureStdout(t, func() {
 		r := render.NewRenderer(output.ModeJSON)
-		printHealthMainOutput(r, output.ModeJSON, results, insights, nil, false, false, len(results))
+		printHealthMainOutput(r, output.ModeJSON, results, insights, nil, healthRenderOpts{ChecksTotal: len(results)})
 	})
 	if !strings.Contains(jsonOut, `"checks"`) {
 		t.Errorf("JSON mode should emit the JSON document, got: %q", jsonOut)
@@ -529,7 +529,7 @@ func TestPrintHealthMainOutputModes(t *testing.T) {
 
 	yamlOut := captureStdout(t, func() {
 		r := render.NewRenderer(output.ModeYAML)
-		printHealthMainOutput(r, output.ModeYAML, results, insights, nil, false, false, len(results))
+		printHealthMainOutput(r, output.ModeYAML, results, insights, nil, healthRenderOpts{ChecksTotal: len(results)})
 	})
 	if yamlOut == "" {
 		t.Error("YAML mode should emit a document")
@@ -537,7 +537,7 @@ func TestPrintHealthMainOutputModes(t *testing.T) {
 
 	plainOut := captureStdout(t, func() {
 		r := render.NewRenderer(output.ModePlain)
-		printHealthMainOutput(r, output.ModePlain, results, insights, nil, false, false, len(results))
+		printHealthMainOutput(r, output.ModePlain, results, insights, nil, healthRenderOpts{ChecksTotal: len(results)})
 	})
 	if !strings.Contains(plainOut, "CPU Load") {
 		t.Errorf("plain mode should render the results table, got: %q", plainOut)
@@ -545,7 +545,7 @@ func TestPrintHealthMainOutputModes(t *testing.T) {
 
 	layeredOut := captureStdout(t, func() {
 		r := render.NewRenderer(output.ModePlain)
-		printHealthMainOutput(r, output.ModePlain, results, insights, nil, true, false, len(results))
+		printHealthMainOutput(r, output.ModePlain, results, insights, nil, healthRenderOpts{Layered: true, ChecksTotal: len(results)})
 	})
 	if layeredOut == "" {
 		t.Error("layered mode should render a layered report")
@@ -567,7 +567,7 @@ func TestPrintHealthMainOutput_TopCatchLine(t *testing.T) {
 
 	plainOut := captureStdout(t, func() {
 		r := render.NewRenderer(output.ModePlain)
-		printHealthMainOutput(r, output.ModePlain, results, insights, nil, false, false, len(results))
+		printHealthMainOutput(r, output.ModePlain, results, insights, nil, healthRenderOpts{ChecksTotal: len(results)})
 	})
 	if !strings.Contains(plainOut, want) {
 		t.Errorf("plain mode missing Top catch line, got:\n%s", plainOut)
@@ -575,7 +575,7 @@ func TestPrintHealthMainOutput_TopCatchLine(t *testing.T) {
 
 	layeredOut := captureStdout(t, func() {
 		r := render.NewRenderer(output.ModePlain)
-		printHealthMainOutput(r, output.ModePlain, results, insights, nil, true, false, len(results))
+		printHealthMainOutput(r, output.ModePlain, results, insights, nil, healthRenderOpts{Layered: true, ChecksTotal: len(results)})
 	})
 	if !strings.Contains(layeredOut, want) {
 		t.Errorf("--layered mode missing Top catch line, got:\n%s", layeredOut)
@@ -584,7 +584,7 @@ func TestPrintHealthMainOutput_TopCatchLine(t *testing.T) {
 	// JSON mode gets the additive top_catch field instead of a printed line.
 	jsonOut := captureStdout(t, func() {
 		r := render.NewRenderer(output.ModeJSON)
-		printHealthMainOutput(r, output.ModeJSON, results, insights, nil, false, false, len(results))
+		printHealthMainOutput(r, output.ModeJSON, results, insights, nil, healthRenderOpts{ChecksTotal: len(results)})
 	})
 	if strings.Contains(jsonOut, "Top catch:") {
 		t.Errorf("JSON mode should not print the human Top catch line, got:\n%s", jsonOut)
@@ -601,7 +601,7 @@ func TestPrintHealthMainOutput_TopCatchAllClear(t *testing.T) {
 
 	out := captureStdout(t, func() {
 		r := render.NewRenderer(output.ModePlain)
-		printHealthMainOutput(r, output.ModePlain, results, insights, nil, false, false, len(results))
+		printHealthMainOutput(r, output.ModePlain, results, insights, nil, healthRenderOpts{ChecksTotal: len(results)})
 	})
 	want := "Top catch: none — 1 checks passed."
 	if !strings.Contains(out, want) {

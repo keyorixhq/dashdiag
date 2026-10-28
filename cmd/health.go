@@ -439,7 +439,7 @@ func printHealthResults(cmd *cobra.Command, ctrCtx platform.ContainerContext, mo
 	if snap != nil {
 		checksTotal = len(snap.Checks)
 	}
-	printHealthMainOutput(renderer, mode, results, insights, correlations, layeredFlag, deepFlag, checksTotal)
+	printHealthMainOutput(renderer, mode, results, insights, correlations, healthRenderOpts{Layered: layeredFlag, Deep: deepFlag, ChecksTotal: checksTotal})
 
 	// In machine modes (JSON/YAML) stdout must stay a single document, so route
 	// the diff and the report notice to stderr instead of corrupting it.
@@ -463,10 +463,18 @@ func printHealthResults(cmd *cobra.Command, ctrCtx platform.ContainerContext, mo
 	return exitCode, noticeW
 }
 
+// healthRenderOpts carries the display switches for printHealthMainOutput.
+type healthRenderOpts struct {
+	Layered     bool // --layered: group the report by layer
+	Deep        bool // --deep: add top processes with cgroup scope
+	ChecksTotal int  // number of checks run, for the top-catch line
+}
+
 // printHealthMainOutput renders the primary `dsd health` output: JSON/YAML as
 // a single machine-readable document, or the interactive/plain renderer with
 // correlations and (in --deep mode) top processes by cgroup scope.
-func printHealthMainOutput(renderer *render.Renderer, mode output.OutputMode, results []runner.Result, insights []models.Insight, correlations []analysis.Correlation, layeredFlag, deepFlag bool, checksTotal int) {
+func printHealthMainOutput(renderer *render.Renderer, mode output.OutputMode, results []runner.Result, insights []models.Insight, correlations []analysis.Correlation, opts healthRenderOpts) {
+	layeredFlag, deepFlag, checksTotal := opts.Layered, opts.Deep, opts.ChecksTotal
 	switch mode {
 	case output.ModeJSON:
 		data, err := render.RenderJSON(results, insights)
