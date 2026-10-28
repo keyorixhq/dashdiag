@@ -84,7 +84,7 @@ jobs:
       # GitHub's setup-go manifest lagged; the manifest now lists 1.26.10, so the
       # pin is gone. Do not re-pin to a patch version: it goes stale silently.
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with: {go-version: '1.26', cache: true}
+        with: {go-version: '1.26', check-latest: true, cache: true}
 
       - name: govulncheck
         # Pinned, not @latest (OSSF Scorecard Pinned-Dependencies) — a compromised
@@ -112,7 +112,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
         with: {fetch-depth: 0} # full history — gitleaks detect needs every commit, not just HEAD
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with: {go-version: '1.26', cache: true}
+        with: {go-version: '1.26', check-latest: true, cache: true}
 
       - name: gitleaks
         # Pinned, not @latest — same Scorecard rationale as govulncheck above.
@@ -134,7 +134,7 @@ jobs:
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
-        with: {go-version: '1.26', cache: true}
+        with: {go-version: '1.26', check-latest: true, cache: true}
 
       - name: osv-scanner
         # Pinned, not @latest — same Scorecard rationale as govulncheck above.
