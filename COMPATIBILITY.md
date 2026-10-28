@@ -54,7 +54,7 @@ These top-level keys, their types, and their meanings are stable:
 | `counts`    | object `{crit,warn,info}` (integers) | Always present; keys stable |
 | `checks`    | array    | Always present (may be empty) |
 | `insights`  | array    | Always present (may be empty) |
-| `coverage`  | object `{checked,not_checked,not_applicable}` (integers) | Always present (added after 2.5.0, additive); see §2 |
+| `coverage`  | object `{checked,not_checked,not_applicable}` (integers) | Always present (added in 2.6.0, additive); see §2 |
 
 The authoritative machine-readable definition is `schema/dsd-output.json`, generated
 from the `JSONOutput` struct in `internal/render/json.go`. The struct is the source
@@ -80,7 +80,7 @@ Stable fields per check: `name`, `status`, `duration`, `error`.
   (the same "not applicable" omission rule above, since cloud detection itself
   needs the network call it's gating).
 
-#### Coverage (added after 2.5.0, additive)
+#### Coverage (added in 2.6.0, additive)
 
 `status` says what a check found; it cannot say whether the check looked. Every
 `checks[]` entry now also carries `coverage`, and the top level a `coverage`
