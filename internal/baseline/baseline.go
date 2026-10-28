@@ -31,7 +31,10 @@ type CheckResult struct {
 	Status     string `json:"status"`
 	Value      string `json:"value"`
 	Unverified bool   `json:"unverified,omitempty"`
-	Raw        any    `json:"raw,omitempty"`
+	// NeedsRoot mirrors models.Insight.NeedsRoot so a stored snapshot derives the
+	// same verdict as the run that wrote it (SnapshotVerdict).
+	NeedsRoot bool `json:"needs_root,omitempty"`
+	Raw       any  `json:"raw,omitempty"`
 }
 
 type DiffEntry struct {
@@ -289,6 +292,7 @@ func BuildSnapshot(results []runner.Result, insights []models.Insight) *Snapshot
 				cr.Status = ins.Level
 				cr.Value = ins.Message
 				cr.Unverified = ins.Unverified
+				cr.NeedsRoot = ins.Unverified && ins.NeedsRoot
 			}
 		}
 		// Mirror live health (render.shouldHideRow): a collector that reports

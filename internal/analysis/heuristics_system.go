@@ -559,7 +559,7 @@ func checkKernelSecurity(mac models.KernelSecurityInfo, thresh Thresholds) []mod
 		// AppArmor's mode lives in /sys/kernel/security/apparmor/profiles, which
 		// is root-only — so here "unknown" genuinely IS a privilege gap and
 		// re-running as root resolves it.
-		out = append(out, unverifiedInsight("INFO", catKernelSec,
+		out = append(out, needsRootInsight("INFO", catKernelSec,
 			"AppArmor present but mode unreadable — re-run as root",
 			nil,
 		))
@@ -769,7 +769,7 @@ func nvmeEventInsights(logs models.LogsInfo) []models.Insight {
 func checkLogs(logs models.LogsInfo, thresh Thresholds) []models.Insight {
 	var out []models.Insight
 	if logs.NeedsRoot {
-		out = append(out, unverifiedInsight("INFO", "Logs",
+		out = append(out, needsRootInsight("INFO", "Logs",
 			"some checks limited — run as root for OOM/segfault detection via /dev/kmsg and auth log analysis",
 			nil,
 		))
@@ -783,7 +783,7 @@ func checkLogs(logs models.LogsInfo, thresh Thresholds) []models.Insight {
 	// reason (both true at once is possible), both captions are accurate and
 	// distinct, so both are shown.
 	if logs.KmsgUnreadable {
-		out = append(out, unverifiedInsight("INFO", "Logs",
+		out = append(out, needsRootInsight("INFO", "Logs",
 			"kernel ring buffer (/dev/kmsg) unreadable this run — OOM/segfault/lockup counts from it could not be determined",
 			[]string{"to inspect: dmesg | tail -50"},
 		))
@@ -805,10 +805,16 @@ func checkLogs(logs models.LogsInfo, thresh Thresholds) []models.Insight {
 		unmeasured = append(unmeasured, "journal corruption")
 	}
 	if len(unmeasured) > 0 {
-		out = append(out, unverifiedInsight("INFO", "Logs",
+		ins := needsRootInsight("INFO", "Logs",
 			"could not verify: "+strings.Join(unmeasured, ", ")+" — a zero here is not a measured clean result",
 			[]string{"to inspect: systemctl list-units --state=failed", inspectJournalDiskUse, "check: re-run as root (journal group / /var/crash access)"},
-		))
+		)
+		// A failed `systemctl` crash-loop query is not a privilege gap: that
+		// reason keeps the insight a floor-raising Unverified.
+		if logs.CrashLoopsUnverified {
+			ins.NeedsRoot = false
+		}
+		out = append(out, ins)
 	}
 	if l := levelPct(logs.JournalSizeGB, thresh.JournalSizeWarnGB, thresh.JournalSizeCritGB); l != "" {
 		out = append(out, insight(l, "Logs",
@@ -1016,7 +1022,7 @@ func checkJournalActivity(logs models.LogsInfo) []models.Insight {
 	} else if logs.ErrorCountUnverified {
 		// The journal error scan failed and no /var/log fallback covered it, so the
 		// 0-error count is not trustworthy — don't read it as a clean log.
-		out = append(out, unverifiedInsight("INFO", "Logs",
+		out = append(out, needsRootInsight("INFO", "Logs",
 			"could not read journal error counts — recent errors are unverified",
 			[]string{
 				"to inspect: journalctl -p err --since '1 hour ago' --no-pager  (run as root?)",
@@ -1060,7 +1066,7 @@ func checkProcesses(proc models.ProcessInfo, thresh Thresholds) []models.Insight
 			[]string{"to inspect: ps axo pid,ppid,stat,comm"}))
 	}
 	if proc.ListRestricted {
-		out = append(out, unverifiedInsight("INFO", "Processes",
+		out = append(out, needsRootInsight("INFO", "Processes",
 			"process list hides other users' processes (hidepid / ProtectProc) — zombie and hung counts cover only this user's view",
 			[]string{"to inspect: mount | grep 'proc.*hidepid'", "to fix: re-run with sudo"}))
 	}
@@ -1173,7 +1179,7 @@ func checkOOM(oom models.OOMInfo) []models.Insight {
 	// The kernel log was unreadable, so EventsLast24h==0 means "couldn't check",
 	// not "no OOM kills" — surface it rather than passing as a silent clean.
 	if oom.StatusReason != "" {
-		return []models.Insight{unverifiedInsight("INFO", "OOM",
+		return []models.Insight{needsRootInsight("INFO", "OOM",
 			"OOM check not verified — "+oom.StatusReason,
 			[]string{
 				"to inspect: journalctl -k | grep -i 'out of memory'   (run as root)",

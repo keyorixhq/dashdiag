@@ -33,18 +33,29 @@ type VerdictInfo struct {
 	Errored int
 	// NotRun is the number of distinct checks that could not run: the union of
 	// errored collectors and unverified insights. It is what the user is told.
+	// Checks that only a root run can read (NeedsRoot) are not in it: they are
+	// counted in Skipped.
 	NotRun int
+	// NeedsRoot counts the Unverified insights that could only be read as root
+	// on this non-root run (a subset of Unverified; the JSON count). Skipped is
+	// the number of distinct checks they belong to, what the user is told. They
+	// are shown but do not floor the verdict: see models.Insight.NeedsRoot.
+	NeedsRoot, Skipped int
 }
 
 // Verdict derives the overall verdict. The rule is the JSON verdict's: the
 // worst of CRIT/WARN wins; INFO never raises it; but a run with any errored
 // collector or Unverified insight is floored at WARN, never reported OK. The
-// floor never outranks a real CRIT. results may be nil where only insights are
+// floor never outranks a real CRIT. An Unverified insight that is NeedsRoot (a
+// non-root run could not read a root-only source) is reported but does not
+// floor: a stock distro run without sudo would otherwise never be OK. Any other
+// Unverified insight, and every errored collector, still does. results may be nil where only insights are
 // at hand (a collector error always yields an Unverified INFO insight, see
 // analysis.ApplyThresholds, so the floor still holds).
 func Verdict(results []runner.Result, insights []models.Insight) VerdictInfo {
 	var v VerdictInfo
 	notRun := map[string]struct{}{}
+	skipped := map[string]struct{}{}
 	for _, ins := range insights {
 		switch ins.Level {
 		case "CRIT":
@@ -54,7 +65,12 @@ func Verdict(results []runner.Result, insights []models.Insight) VerdictInfo {
 		case "INFO":
 			v.Info++
 		}
-		if ins.Unverified {
+		switch {
+		case ins.Unverified && ins.NeedsRoot:
+			v.Unverified++
+			v.NeedsRoot++
+			skipped[ins.Check] = struct{}{}
+		case ins.Unverified:
 			v.Unverified++
 			notRun[ins.Check] = struct{}{}
 		}
@@ -66,7 +82,8 @@ func Verdict(results []runner.Result, insights []models.Insight) VerdictInfo {
 		}
 	}
 	v.NotRun = len(notRun)
-	v.Level = levelFromCounts(v.Crit, v.Warn, v.Errored+v.Unverified)
+	v.Skipped = len(skipped)
+	v.Level = levelFromCounts(v.Crit, v.Warn, v.Errored+v.Unverified-v.NeedsRoot)
 	return v
 }
 
@@ -98,12 +115,17 @@ func SnapshotVerdict(snap *baseline.Snapshot) VerdictInfo {
 		case "INFO":
 			v.Info++
 		}
-		if c.Unverified {
+		switch {
+		case c.Unverified && c.NeedsRoot:
+			v.Unverified++
+			v.NeedsRoot++
+			v.Skipped++
+		case c.Unverified:
 			v.Unverified++
 			v.NotRun++
 		}
 	}
-	v.Level = levelFromCounts(v.Crit, v.Warn, v.Unverified)
+	v.Level = levelFromCounts(v.Crit, v.Warn, v.Unverified-v.NeedsRoot)
 	return v
 }
 
@@ -114,8 +136,23 @@ func (v VerdictInfo) Floored() bool {
 	return v.Level == "WARN" && v.Warn == 0 && v.Crit == 0
 }
 
-// Clean reports a verdict that may be worded as healthy.
-func (v VerdictInfo) Clean() bool { return v.Level == "OK" }
+// Clean reports a verdict that may be worded as healthy: nothing found and
+// nothing skipped.
+func (v VerdictInfo) Clean() bool { return v.Level == "OK" && v.NeedsRoot == 0 }
+
+// SkippedOnly reports an OK verdict that skipped root-only checks on a non-root
+// run. It is OK for the exit code, but every output must say what was skipped
+// and never word it as healthy / all checks passed.
+func (v VerdictInfo) SkippedOnly() bool { return v.Level == "OK" && v.NeedsRoot > 0 }
+
+// skippedPhrase is the visible skip line every output shares:
+// "needs root: 1 check skipped — re-run with sudo".
+func (v VerdictInfo) skippedPhrase() string {
+	if v.Skipped == 1 {
+		return "needs root: 1 check skipped — re-run with sudo"
+	}
+	return fmt.Sprintf("needs root: %d checks skipped — re-run with sudo", v.Skipped)
+}
 
 // ExitCode maps the level to the process exit code: 0 OK, 1 WARN, 2 CRIT.
 func (v VerdictInfo) ExitCode() int {
@@ -153,6 +190,10 @@ func (v VerdictInfo) TerminalBanner(plain bool, timing string) string {
 		return fmt.Sprintf("WARN: Not fully verified: %s — see INFO below%s", v.couldNotRun(), timing)
 	case v.Floored():
 		return StyleWarn.Render(fmt.Sprintf("⚠ Not fully verified: %s — see INFO below%s", v.couldNotRun(), timing))
+	case v.SkippedOnly() && plain:
+		return fmt.Sprintf("OK: No findings; %s%s", v.skippedPhrase(), timing)
+	case v.SkippedOnly():
+		return StyleOK.Render(fmt.Sprintf("✅ No findings; %s%s", v.skippedPhrase(), timing))
 	default:
 		return ""
 	}
@@ -169,6 +210,8 @@ func (v VerdictInfo) SubcommandSummary(subject string) (level, text string) {
 		return "ok", subject + " healthy. Checks passed"
 	case v.Floored():
 		return "warn", fmt.Sprintf("%s: Not fully verified: %s — re-run with sudo / see the INFO lines above", subject, v.couldNotRun())
+	case v.SkippedOnly():
+		return "ok", fmt.Sprintf("%s: no findings; %s", subject, v.skippedPhrase())
 	default:
 		return "warn", fmt.Sprintf("%s: %d critical, %d warning finding(s) — see above", subject, v.Crit, v.Warn)
 	}
@@ -182,6 +225,8 @@ func (v VerdictInfo) MarkdownSummary() string {
 		return "✅ **All checks passed** — system is healthy.\n\n"
 	case v.Floored():
 		return fmt.Sprintf("⚠️  **Not fully verified** — %s; see Issues below.\n\n", v.couldNotRun())
+	case v.SkippedOnly():
+		return fmt.Sprintf("✅ **No findings** — %s.\n\n", v.skippedPhrase())
 	default:
 		return ""
 	}
@@ -196,6 +241,8 @@ func (v VerdictInfo) HTMLVerdict() (label, class, text string) {
 		return "WARNING", "warn", fmt.Sprintf("%d warning(s) found — review recommended.", v.Warn)
 	case v.Floored():
 		return "NOT VERIFIED", "warn", fmt.Sprintf("%s — see the issues below for which.", v.couldNotRun())
+	case v.SkippedOnly():
+		return "NO FINDINGS", "ok", v.skippedPhrase() + "."
 	default:
 		return "HEALTHY", "ok", "All checks passed — system is healthy."
 	}
@@ -210,6 +257,8 @@ func (v VerdictInfo) ShareLine() string {
 		return fmt.Sprintf("Verdict: WARN — %d warning", v.Warn)
 	case v.Floored():
 		return fmt.Sprintf("Verdict: WARN — not fully verified: %s", v.couldNotRun())
+	case v.SkippedOnly():
+		return "Verdict: OK — no findings; " + v.skippedPhrase()
 	default:
 		return "Verdict: OK — all checks passed"
 	}
@@ -221,11 +270,17 @@ func (v VerdictInfo) TopCatchNone(total int) string {
 	if v.Floored() {
 		return fmt.Sprintf("none — no finding, but %s.", v.couldNotRun())
 	}
+	if v.SkippedOnly() {
+		return "none — no finding; " + v.skippedPhrase() + "."
+	}
 	return fmt.Sprintf("none — %d checks passed.", total)
 }
 
 // NagiosOK is the monitoring-plugin text for a clean run.
 func (v VerdictInfo) NagiosOK() string {
+	if v.SkippedOnly() {
+		return "DASHDIAG OK - no findings; " + v.skippedPhrase()
+	}
 	return "DASHDIAG OK - all checks passed"
 }
 
@@ -233,6 +288,9 @@ func (v VerdictInfo) NagiosOK() string {
 func (v VerdictInfo) StoryClean(total int) string {
 	if v.Floored() {
 		return fmt.Sprintf("not fully verified — %s (run dsd health to see which).", v.couldNotRun())
+	}
+	if v.SkippedOnly() {
+		return "no findings; " + v.skippedPhrase() + "."
 	}
 	return fmt.Sprintf("all %d checks passed.", total)
 }
@@ -243,6 +301,9 @@ func (v VerdictInfo) StoryPeriodLine() string {
 	if v.Floored() {
 		return fmt.Sprintf("No check changed status, but in the latest run %s — run dsd health to see which.", v.couldNotRun())
 	}
+	if v.SkippedOnly() {
+		return "No check changed status; in the latest run " + v.skippedPhrase() + "."
+	}
 	return "All checks remained healthy throughout this period."
 }
 
@@ -251,6 +312,9 @@ func (v VerdictInfo) StoryPeriodLine() string {
 func (v VerdictInfo) StoryCurrentLine() string {
 	if v.Floored() {
 		return fmt.Sprintf("No check is WARN or CRIT now, but in the latest run %s — run dsd health to see which.", v.couldNotRun())
+	}
+	if v.SkippedOnly() {
+		return "No check is WARN or CRIT now; in the latest run " + v.skippedPhrase() + "."
 	}
 	return "All checks currently healthy."
 }

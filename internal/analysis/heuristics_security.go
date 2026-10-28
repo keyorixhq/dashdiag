@@ -73,7 +73,7 @@ func checkSecurityAuditGaps(sec models.SecurityInfo) []models.Insight {
 	var out []models.Insight
 
 	if sec.NeedsRoot {
-		out = append(out, unverifiedInsight("INFO", secCatHardening,
+		out = append(out, needsRootInsight("INFO", secCatHardening,
 			"some checks limited — run as root for port process names, failed logins, and SELinux audit log",
 			nil,
 		))
@@ -94,7 +94,7 @@ func checkSecurityAuditGaps(sec models.SecurityInfo) []models.Insight {
 	// /etc/shadow couldn't be read (non-root), so the empty/never-expiring-password
 	// audits read nothing — an empty-password account would otherwise pass as clean.
 	if sec.ShadowUnreadable {
-		out = append(out, unverifiedInsight("INFO", secCatHardening,
+		out = append(out, needsRootInsight("INFO", secCatHardening,
 			"/etc/shadow not readable — empty/never-expiring password accounts were NOT audited",
 			[]string{secAuditRunAsRoot},
 		))
@@ -104,14 +104,14 @@ func checkSecurityAuditGaps(sec models.SecurityInfo) []models.Insight {
 	// failed-login/PAM checks below silently see zero, indistinguishable from
 	// a genuinely clean host, unless this is surfaced explicitly.
 	if sec.FailedLoginsUnreadable {
-		out = append(out, unverifiedInsight("INFO", secCatHardening,
+		out = append(out, needsRootInsight("INFO", secCatHardening,
 			"SSH auth log not readable — failed-login/brute-force attempts were NOT audited",
 			[]string{secAuditRunAsRoot},
 		))
 	}
 
 	if sec.PAMFailuresUnreadable {
-		out = append(out, unverifiedInsight("INFO", secCatHardening,
+		out = append(out, needsRootInsight("INFO", secCatHardening,
 			"PAM auth log not readable — su/sudo/login/cron authentication failures were NOT audited",
 			[]string{secAuditRunAsRoot},
 		))
@@ -661,7 +661,7 @@ func checkAppArmorDenials(sec models.SecurityInfo) []models.Insight {
 		// absent) — distinct from journalctl's own "exit 1, zero matches"
 		// convention, which is the routine clean case and leaves this false.
 		// Without this branch, both silently read as "0 denials".
-		out = append(out, unverifiedInsight("INFO", secCatHardening,
+		out = append(out, needsRootInsight("INFO", secCatHardening,
 			"AppArmor denial log could not be read — denials in the last 24h were NOT audited",
 			[]string{secAuditRunAsRoot},
 		))
@@ -974,10 +974,16 @@ func checkFirewall(f models.FirewallInfo) []models.Insight {
 			)}
 		}
 		if f.StatusReason != "" {
-			return []models.Insight{unverifiedInsight("INFO", secCatFirewall,
+			ins := unverifiedInsight("INFO", secCatFirewall,
 				"firewall state not verified — "+f.StatusReason,
 				[]string{"to inspect: nft list ruleset", "to inspect: iptables -L -n   (run as root)"},
-			)}
+			)
+			// Only the collector's own "(run as root?)" reasons are a privilege gap;
+			// "no firewall tooling found" is not, and keeps flooring.
+			if strings.Contains(f.StatusReason, "(run as root?)") {
+				ins.NeedsRoot = !isRoot()
+			}
+			return []models.Insight{ins}
 		}
 		return nil
 	}
@@ -1119,17 +1125,17 @@ func checkAuditd(a models.AuditInfo) []models.Insight {
 			}))
 	}
 	if a.RulesUnreadable {
-		out = append(out, unverifiedInsight("INFO", secCatAuditd,
+		out = append(out, needsRootInsight("INFO", secCatAuditd,
 			"audit rule count not verified — auditctl -l requires root (re-run as root)",
 			[]string{"to inspect: sudo auditctl -l"}))
 	}
 	if a.EventsUnreadable {
-		out = append(out, unverifiedInsight("INFO", secCatAuditd,
+		out = append(out, needsRootInsight("INFO", secCatAuditd,
 			"recent audit event count not verified — ausearch requires root (re-run as root)",
 			[]string{"to inspect: sudo ausearch -ts recent --raw"}))
 	}
 	if a.AuditLogSizeUnreadable {
-		out = append(out, unverifiedInsight("INFO", secCatAuditd,
+		out = append(out, needsRootInsight("INFO", secCatAuditd,
 			"audit log size not verified — /var/log/audit/audit.log is unreadable (re-run as root)",
 			[]string{"to inspect: sudo ls -lh /var/log/audit/"}))
 	} else if a.AuditLogSizeGB > 10 {

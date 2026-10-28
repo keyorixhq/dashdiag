@@ -27,4 +27,13 @@ type Insight struct {
 	// a prior CRIT that reads as an Unverified INFO this run (e.g. re-run
 	// non-root) has not been resolved, it simply couldn't be checked.
 	Unverified bool `json:"unverified,omitempty"`
+
+	// NeedsRoot refines Unverified: the check could not run ONLY because dsd was
+	// not root (a root-only file, log or ioctl). It is set only on a non-root
+	// run; the same read failing as root stays a plain Unverified. A needs-root
+	// insight is shown ("needs root: N checks skipped — re-run with sudo") but
+	// does not by itself floor the verdict, so an ordinary non-root run on a
+	// stock distro is not "Not fully verified" forever. Any other unverified
+	// insight still floors at WARN.
+	NeedsRoot bool `json:"needs_root,omitempty"`
 }

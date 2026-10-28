@@ -22,7 +22,7 @@ func checkPVE(p models.PVEInfo) []models.Insight {
 		return nil
 	}
 	if p.NeedsRoot {
-		return []models.Insight{unverifiedInsight("INFO", pveCatPVE,
+		return []models.Insight{needsRootInsight("INFO", pveCatPVE,
 			"Proxmox VE detected — run as root for full cluster/storage/backup checks",
 			[]string{"to run: sudo dsd health"},
 		)}

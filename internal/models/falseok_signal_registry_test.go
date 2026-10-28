@@ -183,6 +183,16 @@ var guardedUnverifiedSignals = map[string]string{
 		"unverified transition Improved) + internal/analysis/heuristics_unverified_insight_test.go " +
 		"(unverifiedInsight sites carry Unverified through to the Insight)",
 
+	// Insight.NeedsRoot refines Insight.Unverified for a read only root can do,
+	// seen by a NON-root run (set via analysis.needsRootInsight, never as root).
+	// It is the one deliberate exception to the verdict floor: such an insight
+	// does not floor to WARN, but every output must still print the skip
+	// ("needs root: N checks skipped — re-run with sudo") and none may say
+	// healthy / all checks passed.
+	"Insight.NeedsRoot": "internal/render/verdict_guard_test.go (TestGuardA_NeedsRootOnlyRunIsOKWithVisibleSkip: " +
+		"every output names the skip and never says healthy; the needs-root-plus-another-unverified run is still " +
+		"WARN) + internal/render/verdict_needsroot_test.go + internal/analysis/needsroot_test.go (root => plain Unverified)",
+
 	// Hardware RAID controller CLIs are root-only; unread output must never read healthy.
 	"HWRaidInfo.NeedsRoot":                 "analysis/heuristics_hwraid_test.go (TestCheckHWRaidHonestDegradation: controller CLI root-gated → INFO 're-run as root', never a clean OK or WARN/CRIT over unread state)",
 	"HWRaidInfo.ReadFailed":                "analysis/heuristics_hwraid_test.go (TestCheckHWRaidHonestDegradation: CLI output unparseable → INFO 'treat as UNVERIFIED, not healthy')",

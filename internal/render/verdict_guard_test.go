@@ -65,7 +65,39 @@ func guardRuns() []guardRun {
 			Message: "kernel log not readable — crash and OOM evidence was not checked",
 		}},
 	}
-	return []guardRun{allErrored, oneUnverified}
+	return []guardRun{allErrored, oneUnverified, needsRootPlusOther()}
+}
+
+// needsRootInsight is a non-root run's root-only skip (models.Insight.NeedsRoot).
+func needsRootInsight(check, msg string) models.Insight {
+	return models.Insight{Level: "INFO", Check: check, Unverified: true, NeedsRoot: true, Message: msg}
+}
+
+// needsRootOnly is the run the exemption exists for: a non-root run on a stock
+// host whose ONLY unverified insights are root-only reads. It is OK for the
+// verdict and the exit code, but must say what it skipped (see
+// TestGuardA_NeedsRootOnlyRunIsOKWithVisibleSkip).
+func needsRootOnly() guardRun {
+	return guardRun{
+		name:    "non-root, only needs-root unverified",
+		results: []runner.Result{{Name: "Hardening", Data: &models.CPUInfo{}}},
+		insights: []models.Insight{
+			needsRootInsight("Hardening", "/etc/shadow not readable — empty/never-expiring password accounts were NOT audited"),
+			needsRootInsight("Logs", "kernel ring buffer (/dev/kmsg) unreadable this run — OOM/segfault counts could not be determined"),
+		},
+	}
+}
+
+// needsRootPlusOther pins the other half: one needs-root skip next to ANY other
+// unverified insight is still WARN, never OK/healthy.
+func needsRootPlusOther() guardRun {
+	r := needsRootOnly()
+	r.name = "non-root, needs-root plus one other unverified"
+	r.insights = append(r.insights, models.Insight{
+		Level: "INFO", Check: "K8s", Unverified: true,
+		Message: "kubectl present but the cluster API was unreachable — cluster health NOT verified",
+	})
+	return r
 }
 
 // guardOutput renders one run through one output and returns its text plus an
@@ -167,6 +199,45 @@ func TestGuardA_NoOutputSaysHealthyWhenChecksCouldNotRun(t *testing.T) {
 				}
 			})
 		}
+	}
+}
+
+// TestGuardA_NeedsRootOnlyRunIsOKWithVisibleSkip pins the exemption for a
+// non-root run: root-only reads that could not happen are OK for the verdict
+// and the exit code (a stock distro without sudo is not "Not fully verified"
+// forever), but every output still names the skip and none says "healthy".
+func TestGuardA_NeedsRootOnlyRunIsOKWithVisibleSkip(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	run := needsRootOnly()
+	if v := Verdict(run.results, run.insights); v.Level != "OK" || v.ExitCode() != 0 || v.Unverified != 2 || v.NeedsRoot != 2 || v.Skipped != 2 {
+		t.Fatalf("Verdict = %+v, want OK / exit 0 / unverified 2 (kept truthful) / needs_root 2 / 2 checks skipped", v)
+	}
+	for _, out := range guardOutputs() {
+		t.Run(out.name, func(t *testing.T) {
+			text := out.render(t, run)
+			lower := strings.ToLower(text)
+			for _, banned := range guardBanned {
+				if strings.Contains(lower, banned) {
+					t.Errorf("%s printed %q for a run that skipped root-only checks:\n%s", out.name, banned, text)
+				}
+			}
+			if out.okRe != nil && !out.okRe.MatchString(text) {
+				t.Errorf("%s does not report an OK verdict (%s) for a needs-root-only run:\n%s", out.name, out.okRe, text)
+			}
+			// Every human-readable output names the skip; the machine ones carry
+			// the count (JSON/YAML needs_root) or only a status number.
+			switch out.name {
+			case "prometheus", "history entry":
+			case "summary/ModeJSON", "summary/ModeYAML":
+				if !strings.Contains(text, "needs_root") {
+					t.Errorf("%s lost the needs_root count:\n%s", out.name, text)
+				}
+			default:
+				if !strings.Contains(lower, "needs root") {
+					t.Errorf("%s does not say what was skipped (want %q):\n%s", out.name, "needs root: N checks skipped", text)
+				}
+			}
+		})
 	}
 }
 

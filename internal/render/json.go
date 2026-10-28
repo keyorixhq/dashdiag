@@ -74,6 +74,10 @@ type JSONCounts struct {
 	// WARN when this is nonzero and would otherwise read OK. Additive,
 	// omitempty.
 	Unverified int `json:"unverified,omitempty"`
+	// NeedsRoot is how many of the Unverified insights could only be read as
+	// root on a non-root run. They stay inside Unverified (the count is
+	// truthful) but do not floor the verdict. Additive, omitempty.
+	NeedsRoot int `json:"needs_root,omitempty" yaml:"needs_root,omitempty"`
 }
 
 type JSONCheck struct {
@@ -97,6 +101,9 @@ type JSONInsight struct {
 	// Additive, omitempty: existing consumers validating against the frozen
 	// schema are unaffected when it's false/absent.
 	Unverified bool `json:"unverified,omitempty"`
+	// NeedsRoot: the unverified insight is root-only on this non-root run. See
+	// models.Insight.NeedsRoot. Additive, omitempty.
+	NeedsRoot bool `json:"needs_root,omitempty" yaml:"needs_root,omitempty"`
 }
 
 func RenderJSON(results []runner.Result, insights []models.Insight) ([]byte, error) {
@@ -179,6 +186,7 @@ func buildOutput(results []runner.Result, insights []models.Insight) JSONOutput 
 			Hints:      ins.Hints, // all hints, not just first
 			Details:    ins.Details,
 			Unverified: ins.Unverified,
+			NeedsRoot:  ins.NeedsRoot,
 		})
 	}
 
@@ -206,7 +214,7 @@ func buildOutput(results []runner.Result, insights []models.Insight) JSONOutput 
 	// best fit for "not confirmed healthy" without overstating severity.
 	v := Verdict(results, insights)
 	verdict := v.Level
-	counts := JSONCounts{Crit: v.Crit, Warn: v.Warn, Info: v.Info, Errored: v.Errored, Unverified: v.Unverified}
+	counts := JSONCounts{Crit: v.Crit, Warn: v.Warn, Info: v.Info, Errored: v.Errored, Unverified: v.Unverified, NeedsRoot: v.NeedsRoot}
 
 	return JSONOutput{
 		Hostname:  hostname,
