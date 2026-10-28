@@ -65,7 +65,7 @@ func guardRuns() []guardRun {
 			Message: "kernel log not readable — crash and OOM evidence was not checked",
 		}},
 	}
-	return []guardRun{allErrored, oneUnverified, needsRootPlusOther()}
+	return []guardRun{allErrored, oneUnverified, needsRootPlusOther(), coverageRun()}
 }
 
 // needsRootInsight is a non-root run's root-only skip (models.Insight.NeedsRoot).
