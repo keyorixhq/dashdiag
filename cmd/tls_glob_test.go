@@ -79,12 +79,32 @@ func TestUnreadableDirResults_NonRootNeedsRoot(t *testing.T) {
 		t.Fatalf("results = %+v, want one ERR %q with NeedsRoot", results, want)
 	}
 	ti := buildTLSInfo(results, nil, 30)
-	if len(ti.Uncheckable) != 1 || !ti.Uncheckable[0].NeedsRoot || ti.Status == "ok" {
-		t.Fatalf("Uncheckable=%+v Status=%q, want needs_root entry and non-ok status", ti.Uncheckable, ti.Status)
+	// Needs-root only: the entry stays in uncheckable[] (truthful), the skip is
+	// worded in status_reason, and the status does not by itself leave "ok".
+	if len(ti.Uncheckable) != 1 || !ti.Uncheckable[0].NeedsRoot || ti.Status != "ok" ||
+		!strings.Contains(ti.StatusReason, "needs root: 1 check skipped") {
+		t.Fatalf("Uncheckable=%+v Status=%q Reason=%q, want a needs_root entry, status ok and the skip line", ti.Uncheckable, ti.Status, ti.StatusReason)
+	}
+	if n := countTLSNeedsRoot(results); n != 1 {
+		t.Errorf("countTLSNeedsRoot = %d, want 1", n)
 	}
 
 	asRoot := unreadableDirResults(unreadable, 0)
 	if asRoot[0].NeedsRoot || strings.Contains(asRoot[0].Err, "needs root") {
 		t.Errorf("as root = %+v, want a plain error", asRoot[0])
+	}
+	// As root the same failure is a real unverified: status leaves "ok".
+	if rti := buildTLSInfo(asRoot, nil, 30); rti.Status != "warning" {
+		t.Errorf("as root Status = %q, want warning (a root run that cannot read a dir is not fine)", rti.Status)
+	}
+	if n := countTLSNeedsRoot(asRoot); n != 0 {
+		t.Errorf("as root countTLSNeedsRoot = %d, want 0", n)
+	}
+
+	// Any other uncheckable entry still raises the status next to a needs-root one.
+	other := certResult{Path: "https://x:443", Level: tlsLvlERR, Err: "dial: timeout"}
+	mixed := buildTLSInfo(append(append([]certResult{}, results...), other), nil, 30)
+	if mixed.Status != "warning" {
+		t.Errorf("mixed Status = %q, want warning: a non-root-only failure must still raise it", mixed.Status)
 	}
 }

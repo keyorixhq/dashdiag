@@ -58,6 +58,22 @@ func RenderReportText(o JSONOutput) string {
 		fmt.Fprintf(&b, "\nChecks that errored (incomplete data): %s\n", strings.Join(errored, ", "))
 	}
 
+	// Root-only reads a non-root run could not do: shown, and the verdict above is
+	// still OK, so the report must say what was not looked at.
+	skipped := map[string]struct{}{}
+	for _, in := range o.Insights {
+		if in.Unverified && in.NeedsRoot {
+			skipped[in.Check] = struct{}{}
+		}
+	}
+	if n := len(skipped); n > 0 {
+		unit := "checks"
+		if n == 1 {
+			unit = "check"
+		}
+		fmt.Fprintf(&b, "\nneeds root: %d %s skipped — re-run with sudo\n", n, unit)
+	}
+
 	return b.String()
 }
 

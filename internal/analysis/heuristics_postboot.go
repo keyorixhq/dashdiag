@@ -49,7 +49,7 @@ func postBootUnmeasurable(pb models.PostBootInfo) models.Insight {
 			"prior-boot forensics unavailable — journald is volatile, so the previous boot's logs did not survive the reboot",
 			[]string{"to enable: set Storage=persistent in /etc/systemd/journald.conf (creates /var/log/journal), then restart systemd-journald"})
 	case "journal_unreadable":
-		return unverifiedInsight("INFO", "PostBoot",
+		return needsRootInsight("INFO", "PostBoot",
 			"prior-boot forensics unavailable — the journal is present but not readable as this user",
 			[]string{"run as root (or join the systemd-journal group) to read the previous boot"})
 	case "non_systemd_no_wtmp":

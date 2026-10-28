@@ -161,6 +161,27 @@ func countTLSLevels(results []certResult) (crits, warns, oks, errs int) {
 	return crits, warns, oks, errs
 }
 
+// countTLSNeedsRoot is how many ERR results are a root-only scan directory seen
+// by a non-root run (certResult.NeedsRoot). They are shown as skipped and do
+// not raise the exit code; every other ERR still does.
+func countTLSNeedsRoot(results []certResult) int {
+	n := 0
+	for _, r := range results {
+		if r.Level == tlsLvlERR && r.NeedsRoot {
+			n++
+		}
+	}
+	return n
+}
+
+// tlsSkipLine is the visible skip line for n root-only scan targets.
+func tlsSkipLine(n int) string {
+	if n == 1 {
+		return "needs root: 1 check skipped — re-run with sudo"
+	}
+	return fmt.Sprintf("needs root: %d checks skipped — re-run with sudo", n)
+}
+
 // renderTLSResults sorts, prints, and summarizes scan results. It calls
 // os.Exit(2) when any cert is CRIT and os.Exit(1) when any is WARN — matching
 // the original dsd tls exit-code contract.
@@ -173,6 +194,8 @@ func renderTLSResults(results []certResult, showAll bool, mode output.OutputMode
 	fmt.Printf("%s\n\n", sep)
 
 	crits, warns, oks, errs := countTLSLevels(results)
+	skipped := countTLSNeedsRoot(results)
+	errs -= skipped
 	for _, r := range results {
 		if !showAll && r.Level == "OK" {
 			continue
@@ -189,6 +212,9 @@ func renderTLSResults(results []certResult, showAll bool, mode output.OutputMode
 		errPart = fmt.Sprintf("  %s %d ERR", asciiOr(secLvlFail, "❌ ", mode), errs)
 	}
 	okPart := fmt.Sprintf("%s %d OK", asciiOr("ok", "✅ ", mode), oks)
+	if skipped > 0 {
+		fmt.Printf("%s %s\n", asciiOr("info", "ℹ️  ", mode), tlsSkipLine(skipped))
+	}
 	if crits > 0 {
 		fmt.Printf("%s %d CRIT  %s %d WARN%s  %s\n",
 			asciiOr(secLvlFail, "❌ ", mode), crits, asciiOr("warn", netIconWarn, mode), warns, errPart, okPart)
@@ -199,7 +225,11 @@ func renderTLSResults(results []certResult, showAll bool, mode output.OutputMode
 			asciiOr("warn", netIconWarn, mode), warns, errPart, okPart)
 		os.Exit(1)
 	}
-	fmt.Printf("%s All %d certificate(s) healthy\n", asciiOr("ok", "✅ ", mode), oks)
+	if skipped > 0 {
+		fmt.Printf("%s No findings in %d certificate(s); %d scan target(s) not read\n", asciiOr("ok", "✅ ", mode), oks, skipped)
+	} else {
+		fmt.Printf("%s All %d certificate(s) healthy\n", asciiOr("ok", "✅ ", mode), oks)
+	}
 	if !showAll {
 		fmt.Println("    (use --all to show individual certs)")
 	}
@@ -499,16 +529,29 @@ func buildTLSInfo(results []certResult, remotes []string, warnDays int) *models.
 		}
 	}
 	// Explicit verdict so --json consumers don't infer health from counts alone.
+	// A root-only directory seen by a non-root run stays listed in uncheckable[]
+	// (needs_root) but does not by itself raise the status; any other
+	// uncheckable entry does.
+	skipped := 0
+	for _, u := range ti.Uncheckable {
+		if u.NeedsRoot {
+			skipped++
+		}
+	}
+	other := len(ti.Uncheckable) - skipped
 	switch {
 	case ti.Expired > 0:
 		ti.Status = "critical"
-	case ti.Expiring > 0 || len(ti.Uncheckable) > 0:
+	case ti.Expiring > 0 || other > 0:
 		ti.Status = "warning"
 	default:
 		ti.Status = "ok"
 	}
-	if len(ti.Uncheckable) > 0 {
+	switch {
+	case other > 0:
 		ti.StatusReason = fmt.Sprintf("%d certificate(s)/endpoint(s) could not be checked", len(ti.Uncheckable))
+	case skipped > 0:
+		ti.StatusReason = tlsSkipLine(skipped)
 	}
 	return ti
 }

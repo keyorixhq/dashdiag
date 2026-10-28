@@ -155,7 +155,7 @@ func checkServiceRestart(d models.ServiceRestartInfo) []models.Insight {
 		return []models.Insight{insight("WARN", "ServiceRestart", msg, hints)}
 	}
 	if d.NeedsRoot {
-		return []models.Insight{unverifiedInsight("INFO", "ServiceRestart",
+		return []models.Insight{needsRootInsight("INFO", "ServiceRestart",
 			"stale-library scan was partial — run as root to check every process for libraries updated underneath it",
 			[]string{"to fix: re-run as root (sudo dsd health)"})}
 	}

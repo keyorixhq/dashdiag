@@ -62,7 +62,7 @@ func NagiosLine(results []runner.Result, insights []models.Insight) (string, int
 	var unverified []string
 	unverifiedSeen := map[string]bool{}
 	for _, ins := range insights {
-		if ins.Unverified && ins.Level != "CRIT" && ins.Level != "WARN" && !unverifiedSeen[ins.Check] {
+		if ins.Unverified && !ins.NeedsRoot && ins.Level != "CRIT" && ins.Level != "WARN" && !unverifiedSeen[ins.Check] {
 			unverifiedSeen[ins.Check] = true
 			unverified = append(unverified, ins.Check)
 		}

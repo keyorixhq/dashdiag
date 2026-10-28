@@ -54,6 +54,10 @@
         "unverified": {
           "type": "integer",
           "description": "Number of insights with unverified=true — a check that ran without error but could not determine the specific thing it checks (permission denied, an unreadable file, a read that failed). Distinct from errored: the collector succeeded, one measurement inside it didn't. Its level is usually a downgraded INFO, which (like errored) never raises verdict/warn/crit on its own — see the verdict field's own description."
+        },
+        "needs_root": {
+          "type": "integer",
+          "description": "How many of the unverified insights could only be read as root on this non-root run (a subset of unverified, which stays truthful). They do not floor the verdict: a run whose only unverified insights are needs_root keeps verdict OK. Any other unverified insight, and every errored collector, still floors it at WARN."
         }
       }
     },
@@ -123,6 +127,10 @@
           "unverified": {
             "type": "boolean",
             "description": "True when level reflects a downgrade because the underlying data could NOT be read/measured this run (permission denied, an unreadable file, a collector error) — not a genuine 'nothing wrong here' finding. Consumers that diff two runs must not treat a transition into or out of an unverified insight as an improvement."
+          },
+          "needs_root": {
+            "type": "boolean",
+            "description": "True on an unverified insight whose data only root can read, seen by a non-root run. Such an insight is shown but does not by itself floor the verdict."
           },
           "details": {
             "type": "object",

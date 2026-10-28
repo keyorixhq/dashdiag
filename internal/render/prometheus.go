@@ -27,7 +27,7 @@ func PrometheusMetrics(results []runner.Result, insights []models.Insight) strin
 		v := promSeverity(ins.Level)
 		// C1: a check that could not be verified is not "0=OK": floor it at WARN,
 		// the same floor the JSON verdict and the exit code apply.
-		if ins.Unverified && v < 1 {
+		if ins.Unverified && !ins.NeedsRoot && v < 1 {
 			v = 1
 		}
 		// Roll a subsystem-qualified Check ("Network/DNS", "Memory/Slab",

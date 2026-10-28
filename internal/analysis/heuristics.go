@@ -2,6 +2,7 @@ package analysis
 
 import (
 	"fmt"
+	"os"
 	"reflect"
 	"regexp"
 	"runtime"
@@ -1200,6 +1201,22 @@ func insight(level, check, message string, hints []string) models.Insight {
 func unverifiedInsight(level, check, message string, hints []string) models.Insight {
 	ins := insight(level, check, message, hints)
 	ins.Unverified = true
+	return ins
+}
+
+// isRoot reports whether dsd runs with euid 0. A variable so tests can pin both
+// sides of needsRootInsight from any host.
+var isRoot = func() bool { return os.Geteuid() == 0 }
+
+// needsRootInsight is unverifiedInsight for a read that only root can do (a
+// root-only file, log or ioctl). On a non-root run the insight is also marked
+// NeedsRoot: shown, counted, but not floored (models.Insight.NeedsRoot). As root
+// the same failure has another cause, so it is a plain Unverified and floors.
+// Use it only where a permission failure is the cause; a timeout, a missing
+// tool or a parse failure is unverifiedInsight.
+func needsRootInsight(level, check, message string, hints []string) models.Insight {
+	ins := unverifiedInsight(level, check, message, hints)
+	ins.NeedsRoot = !isRoot()
 	return ins
 }
 
