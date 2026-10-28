@@ -147,6 +147,132 @@ func TestGitLastCommitTime_LooseRefInNestedBranch(t *testing.T) {
 	}
 }
 
+// Item 3: the "gitdir: <path>" pointer of a worktree/submodule .git file.
+
+// worktreeLayout builds a real-looking repo whose git dir is outside the
+// checkout (like a worktree/submodule), with a loose commit and ref in it.
+// It returns the checkout dir and the git dir.
+func worktreeLayout(t *testing.T, wantTS int64) (checkout, gitDir string) {
+	t.Helper()
+	root := t.TempDir()
+	checkout = filepath.Join(root, "checkout")
+	gitDir = filepath.Join(root, "meta", "wt")
+	if err := os.MkdirAll(filepath.Join(gitDir, "refs", "heads"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.MkdirAll(filepath.Join(checkout, "sub"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	sha := writeLooseCommit(t, gitDir, wantTS)
+	if err := os.WriteFile(filepath.Join(gitDir, "refs", "heads", "main"), []byte(sha+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	return checkout, gitDir
+}
+
+func TestGitLastCommitTime_WorktreeRelativeGitdir(t *testing.T) {
+	t.Parallel()
+	checkout, _ := worktreeLayout(t, 1720000000)
+	// Relative to the directory holding the .git FILE, not to the process cwd.
+	if err := os.WriteFile(filepath.Join(checkout, ".git"), []byte("gitdir: ../meta/wt\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	// Start in a subdirectory: the walk-up must resolve against the .git file's dir.
+	got, err := gitLastCommitTime(filepath.Join(checkout, "sub"))
+	if err != nil {
+		t.Fatalf("gitLastCommitTime: %v", err)
+	}
+	if got.Unix() != 1720000000 {
+		t.Errorf("got unix %d, want 1720000000", got.Unix())
+	}
+}
+
+func TestGitLastCommitTime_WorktreeAbsoluteGitdir(t *testing.T) {
+	t.Parallel()
+	checkout, gitDir := worktreeLayout(t, 1730000000)
+	if err := os.WriteFile(filepath.Join(checkout, ".git"), []byte("gitdir: "+gitDir+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := gitLastCommitTime(checkout)
+	if err != nil {
+		t.Fatalf("gitLastCommitTime: %v", err)
+	}
+	if got.Unix() != 1730000000 {
+		t.Errorf("got unix %d, want 1730000000", got.Unix())
+	}
+}
+
+func TestFindGitDir_RelativeGitdirResolvedAgainstGitFileDir(t *testing.T) {
+	t.Parallel()
+	checkout, gitDir := worktreeLayout(t, 1)
+	if err := os.WriteFile(filepath.Join(checkout, ".git"), []byte("gitdir: ../meta/wt\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	got, err := findGitDir(filepath.Join(checkout, "sub"))
+	if err != nil {
+		t.Fatalf("findGitDir: %v", err)
+	}
+	if got != gitDir {
+		t.Errorf("findGitDir() = %q, want %q", got, gitDir)
+	}
+}
+
+func TestFindGitDir_RejectsBadGitdirPointer(t *testing.T) {
+	t.Parallel()
+	root := t.TempDir()
+	noHead := filepath.Join(root, "nohead")
+	if err := os.MkdirAll(noHead, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	aFile := filepath.Join(root, "afile")
+	if err := os.WriteFile(aFile, []byte("x"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	cases := map[string]string{
+		"missing target":     "gitdir: " + filepath.Join(root, "nope") + "\n",
+		"target is a file":   "gitdir: " + aFile + "\n",
+		"dir without HEAD":   "gitdir: " + noHead + "\n",
+		"empty path":         "gitdir: \n",
+		"relative no target": "gitdir: ../../../../nowhere\n",
+	}
+	for name, content := range cases {
+		checkout := filepath.Join(root, strings.ReplaceAll(name, " ", "_"))
+		if err := os.MkdirAll(checkout, 0o755); err != nil {
+			t.Fatal(err)
+		}
+		if err := os.WriteFile(filepath.Join(checkout, ".git"), []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		got, err := findGitDir(checkout)
+		if err == nil {
+			t.Errorf("%s: findGitDir accepted the pointer and returned %q", name, got)
+			continue
+		}
+		if strings.Contains(err.Error(), "nowhere") || strings.Contains(err.Error(), "nope") {
+			t.Errorf("%s: error quotes the pointer: %v", name, err)
+		}
+	}
+}
+
+// A gitdir pointer may be absolute (legit for worktrees/submodules) but the
+// ref validation still bounds what is read from whatever it points to.
+func TestGitLastCommitTime_GitdirPointerStillRefValidated(t *testing.T) {
+	t.Parallel()
+	checkout, gitDir := worktreeLayout(t, 1740000000)
+	if err := os.WriteFile(filepath.Join(checkout, ".git"), []byte("gitdir: "+gitDir+"\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(filepath.Join(gitDir, "HEAD"), []byte("ref: ../../../x\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := gitLastCommitTime(checkout); err == nil {
+		t.Error("hostile ref behind a gitdir pointer was followed")
+	}
+}
+
 // Item 2: errors never quote attacker-controlled file content.
 
 func TestGitLastCommitTime_JunkHEADNotQuoted(t *testing.T) {

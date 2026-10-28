@@ -116,9 +116,9 @@ func findGitDir(start string) (string, error) {
 			if fi.IsDir() {
 				return p, nil
 			}
-			if data, readErr := os.ReadFile(filepath.Clean(p)); readErr == nil { // #nosec G304 -- fixed ".git" filename under a directory we're walking, not user input
+			if data, readErr := os.ReadFile(p); readErr == nil {
 				if after, ok := strings.CutPrefix(strings.TrimSpace(string(data)), "gitdir: "); ok {
-					return after, nil
+					return resolveGitdirPointer(dir, after)
 				}
 			}
 		}
@@ -128,6 +128,36 @@ func findGitDir(start string) (string, error) {
 		}
 		dir = parent
 	}
+}
+
+// resolveGitdirPointer turns the "gitdir: <path>" content of a .git FILE found
+// in dir into a git directory. A relative path is relative to the directory
+// holding the .git file (as git itself resolves it), not to the process cwd.
+//
+// An absolute path is deliberately allowed: worktrees and submodules legitimately
+// point at <main>/.git/worktrees/<n> or <super>/.git/modules/<n>, and the pointer
+// is something the repo owner wrote. The protection is not here but in the ref
+// validation (validRefName/refFilePath/validateSHA), which bounds what is read
+// from whatever directory this returns to <gitDir>/HEAD, <gitDir>/refs/...,
+// <gitDir>/packed-refs and <gitDir>/objects/<hex>. The target must still be a
+// directory containing a HEAD file, so an arbitrary path is not accepted as a
+// git dir. The error does not quote the pointer.
+func resolveGitdirPointer(dir, pointer string) (string, error) {
+	errBad := errors.New("invalid gitdir pointer in .git file")
+	if pointer == "" {
+		return "", errBad
+	}
+	if !filepath.IsAbs(pointer) {
+		pointer = filepath.Join(dir, pointer)
+	}
+	gitDir := filepath.Clean(pointer)
+	if fi, err := os.Stat(gitDir); err != nil || !fi.IsDir() {
+		return "", errBad
+	}
+	if fi, err := os.Stat(filepath.Join(gitDir, "HEAD")); err != nil || !fi.Mode().IsRegular() {
+		return "", errBad
+	}
+	return gitDir, nil
 }
 
 // resolveHEAD returns the commit SHA that HEAD currently points to.
