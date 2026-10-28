@@ -90,12 +90,20 @@ see §4).
 
 - `coverage` is `checked` \| `not_checked` on a `checks[]` entry.
 - `coverage_reason` (present when not checked) is one of `needs_root` (a root-only
-  read on a non-root run: re-run with sudo), `timeout`, `unreadable` (the collector
-  failed on a permission error), `collector_error`, `unverified` (it ran but could
-  not determine what it checks, and not for want of root).
+  read on a non-root run: re-run with sudo), `timeout` (a deadline passed),
+  `unreadable` (a read failed: permission or I/O error), `collector_error` (the
+  collector failed for another reason), `parse` (a tool ran but its output was not
+  recognised), `not_recorded` (`dsd replay` only: the bundle never recorded the
+  input, a recording gap and not a finding on the captured host) or `unverified`
+  (fallback: no finer cause is known, e.g. a snapshot from an older dsd). `parse`
+  and `not_recorded` are new, and `timeout`/`unreadable`/`collector_error` now also
+  appear where `unverified` used to: additive, a consumer sees a finer value where
+  it saw `unverified`. The same values are `not_checked_subchecks[].reason`, and an
+  insight with `unverified: true` carries its own `unverified_reason` (omitted when
+  unknown).
 - **Partial rule.** A collector that ran and returned data is `checked`. Whatever
   part of it could not be read (an `unverified` insight it owns) is listed in
-  `not_checked_subchecks` (`check`, `reason` = `needs_root` \| `unverified`,
+  `not_checked_subchecks` (`check`, `reason` = any not-checked reason above,
   `message`), and the collector counts in `coverage.partial`. A collector is
   `not_checked` only when it errored, timed out or panicked, or reports itself
   absent while an `unverified` insight says it could not look. "Nothing meaningful
