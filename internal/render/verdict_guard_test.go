@@ -65,7 +65,7 @@ func guardRuns() []guardRun {
 			Message: "kernel log not readable — crash and OOM evidence was not checked",
 		}},
 	}
-	return []guardRun{allErrored, oneUnverified, needsRootPlusOther()}
+	return []guardRun{allErrored, oneUnverified, needsRootPlusOther(), coverageRun()}
 }
 
 // needsRootInsight is a non-root run's root-only skip (models.Insight.NeedsRoot).
@@ -110,7 +110,7 @@ type guardOutput struct {
 }
 
 func guardSnap(r guardRun) *baseline.Snapshot {
-	snap := baseline.BuildSnapshot(r.results, r.insights)
+	snap := NewSnapshot(r.results, r.insights)
 	snap.Hostname = "guard-host"
 	snap.Timestamp = time.Date(2026, 10, 27, 12, 0, 0, 0, time.UTC)
 	return snap
@@ -261,6 +261,7 @@ var guardCoveredFuncs = map[string]string{
 	"RenderStory":              "story (single point) / story (history)",
 	"RenderStoryFromHistory":   "story (history)",
 	"Verdict":                  "every row — the one derivation they all share",
+	"Coverage":                 "coverage_guard_test.go TestGuardC_* — the one coverage derivation every output shares",
 	"SnapshotVerdict":          "story (history)",
 	"HistoryEntry":             "history entry",
 }
@@ -277,6 +278,8 @@ var guardExemptFuncs = map[string]string{
 	"WithDecodeDisclosure":        "adds a disclosure to a JSONOutput, no verdict",
 	"InsightChanges":              "watch-mode delta between two ticks (added/resolved/changed), no overall verdict",
 	"PrintInsightChanges":         "watch-mode delta block, prints 'no change', no overall verdict",
+	"(*Renderer).SetCoverageFrom": "setter: hands PrintSummary the snapshot's coverage, prints nothing",
+	"NewSnapshot":                 "builds baseline.BuildSnapshot + render.Coverage; no verdict line",
 }
 
 func TestGuardA_OutputsAreAllCovered(t *testing.T) {

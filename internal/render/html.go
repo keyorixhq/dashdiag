@@ -7,6 +7,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strings"
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/baseline"
@@ -59,6 +60,7 @@ type htmlReportData struct {
 	Info         int
 	TopCatch     string // "none — N checks passed." or "<summary> (<topic>) → <fix>"
 	Issues       []htmlIssue
+	Coverage     htmlCoverage
 	Checks       []htmlCheckRow
 	CVE          *htmlCVE
 	Year         int
@@ -74,6 +76,17 @@ type htmlIssue struct {
 	Message    string
 	Hints      []string
 }
+
+// htmlCoverage is the Coverage section: the summary line, what was not looked
+// at (never worded as passed) and the not-applicable names.
+type htmlCoverage struct {
+	Show          bool
+	Line          string
+	NotChecked    []htmlNotChecked
+	NotApplicable string
+}
+
+type htmlNotChecked struct{ Check, Reason, Action string }
 
 type htmlCheckRow struct {
 	Name        string
@@ -162,6 +175,7 @@ func buildHTML(snap *baseline.Snapshot, insights []models.Insight, elapsed time.
 		})
 	}
 
+	data.Coverage = buildHTMLCoverage(coverageViewOf(snap, insights))
 	data.Checks = buildHTMLCheckRows(snap)
 
 	if cve != nil && cve.PackageManager != "" {
@@ -181,6 +195,16 @@ func buildHTML(snap *baseline.Snapshot, insights []models.Insight, elapsed time.
 // value — check.Status is set from the snapshot's worst insight
 // (baseline.BuildSnapshot), so the explicit cases below are the only statuses
 // that switch can ever produce; "default" is the real OK case, not a catch-all.
+func buildHTMLCoverage(v coverageView) htmlCoverage {
+	c := htmlCoverage{Show: !v.empty(), Line: v.Line, NotApplicable: strings.Join(v.NotApplicable, ", ")}
+	for _, it := range v.NotChecked {
+		c.NotChecked = append(c.NotChecked, htmlNotChecked{
+			Check: output.SanitizeControl(it.Check), Reason: strings.ReplaceAll(it.Reason, "_", " "), Action: it.Action(),
+		})
+	}
+	return c
+}
+
 func buildHTMLCheckRows(snap *baseline.Snapshot) []htmlCheckRow {
 	type row struct {
 		htmlCheckRow
@@ -365,6 +389,18 @@ const htmlReportTemplate = `<!DOCTYPE html>
   <h2>Issues</h2>
   <p class="ok-note">No critical or warning issues found.</p>
   {{end}}
+
+  {{with .Coverage}}{{if .Show}}
+  <h2>Coverage</h2>
+  {{if .Line}}<p class="covline">{{.Line}}</p>{{end}}
+  {{if .NotChecked}}
+  <div class="issue info">
+    <span class="tag">NOT CHECKED</span><span class="check">not looked at — this is not a pass</span>
+    <ul class="cve-list">{{range .NotChecked}}<li><code>{{.Check}}</code> — {{.Reason}}{{if .Action}} — {{.Action}}{{end}}</li>{{end}}</ul>
+  </div>
+  {{end}}
+  {{if .NotApplicable}}<p class="detail"><b>Not applicable</b> on this host: {{.NotApplicable}}.</p>{{end}}
+  {{end}}{{end}}
 
   <h2>Check Results</h2>
   <table>

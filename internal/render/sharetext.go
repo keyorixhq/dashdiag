@@ -40,6 +40,7 @@ func RenderShareText(snap *baseline.Snapshot, insights []models.Insight, osLabel
 
 	verdict := Verdict(nil, insights)
 	fmt.Fprintf(&b, "%s\n", verdict.ShareLine())
+	writeCoverageShare(&b, coverageViewOf(snap, insights))
 	if tc, ok := TopCatchLine(insights); ok {
 		fmt.Fprintf(&b, "Top catch: %s (%s) → %s\n\n", tc.Summary, tc.Topic, tc.Fix)
 	} else {
@@ -72,4 +73,30 @@ func shareTextFindingLine(ins models.Insight) string {
 		line += " → fix: " + output.SanitizeControl(ins.Hints[0])
 	}
 	return line + " (" + checkURL(ins.Check) + ")"
+}
+
+// maxShareNotChecked caps the not-checked lines of the text format so the
+// ≤40-line budget holds when many checks were skipped.
+const maxShareNotChecked = 8
+
+// writeCoverageShare adds the coverage line and what was not looked at, right
+// under the verdict, so a ticket reader sees "not checked" before any finding.
+func writeCoverageShare(b *strings.Builder, v coverageView) {
+	if v.Line != "" {
+		fmt.Fprintf(b, "Coverage: %s\n", v.Line)
+	}
+	shown := v.NotChecked
+	if len(shown) > maxShareNotChecked {
+		shown = shown[:maxShareNotChecked]
+	}
+	for _, it := range shown {
+		line := fmt.Sprintf("Not checked: %s — %s", output.SanitizeControl(it.Check), strings.ReplaceAll(it.Reason, "_", " "))
+		if act := it.Action(); act != "" {
+			line += " — " + act
+		}
+		fmt.Fprintln(b, line)
+	}
+	if n := len(v.NotChecked) - len(shown); n > 0 {
+		fmt.Fprintf(b, "… %d more not checked — see the full report: dsd share --format md\n", n)
+	}
 }

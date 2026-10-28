@@ -54,6 +54,7 @@ These top-level keys, their types, and their meanings are stable:
 | `counts`    | object `{crit,warn,info}` (integers) | Always present; keys stable |
 | `checks`    | array    | Always present (may be empty) |
 | `insights`  | array    | Always present (may be empty) |
+| `coverage`  | object `{checked,not_checked,not_applicable}` (integers) | Always present (added after 2.5.0, additive); see §2 |
 
 The authoritative machine-readable definition is `schema/dsd-output.json`, generated
 from the `JSONOutput` struct in `internal/render/json.go`. The struct is the source
@@ -78,6 +79,51 @@ Stable fields per check: `name`, `status`, `duration`, `error`.
   `CloudMeta` check is **omitted from `checks[]` entirely** rather than degraded
   (the same "not applicable" omission rule above, since cloud detection itself
   needs the network call it's gating).
+
+#### Coverage (added after 2.5.0, additive)
+
+`status` says what a check found; it cannot say whether the check looked. Every
+`checks[]` entry now also carries `coverage`, and the top level a `coverage`
+summary. Nothing existing changes: the `status` enum, the verdict and the exit
+code keep their meaning (a not-checked item floors the verdict exactly as before:
+see §4).
+
+- `coverage` is `checked` \| `not_checked` on a `checks[]` entry.
+- `coverage_reason` (present when not checked) is one of `needs_root` (a root-only
+  read on a non-root run: re-run with sudo), `timeout`, `unreadable` (the collector
+  failed on a permission error), `collector_error`, `unverified` (it ran but could
+  not determine what it checks, and not for want of root).
+- **Partial rule.** A collector that ran and returned data is `checked`. Whatever
+  part of it could not be read (an `unverified` insight it owns) is listed in
+  `not_checked_subchecks` (`check`, `reason` = `needs_root` \| `unverified`,
+  `message`), and the collector counts in `coverage.partial`. A collector is
+  `not_checked` only when it errored, timed out or panicked, or reports itself
+  absent while an `unverified` insight says it could not look. "Nothing meaningful
+  ran" is never inferred from insights. (`not_checked_subchecks` also appears on
+  such an absent-but-unverified `not_checked` entry, listing why.)
+- **Not applicable.** A collector with nothing to check on the host (no GPU, no
+  Docker, not a cloud VM; nil data, or `Available=false`, and no insight) is
+  `not_applicable`. It stays **out of `checks[]`** (the omission rule above is
+  unchanged, so there is no phantom `OK`) and is listed in
+  `coverage.not_applicable_checks[]` with `coverage_reason` `not_present` (the host
+  has nothing of this kind) or `not_supported_platform` (the collector does not
+  exist on this platform). A collector that is not even registered on this host
+  (`dsd` gates many on a probe) never runs and is not counted.
+- Top-level `coverage`: `checked` (checks that ran, partial ones included),
+  `not_checked` (things not looked at: whole checks that did not run plus the
+  sub-checks of partial ones, one per distinct check name; it equals what the
+  terminal summary calls `NotRun + Skipped`), `not_applicable`, and the optional
+  `partial`, `not_checked_reasons` (`{reason: count}`) and `not_applicable_checks`.
+- The reason list is closed per release: adding a value is a minor change,
+  renaming or removing one is breaking. `internal/render/coverage_guard_test.go`
+  fails when a collector cannot resolve to exactly one coverage value.
+- The same numbers reach every other output: the terminal summary line
+  (`N checked · M not checked (reasons) · K not applicable`, with a Not checked
+  group naming each item and the action), the Markdown and HTML reports,
+  `dsd share` (all formats), Nagios (perfdata `checked=` `not_checked=`
+  `not_applicable=` plus `NOT CHECKED:` long text) and Prometheus
+  (`dsd_checks_coverage{coverage}`, `dsd_checks_not_checked{reason}`,
+  `dsd_check_checked{check}`). Human-readable wording is not part of the contract.
 
 ### 3. `insights[]` entries
 

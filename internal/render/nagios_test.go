@@ -153,8 +153,11 @@ func TestNagiosLine(t *testing.T) {
 		if code != 1 {
 			t.Fatalf("code=%d, want 1", code)
 		}
-		if strings.Count(line, "Disk") != 1 {
-			t.Errorf("expected Disk named once, got: %q", line)
+		// The status text names it once; the coverage long text after it names it
+		// again, as a not-checked item.
+		status, _, _ := strings.Cut(line, " | ")
+		if strings.Count(status, "Disk") != 1 {
+			t.Errorf("expected Disk named once, got: %q", status)
 		}
 	})
 }

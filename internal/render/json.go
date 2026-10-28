@@ -45,6 +45,36 @@ type JSONOutput struct {
 	// human-rendered `dsd health` line, which has the full deep correlation
 	// set.
 	TopCatch *TopCatch `json:"top_catch"`
+	// Coverage says how much of the host was actually looked at: how many checks
+	// ran, how many were not checked (and why) and how many had nothing to check.
+	// Additive (DD-COVERAGE-1); verdict and status are unchanged. See
+	// JSONCoverage and COMPATIBILITY.md.
+	Coverage JSONCoverage `json:"coverage"`
+}
+
+// JSONCoverage is the run-level coverage summary: the same numbers the
+// terminal summary line prints. Per-check coverage is on checks[].
+type JSONCoverage struct {
+	// Checked counts the checks that ran, including partially checked ones.
+	Checked int `json:"checked"`
+	// NotChecked counts what was not looked at: whole checks that did not run
+	// plus the sub-checks a partially checked one could not read.
+	NotChecked int `json:"not_checked"`
+	// NotApplicable counts the collectors with nothing to check on this host.
+	// They are omitted from checks[] and listed in NotApplicableChecks.
+	NotApplicable int `json:"not_applicable"`
+	// Partial is how many of Checked ran only partly (have not_checked_subchecks).
+	Partial int `json:"partial,omitempty" yaml:"partial,omitempty"`
+	// NotCheckedReasons counts NotChecked by coverage_reason.
+	NotCheckedReasons map[string]int `json:"not_checked_reasons,omitempty" yaml:"not_checked_reasons,omitempty"`
+	// NotApplicableChecks names the not-applicable collectors with their reason.
+	NotApplicableChecks []JSONNotApplicable `json:"not_applicable_checks,omitempty" yaml:"not_applicable_checks,omitempty"`
+}
+
+// JSONNotApplicable is one collector with nothing to check on this host.
+type JSONNotApplicable struct {
+	Name           string `json:"name"`
+	CoverageReason string `json:"coverage_reason" yaml:"coverage_reason"`
 }
 
 // JSONCounts tallies insights by level so a consumer can branch without
@@ -87,6 +117,13 @@ type JSONCheck struct {
 	Duration string `json:"duration,omitempty"`
 	Error    string `json:"error,omitempty"`
 	Raw      any    `json:"raw,omitempty"`
+	// Coverage is "checked" or "not_checked" (see models.Coverage*); a
+	// not-applicable collector is not in checks[] at all (JSONCoverage lists it).
+	// CoverageReason is why it was not checked; NotCheckedSubchecks is what a
+	// partially checked check could not read. Additive; status is unchanged.
+	Coverage            string            `json:"coverage" yaml:"coverage"`
+	CoverageReason      string            `json:"coverage_reason,omitempty" yaml:"coverage_reason,omitempty"`
+	NotCheckedSubchecks []models.SubCheck `json:"not_checked_subchecks,omitempty" yaml:"not_checked_subchecks,omitempty"`
 }
 
 type JSONInsight struct {
@@ -134,6 +171,12 @@ func buildOutput(results []runner.Result, insights []models.Insight) JSONOutput 
 		}
 	}
 
+	cov := Coverage(results, insights)
+	covByName := make(map[string]models.CheckCoverage, len(cov.Checks))
+	for _, cc := range cov.Checks {
+		covByName[cc.Name] = cc
+	}
+
 	checks := make([]JSONCheck, 0, len(results))
 	for _, r := range results {
 		// Keep the JSON/YAML contract consistent with live health and --report
@@ -142,13 +185,8 @@ func buildOutput(results []runner.Result, insights []models.Insight) JSONOutput 
 		// insight is absent. Emitting it as a phantom "OK" check — e.g.
 		// {"name":"Launchd","status":"OK","raw":null} on Linux — is the same noise
 		// #129/#131 removed from the other surfaces. Errors are always kept.
-		if r.Err == nil {
-			if r.Data == nil {
-				continue
-			}
-			if _, hasInsight := insightMap[r.Name]; !hasInsight && !runner.IsAvailable(r.Data) {
-				continue
-			}
+		if covByName[r.Name].Coverage == models.CoverageNotApplicable {
+			continue
 		}
 		c := JSONCheck{
 			Name:     r.Name,
@@ -171,6 +209,8 @@ func buildOutput(results []runner.Result, insights []models.Insight) JSONOutput 
 				}
 			}
 		}
+		cc := covByName[r.Name]
+		c.Coverage, c.CoverageReason, c.NotCheckedSubchecks = cc.Coverage, cc.Reason, cc.NotCheckedSubchecks
 		checks = append(checks, c)
 	}
 
@@ -226,5 +266,17 @@ func buildOutput(results []runner.Result, insights []models.Insight) JSONOutput 
 		Checks:    checks,
 		Insights:  jsonInsights,
 		TopCatch:  ComputeTopCatch(insights, analysis.Correlate(insights)),
+		Coverage:  jsonCoverage(&cov),
 	}
+}
+
+func jsonCoverage(s *models.CoverageSummary) JSONCoverage {
+	jc := JSONCoverage{
+		Checked: s.Checked, NotChecked: s.NotChecked, NotApplicable: s.NotApplicable,
+		Partial: s.Partial, NotCheckedReasons: s.Reasons,
+	}
+	for _, na := range NotApplicableChecks(s) {
+		jc.NotApplicableChecks = append(jc.NotApplicableChecks, JSONNotApplicable{Name: na.Name, CoverageReason: na.Reason})
+	}
+	return jc
 }

@@ -19,6 +19,27 @@ import (
 // not also listed under warnings). UNKNOWN (3) is not produced here — a failed
 // run surfaces as an error from the command, not a health verdict.
 func NagiosLine(results []runner.Result, insights []models.Insight) (string, int) {
+	line, code := nagiosStatus(results, insights)
+	return line + nagiosCoverage(Coverage(results, insights)), code
+}
+
+// nagiosCoverage is the plugin-spec tail after the status text: perfdata
+// (`| checked=N not_checked=M not_applicable=K`) and, as long text on the lines
+// after it, what was not looked at, so a monitor can graph and alert on
+// coverage as well as read it.
+func nagiosCoverage(cov models.CoverageSummary) string {
+	tail := fmt.Sprintf(" | checked=%d not_checked=%d not_applicable=%d", cov.Checked, cov.NotChecked, cov.NotApplicable)
+	for _, it := range NotCheckedItems(&cov) {
+		tail += fmt.Sprintf("\nNOT CHECKED: %s (%s", strings.ReplaceAll(strings.ReplaceAll(it.Check, "\n", " "), "|", "/"), strings.ReplaceAll(it.Reason, "_", " "))
+		if act := it.Action(); act != "" {
+			tail += ", " + act
+		}
+		tail += ")"
+	}
+	return tail
+}
+
+func nagiosStatus(results []runner.Result, insights []models.Insight) (string, int) {
 	var crit, warn []string
 	critSeen := map[string]bool{}
 	warnSeen := map[string]bool{}

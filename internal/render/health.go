@@ -8,6 +8,7 @@ import (
 	"time"
 
 	"github.com/keyorixhq/dashdiag/internal/analysis"
+	"github.com/keyorixhq/dashdiag/internal/baseline"
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
 	"github.com/keyorixhq/dashdiag/internal/platform"
@@ -60,9 +61,26 @@ const (
 	renderCatOther      = "Other"
 )
 
-type Renderer struct{ mode output.OutputMode }
+type Renderer struct {
+	mode output.OutputMode
+	// cov is the run's coverage (SetCoverageFrom). PrintSummary only has insights, so
+	// without it the Not checked group is derived from the insights alone and the
+	// "N checked" counts are left out: only a caller with the collector results
+	// knows them.
+	cov *models.CoverageSummary
+}
 
 func NewRenderer(mode output.OutputMode) *Renderer { return &Renderer{mode: mode} }
+
+// SetCoverageFrom gives PrintSummary the run's coverage (render.NewSnapshot
+// attaches it) so it can print the "N checked · M not checked · K not
+// applicable" line. A nil snapshot or one without coverage changes nothing.
+func (r *Renderer) SetCoverageFrom(snap *baseline.Snapshot) *Renderer {
+	if snap != nil {
+		r.cov = snap.Coverage
+	}
+	return r
+}
 
 // insightForResult returns the highest-severity insight for a collector result.
 // It matches on exact check name or the "Name " prefix (e.g. renderCatIO matches "IO sda").
@@ -1586,14 +1604,47 @@ func (r *Renderer) PrintSummary(insights []models.Insight, elapsed time.Duration
 		// unmeasurable-cgroup case) that must never be silently dropped, and the
 		// banner points the reader at them.
 		r.printInsightGroup(infos)
+		r.printCoverage(insights)
 		return v.ExitCode()
 	}
 
 	r.printInsightGroup(crits)
 	r.printInsightGroup(warns)
 	r.printInsightGroup(infos)
+	r.printCoverage(insights)
 
 	return v.ExitCode()
+}
+
+// printCoverage prints what was not looked at, so it never reads as passed, and
+// the coverage line. Not-applicable collectors are only counted here; the
+// reports and JSON name them. Nothing is printed for a fully checked run with
+// nothing to count.
+func (r *Renderer) printCoverage(insights []models.Insight) {
+	cov := r.cov
+	counted := cov != nil
+	if cov == nil {
+		derived := Coverage(nil, insights)
+		cov = &derived
+	}
+	items := NotCheckedItems(cov)
+	if len(items) > 0 {
+		if r.mode == output.ModeHuman {
+			fmt.Fprintln(os.Stdout, StyleWarn.Render(fmt.Sprintf("Not checked (%d) — not looked at, this is not a pass:", len(items))))
+		} else {
+			fmt.Fprintf(os.Stdout, "NOT CHECKED (%d): not looked at, this is not a pass\n", len(items))
+		}
+		for _, it := range items {
+			line := fmt.Sprintf("  %s: %s", output.SanitizeControl(it.Check), strings.ReplaceAll(it.Reason, "_", " "))
+			if act := it.Action(); act != "" {
+				line += " — " + act
+			}
+			fmt.Fprintln(os.Stdout, line)
+		}
+	}
+	if counted {
+		fmt.Fprintln(os.Stdout, "Coverage: "+CoverageLine(cov))
+	}
 }
 
 func (r *Renderer) printInsightGroup(ins []models.Insight) {

@@ -71,6 +71,7 @@ func buildMarkdown(snap *baseline.Snapshot, insights []models.Insight, elapsed t
 		fmt.Fprintf(&b, "\n")
 	}
 	writeTopCatchMarkdown(&b, insights, len(snap.Checks))
+	writeCoverageMarkdown(&b, coverageViewOf(snap, insights))
 
 	// Issues — CRIT first, then WARN, then INFO disclosures (a collector that
 	// errored, an unmeasurable value, etc.). INFO isn't a pass/fail verdict
@@ -302,4 +303,31 @@ func checkSlug(name string) string {
 		}
 	}
 	return strings.TrimSuffix(b.String(), "-")
+}
+
+// writeCoverageMarkdown prints what the run looked at, so a check that was not
+// checked is never mistaken for one that passed. The not-applicable names stay
+// on one compact line.
+func writeCoverageMarkdown(b *strings.Builder, v coverageView) {
+	if v.empty() {
+		return
+	}
+	fmt.Fprintf(b, "## Coverage\n\n")
+	if v.Line != "" {
+		fmt.Fprintf(b, "%s\n\n", v.Line)
+	}
+	if len(v.NotChecked) > 0 {
+		fmt.Fprintf(b, "**Not checked** — not looked at, this is not a pass:\n\n")
+		for _, it := range v.NotChecked {
+			fmt.Fprintf(b, "- `%s` — %s", escapeMarkdownBackticks(output.SanitizeControl(it.Check)), strings.ReplaceAll(it.Reason, "_", " "))
+			if act := it.Action(); act != "" {
+				fmt.Fprintf(b, " — %s", act)
+			}
+			b.WriteString("\n")
+		}
+		b.WriteString("\n")
+	}
+	if len(v.NotApplicable) > 0 {
+		fmt.Fprintf(b, "**Not applicable** on this host: %s.\n\n", strings.Join(v.NotApplicable, ", "))
+	}
 }

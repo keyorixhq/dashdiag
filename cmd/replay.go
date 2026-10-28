@@ -174,7 +174,7 @@ func runReplay(cmd *cobra.Command, args []string) error {
 		_, _ = os.Stdout.Write(data)
 		return nil
 	}
-	renderer := render.NewRenderer(output.ModeHuman)
+	renderer := render.NewRenderer(output.ModeHuman).SetCoverageFrom(snap)
 	if layered, _ := cmd.Flags().GetBool("layered"); layered {
 		renderer.PrintAllLayered(results, insights)
 	} else {
