@@ -317,7 +317,9 @@ func writeCoverageMarkdown(b *strings.Builder, v coverageView) {
 		fmt.Fprintf(b, "%s\n\n", v.Line)
 	}
 	if len(v.NotChecked) > 0 {
-		fmt.Fprintf(b, "**Not checked** — not looked at, this is not a pass:\n\n")
+		// No trailing "pass:" — the share redactor reads it as a password
+		// assignment and would drop the first item of the list.
+		fmt.Fprintf(b, "**Not checked** (not looked at, this is not a pass)\n\n")
 		for _, it := range v.NotChecked {
 			fmt.Fprintf(b, "- `%s` — %s", escapeMarkdownBackticks(output.SanitizeControl(it.Check)), strings.ReplaceAll(it.Reason, "_", " "))
 			if act := it.Action(); act != "" {
