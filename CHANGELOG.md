@@ -40,6 +40,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Security
 
+- **Hardened: tar extraction of capture bundles** (CodeQL "Zip Slip" alert #138).
+  `dsd replay` and bundle loading extract into a temp dir; entry names are now
+  checked with `filepath.IsLocal` and every file is created through an `os.Root` on
+  the destination, so neither a crafted name nor a symlink already present in the
+  destination can write outside it. The previous `..`-prefix check was not
+  exploitable but also skipped legitimate names such as `..foo`.
 - **Fixed: local path traversal and disclosure through a hostile `.git/HEAD` with
   `dsd health --since-deploy`** (DD-GITREF-1, gosec G703). `--since-deploy` reads the
   last commit time straight from `.git` (no `git` exec), walking up from the
