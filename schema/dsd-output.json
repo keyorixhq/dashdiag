@@ -90,6 +90,30 @@
             "type": "string",
             "description": "Error message if status is ERROR"
           },
+          "coverage": {
+            "type": "string",
+            "enum": ["checked", "not_checked"],
+            "description": "Whether dsd actually looked: \"checked\" (the check ran; see not_checked_subchecks for any part it could not read) or \"not_checked\" (it did not run: see coverage_reason). Independent of status and of the verdict. A collector with nothing to check on this host (not_applicable) is not in checks[]; see the top-level coverage object."
+          },
+          "coverage_reason": {
+            "type": "string",
+            "enum": ["needs_root", "timeout", "unreadable", "collector_error", "unverified"],
+            "description": "Why a not_checked check was not checked: needs_root (a root-only read on a non-root run; re-run with sudo), timeout, unreadable (permission error), collector_error (the collector failed), unverified (ran but could not determine what it checks). Absent when coverage is checked."
+          },
+          "not_checked_subchecks": {
+            "type": "array",
+            "description": "The parts of this check that were not looked at: on a checked check, what it could not read; on a not_checked one, the findings that say why. Absent when there are none.",
+            "items": {
+              "type": "object",
+              "required": ["check", "reason"],
+              "additionalProperties": false,
+              "properties": {
+                "check": { "type": "string", "description": "The sub-check, as named by the matching insight's check" },
+                "reason": { "type": "string", "enum": ["needs_root", "unverified"], "description": "Why it was not checked" },
+                "message": { "type": "string", "description": "What could not be read. Text is not stable: do not parse it." }
+              }
+            }
+          },
           "raw": {
             "description": "The collector's full internal model, serialized as-is. INTENTIONALLY UNCONSTRAINED and explicitly out-of-contract: its fields may be added, renamed, retyped, or removed in any release with no notice. Do not build consumers against raw.* (see COMPATIBILITY.md)."
           }
@@ -168,6 +192,36 @@
               "note": {
                 "type": "string"
               }
+            }
+          }
+        }
+      }
+    },
+    "coverage": {
+      "type": "object",
+      "description": "How much of the host was actually looked at. Additive: it does not change verdict, counts or any status. checked + not_checked items are what the terminal summary line prints (\"N checked · M not checked (reasons) · K not applicable\").",
+      "required": ["checked", "not_checked", "not_applicable"],
+      "additionalProperties": false,
+      "properties": {
+        "checked": { "type": "integer", "description": "Checks that ran, including partially checked ones" },
+        "not_checked": { "type": "integer", "description": "Things that were not looked at: whole checks that did not run plus the sub-checks a partially checked one could not read, one per distinct check name" },
+        "not_applicable": { "type": "integer", "description": "Collectors with nothing to check on this host (no GPU, no Docker, not a cloud VM, not on this platform); omitted from checks[]" },
+        "partial": { "type": "integer", "description": "How many of checked ran only partly (have not_checked_subchecks)" },
+        "not_checked_reasons": {
+          "type": "object",
+          "description": "not_checked items by coverage_reason",
+          "additionalProperties": { "type": "integer" }
+        },
+        "not_applicable_checks": {
+          "type": "array",
+          "description": "The not-applicable collectors, with why",
+          "items": {
+            "type": "object",
+            "required": ["name", "coverage_reason"],
+            "additionalProperties": false,
+            "properties": {
+              "name": { "type": "string" },
+              "coverage_reason": { "type": "string", "enum": ["not_present", "not_supported_platform"], "description": "not_present: the host has nothing of this kind; not_supported_platform: the collector does not exist on this platform" }
             }
           }
         }

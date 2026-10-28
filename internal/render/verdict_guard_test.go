@@ -261,6 +261,7 @@ var guardCoveredFuncs = map[string]string{
 	"RenderStory":              "story (single point) / story (history)",
 	"RenderStoryFromHistory":   "story (history)",
 	"Verdict":                  "every row — the one derivation they all share",
+	"Coverage":                 "coverage_guard_test.go TestGuardC_* — the one coverage derivation every output shares",
 	"SnapshotVerdict":          "story (history)",
 	"HistoryEntry":             "history entry",
 }

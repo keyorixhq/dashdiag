@@ -6,6 +6,8 @@ import (
 	"reflect"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/models"
 )
 
 // schema/dsd-output.json is the published contract for `dsd health --json` and
@@ -165,4 +167,26 @@ func TestSchemaInSync_RequiredFieldsExist(t *testing.T) {
 	if it := s.Properties["insights"].Items; it != nil {
 		check("insights[]", *it)
 	}
+}
+
+// TestSchemaInSync_Coverage checks the top-level coverage object, its
+// not_applicable_checks[] items and checks[].not_checked_subchecks[] items
+// (DD-COVERAGE-1) against the structs that emit them.
+func TestSchemaInSync_Coverage(t *testing.T) {
+	s := loadSchema(t)
+	cov := s.Properties["coverage"]
+	subset(t, "coverage", jsonFieldNames(reflect.TypeFor[JSONCoverage]()), keysOf(cov.Properties))
+	superset(t, "coverage", jsonFieldNames(reflect.TypeFor[JSONCoverage]()), keysOf(cov.Properties))
+	na := cov.Properties["not_applicable_checks"].Items
+	if na == nil {
+		t.Fatal("schema coverage.not_applicable_checks.items is missing")
+	}
+	subset(t, "coverage.not_applicable_checks[]", jsonFieldNames(reflect.TypeFor[JSONNotApplicable]()), keysOf(na.Properties))
+	superset(t, "coverage.not_applicable_checks[]", jsonFieldNames(reflect.TypeFor[JSONNotApplicable]()), keysOf(na.Properties))
+	sub := s.Properties["checks"].Items.Properties["not_checked_subchecks"].Items
+	if sub == nil {
+		t.Fatal("schema checks[].not_checked_subchecks.items is missing")
+	}
+	subset(t, "checks[].not_checked_subchecks[]", jsonFieldNames(reflect.TypeFor[models.SubCheck]()), keysOf(sub.Properties))
+	superset(t, "checks[].not_checked_subchecks[]", jsonFieldNames(reflect.TypeFor[models.SubCheck]()), keysOf(sub.Properties))
 }

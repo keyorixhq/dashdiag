@@ -33,6 +33,11 @@ var guardedUnverifiedSignals = map[string]string{
 	// Standalone renderers that can show an all-clear — guarded case-by-case in
 	// cmd/falseok_verdict_test.go (the renderer must not print its green line when
 	// the signal is unset).
+	// Run-level coverage counters (DD-COVERAGE-1): output tallies derived by
+	// render.Coverage, not collector signals. A not-checked item can never read as
+	// checked: render/coverage_test.go + TestGuardC_* (render/coverage_guard_test.go).
+	"CoverageSummary.Checked":                  "render/coverage_guard_test.go TestGuardC_EveryCollectorResolvesToOneCoverage (an errored or unverified collector is never counted here)",
+	"CoverageSummary.NotChecked":               "render/coverage_test.go TestCoverageMatchesVerdict (equals Verdict.NotRun+Skipped) + render/coverage_guard_test.go",
 	"K8sInfo.APIReachable":                     "cmd/falseok_verdict_test.go (k8s renderer) + analysis/pve_apireachable_test.go",
 	"TLSUncheckable.NeedsRoot":                 "cmd/tls_glob_test.go TestUnreadableDirResults_NonRootNeedsRoot (non-root denied scan dir lands in uncheckable[] with needs_root and a non-ok status; never 'no certificates')",
 	"K8sInfo.EventsUnreadable":                 "analysis/heuristics_deep_test.go TestCheckK8sWorkloadsAndEvents_UnreadableQueriesAreUnverified (forbidden events list → Unverified INFO, independent of APIReachable)",
