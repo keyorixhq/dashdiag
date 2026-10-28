@@ -141,6 +141,9 @@ type JSONInsight struct {
 	// NeedsRoot: the unverified insight is root-only on this non-root run. See
 	// models.Insight.NeedsRoot. Additive, omitempty.
 	NeedsRoot bool `json:"needs_root,omitempty" yaml:"needs_root,omitempty"`
+	// UnverifiedReason: why the unverified insight could not look. See
+	// models.Insight.UnverifiedReason. Additive, omitempty.
+	UnverifiedReason string `json:"unverified_reason,omitempty" yaml:"unverified_reason,omitempty"`
 }
 
 func RenderJSON(results []runner.Result, insights []models.Insight) ([]byte, error) {
@@ -227,6 +230,8 @@ func buildOutput(results []runner.Result, insights []models.Insight) JSONOutput 
 			Details:    ins.Details,
 			Unverified: ins.Unverified,
 			NeedsRoot:  ins.NeedsRoot,
+
+			UnverifiedReason: ins.UnverifiedReason,
 		})
 	}
 

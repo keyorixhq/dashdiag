@@ -25,13 +25,13 @@ func checkAlertmanager(a models.AlertmanagerInfo) []models.Insight {
 		// internal-collectors-01-02: the JSON-shape identity check can be
 		// spoofed by any unprivileged local process binding :9093 first.
 		// Disclose alongside (never replacing) whatever finding follows.
-		out = append(out, unverifiedInsight("INFO", "Alertmanager",
+		out = append(out, unverifiedInsight(models.ReasonCollectorError, "INFO", "Alertmanager",
 			"Alertmanager was detected via an HTTP response shape match only — the listening process's identity could not be confirmed",
 			[]string{"note: run as root, or verify with: ss -tlnp | grep :9093"}))
 	}
 
 	if !a.StatusRead {
-		return append(out, unverifiedInsight("INFO", "Alertmanager",
+		return append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", "Alertmanager",
 			"Alertmanager is up, but its status API could not be read",
 			[]string{
 				"note: /api/v2/status must be reachable (a reverse proxy or auth may block it)",
@@ -52,7 +52,7 @@ func checkAlertmanager(a models.AlertmanagerInfo) []models.Insight {
 		// The status API answered, but the /metrics scrape that carries the
 		// config-reload gauge did not — the one signal this check exists to
 		// report was never actually established. Say so; don't go silent.
-		out = append(out, unverifiedInsight("INFO", "Alertmanager",
+		out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", "Alertmanager",
 			"Alertmanager is up, but its config-reload status could not be read",
 			[]string{
 				"note: /metrics must be reachable (a reverse proxy or auth may block it)",

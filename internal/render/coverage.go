@@ -1,10 +1,7 @@
 package render
 
 import (
-	"context"
-	"errors"
 	"fmt"
-	"io/fs"
 	"sort"
 	"strings"
 
@@ -177,9 +174,12 @@ func addReasonDelta(s *models.CoverageSummary, reason string, d int) {
 }
 
 func subCheckOf(ins models.Insight) models.SubCheck {
-	reason := models.ReasonUnverified
-	if ins.NeedsRoot {
+	reason := models.ReasonUnverified // fallback: an insight that carries no cause
+	switch {
+	case ins.NeedsRoot:
 		reason = models.ReasonNeedsRoot
+	case ins.UnverifiedReason != "":
+		reason = ins.UnverifiedReason
 	}
 	// The message is attacker-influenced text (replayed captures, log lines).
 	return models.SubCheck{Check: ins.Check, Reason: reason, Message: output.SanitizeControl(ins.Message)}
@@ -212,20 +212,10 @@ func insightOwner(check string, names []string) string {
 	return best
 }
 
-// errReason classifies a collector error. A needs_root reason is never derived
-// here: Verdict floors an errored collector, so it is not a root-only skip.
-func errReason(err error) string {
-	msg := strings.ToLower(err.Error())
-	switch {
-	case errors.Is(err, context.DeadlineExceeded),
-		strings.Contains(msg, "timed out"), strings.Contains(msg, "deadline exceeded"), strings.Contains(msg, "i/o timeout"):
-		return models.ReasonTimeout
-	case errors.Is(err, fs.ErrPermission),
-		strings.Contains(msg, "permission denied"), strings.Contains(msg, "operation not permitted"):
-		return models.ReasonUnreadable
-	}
-	return models.ReasonCollectorError
-}
+// errReason classifies a collector error (errors.Is only, see
+// models.ReasonOfErr). A needs_root reason is never derived here: Verdict floors
+// an errored collector, so it is not a root-only skip.
+func errReason(err error) string { return models.ReasonOfErr(err) }
 
 // CoverageAction is what the user can do about a not-checked reason.
 func CoverageAction(reason string) string {
@@ -238,6 +228,10 @@ func CoverageAction(reason string) string {
 		return "check file permissions or re-run with sudo"
 	case models.ReasonCollectorError:
 		return "run this check on its own for the error"
+	case models.ReasonParse:
+		return "the tool's output was not recognised; report it with the INFO line"
+	case models.ReasonNotRecorded:
+		return "replay only: this bundle never recorded the input; re-capture with a current dsd"
 	case models.ReasonUnverified:
 		return "see the INFO line for what could not be read"
 	}

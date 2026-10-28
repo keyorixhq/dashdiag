@@ -97,8 +97,8 @@
           },
           "coverage_reason": {
             "type": "string",
-            "enum": ["needs_root", "timeout", "unreadable", "collector_error", "unverified"],
-            "description": "Why a not_checked check was not checked: needs_root (a root-only read on a non-root run; re-run with sudo), timeout, unreadable (permission error), collector_error (the collector failed), unverified (ran but could not determine what it checks). Absent when coverage is checked."
+            "enum": ["needs_root", "timeout", "unreadable", "collector_error", "parse", "not_recorded", "unverified"],
+            "description": "Why a not_checked check was not checked: needs_root (a root-only read on a non-root run; re-run with sudo), timeout, unreadable (a read failed: permission or I/O error), collector_error (the collector failed), parse (a tool ran but its output was not recognised), not_recorded (replay only: the bundle never recorded the input, a recording gap and not a finding on the host), unverified (fallback: no finer cause is known). Absent when coverage is checked."
           },
           "not_checked_subchecks": {
             "type": "array",
@@ -109,7 +109,7 @@
               "additionalProperties": false,
               "properties": {
                 "check": { "type": "string", "description": "The sub-check, as named by the matching insight's check" },
-                "reason": { "type": "string", "enum": ["needs_root", "unverified"], "description": "Why it was not checked" },
+                "reason": { "type": "string", "enum": ["needs_root", "timeout", "unreadable", "collector_error", "parse", "not_recorded", "unverified"], "description": "Why it was not checked (same values as coverage_reason)" },
                 "message": { "type": "string", "description": "What could not be read. Text is not stable: do not parse it." }
               }
             }
@@ -155,6 +155,11 @@
           "needs_root": {
             "type": "boolean",
             "description": "True on an unverified insight whose data only root can read, seen by a non-root run. Such an insight is shown but does not by itself floor the verdict."
+          },
+          "unverified_reason": {
+            "type": "string",
+            "enum": ["needs_root", "timeout", "unreadable", "collector_error", "parse", "not_recorded"],
+            "description": "Why an unverified insight could not look. Present only with unverified=true; absent on output from older versions."
           },
           "details": {
             "type": "object",

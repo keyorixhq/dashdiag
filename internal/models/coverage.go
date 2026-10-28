@@ -1,5 +1,13 @@
 package models
 
+import (
+	"context"
+	"errors"
+	"io/fs"
+
+	"github.com/keyorixhq/dashdiag/internal/source"
+)
+
 // Coverage says, for one check of a run, whether dsd actually looked. It is the
 // answer to "did this pass, or did it not get checked?" that status alone cannot
 // give: a check that needs root and ran as nobody, a collector that timed out
@@ -30,9 +38,11 @@ const (
 	// not_checked reasons
 	ReasonNeedsRoot      = "needs_root"      // a root-only read on a non-root run: re-run with sudo
 	ReasonTimeout        = "timeout"         // the collector did not finish in time
-	ReasonUnreadable     = "unreadable"      // the collector failed on a permission error
+	ReasonUnreadable     = "unreadable"      // a read failed (permission or I/O error)
 	ReasonCollectorError = "collector_error" // the collector returned an error or panicked
-	ReasonUnverified     = "unverified"      // ran, but could not determine what it checks (not root-only)
+	ReasonParse          = "parse"           // a tool ran but its output was not recognised
+	ReasonNotRecorded    = "not_recorded"    // replay only: the bundle never recorded this input (a recording gap, not a host finding)
+	ReasonUnverified     = "unverified"      // fallback: no finer cause is known (older data, or a result that carries no reason)
 	// not_applicable reasons
 	ReasonNotPresent           = "not_present"            // the host has nothing of this kind (no GPU, no Docker, ...)
 	ReasonNotSupportedPlatform = "not_supported_platform" // the collector does not exist on this platform
@@ -40,8 +50,37 @@ const (
 
 // CoverageReasons is every reason value, for documentation and the guard.
 var CoverageReasons = []string{
-	ReasonNeedsRoot, ReasonTimeout, ReasonUnreadable, ReasonCollectorError, ReasonUnverified,
-	ReasonNotPresent, ReasonNotSupportedPlatform,
+	ReasonNeedsRoot, ReasonTimeout, ReasonUnreadable, ReasonCollectorError, ReasonParse, ReasonNotRecorded,
+	ReasonUnverified, ReasonNotPresent, ReasonNotSupportedPlatform,
+}
+
+// UnverifiedReasons are the reasons an Unverified insight may carry
+// (Insight.UnverifiedReason): the not_checked subset of CoverageReasons, without
+// the "unverified" fallback.
+var UnverifiedReasons = []string{
+	ReasonNeedsRoot, ReasonTimeout, ReasonUnreadable, ReasonCollectorError, ReasonParse, ReasonNotRecorded,
+}
+
+// ErrParse marks a failure to recognise a tool's output. Wrap it with %w where a
+// collector rejects output it cannot parse, so ReasonOfErr reports ReasonParse.
+var ErrParse = errors.New("unrecognised output")
+
+// ReasonOfErr classifies a collector error into a not_checked reason. It uses
+// errors.Is only, never the message text; an error it cannot place is
+// ReasonCollectorError. A needs_root reason is never derived here: it needs to
+// know the run was not root (see analysis.needsRootInsight).
+func ReasonOfErr(err error) string {
+	switch {
+	case errors.Is(err, context.DeadlineExceeded):
+		return ReasonTimeout
+	case errors.Is(err, source.ErrNotRecorded):
+		return ReasonNotRecorded
+	case errors.Is(err, fs.ErrPermission):
+		return ReasonUnreadable
+	case errors.Is(err, ErrParse):
+		return ReasonParse
+	}
+	return ReasonCollectorError
 }
 
 // SubCheck is one part of a check that was not looked at.

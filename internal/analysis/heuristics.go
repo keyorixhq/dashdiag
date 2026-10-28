@@ -64,11 +64,19 @@ func ApplyThresholds(results []runner.Result, thresh Thresholds, _ platform.Clou
 	var insights []models.Insight
 	for _, r := range results {
 		if r.Err != nil {
-			insights = append(insights, unverifiedInsight("INFO", r.Name,
+			reason := models.ReasonOfErr(r.Err)
+			if r.NotRecorded && reason == models.ReasonCollectorError {
+				reason = models.ReasonNotRecorded
+			}
+			insights = append(insights, unverifiedInsight(reason, "INFO", r.Name,
 				fmt.Sprintf("check could not run — %v", r.Err), nil))
 			continue
 		}
-		insights = append(insights, applyOne(r.Data, thresh, ctrCtx)...)
+		got := applyOne(r.Data, thresh, ctrCtx)
+		if r.NotRecorded {
+			markNotRecorded(got)
+		}
+		insights = append(insights, got...)
 	}
 	insights = dedupeSELinuxDenials(insights)
 	return AdaptHostHints(insights)
@@ -1198,10 +1206,33 @@ func insight(level, check, message string, hints []string) models.Insight {
 // denied, unreadable file, collector error) rather than a genuine clean/absent
 // finding. See models.Insight.Unverified for why this distinction matters to
 // baseline diffing.
-func unverifiedInsight(level, check, message string, hints []string) models.Insight {
+//
+// reason says why it could not look (one of models.UnverifiedReasons). It is the
+// ONLY place Insight.Unverified is set, so every Unverified insight carries one;
+// TestUnverifiedInsightAlwaysHasReason keeps it so. Where the collector kept the
+// error, derive it with models.ReasonOfErr; a sentinel bool that dropped the
+// error is classified by what the sentinel records.
+func unverifiedInsight(reason, level, check, message string, hints []string) models.Insight {
 	ins := insight(level, check, message, hints)
 	ins.Unverified = true
+	ins.UnverifiedReason = reason
 	return ins
+}
+
+// markNotRecorded relabels the Unverified insights of a replayed collector that
+// hit a recording gap: a read that fails because the bundle never recorded the
+// input surfaces as an unreadable/error/parse sentinel, which would otherwise read
+// as a host finding. needs_root and timeout keep their own cause.
+func markNotRecorded(ins []models.Insight) {
+	for i := range ins {
+		if !ins[i].Unverified {
+			continue
+		}
+		switch ins[i].UnverifiedReason {
+		case models.ReasonUnreadable, models.ReasonCollectorError, models.ReasonParse:
+			ins[i].UnverifiedReason = models.ReasonNotRecorded
+		}
+	}
 }
 
 // isRoot reports whether dsd runs with euid 0. A variable so tests can pin both
@@ -1215,8 +1246,10 @@ var isRoot = func() bool { return os.Geteuid() == 0 }
 // Use it only where a permission failure is the cause; a timeout, a missing
 // tool or a parse failure is unverifiedInsight.
 func needsRootInsight(level, check, message string, hints []string) models.Insight {
-	ins := unverifiedInsight(level, check, message, hints)
-	ins.NeedsRoot = !isRoot()
+	ins := unverifiedInsight(models.ReasonUnreadable, level, check, message, hints)
+	if ins.NeedsRoot = !isRoot(); ins.NeedsRoot {
+		ins.UnverifiedReason = models.ReasonNeedsRoot
+	}
 	return ins
 }
 

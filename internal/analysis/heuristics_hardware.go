@@ -25,7 +25,7 @@ func checkBattery(b models.BatteryInfo) []models.Insight {
 			// A genuine read/parse failure, not "desktop or no battery" — those
 			// leave StatusReason empty. Disclose instead of silently reading as
 			// "no battery issues" on a MacBook that always has a battery.
-			return []models.Insight{unverifiedInsight("INFO", hwCatBattery, b.StatusReason, nil)}
+			return []models.Insight{unverifiedInsight(models.ReasonCollectorError, "INFO", hwCatBattery, b.StatusReason, nil)}
 		}
 		return nil // desktop or no battery
 	}
@@ -64,7 +64,7 @@ func checkBattery(b models.BatteryInfo) []models.Insight {
 
 func checkThermal(t models.ThermalInfo, thresh Thresholds) []models.Insight {
 	if t.SensorUnreadable {
-		return []models.Insight{unverifiedInsight("INFO", corrCatCPUThermal,
+		return []models.Insight{unverifiedInsight(models.ReasonUnreadable, "INFO", corrCatCPUThermal,
 			fmt.Sprintf("CPU thermal sensor (%s) found but its temperature could not be read — thermal state not measured", t.Source),
 			[]string{inspectHwmonTemp, "to inspect: sensors"})}
 	}
@@ -77,7 +77,7 @@ func checkThermal(t models.ThermalInfo, thresh Thresholds) []models.Insight {
 	// than firing a false "thermal throttling active" CRIT — same gate the dsd
 	// hardware display path and every drive-temp verdict already apply.
 	if !TempPlausible(t.CPUTempC, TempCeilSilicon) {
-		return []models.Insight{unverifiedInsight("WARN", corrCatCPUThermal,
+		return []models.Insight{unverifiedInsight(models.ReasonParse, "WARN", corrCatCPUThermal,
 			fmt.Sprintf("implausible CPU temperature %g°C (source: %s) — sensor likely faulted; reading rejected, health unverified", t.CPUTempC, t.Source),
 			[]string{
 				inspectHwmonTemp,
@@ -267,7 +267,7 @@ func checkGPUDevice(dev models.GPUDevice, prefix string, steamOS bool) []models.
 	// Say so instead. `dsd gpu` already does this; this keeps `dsd health --gpu`
 	// consistent. (Real AMD/NVIDIA GPUs populate temp+VRAM, so they're unaffected.)
 	if !GPUDeviceHasMetrics(dev) {
-		return append(out, unverifiedInsight("INFO", corrCatGPU,
+		return append(out, unverifiedInsight(models.ReasonCollectorError, "INFO", corrCatGPU,
 			fmt.Sprintf("%s detected but exposed no health metrics — temperature/utilization not available, health NOT verified", prefix),
 			[]string{"to inspect: ls /sys/class/drm/card*/device/hwmon/hwmon*/"},
 		))
@@ -276,7 +276,7 @@ func checkGPUDevice(dev models.GPUDevice, prefix string, steamOS bool) []models.
 	// (§L/§Q raw-tool implausible-value class — garbage hwmon reads as thousands
 	// of degrees). Surface it as unverified rather than a false thermal alarm.
 	if !GPUTempPlausible(dev.TempC) {
-		out = append(out, unverifiedInsight("WARN", corrCatGPU,
+		out = append(out, unverifiedInsight(models.ReasonParse, "WARN", corrCatGPU,
 			fmt.Sprintf("%s reported an implausible temperature (%d°C) — thermal health unverified, reading rejected", prefix, dev.TempC),
 			[]string{"to inspect: cat /sys/class/drm/card*/device/hwmon/hwmon*/temp1_input", "note: out-of-range value (faulted/virtual sensor) — ignored to avoid a false thermal-throttling alarm"},
 		))
@@ -294,7 +294,7 @@ func checkGPUDevice(dev models.GPUDevice, prefix string, steamOS bool) []models.
 	// Junction (hotspot/die) temperature — runs hotter than edge; its own thresholds.
 	// Same plausibility gate as the edge sensor.
 	if !GPUTempPlausible(dev.TempJunctionC) {
-		out = append(out, unverifiedInsight("WARN", corrCatGPU,
+		out = append(out, unverifiedInsight(models.ReasonParse, "WARN", corrCatGPU,
 			fmt.Sprintf("%s reported an implausible junction temperature (%d°C) — thermal health unverified, reading rejected", prefix, dev.TempJunctionC),
 			[]string{"to inspect: cat /sys/class/drm/card*/device/hwmon/hwmon*/temp2_input", "note: out-of-range value (faulted/virtual sensor) — ignored to avoid a false thermal alarm"},
 		))
@@ -521,7 +521,7 @@ func checkHardware(h models.HardwareInfo) []models.Insight { //nolint:cyclop,fun
 		// surface even if another controller's read failed.
 		out = append(out, eccInsights(h.Memory.CorrectedErrors, h.Memory.UncorrectedErrors, hwCatHardware)...)
 		if h.Memory.EDACCountersUnreadable {
-			out = append(out, unverifiedInsight("INFO", hwCatHardware,
+			out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", hwCatHardware,
 				"ECC error counters could not be fully read — the corrected/uncorrected counts above may be incomplete",
 				[]string{"to inspect: edac-util -s 4"}))
 		}
@@ -536,7 +536,7 @@ func checkIPMI(ipmi models.IPMIInfo) []models.Insight {
 	// than the WARN below, which would otherwise fire on every non-root
 	// `dsd health` run on a physical server, healthy BMC or not.
 	if ipmi.NeedsRoot {
-		return []models.Insight{unverifiedInsight("INFO", hwCatIPMI,
+		return []models.Insight{unverifiedInsight(models.ReasonCollectorError, "INFO", hwCatIPMI,
 			"IPMI hardware detected but sensor read requires root — re-run as root to verify sensor health",
 			[]string{"to inspect: sudo ipmitool sdr"})}
 	}
@@ -549,7 +549,7 @@ func checkIPMI(ipmi models.IPMIInfo) []models.Insight {
 		if reason == "" {
 			reason = "IPMI sensor read failed"
 		}
-		return []models.Insight{unverifiedInsight("WARN", hwCatIPMI, reason,
+		return []models.Insight{unverifiedInsight(models.ReasonUnreadable, "WARN", hwCatIPMI, reason,
 			[]string{
 				"to inspect: ipmitool sdr",
 				inspectIPMISel,

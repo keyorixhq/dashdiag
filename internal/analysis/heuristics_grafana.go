@@ -21,13 +21,13 @@ func checkGrafana(g models.GrafanaInfo) []models.Insight {
 		// internal-collectors-13-01: the {database,version} shape check can be
 		// spoofed by any unprivileged local process binding :3000 first.
 		// Disclose alongside (never replacing) whatever finding follows.
-		out = append(out, unverifiedInsight("INFO", "Grafana",
+		out = append(out, unverifiedInsight(models.ReasonCollectorError, "INFO", "Grafana",
 			"Grafana was detected via an HTTP response shape match only — the listening process's identity could not be confirmed",
 			[]string{"note: run as root, or verify with: ss -tlnp | grep :3000"}))
 	}
 
 	if !g.HealthRead {
-		return append(out, unverifiedInsight("INFO", "Grafana",
+		return append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", "Grafana",
 			"Grafana is up, but its health endpoint could not be read",
 			[]string{
 				"note: /api/health should be reachable without auth (a reverse proxy may block it)",

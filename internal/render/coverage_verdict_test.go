@@ -1,7 +1,10 @@
 package render
 
 import (
+	"context"
 	"errors"
+	"fmt"
+	"io/fs"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -41,11 +44,11 @@ func TestCoverageVerdictRules(t *testing.T) {
 			[]models.Insight{shadow}, "OK", 0, models.CoverageChecked, "", "Hardening"},
 		{"needs root, ROOT run: same read unreadable still floors", []runner.Result{ok, {Name: "Hardening", Data: &models.CPUInfo{}}},
 			[]models.Insight{rootRunShadow}, "WARN", 1, models.CoverageChecked, "", "Hardening"},
-		{"timeout floors", []runner.Result{ok, {Name: "Disk", Err: errors.New("collector Disk timed out after 5s")}},
+		{"timeout floors", []runner.Result{ok, {Name: "Disk", Err: fmt.Errorf("collector Disk timed out after 5s: %w", context.DeadlineExceeded)}},
 			nil, "WARN", 1, models.CoverageNotChecked, models.ReasonTimeout, "Disk"},
 		{"collector error floors", []runner.Result{ok, {Name: "Disk", Err: errors.New("parse failed")}},
 			nil, "WARN", 1, models.CoverageNotChecked, models.ReasonCollectorError, "Disk"},
-		{"permission error floors", []runner.Result{ok, {Name: "Disk", Err: errors.New("open /proc/x: permission denied")}},
+		{"permission error floors", []runner.Result{ok, {Name: "Disk", Err: &fs.PathError{Op: "open", Path: "/proc/x", Err: fs.ErrPermission}}},
 			nil, "WARN", 1, models.CoverageNotChecked, models.ReasonUnreadable, "Disk"},
 		{"absent but unverified floors", []runner.Result{ok, {Name: "K8s", Data: models.CephInfo{}}},
 			[]models.Insight{{Level: "INFO", Check: "K8s", Unverified: true, Message: "API unreachable"}},

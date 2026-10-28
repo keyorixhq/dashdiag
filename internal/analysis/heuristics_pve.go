@@ -32,7 +32,7 @@ func checkPVE(p models.PVEInfo) []models.Insight {
 	// this the node reads as a clean "healthy" with quorum implicitly OK (false-OK).
 	// Stop here: we cannot verify quorum, storage, or backups, so don't pretend to.
 	if !p.APIReachable {
-		return []models.Insight{unverifiedInsight("WARN", pveCatPVE,
+		return []models.Insight{unverifiedInsight(models.ReasonCollectorError, "WARN", pveCatPVE,
 			"Proxmox VE API (pvesh) not responding — cluster quorum, storage, and backup health could NOT be verified",
 			[]string{
 				"to inspect: systemctl status pve-cluster corosync pvedaemon",
@@ -74,7 +74,7 @@ func checkPVETaskErrors(p models.PVEInfo) []models.Insight {
 			// The task list couldn't be read — recent failed migrations/restores/
 			// snapshots are invisible exactly when the task API is unhealthy
 			// (FALSE_OK_SWEEP #7). Report "not verified" instead of a silent clean.
-			return []models.Insight{unverifiedInsight("INFO", pveCatPVE,
+			return []models.Insight{unverifiedInsight(models.ReasonUnreadable, "INFO", pveCatPVE,
 				"Proxmox task log unreadable — recent task failures could NOT be verified",
 				[]string{
 					"to inspect: pvesh get /nodes/localhost/tasks --errors 1",
@@ -114,7 +114,7 @@ func checkPVESubscription(p models.PVEInfo) []models.Insight {
 	case "unverified":
 		// pvesh failed and we fell back to the auth file — a key is configured but
 		// its live status (active vs EXPIRED) could not be read. Don't claim healthy.
-		return []models.Insight{unverifiedInsight("INFO", pveCatPVE,
+		return []models.Insight{unverifiedInsight(models.ReasonUnreadable, "INFO", pveCatPVE,
 			"Proxmox VE subscription configured but live status could NOT be verified (pvesh failed)",
 			[]string{
 				inspectPVESubscription,
@@ -134,7 +134,7 @@ func checkPVESubscription(p models.PVEInfo) []models.Insight {
 	// in an unexpected format, collectPVESubscriptionFile). Neither is safe to
 	// silently treat as healthy the way the old missing-default fall-through
 	// did — disclose it instead.
-	return []models.Insight{unverifiedInsight("INFO", pveCatPVE,
+	return []models.Insight{unverifiedInsight(models.ReasonCollectorError, "INFO", pveCatPVE,
 		fmt.Sprintf("Proxmox VE subscription status %q not recognized — could not verify subscription health", p.Subscription.Status),
 		[]string{inspectPVESubscription},
 	)}
@@ -168,7 +168,7 @@ func checkPVECluster(p models.PVEInfo) []models.Insight {
 		// say fencing is healthy. (A node without HA configured answers with just the
 		// quorum entry, and an explicit 501 "not implemented" stays verified, so this
 		// does not fire on the common standalone case.)
-		out = append(out, unverifiedInsight("INFO", pveCatPVE,
+		out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", pveCatPVE,
 			"HA fencing state could NOT be verified — the HA status query failed or its response was unreadable",
 			[]string{
 				"to inspect: pvesh get /cluster/ha/status/current",
@@ -224,7 +224,7 @@ func checkPVEStorage(p models.PVEInfo) []models.Insight {
 	if !p.StoragesVerified {
 		// The storage list query failed — inactive/full storage (the exact failure
 		// dsd pve exists to catch) would otherwise read clean (FALSE_OK_SWEEP #6).
-		out = append(out, unverifiedInsight("INFO", pveCatPVE,
+		out = append(out, unverifiedInsight(models.ReasonCollectorError, "INFO", pveCatPVE,
 			"Proxmox storage health NOT verified — the storage list query failed",
 			[]string{
 				inspectPVESMStatus,
@@ -282,7 +282,7 @@ func checkPVEBackups(p models.PVEInfo) []models.Insight {
 		// the "no successful backup" CRIT below (gated on len(BackupStatuses)>0) can
 		// never fire — backup health unverified would read as a silent OK
 		// (FALSE_OK_SWEEP #8). Surface it honestly instead.
-		return []models.Insight{unverifiedInsight("INFO", pveCatPVE,
+		return []models.Insight{unverifiedInsight(models.ReasonCollectorError, "INFO", pveCatPVE,
 			"Proxmox backup health NOT verified — the vzdump task query failed and no backup archives were found",
 			[]string{
 				inspectPVETasks,
@@ -299,7 +299,7 @@ func checkPVEBackups(p models.PVEInfo) []models.Insight {
 		// never fire for a real host with VMs/CTs that simply couldn't be
 		// listed. Disclose it in addition to whatever the vzdump-task-based
 		// checks below still find — never a replacement for them.
-		out = append(out, unverifiedInsight("INFO", pveCatPVE,
+		out = append(out, unverifiedInsight(models.ReasonCollectorError, "INFO", pveCatPVE,
 			"per-guest backup audit NOT verified — VM/LXC guest enumeration failed",
 			[]string{
 				"to inspect: pvesh get /nodes/localhost/qemu",

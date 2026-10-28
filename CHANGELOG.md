@@ -11,6 +11,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.6.0] - 2026-10-28
+
+No behaviour changes: verdict, exit code and `status` are identical to 2.5.0.
+Replaying all 49 recorded host bundles with 2.5.0 and with this release gave the
+same verdict, exit code, insights and counts on every one, and a live run on a
+Debian 13 host (non-root and root) did the same.
+
 ### Added
 
 - **Every check now says whether it was looked at: `checked`, `not_checked` (with a
@@ -24,9 +31,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
     (`checked`/`not_checked`/`not_applicable`, reasons, the not-applicable
     collectors). `schema/dsd-output.json` is updated; `status`, the verdict and the
     exit code are unchanged.
-  - The terminal (human and `--plain`), `--report`, `--report-html` and every
+  - `dsd health` (terminal human and `--plain`, `--report`, `--report-html`) and every
     `dsd share` format print a Not checked group (reason and action, e.g. "re-run
-    with sudo") and `N checked · M not checked (reasons) · K not applicable`.
+    with sudo") and `N checked · M not checked (reasons) · K not applicable`. The
+    area subcommands (`dsd disk`, `dsd security`, ...) keep their own output and do
+    not print the group yet.
     Nagios gets perfdata and long text; Prometheus gets
     `dsd_checks_coverage{coverage}`, `dsd_checks_not_checked{reason}` and
     `dsd_check_checked{check}` (a 0 `dsd_check_status` no longer has to mean
@@ -48,6 +57,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `Available` (Redis, Postgres, K8s, KVM, Battery and 17 others) are classified not
   applicable instead of a phantom `OK` check. `checks[]`, the verdict and the exit
   code are unchanged.
+
+- **Finer "not checked" reasons** (DD-COVERAGE-2). Every real not-checked item
+  used to read `unverified`. An `unverified` insight now carries `unverified_reason`
+  (`needs_root`, `timeout`, `unreadable`, `collector_error`, `parse`,
+  `not_recorded`; JSON/YAML `insights[]`, omitted when unknown) and `coverage_reason`
+  / `not_checked_subchecks[].reason` use it; `unverified` stays only as the
+  fallback. Whole-collector failures are classified with `errors.Is`
+  (`context.DeadlineExceeded`, `fs.ErrPermission`, `source.ErrNotRecorded`), never
+  by message text; the runner's synthesized timeout now wraps
+  `context.DeadlineExceeded`. A guard
+  (`internal/analysis/unverified_reason_test.go`) fails when an Unverified insight
+  is created without a reason. Additive: the verdict, exit codes and `status` are
+  unchanged.
+- **`dsd replay` tells recording gaps from findings.** InfiniBand, CPU Load/RunQueue,
+  Hardening and Logs showed as not checked on every old bundle because the bundle
+  never recorded their inputs. They now read `not_recorded`, and replay prints one
+  line saying so. Replay runs collectors one at a time to attribute a gap to its
+  collector.
 
 ## [2.5.0] - 2026-10-28
 

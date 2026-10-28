@@ -61,7 +61,7 @@ func checkSystemd(sys models.SystemdInfo) []models.Insight {
 	// 3s timeout — most likely under load, exactly when units are failing). Say
 	// so instead of letting an empty list read as a silent healthy verdict.
 	if sys.FailedUnitsUnknown {
-		out = append(out, unverifiedInsight("INFO", "Systemd",
+		out = append(out, unverifiedInsight(models.ReasonCollectorError, "INFO", "Systemd",
 			"could not list failed units — systemctl list-units did not complete; failed-unit status is unverified",
 			[]string{
 				"to check manually: systemctl --failed",
@@ -77,7 +77,7 @@ func checkSystemd(sys models.SystemdInfo) []models.Insight {
 	// rather than a silent, indistinguishable-from-clean "no non-benign sshd@
 	// failures" verdict.
 	if sys.SSHDStatusUnverified {
-		out = append(out, unverifiedInsight("INFO", "Systemd",
+		out = append(out, unverifiedInsight(models.ReasonCollectorError, "INFO", "Systemd",
 			"some suppressed sshd@ connection instances' exit status could not be confirmed benign — a real per-connection sshd fault cannot be ruled out",
 			[]string{
 				"to inspect: systemctl --failed | grep sshd@",
@@ -547,7 +547,7 @@ func checkKernelSecurity(mac models.KernelSecurityInfo, thresh Thresholds) []mod
 		// NOT a privilege gap. Re-running as root would NOT help (non-root can
 		// read the same node), so don't suggest it — point at the node instead.
 		// (Contrast AppArmor below, whose mode lives in a root-only node.)
-		out = append(out, unverifiedInsight("INFO", catKernelSec,
+		out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", catKernelSec,
 			"SELinux is present but its enforce state could not be read — policy may be mid-load or in an unusual state",
 			[]string{
 				"to inspect: cat /sys/fs/selinux/enforce   (1=enforcing, 0=permissive)",
@@ -616,7 +616,7 @@ func checkAppArmorActive(mac models.KernelSecurityInfo) []models.Insight {
 	// /var/log/audit unreadable AND dmesg restricted), so we can't claim "no
 	// denials" — surface it as unverified rather than a silent OK.
 	if mac.AppArmorDenials < 0 {
-		out = append(out, unverifiedInsight("INFO", catKernelSec,
+		out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", catKernelSec,
 			"AppArmor enforcing but its denial log could NOT be read — denials are unverified",
 			[]string{
 				"to inspect: dmesg | grep -i apparmor   (run as root)",
@@ -688,7 +688,7 @@ func checkSELinuxDenials(mac models.KernelSecurityInfo, thresh Thresholds) []mod
 	// unreadable, ausearch absent, journald also failed). Don't read that as "no
 	// denials" — surface it as unverified.
 	if mac.SELinuxMode == "enforcing" && mac.SELinuxDenials < 0 {
-		out = append(out, unverifiedInsight("INFO", catKernelSec,
+		out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", catKernelSec,
 			"SELinux enforcing but AVC denials could NOT be verified — audit log unreadable / ausearch absent",
 			[]string{
 				"to inspect: ausearch -m avc -ts recent   (run as root)",
@@ -1061,7 +1061,7 @@ func checkEntropy(e models.EntropyInfo) []models.Insight {
 func checkProcesses(proc models.ProcessInfo, thresh Thresholds) []models.Insight {
 	var out []models.Insight
 	if proc.ListUnreadable {
-		out = append(out, unverifiedInsight("INFO", "Processes",
+		out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", "Processes",
 			"could not list processes — zombie and hung (D-state) counts not measured",
 			[]string{"to inspect: ps axo pid,ppid,stat,comm"}))
 	}
@@ -1151,7 +1151,7 @@ func checkDBus(d models.DBusInfo) []models.Insight {
 	// Surface it as INFO so the unverified state is honest without a scary
 	// top-line CRIT. Only an explicit failed/inactive is a real failure.
 	if d.Status != "failed" && d.Status != "inactive" {
-		return []models.Insight{unverifiedInsight("INFO", "DBus",
+		return []models.Insight{unverifiedInsight(models.ReasonCollectorError, "INFO", "DBus",
 			fmt.Sprintf("D-Bus state could not be determined (status: %q) — health unverified, not assumed failed", d.Status),
 			[]string{
 				"to inspect: systemctl is-active dbus",
@@ -1189,7 +1189,7 @@ func checkOOM(oom models.OOMInfo) []models.Insight {
 	}
 	var out []models.Insight
 	if oom.EventsCountUnverified {
-		out = append(out, unverifiedInsight("INFO", "OOM",
+		out = append(out, unverifiedInsight(models.ReasonCollectorError, "INFO", "OOM",
 			"OOM event count may be incomplete — a kernel log line exceeded the scan buffer limit",
 			[]string{"to inspect: journalctl -k --since '24 hours ago' | grep -i 'out of memory'"},
 		))
@@ -1236,7 +1236,7 @@ func checkMTE(m models.MTEInfo) []models.Insight {
 		return nil
 	}
 	if m.StatusReason != "" {
-		return []models.Insight{unverifiedInsight("INFO", "MTE",
+		return []models.Insight{unverifiedInsight(models.ReasonCollectorError, "INFO", "MTE",
 			"MTE fault check not verified — "+m.StatusReason,
 			[]string{
 				"to inspect: journalctl -k | grep -i 'tag check fault'   (run as root)",
@@ -1281,7 +1281,7 @@ func checkPressure(p models.PressureInfo) []models.Insight {
 	}
 	var out []models.Insight
 	if len(p.UnreadableMetrics) > 0 {
-		out = append(out, unverifiedInsight("INFO", "Pressure",
+		out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", "Pressure",
 			"PSI could not be read for: "+strings.Join(p.UnreadableMetrics, ", ")+" — stall pressure for those resources not measured",
 			[]string{"to inspect: cat /proc/pressure/memory /proc/pressure/cpu /proc/pressure/io"}))
 	}
@@ -1335,7 +1335,7 @@ func checkHugePages(h models.HugePagesInfo) []models.Insight {
 		// /proc/meminfo could not be read — distinct from a genuinely healthy
 		// host with huge pages simply not configured, which also leaves
 		// Configured==0 and THPEnabled==false.
-		return []models.Insight{unverifiedInsight("INFO", "HugePages", h.StatusReason, nil)}
+		return []models.Insight{unverifiedInsight(models.ReasonCollectorError, "INFO", "HugePages", h.StatusReason, nil)}
 	}
 	if h.Configured == 0 && !h.THPEnabled {
 		return nil // not configured, not relevant
@@ -1389,7 +1389,7 @@ func checkHugePages(h models.HugePagesInfo) []models.Insight {
 
 func checkLaunchd(l models.LaunchdInfo) []models.Insight {
 	if !l.Checked {
-		return []models.Insight{unverifiedInsight("INFO", "Launchd",
+		return []models.Insight{unverifiedInsight(models.ReasonCollectorError, "INFO", "Launchd",
 			"launchd service check skipped — `launchctl list` failed, so service health could not be checked",
 			[]string{"to inspect: launchctl list"})}
 	}
@@ -1423,7 +1423,7 @@ func checkLaunchd(l models.LaunchdInfo) []models.Insight {
 // Silent when only the current user is logged in normally.
 func checkSessions(s models.SessionsInfo) []models.Insight {
 	if !s.Checked {
-		return []models.Insight{unverifiedInsight("INFO", "Sessions",
+		return []models.Insight{unverifiedInsight(models.ReasonCollectorError, "INFO", "Sessions",
 			"active session check skipped — the `w` command is unavailable or failed, so logged-in sessions could not be enumerated",
 			[]string{"to inspect: which w"})}
 	}

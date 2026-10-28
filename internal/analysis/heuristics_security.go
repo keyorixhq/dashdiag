@@ -85,7 +85,7 @@ func checkSecurityAuditGaps(sec models.SecurityInfo) []models.Insight {
 	// nothing — a false-OK on a security check. Surface it; INFO doesn't raise the
 	// verdict.
 	if sec.SSHConfigUnreadable && sec.SSHAuditSource == "" {
-		out = append(out, unverifiedInsight("INFO", secCatHardening,
+		out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", secCatHardening,
 			"SSH config present but not readable — sshd settings (root login, password auth, ciphers) were NOT audited",
 			[]string{secAuditRunAsRoot},
 		))
@@ -125,7 +125,7 @@ func checkSecurityAuditGaps(sec models.SecurityInfo) []models.Insight {
 	// verdict/summary line has no SELinux caveat even though denials were never
 	// actually read.
 	if sec.SELinuxMode == "enforcing" && sec.SELinuxDenials < 0 {
-		out = append(out, unverifiedInsight("INFO", secCatHardening,
+		out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", secCatHardening,
 			"SELinux enforcing but AVC denials could NOT be verified — audit log unreadable / ausearch absent",
 			[]string{
 				"to inspect: ausearch -m avc -ts recent   (run as root)",
@@ -140,7 +140,7 @@ func checkSecurityAuditGaps(sec models.SecurityInfo) []models.Insight {
 	// sentinel, so this is an ADDITIVE disclosure that corrects the remediation
 	// story (re-run as root, not `aide --init`) rather than a replacement.
 	if sec.AIDEDBUnreadable {
-		out = append(out, unverifiedInsight("INFO", secCatHardening,
+		out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", secCatHardening,
 			"AIDE database path exists but could not be read — file integrity state was NOT verified",
 			[]string{secAuditRunAsRoot},
 		))
@@ -152,7 +152,7 @@ func checkSecurityAuditGaps(sec models.SecurityInfo) []models.Insight {
 	// INFO off the same -1 sentinel, so this is an ADDITIVE disclosure with the
 	// correct remediation (re-run as root, not "collect a fresh supportconfig").
 	if sec.SupportconfigUnreadable {
-		out = append(out, unverifiedInsight("INFO", secCatHardening,
+		out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", secCatHardening,
 			"/var/log could not be listed — supportconfig archive history was NOT verified",
 			[]string{secAuditRunAsRoot},
 		))
@@ -799,7 +799,7 @@ func checkSUSESecurityHardening(sec models.SecurityInfo) []models.Insight {
 			// (suseconnect_collector.go). Without this case here, this SEPARATE
 			// function silently omitted the disclosure even though the sibling
 			// heuristic reading the same raw signal already carries it.
-			out = append(out, unverifiedInsight("INFO", secCatHardening,
+			out = append(out, unverifiedInsight(models.ReasonCollectorError, "INFO", secCatHardening,
 				"SUSE subscription is registered but its expiry date could not be determined",
 				[]string{"to inspect: SUSEConnect --status", "to inspect: SUSEConnect --status-text"},
 			))
@@ -974,7 +974,7 @@ func checkFirewall(f models.FirewallInfo) []models.Insight {
 			)}
 		}
 		if f.StatusReason != "" {
-			ins := unverifiedInsight("INFO", secCatFirewall,
+			ins := unverifiedInsight(models.ReasonCollectorError, "INFO", secCatFirewall,
 				"firewall state not verified — "+f.StatusReason,
 				[]string{"to inspect: nft list ruleset", "to inspect: iptables -L -n   (run as root)"},
 			)
@@ -1050,7 +1050,7 @@ func checkAuth(a models.AuthInfo) []models.Insight {
 		if msg == "" {
 			msg = "SSH auth log could not be read — failed-login detection skipped"
 		}
-		return []models.Insight{unverifiedInsight("INFO", secCatAuth, msg,
+		return []models.Insight{unverifiedInsight(models.ReasonUnreadable, "INFO", secCatAuth, msg,
 			[]string{"run as root (sudo) to verify SSH authentication failures"})}
 	}
 	if a.FailedLast24h == 0 {

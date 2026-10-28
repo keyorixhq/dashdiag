@@ -28,7 +28,7 @@ func covOf(t *testing.T, s models.CoverageSummary, name string) models.CheckCove
 func TestCoverage_Classification(t *testing.T) {
 	results := []runner.Result{
 		{Name: "CPU Load", Data: &models.CPUInfo{}},
-		{Name: "Memory", Err: errors.New("collector Memory timed out after 2s")},
+		{Name: "Memory", Err: fmt.Errorf("collector Memory timed out after 2s: %w", context.DeadlineExceeded)},
 		{Name: "Disk", Err: fmt.Errorf("statfs: %w", context.DeadlineExceeded)},
 		{Name: "Network", Err: fmt.Errorf("netlink: %w", fs.ErrPermission)},
 		{Name: "Swap", Err: errors.New("parse /proc/swaps: bad line")},
@@ -109,8 +109,8 @@ func TestCoverage_SameCheckBothReasonsKeepsTheWorse(t *testing.T) {
 // insights come from analysis.ApplyThresholds like a real one.
 func TestCoverageMatchesVerdict(t *testing.T) {
 	errored := []runner.Result{
-		{Name: "CPU Load", Err: errors.New("reading /proc/stat: permission denied")},
-		{Name: "Memory", Err: errors.New("timed out")},
+		{Name: "CPU Load", Err: &fs.PathError{Op: "open", Path: "/proc/stat", Err: fs.ErrPermission}},
+		{Name: "Memory", Err: context.DeadlineExceeded},
 	}
 	thresh := analysis.DefaultThresholds(platform.CloudEnvironment(0))
 	erroredRun := analysis.ApplyThresholds(errored, thresh, platform.CloudEnvironment(0), platform.ContainerContext{})
@@ -144,7 +144,7 @@ func TestCoverageMatchesVerdict(t *testing.T) {
 func TestCoverage_JSONEntriesAndRunSummary(t *testing.T) {
 	results := []runner.Result{
 		{Name: "CPU Load", Data: &models.CPUInfo{}},
-		{Name: "Memory", Err: errors.New("timed out")},
+		{Name: "Memory", Err: context.DeadlineExceeded},
 		{Name: "Hardening", Data: &models.CPUInfo{}},
 		{Name: "GPU"}, // nothing to check: nil data
 		{Name: "Ceph", Data: models.CephInfo{Available: false}},
@@ -225,17 +225,40 @@ func TestCoverageReasonsAreDocumented(t *testing.T) {
 	for _, r := range models.CoverageReasons {
 		want[r] = true
 	}
-	for _, r := range []string{"needs_root", "timeout", "unreadable", "collector_error", "unverified", "not_present", "not_supported_platform"} {
+	for _, r := range []string{"needs_root", "timeout", "unreadable", "collector_error", "parse", "not_recorded", "unverified", "not_present", "not_supported_platform"} {
 		if !want[r] {
 			t.Errorf("reason %q missing from models.CoverageReasons", r)
 		}
 	}
-	if len(models.CoverageReasons) != 7 {
+	if len(models.CoverageReasons) != 9 {
 		t.Errorf("CoverageReasons = %v: a new reason needs schema enum + COMPATIBILITY.md + CoverageAction", models.CoverageReasons)
 	}
-	for _, r := range models.CoverageReasons[:5] {
+	for _, r := range models.CoverageReasons[:7] {
 		if CoverageAction(r) == "" {
 			t.Errorf("not-checked reason %q has no action", r)
+		}
+	}
+}
+
+// TestCoverage_UnverifiedReasonSplits: an Unverified insight carries its own
+// cause into coverage_reason; "unverified" stays only for one that has none, and
+// needs_root still wins when NeedsRoot is set.
+func TestCoverage_UnverifiedReasonSplits(t *testing.T) {
+	results := []runner.Result{
+		{Name: "Hardening", Data: &models.CPUInfo{}},
+		{Name: "InfiniBand", Data: &models.CPUInfo{}},
+	}
+	insights := []models.Insight{
+		{Level: "INFO", Check: "Hardening/a", Unverified: true, UnverifiedReason: models.ReasonNotRecorded},
+		{Level: "INFO", Check: "Hardening/b", Unverified: true, UnverifiedReason: models.ReasonParse},
+		{Level: "INFO", Check: "Hardening/c", Unverified: true, UnverifiedReason: models.ReasonNeedsRoot, NeedsRoot: true},
+		{Level: "INFO", Check: "InfiniBand", Unverified: true},
+	}
+	cov := Coverage(results, insights)
+	want := map[string]int{models.ReasonNotRecorded: 1, models.ReasonParse: 1, models.ReasonNeedsRoot: 1, models.ReasonUnverified: 1}
+	for r, n := range want {
+		if cov.Reasons[r] != n {
+			t.Errorf("reasons[%s] = %d, want %d (%v)", r, cov.Reasons[r], n, cov.Reasons)
 		}
 	}
 }

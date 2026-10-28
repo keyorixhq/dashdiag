@@ -54,7 +54,7 @@ func checkCron(c models.CronInfo) []models.Insight {
 	} else if !c.FailureScanOK {
 		// Neither journalctl nor any /var/log/cron* file could be read — recent job
 		// failures can't be ruled out, so don't pass as a clean "no failures".
-		out = append(out, unverifiedInsight("INFO", "Cron",
+		out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", "Cron",
 			"cron failure history not readable — recent job failures could be hidden",
 			[]string{
 				"to inspect: journalctl -u crond --since '24 hours ago'  (run as root?)",
@@ -65,7 +65,7 @@ func checkCron(c models.CronInfo) []models.Insight {
 
 	out = append(out, checkCronQuality(c.QualityIssues)...)
 	if c.QualityScanUnreadable {
-		out = append(out, unverifiedInsight("INFO", "Cron",
+		out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", "Cron",
 			"some crontabs could not be read (root and user crontabs are root-only) — crontab quality not fully checked",
 			[]string{"to inspect: ls -l /var/spool/cron/crontabs", "to fix: re-run with sudo"}))
 	}

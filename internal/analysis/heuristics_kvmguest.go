@@ -72,7 +72,7 @@ func checkKVMGuest(v models.KVMGuestInfo) []models.Insight {
 		if !v.DiskBusesChecked {
 			unread = append(unread, "disk buses (/sys/block)")
 		}
-		return append(out, unverifiedInsight("INFO", "KVMGuest",
+		return append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", "KVMGuest",
 			fmt.Sprintf("QEMU/KVM guest (%s) — could not verify paravirtual NIC/disk drivers: %s unreadable",
 				kvmguestProductName(v), strings.Join(unread, ", ")),
 			nil))
@@ -122,7 +122,7 @@ func kvmguestQGAInsight(v models.KVMGuestInfo) []models.Insight {
 // guest-vs-provider split.
 func kvmguestStealInsight(v models.KVMGuestInfo) []models.Insight {
 	if v.StealUnreadable {
-		return []models.Insight{unverifiedInsight("INFO", "KVMGuest",
+		return []models.Insight{unverifiedInsight(models.ReasonUnreadable, "INFO", "KVMGuest",
 			"CPU steal since boot could not be read from /proc/stat — host overcommit not measured",
 			[]string{"to inspect: head -1 /proc/stat"})}
 	}
