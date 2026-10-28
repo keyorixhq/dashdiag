@@ -79,6 +79,28 @@ func TestAvailableStructsImplementIsAvailable(t *testing.T) {
 	}
 }
 
+// absenceFlagExemptions are structs with a Detected/Present bool that is not "is
+// this subsystem on the host", keyed by type with why.
+var absenceFlagExemptions = map[string]string{
+	"ResolverAuditInfo": "Detected means 'render the section' and is always true on Linux; the resolver's absence is DNSResolverInfo.Available",
+}
+
+// structAbsenceFlag returns the name of a Detected/Present bool field, or "".
+func structAbsenceFlag(st *ast.StructType) string {
+	for _, fld := range st.Fields.List {
+		id, ok := fld.Type.(*ast.Ident)
+		if !ok || id.Name != "bool" {
+			continue
+		}
+		for _, n := range fld.Names {
+			if n.Name == "Detected" || n.Name == "Present" {
+				return n.Name
+			}
+		}
+	}
+	return ""
+}
+
 func structHasAvailableBool(st *ast.StructType) bool {
 	for _, fld := range st.Fields.List {
 		id, ok := fld.Type.(*ast.Ident)
@@ -104,4 +126,57 @@ func receiverTypeName(expr ast.Expr) string {
 		return id.Name
 	}
 	return ""
+}
+
+// TestAbsenceFlagStructsImplementIsAvailable: a collector result that signals
+// "nothing here" with Detected/Present must say so through IsAvailable too, or
+// it reads as a phantom OK in checks[] and counts as checked (DD-COVERAGE-1
+// flag 4).
+func TestAbsenceFlagStructsImplementIsAvailable(t *testing.T) {
+	fset := token.NewFileSet()
+	entries, err := os.ReadDir(".")
+	if err != nil {
+		t.Fatal(err)
+	}
+	flag := map[string]string{}
+	method := map[string]bool{}
+	for _, e := range entries {
+		n := e.Name()
+		if e.IsDir() || !strings.HasSuffix(n, ".go") || strings.HasSuffix(n, "_test.go") {
+			continue
+		}
+		f, perr := parser.ParseFile(fset, n, nil, 0)
+		if perr != nil {
+			t.Fatal(perr)
+		}
+		for _, decl := range f.Decls {
+			switch d := decl.(type) {
+			case *ast.GenDecl:
+				for _, spec := range d.Specs {
+					if ts, ok := spec.(*ast.TypeSpec); ok {
+						if st, ok := ts.Type.(*ast.StructType); ok {
+							if fl := structAbsenceFlag(st); fl != "" {
+								flag[ts.Name.Name] = fl
+							}
+						}
+					}
+				}
+			case *ast.FuncDecl:
+				if d.Recv != nil && d.Name.Name == "IsAvailable" {
+					method[receiverTypeName(d.Recv.List[0].Type)] = true
+				}
+			}
+		}
+	}
+	if len(flag) < 20 {
+		t.Fatalf("found only %d Detected/Present structs; parser misconfigured?", len(flag))
+	}
+	for name, fl := range flag {
+		if _, ok := absenceFlagExemptions[name]; ok {
+			continue
+		}
+		if !method[name] {
+			t.Errorf("type %s has a `%s bool` field but no IsAvailable() method: add one to availability.go (return i.%s) or list it in absenceFlagExemptions with why", name, fl, fl)
+		}
+	}
 }

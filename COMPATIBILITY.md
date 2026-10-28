@@ -115,8 +115,12 @@ see §4).
   unchanged, so there is no phantom `OK`) and is listed in
   `coverage.not_applicable_checks[]` with `coverage_reason` `not_present` (the host
   has nothing of this kind) or `not_supported_platform` (the collector does not
-  exist on this platform). A collector that is not even registered on this host
-  (`dsd` gates many on a probe) never runs and is not counted.
+  exist on this platform). A collector `dsd health` gates on a probe and the probe
+  left out (no InfiniBand, no PSI, not a cloud VM) never runs, but is counted and
+  listed here with `not_present` (or `not_supported_platform` for a kernel/CPU
+  feature probe). A collector that reports absence with `Detected=false` (or
+  `Present=false`) instead of `Available=false` is classified the same way, not as
+  an `OK` check.
 - Top-level `coverage`: `checked` (checks that ran, partial ones included),
   `not_checked` (things not looked at: whole checks that did not run plus the
   sub-checks of partial ones, one per distinct check name; it equals what the

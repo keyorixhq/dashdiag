@@ -11,6 +11,33 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+- **Probe-gated collectors are counted as not applicable** (DD-COVERAGE-2).
+  Collectors `dsd health` skips because a probe finds nothing (no InfiniBand, no
+  Ceph, not a cloud VM, no database) used to be invisible, so "K not applicable"
+  undercounted. They are now reported in `coverage.not_applicable_checks[]` and every
+  other output with `not_present` (`not_supported_platform` for PSI, MTE and
+  cpufreq). Collectors that signal absence with `Detected`/`Present` instead of
+  `Available` (Redis, Postgres, K8s, KVM, Battery and 17 others) are classified not
+  applicable instead of a phantom `OK` check. `checks[]`, the verdict and the exit
+  code are unchanged.
+- **Finer "not checked" reasons** (DD-COVERAGE-2). Every real not-checked item
+  used to read `unverified`. An `unverified` insight now carries `unverified_reason`
+  (`needs_root`, `timeout`, `unreadable`, `collector_error`, `parse`,
+  `not_recorded`; JSON/YAML `insights[]`, omitted when unknown) and `coverage_reason`
+  / `not_checked_subchecks[].reason` use it; `unverified` stays only as the
+  fallback. Whole-collector failures are classified with `errors.Is`
+  (`context.DeadlineExceeded`, `fs.ErrPermission`, `source.ErrNotRecorded`), never
+  by message text; the runner's synthesized timeout now wraps
+  `context.DeadlineExceeded`. A guard
+  (`internal/analysis/unverified_reason_test.go`) fails when an Unverified insight
+  is created without a reason. Additive: the verdict, exit codes and `status` are
+  unchanged.
+- **`dsd replay` tells recording gaps from findings.** InfiniBand, CPU Load/RunQueue,
+  Hardening and Logs showed as not checked on every old bundle because the bundle
+  never recorded their inputs. They now read `not_recorded`, and replay prints one
+  line saying so. Replay runs collectors one at a time to attribute a gap to its
+  collector.
+
 ## [2.6.0] - 2026-10-28
 
 No behaviour changes: verdict, exit code and `status` are identical to 2.5.0.
@@ -48,23 +75,6 @@ Debian 13 host (non-root and root) did the same.
     WARN floor, and a root run where a needs-root read fails still floors.
   See `COMPATIBILITY.md` for the field list, the reason list and the partial-check
   rule.
-- **Finer "not checked" reasons** (DD-COVERAGE-2). Every real not-checked item
-  used to read `unverified`. An `unverified` insight now carries `unverified_reason`
-  (`needs_root`, `timeout`, `unreadable`, `collector_error`, `parse`,
-  `not_recorded`; JSON/YAML `insights[]`, omitted when unknown) and `coverage_reason`
-  / `not_checked_subchecks[].reason` use it; `unverified` stays only as the
-  fallback. Whole-collector failures are classified with `errors.Is`
-  (`context.DeadlineExceeded`, `fs.ErrPermission`, `source.ErrNotRecorded`), never
-  by message text; the runner's synthesized timeout now wraps
-  `context.DeadlineExceeded`. A guard
-  (`internal/analysis/unverified_reason_test.go`) fails when an Unverified insight
-  is created without a reason. Additive: the verdict, exit codes and `status` are
-  unchanged.
-- **`dsd replay` tells recording gaps from findings.** InfiniBand, CPU Load/RunQueue,
-  Hardening and Logs showed as not checked on every old bundle because the bundle
-  never recorded their inputs. They now read `not_recorded`, and replay prints one
-  line saying so. Replay runs collectors one at a time to attribute a gap to its
-  collector.
 
 ## [2.5.0] - 2026-10-28
 

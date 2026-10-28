@@ -598,7 +598,7 @@ func handlePostMortemMode(pmFlag string, snap *baseline.Snapshot, insights []mod
 }
 
 func runHealthOnce(ctx context.Context, ctrCtx platform.ContainerContext, cloudEnv platform.CloudEnvironment, profile platform.Profile, mode output.OutputMode, opts healthRunOpts, policy *analysis.PolicyFile) ([]runner.Result, []models.Insight, *baseline.Snapshot, time.Duration) {
-	cols := buildHealthCollectors(ctrCtx, profile, opts)
+	cols, absent := buildHealthRegistry(ctrCtx, profile, opts)
 	p := output.NewCommandProgress("System health", 5*time.Second, mode, len(cols))
 	p.Start()
 	defer p.Done()
@@ -608,6 +608,9 @@ func runHealthOnce(ctx context.Context, ctrCtx platform.ContainerContext, cloudE
 		p.Step(r.Name)
 		results = append(results, r)
 	}
+	// Probe-gated collectors the probe left out, so coverage can count them as not
+	// applicable (they stay out of checks[] like any other not-applicable one).
+	results = append(results, absentResults(results, absent)...)
 
 	thresh := analysis.DefaultThresholds(cloudEnv)
 	if ctrCtx.InContainer {
@@ -701,7 +704,19 @@ func loadPolicyIfSet(path string) (*analysis.PolicyFile, error) {
 	return p, nil
 }
 
-func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Profile, opts healthRunOpts) []collectors.Collector { //nolint:funlen,cyclop // NOSONAR — flat collector registry; CC is entry count, not branch depth
+// buildHealthCollectors is buildHealthRegistry without the collectors that were
+// left out.
+func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Profile, opts healthRunOpts) []collectors.Collector {
+	cols, _ := buildHealthRegistry(ctrCtx, profile, opts)
+	return cols
+}
+
+// buildHealthRegistry returns the collectors to run and, for every probe-gated
+// collector whose probe found nothing, the name and why: they never run, but
+// they are real "not applicable" answers (no InfiniBand, no GPU, not a cloud VM)
+// that runHealthOnce reports instead of leaving them invisible.
+func buildHealthRegistry(ctrCtx platform.ContainerContext, profile platform.Profile, opts healthRunOpts) ([]collectors.Collector, []absentCollector) { //nolint:funlen,cyclop // NOSONAR — flat collector registry; CC is entry count, not branch depth
+	var reg healthRegistry
 	cols := []collectors.Collector{
 		collectors.NewCPUCollector(ctrCtx),
 		collectors.NewMemoryCollector(ctrCtx),
@@ -730,13 +745,9 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 		cols = append(cols, collectors.NewNetworkCollector())
 	}
 	// SUSE-specific collectors — only on SUSE/openSUSE hosts
-	if collectors.IsSUSEHost() {
-		cols = append(cols, collectors.NewSnapperCollector())
-	}
+	cols = reg.gate(cols, collectors.IsSUSEHost(), collectors.NewSnapperCollector())
 	// Subscription check — any enterprise Linux with a subscription manager
-	if collectors.HasSubscriptionManager() {
-		cols = append(cols, collectors.NewSUSEConnectCollector())
-	}
+	cols = reg.gate(cols, collectors.HasSubscriptionManager(), collectors.NewSUSEConnectCollector())
 	if opts.IncludePackages && !opts.IncludeDeep {
 		// Fast package check — security advisory summary (no integrity scan)
 		cols = append(cols, collectors.NewPackagesCollector())
@@ -748,278 +759,156 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 		collectors.NewNVMeCollector(),
 	)
 	// Storage HA — only register when technology is present on this host
-	if collectors.IsRAIDPresent() {
-		cols = append(cols, collectors.NewRAIDCollector())
-	}
-	if collectors.IsZFSPresent() {
-		cols = append(cols, collectors.NewZFSCollector())
-	}
-	if collectors.IsLVMPresent() {
-		cols = append(cols, collectors.NewLVMCollector())
-	}
-	if collectors.IsDRBDPresent() {
-		cols = append(cols, collectors.NewDRBDCollector())
-	}
-	if collectors.IsPVEHost() {
-		cols = append(cols, collectors.NewPVECollector())
-	}
+	cols = reg.gate(cols, collectors.IsRAIDPresent(), collectors.NewRAIDCollector())
+	cols = reg.gate(cols, collectors.IsZFSPresent(), collectors.NewZFSCollector())
+	cols = reg.gate(cols, collectors.IsLVMPresent(), collectors.NewLVMCollector())
+	cols = reg.gate(cols, collectors.IsDRBDPresent(), collectors.NewDRBDCollector())
+	cols = reg.gate(cols, collectors.IsPVEHost(), collectors.NewPVECollector())
 	// Bonding / LACP
-	if collectors.IsBondingPresent() {
-		cols = append(cols, collectors.NewBondingCollector())
-	}
+	cols = reg.gate(cols, collectors.IsBondingPresent(), collectors.NewBondingCollector())
 	// IPMI / BMC sensors
-	if collectors.IsIPMIPresent() {
-		cols = append(cols, collectors.NewIPMICollector())
-	}
+	cols = reg.gate(cols, collectors.IsIPMIPresent(), collectors.NewIPMICollector())
 	// OOM killer events — always collected (reads journal, never root-only)
 	cols = append(cols, collectors.NewOOMCollector())
 	// ARM Memory Tagging Extension fault-visibility posture + crash decoder
-	if collectors.IsMTEAvailable() {
-		cols = append(cols, collectors.NewMTECollector())
-	}
+	cols = reg.gatePlatform(cols, collectors.IsMTEAvailable(), collectors.NewMTECollector())
 	// Fibre Channel HBA
-	if collectors.IsHBAPresent() {
-		cols = append(cols, collectors.NewHBACollector())
-	}
+	cols = reg.gate(cols, collectors.IsHBAPresent(), collectors.NewHBACollector())
 	// cgroup v2 PSI pressure
-	if collectors.IsPSIAvailable() {
-		cols = append(cols, collectors.NewPressureCollector())
-	}
+	cols = reg.gatePlatform(cols, collectors.IsPSIAvailable(), collectors.NewPressureCollector())
 	// DM-MPIO multipath
-	if collectors.IsMultipathPresent() {
-		cols = append(cols, collectors.NewMultipathCollector())
-	}
+	cols = reg.gate(cols, collectors.IsMultipathPresent(), collectors.NewMultipathCollector())
 	// Hardware RAID controllers (MegaRAID/PERC via storcli/perccli, HPE via ssacli)
-	if collectors.IsHWRaidPresent() {
-		cols = append(cols, collectors.NewHWRaidCollector())
-	}
+	cols = reg.gate(cols, collectors.IsHWRaidPresent(), collectors.NewHWRaidCollector())
 	// Medium priority: Ceph, Firewall, Auth, CloudMeta, Auditd
-	if collectors.IsCephPresent() {
-		cols = append(cols, collectors.NewCephCollector())
-	}
+	cols = reg.gate(cols, collectors.IsCephPresent(), collectors.NewCephCollector())
 	cols = append(cols, collectors.NewFirewallCollector())
 	cols = append(cols, collectors.NewAuthCollector())
-	if collectors.IsCloudInstance() {
-		cols = append(cols, collectors.NewCloudMetaCollector())
-	}
+	cols = reg.gate(cols, collectors.IsCloudInstance(), collectors.NewCloudMetaCollector())
 	// cloud-init — gate on the CLI / runtime status file (zero-cost otherwise).
 	// Generic to every cloud-init platform, so gated independently of IsCloudInstance.
-	if collectors.CloudInitAvailable() {
-		cols = append(cols, collectors.NewCloudInitCollector())
-	}
+	cols = reg.gate(cols, collectors.CloudInitAvailable(), collectors.NewCloudInitCollector())
 	// RHEL/Oracle-family maintenance & patch-effectiveness checks. Each gates on its
 	// own subsystem (kdump.service / tuned / rpm / Ksplice), so all stay silent on
 	// hosts that don't run them.
-	if collectors.KdumpAvailable() {
-		cols = append(cols, collectors.NewKdumpCollector(ctrCtx))
-	}
-	if collectors.TunedAvailable() {
-		cols = append(cols, collectors.NewTunedCollector())
-	}
-	if collectors.KernelPatchAvailable() {
-		cols = append(cols, collectors.NewKernelPatchCollector(ctrCtx))
-	}
-	if collectors.KspliceAvailable() {
-		cols = append(cols, collectors.NewKspliceCollector(ctrCtx))
-	}
-	if collectors.ServiceRestartAvailable() {
-		cols = append(cols, collectors.NewServiceRestartCollector())
-	}
-	if collectors.KernelRetentionAvailable() {
-		cols = append(cols, collectors.NewKernelRetentionCollector(ctrCtx))
-	}
-	if collectors.LivePatchAvailable() {
-		cols = append(cols, collectors.NewLivePatchCollector(ctrCtx))
-	}
-	if collectors.TransactionalAvailable() {
-		cols = append(cols, collectors.NewTransactionalCollector(ctrCtx))
-	}
+	cols = reg.gate(cols, collectors.KdumpAvailable(), collectors.NewKdumpCollector(ctrCtx))
+	cols = reg.gate(cols, collectors.TunedAvailable(), collectors.NewTunedCollector())
+	cols = reg.gate(cols, collectors.KernelPatchAvailable(), collectors.NewKernelPatchCollector(ctrCtx))
+	cols = reg.gate(cols, collectors.KspliceAvailable(), collectors.NewKspliceCollector(ctrCtx))
+	cols = reg.gate(cols, collectors.ServiceRestartAvailable(), collectors.NewServiceRestartCollector())
+	cols = reg.gate(cols, collectors.KernelRetentionAvailable(), collectors.NewKernelRetentionCollector(ctrCtx))
+	cols = reg.gate(cols, collectors.LivePatchAvailable(), collectors.NewLivePatchCollector(ctrCtx))
+	cols = reg.gate(cols, collectors.TransactionalAvailable(), collectors.NewTransactionalCollector(ctrCtx))
 	// VMware guest config — gate on DMI vendor (silent on every non-VMware host).
-	if collectors.VMwareGuestAvailable() {
-		cols = append(cols, collectors.NewVMwareCollector())
-	}
+	cols = reg.gate(cols, collectors.VMwareGuestAvailable(), collectors.NewVMwareCollector())
 	// systemd-networkd config-file permission audit — gate on config files being
 	// present (the collector confirms networkd is the active manager). Catches the
 	// Photon footgun where a 0600 .network file is silently ignored → no network.
-	if collectors.NetworkdAvailable() {
-		cols = append(cols, collectors.NewNetworkdConfigCollector())
-	}
+	cols = reg.gate(cols, collectors.NetworkdAvailable(), collectors.NewNetworkdConfigCollector())
 	// /etc/fstab UUID/PARTUUID drift — gate on /etc/fstab present. Catches the
 	// cloned-VM / replaced-disk boot failure where fstab names an old filesystem id.
-	if collectors.FstabAvailable() {
-		cols = append(cols, collectors.NewFstabDriftCollector())
-	}
+	cols = reg.gate(cols, collectors.FstabAvailable(), collectors.NewFstabDriftCollector())
 	// Unexpected read-only root (errors=remount-ro trip / failed fsck). Self-guarding
 	// against immutable distros; emits a row only on the fault.
 	cols = append(cols, collectors.NewRootFSCollector())
 	// QEMU/KVM (Proxmox/oVirt/libvirt) guest config — gate on DMI vendor (QEMU).
 	// Silent on bare metal, VMware, and the clouds (which carry their own vendors).
-	if collectors.KVMGuestAvailable() {
-		cols = append(cols, collectors.NewKVMGuestCollector())
-	}
+	cols = reg.gate(cols, collectors.KVMGuestAvailable(), collectors.NewKVMGuestCollector())
 	// EC2 guest deep checks — gate on DMI vendor (silent on every non-EC2 host).
-	if collectors.AWSGuestAvailable() {
-		cols = append(cols, collectors.NewAWSCollector())
-	}
+	cols = reg.gate(cols, collectors.AWSGuestAvailable(), collectors.NewAWSCollector())
 	// Azure guest deep checks — gate on DMI asset tag (silent on every non-Azure host).
-	if collectors.AzureGuestAvailable() {
-		cols = append(cols, collectors.NewAzureCollector())
-	}
+	cols = reg.gate(cols, collectors.AzureGuestAvailable(), collectors.NewAzureCollector())
 	// GCP guest deep checks — gate on DMI product name (silent on every non-GCP host).
-	if collectors.GCPGuestAvailable() {
-		cols = append(cols, collectors.NewGCPCollector())
-	}
+	cols = reg.gate(cols, collectors.GCPGuestAvailable(), collectors.NewGCPCollector())
 	// OCI guest deep checks — gate on DMI chassis asset tag (silent on every non-OCI host).
-	if collectors.OCIGuestAvailable() {
-		cols = append(cols, collectors.NewOCICollector())
-	}
+	cols = reg.gate(cols, collectors.OCIGuestAvailable(), collectors.NewOCICollector())
 	// Prior-boot forensics — gate on a readable cross-boot source (journal or wtmp).
 	// Quiet when the prior boot was clean; loud when it was unclean / unmeasurable.
-	if collectors.PostBootAvailable() {
-		cols = append(cols, collectors.NewPostBootCollector())
-	}
-	if collectors.IsAuditdPresent() {
-		cols = append(cols, collectors.NewAuditCollector())
-	}
+	cols = reg.gate(cols, collectors.PostBootAvailable(), collectors.NewPostBootCollector())
+	cols = reg.gate(cols, collectors.IsAuditdPresent(), collectors.NewAuditCollector())
 	// Low priority: NUMA, VLAN, iSCSI, InfiniBand, SR-IOV, Nspawn
-	if collectors.IsNUMAPresent() {
-		cols = append(cols, collectors.NewNUMACollector())
-	}
-	if collectors.IsVLANPresent() {
-		cols = append(cols, collectors.NewVLANCollector())
-	}
-	if collectors.IsISCSIPresent() {
-		cols = append(cols, collectors.NewISCSICollector())
-	}
-	if collectors.IsInfiniBandPresent() {
-		cols = append(cols, collectors.NewInfiniBandCollector())
-	}
-	if collectors.IsSRIOVPresent() {
-		cols = append(cols, collectors.NewSRIOVCollector())
-	}
-	if collectors.IsNspawnPresent() {
-		cols = append(cols, collectors.NewNspawnCollector())
-	}
+	cols = reg.gate(cols, collectors.IsNUMAPresent(), collectors.NewNUMACollector())
+	cols = reg.gate(cols, collectors.IsVLANPresent(), collectors.NewVLANCollector())
+	cols = reg.gate(cols, collectors.IsISCSIPresent(), collectors.NewISCSICollector())
+	cols = reg.gate(cols, collectors.IsInfiniBandPresent(), collectors.NewInfiniBandCollector())
+	cols = reg.gate(cols, collectors.IsSRIOVPresent(), collectors.NewSRIOVCollector())
+	cols = reg.gate(cols, collectors.IsNspawnPresent(), collectors.NewNspawnCollector())
 	// Docker/Podman — gate on socket availability (no root required for detection).
 	// Also include when Podman quadlets are present: those are systemd-managed and
 	// invisible to the socket, so a socket-inactive quadlet host must still be checked.
 	// In deep mode also enable Deep for the log-driver check (per-container unbounded
 	// json-file logging) — otherwise collected only by `dsd docker --deep`.
+	dockerBefore := len(cols)
 	cols = appendDockerCollector(cols, profile, opts.IncludeDeep)
+	if len(cols) == dockerBefore {
+		reg.absent = append(reg.absent, absentCollector{Name: collectors.NewDockerCollectorWithProfile(profile).Name(), Reason: models.ReasonNotPresent})
+	}
 	// Containerd standalone — only when containerd socket is present AND no k8s layer.
 	// When kubelet is active, dsd k8s already covers containerd via its OS-layer checks.
-	if collectors.ContainerdAvailable() && !collectors.K8sAvailable() {
-		cols = append(cols, collectors.NewContainerdCollector())
-	}
+	cols = reg.gate(cols, collectors.ContainerdAvailable() && !collectors.K8sAvailable(), collectors.NewContainerdCollector())
 	// PostgreSQL — gate on a reachable local Postgres socket (silent otherwise).
-	if collectors.PostgresAvailable() {
-		cols = append(cols, collectors.NewPostgresCollector())
-	}
+	cols = reg.gate(cols, collectors.PostgresAvailable(), collectors.NewPostgresCollector())
 	// MySQL / MariaDB — gate on a reachable local socket (silent otherwise).
-	if collectors.MySQLAvailable() {
-		cols = append(cols, collectors.NewMySQLCollector())
-	}
+	cols = reg.gate(cols, collectors.MySQLAvailable(), collectors.NewMySQLCollector())
 	// Redis / Valkey — gate on a server that answers PING (silent otherwise).
-	if collectors.RedisAvailable() {
-		cols = append(cols, collectors.NewRedisCollector())
-	}
+	cols = reg.gate(cols, collectors.RedisAvailable(), collectors.NewRedisCollector())
 	// Memcached — gate on a server answering the memcached protocol on 11211.
-	if collectors.MemcachedAvailable() {
-		cols = append(cols, collectors.NewMemcachedCollector())
-	}
+	cols = reg.gate(cols, collectors.MemcachedAvailable(), collectors.NewMemcachedCollector())
 	// nginx — gate on a running nginx process (silent otherwise).
-	if collectors.NginxAvailable() {
-		cols = append(cols, collectors.NewNginxCollector())
-	}
+	cols = reg.gate(cols, collectors.NginxAvailable(), collectors.NewNginxCollector())
 	// Apache httpd — gate on a running httpd/apache2 process.
-	if collectors.ApacheAvailable() {
-		cols = append(cols, collectors.NewApacheCollector())
-	}
+	cols = reg.gate(cols, collectors.ApacheAvailable(), collectors.NewApacheCollector())
 	// HAProxy — gate on a running haproxy process.
-	if collectors.HAProxyAvailable() {
-		cols = append(cols, collectors.NewHAProxyCollector())
-	}
+	cols = reg.gate(cols, collectors.HAProxyAvailable(), collectors.NewHAProxyCollector())
 	// RabbitMQ — gate on the AMQP port up + the rabbitmq CLI present.
-	if collectors.RabbitMQAvailable() {
-		cols = append(cols, collectors.NewRabbitMQCollector())
-	}
+	cols = reg.gate(cols, collectors.RabbitMQAvailable(), collectors.NewRabbitMQCollector())
 	// Elasticsearch / OpenSearch — gate on the HTTP API (9200) answering.
-	if collectors.ElasticsearchAvailable() {
-		cols = append(cols, collectors.NewElasticsearchCollector())
-	}
+	cols = reg.gate(cols, collectors.ElasticsearchAvailable(), collectors.NewElasticsearchCollector())
 	// MongoDB — gate on the mongo port up + the mongo shell present.
-	if collectors.MongoDBAvailable() {
-		cols = append(cols, collectors.NewMongoDBCollector())
-	}
+	cols = reg.gate(cols, collectors.MongoDBAvailable(), collectors.NewMongoDBCollector())
 	// Kafka — gate on the broker port (9092) up + a kafka CLI present.
-	if collectors.KafkaAvailable() {
-		cols = append(cols, collectors.NewKafkaCollector())
-	}
+	cols = reg.gate(cols, collectors.KafkaAvailable(), collectors.NewKafkaCollector())
 	// Vault — gate on port 8200 accepting connections or the vault binary on PATH.
-	if collectors.VaultAvailable() {
-		cols = append(cols, collectors.NewVaultCollector())
-	}
+	cols = reg.gate(cols, collectors.VaultAvailable(), collectors.NewVaultCollector())
 	// Prometheus — gate on the HTTP API (9090) answering as Prometheus.
-	if collectors.PrometheusAvailable() {
-		cols = append(cols, collectors.NewPrometheusCollector())
-	}
+	cols = reg.gate(cols, collectors.PrometheusAvailable(), collectors.NewPrometheusCollector())
 	// Alertmanager — gate on the HTTP API (9093) answering as Alertmanager.
-	if collectors.AlertmanagerAvailable() {
-		cols = append(cols, collectors.NewAlertmanagerCollector())
-	}
+	cols = reg.gate(cols, collectors.AlertmanagerAvailable(), collectors.NewAlertmanagerCollector())
 	// Grafana — gate on the HTTP API (3000) answering as Grafana.
-	if collectors.GrafanaAvailable() {
-		cols = append(cols, collectors.NewGrafanaCollector())
-	}
+	cols = reg.gate(cols, collectors.GrafanaAvailable(), collectors.NewGrafanaCollector())
 	// Traefik — gate on the API (8080/80) answering as Traefik.
-	if collectors.TraefikAvailable() {
-		cols = append(cols, collectors.NewTraefikCollector())
-	}
+	cols = reg.gate(cols, collectors.TraefikAvailable(), collectors.NewTraefikCollector())
 	// Envoy — gate on the admin interface (9901) answering as Envoy.
-	if collectors.EnvoyAvailable() {
-		cols = append(cols, collectors.NewEnvoyCollector())
-	}
+	cols = reg.gate(cols, collectors.EnvoyAvailable(), collectors.NewEnvoyCollector())
 	// Kubernetes — gate on kubectl/k3s availability. In deep mode use the deep
 	// collector so the OS-layer node diagnostics (CNI, flannel, KUBE-FORWARD,
 	// ip_forward, cert expiry) are gathered and judged by checkK8sOSLayer — they were
 	// otherwise collected only by `dsd k8s --deep` and never surfaced in health.
-	if collectors.K8sAvailable() {
-		if opts.IncludeDeep {
-			cols = append(cols, collectors.NewK8sDeepCollector())
-		} else {
-			cols = append(cols, collectors.NewK8sCollector())
-		}
+	if opts.IncludeDeep {
+		cols = reg.gate(cols, collectors.K8sAvailable(), collectors.NewK8sDeepCollector())
+	} else {
+		cols = reg.gate(cols, collectors.K8sAvailable(), collectors.NewK8sCollector())
 	}
 	// Rancher management plane — gated on kubectl; silent unless the cattle-system
 	// namespace exists (queried in Collect), so it costs one query on non-Rancher nodes.
-	if collectors.RancherAvailable() {
-		cols = append(cols, collectors.NewRancherCollector())
-	}
+	cols = reg.gate(cols, collectors.RancherAvailable(), collectors.NewRancherCollector())
 	// Pacemaker/Corosync HA cluster — gated on the cluster stack being installed.
-	if collectors.HAAvailable() {
-		cols = append(cols, collectors.NewHACollector())
-	}
+	cols = reg.gate(cols, collectors.HAAvailable(), collectors.NewHACollector())
 	// KVM/libvirt — gate on virsh availability. In deep mode use the deep collector
 	// so the per-VM XML config checks (emulated NIC/disk devices, missing backing
 	// file) are gathered and judged — they were otherwise collected only by
 	// `dsd kvm --deep` and never surfaced in health.
-	if collectors.KVMAvailable() {
-		if opts.IncludeDeep {
-			cols = append(cols, collectors.NewKVMDeepCollector())
-		} else {
-			cols = append(cols, collectors.NewKVMCollector())
-		}
+	if opts.IncludeDeep {
+		cols = reg.gate(cols, collectors.KVMAvailable(), collectors.NewKVMDeepCollector())
+	} else {
+		cols = reg.gate(cols, collectors.KVMAvailable(), collectors.NewKVMCollector())
 	}
 	// SteamOS / Steam Deck — gate on os-release (zero cost off-SteamOS)
-	if collectors.SteamOSAvailable() {
-		cols = append(cols, collectors.NewSteamOSCollector())
-	}
+	cols = reg.gate(cols, collectors.SteamOSAvailable(), collectors.NewSteamOSCollector())
 	// Always collected — world-readable sysfs/proc paths
 	cols = append(cols, collectors.NewHugePagesCollector())
 	cols = append(cols, collectors.NewSessionsCollector())
-	if collectors.IsCPUFreqAvailable() {
-		cols = append(cols, collectors.NewCPUFreqCollector())
-	}
+	cols = reg.gatePlatform(cols, collectors.IsCPUFreqAvailable(), collectors.NewCPUFreqCollector())
 	if opts.IncludeGPU {
 		// Deep mode adds PowerDPMLevel (checkGPUDevice only WARNs it under real load,
 		// UtilPct >= 50 — otherwise it's collected only by `dsd gpu --deep`).
@@ -1044,7 +933,7 @@ func buildHealthCollectors(ctrCtx platform.ContainerContext, profile platform.Pr
 	if opts.IncludeCVE {
 		cols = append(cols, collectors.NewCVEHealthCollector())
 	}
-	return cols
+	return cols, reg.absent
 }
 
 func toRunnerCols(cols []collectors.Collector) []runner.Collector {

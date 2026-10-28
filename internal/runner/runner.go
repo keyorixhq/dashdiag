@@ -26,6 +26,10 @@ type Result struct {
 	Data     any
 	Err      error
 	Duration time.Duration
+	// Absent, when set, is the not_applicable reason of a collector that was never
+	// run because its probe found nothing (cmd.buildHealthRegistry): no GPU, no
+	// InfiniBand, not a cloud VM. Such a Result has no Data and no Err.
+	Absent string
 	// NotRecorded is set only during `dsd replay`: the collector touched an input
 	// the bundle never recorded (source.ErrNotRecorded), so what it could not
 	// check is a recording gap, not a host finding.
