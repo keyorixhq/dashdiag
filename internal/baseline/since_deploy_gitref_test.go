@@ -146,3 +146,66 @@ func TestGitLastCommitTime_LooseRefInNestedBranch(t *testing.T) {
 		t.Fatalf("got %v, %v", got, err)
 	}
 }
+
+// Item 2: errors never quote attacker-controlled file content.
+
+func TestGitLastCommitTime_JunkHEADNotQuoted(t *testing.T) {
+	t.Parallel()
+	junk := "LEAKED-" + strings.Repeat("J", 193) // 200 bytes, not hex, not a ref
+	_, repo, _ := hostileRepo(t, junk+"\n")
+	_, err := gitLastCommitTime(repo)
+	if err == nil {
+		t.Fatal("expected an error for a junk HEAD")
+	}
+	if strings.Contains(err.Error(), "LEAKED") || strings.Contains(err.Error(), "JJJJ") {
+		t.Errorf("error quotes HEAD content: %v", err)
+	}
+	if !strings.Contains(err.Error(), "malformed HEAD/ref (200 bytes)") {
+		t.Errorf("error = %q, want it to report only the byte count", err)
+	}
+}
+
+func TestGitLastCommitTime_JunkRefFileNotQuoted(t *testing.T) {
+	t.Parallel()
+	_, repo, gitDir := hostileRepo(t, "ref: refs/heads/main\n")
+	if err := os.MkdirAll(filepath.Join(gitDir, "refs", "heads"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	cases := map[string]string{
+		"long non-hex": "LEAKED-" + strings.Repeat("Z", 193),
+		"too short":    "LEAK",
+		"too long hex": strings.Repeat("a", 100),
+	}
+	for name, content := range cases {
+		if err := os.WriteFile(filepath.Join(gitDir, "refs", "heads", "main"), []byte(content+"\n"), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		_, err := gitLastCommitTime(repo)
+		if err == nil {
+			t.Fatalf("%s: expected an error", name)
+		}
+		if strings.Contains(err.Error(), "LEAK") || strings.Contains(err.Error(), "ZZZZ") || strings.Contains(err.Error(), "aaaa") {
+			t.Errorf("%s: error quotes ref file content: %v", name, err)
+		}
+	}
+}
+
+func TestResolvePackedRef_ErrorsDoNotQuote(t *testing.T) {
+	t.Parallel()
+	gitDir := t.TempDir()
+	packed := "LEAKEDSHA refs/heads/bad\n" + strings.Repeat("a", 40) + " refs/heads/other\n"
+	if err := os.WriteFile(filepath.Join(gitDir, "packed-refs"), []byte(packed), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	for _, ref := range []string{"refs/heads/bad", "refs/heads/UNIQUE-MISSING-REF"} {
+		_, err := resolvePackedRef(gitDir, ref)
+		if err == nil {
+			t.Fatalf("%s: expected an error", ref)
+		}
+		for _, leak := range []string{"LEAKEDSHA", "UNIQUE-MISSING-REF", "refs/heads/bad"} {
+			if strings.Contains(err.Error(), leak) {
+				t.Errorf("%s: error contains %q: %v", ref, leak, err)
+			}
+		}
+	}
+}

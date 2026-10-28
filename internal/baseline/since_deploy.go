@@ -222,18 +222,19 @@ func resolvePackedRef(gitDir, ref string) (string, error) {
 			return validateSHA(fields[0])
 		}
 	}
-	return "", fmt.Errorf("ref %s not found in packed-refs", ref)
+	return "", errors.New("ref not found in packed-refs")
 }
 
 // validateSHA rejects anything that isn't a plausible git object hash before
-// it's used to build a filesystem path.
+// it's used to build a filesystem path. sha is file content (HEAD, a ref file
+// or packed-refs), so the error reports only its length, never the bytes.
 func validateSHA(sha string) (string, error) {
 	if len(sha) < 4 || len(sha) > 64 {
-		return "", fmt.Errorf("implausible sha length: %q", sha)
+		return "", errMalformedRef(len(sha))
 	}
 	for _, c := range sha {
 		if (c < '0' || c > '9') && (c < 'a' || c > 'f') {
-			return "", fmt.Errorf("non-hex sha: %q", sha)
+			return "", errMalformedRef(len(sha))
 		}
 	}
 	return sha, nil
