@@ -8,7 +8,6 @@ import (
 	"io"
 	"os"
 	"path/filepath"
-	"strings"
 	"syscall"
 )
 
@@ -149,6 +148,14 @@ func untarGzWithLimits(srcPath, dstDir string, maxEntries int, maxTotalBytes int
 	}
 	defer func() { _ = gz.Close() }()
 	tr := tar.NewReader(gz)
+	// Every write goes through an os.Root on dstDir: besides the name check
+	// below, the kernel-level confinement refuses any path (or symlink) that
+	// would leave it, so a crafted entry name cannot write outside dstDir.
+	root, err := os.OpenRoot(dstDir)
+	if err != nil {
+		return err
+	}
+	defer func() { _ = root.Close() }()
 	var entries int
 	var totalBytes int64
 	for {
@@ -166,22 +173,23 @@ func untarGzWithLimits(srcPath, dstDir string, maxEntries int, maxTotalBytes int
 		if entries > maxEntries {
 			return fmt.Errorf("%w: archive has more than %d entries — refusing to extract further", ErrRejected, maxEntries)
 		}
-		// Guard against path traversal in a crafted archive.
-		clean := filepath.Clean(hdr.Name)
-		if strings.HasPrefix(clean, "..") || filepath.IsAbs(clean) {
+		// Guard against path traversal (Zip Slip) in a crafted archive.
+		// filepath.IsLocal rejects absolute paths, any ".." escape and empty
+		// names; unlike a ".." prefix test it keeps names such as "..foo".
+		if !filepath.IsLocal(hdr.Name) {
 			continue
 		}
-		dst := filepath.Join(dstDir, clean)
-		if err := os.MkdirAll(filepath.Dir(dst), 0o755); err != nil {
-			return err
-		}
+		clean := filepath.Clean(hdr.Name)
 		if hdr.Size < 0 || hdr.Size > maxUntarFileSize {
 			return fmt.Errorf("%w: tar entry %q exceeds maximum size (%d bytes)", ErrRejected, hdr.Name, maxUntarFileSize)
 		}
 		if totalBytes+hdr.Size > maxTotalBytes {
 			return fmt.Errorf("%w: archive's total extracted size exceeds %d bytes — refusing to extract further", ErrRejected, maxTotalBytes)
 		}
-		out, err := os.OpenFile(dst, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600) // #nosec G304 -- dst is under our temp dir
+		if err := root.MkdirAll(filepath.Dir(clean), 0o755); err != nil {
+			return err
+		}
+		out, err := root.OpenFile(clean, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
 		if err != nil {
 			return err
 		}
