@@ -24,6 +24,9 @@ func TestFindGitDir_WorktreeGitFile(t *testing.T) {
 	if err := os.MkdirAll(realGitDir, 0o755); err != nil {
 		t.Fatal(err)
 	}
+	if err := os.WriteFile(filepath.Join(realGitDir, "HEAD"), []byte("ref: refs/heads/main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
 	if err := os.WriteFile(filepath.Join(repo, ".git"), []byte("gitdir: "+realGitDir+"\n"), 0o644); err != nil {
 		t.Fatal(err)
 	}

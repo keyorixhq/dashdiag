@@ -38,6 +38,23 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   line saying so. Replay runs collectors one at a time to attribute a gap to its
   collector.
 
+### Security
+
+- **Fixed: local path traversal and disclosure through a hostile `.git/HEAD` with
+  `dsd health --since-deploy`** (DD-GITREF-1, gosec G703). `--since-deploy` reads the
+  last commit time straight from `.git` (no `git` exec), walking up from the
+  current directory. The ref in `.git/HEAD` (`ref: <ref>`) was joined onto the git
+  dir unchecked, so a checkout with `ref: ../../../../etc/shadow` made dsd, often
+  run as root, read any file, and the rejection error then printed the first line
+  of it. A `.git` file's `gitdir:` pointer was also used as-is (a relative one was
+  not resolved against the `.git` file's directory, which was wrong for worktrees
+  and submodules). Now: only well-formed `refs/...` names are accepted, HEAD and
+  loose refs are read through an `os.Root` on the git dir (so a symlinked ref
+  cannot leave it either), errors report only `malformed HEAD/ref (N bytes)` and
+  never file content, and a `gitdir:` pointer is resolved against the `.git`
+  file's directory and must be a directory holding a `HEAD` file. Absolute
+  `gitdir:` pointers still work (worktrees, submodules).
+
 ## [2.6.0] - 2026-10-28
 
 No behaviour changes: verdict, exit code and `status` are identical to 2.5.0.
