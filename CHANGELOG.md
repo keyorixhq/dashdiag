@@ -11,6 +11,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Every check now says whether it was looked at: `checked`, `not_checked` (with a
+  reason) or `not_applicable`** (DD-COVERAGE-1). `status` could not tell "looked,
+  fine" from "did not look" (needs root, timeout, unreadable) from "nothing to look
+  at" (no GPU, no Docker, not a cloud VM). Additive and derived in one place
+  (`render.Coverage`, next to `render.Verdict`):
+  - `checks[]` entries gain `coverage`, `coverage_reason` (`needs_root`, `timeout`,
+    `unreadable`, `collector_error`, `unverified`) and `not_checked_subchecks` for
+    a partially checked collector; the top level gains `coverage`
+    (`checked`/`not_checked`/`not_applicable`, reasons, the not-applicable
+    collectors). `schema/dsd-output.json` is updated; `status`, the verdict and the
+    exit code are unchanged.
+  - The terminal (human and `--plain`), `--report`, `--report-html` and every
+    `dsd share` format print a Not checked group (reason and action, e.g. "re-run
+    with sudo") and `N checked · M not checked (reasons) · K not applicable`.
+    Nagios gets perfdata and long text; Prometheus gets
+    `dsd_checks_coverage{coverage}`, `dsd_checks_not_checked{reason}` and
+    `dsd_check_checked{check}` (a 0 `dsd_check_status` no longer has to mean
+    "looked").
+  - A guard (`internal/render/coverage_guard_test.go`) fails when a collector
+    cannot resolve to exactly one coverage value (normal, all-errored, non-root and
+    not-present runs) and when any output shows a not-checked check as passed. The
+    verdict rules are pinned unchanged: not applicable never raises the exit code,
+    a non-root needs-root skip does not by itself, any other not checked keeps the
+    WARN floor, and a root run where a needs-root read fails still floors.
+  See `COMPATIBILITY.md` for the field list, the reason list and the partial-check
+  rule.
+
 ## [2.5.0] - 2026-10-28
 
 ### Behaviour changes
