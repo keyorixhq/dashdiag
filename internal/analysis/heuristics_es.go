@@ -32,13 +32,13 @@ func checkElasticsearch(e models.ElasticsearchInfo) []models.Insight {
 		// local process could otherwise spoof a fake "green" cluster to mask a
 		// real outage. Disclose alongside (never replacing) whatever status
 		// insight follows, so the operator can judge the confidence themselves.
-		out = append(out, unverifiedInsight("INFO", esCatElastic,
+		out = append(out, unverifiedInsight(models.ReasonCollectorError, "INFO", esCatElastic,
 			name+" was detected via an HTTP response shape match only — the listening process's identity could not be confirmed",
 			[]string{"note: run as root, or verify with: ss -tlnp | grep :9200"}))
 	}
 
 	if !e.HealthRead {
-		return append(out, unverifiedInsight("INFO", esCatElastic,
+		return append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", esCatElastic,
 			name+" is reachable, but cluster health could not be read",
 			[]string{
 				"note: modern Elasticsearch defaults to TLS + auth — pass credentials for the cluster-health check",
@@ -82,7 +82,7 @@ func checkElasticsearch(e models.ElasticsearchInfo) []models.Insight {
 		// parsed and status was non-empty, not that status is one of the three
 		// real ES/OpenSearch enum values. A non-ES service answering this port
 		// (or a tampered response) could otherwise report as fully healthy.
-		return append(out, unverifiedInsight("INFO", esCatElastic,
+		return append(out, unverifiedInsight(models.ReasonParse, "INFO", esCatElastic,
 			fmt.Sprintf("%s cluster status %q is not a recognized state (expected green/yellow/red) — health could not be confirmed", name, e.Status),
 			[]string{
 				"note: an unrecognized status can mean a non-Elasticsearch service is answering this port, or an incompatible/tampered response",

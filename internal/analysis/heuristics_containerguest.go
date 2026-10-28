@@ -90,7 +90,7 @@ func checkContainerGuest(v models.ContainerGuestInfo) []models.Insight {
 			cgroupLabel = "v2"
 			hint = "note: needs the container's own cgroup dir (resolved via /proc/self/cgroup) mounted and readable"
 		}
-		out = append(out, unverifiedInsight("INFO", catContainerGuest,
+		out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", catContainerGuest,
 			fmt.Sprintf("CPU-throttle and OOM-kill could not be read on this cgroup %s host — those signals are unverified", cgroupLabel),
 			[]string{hint}))
 	}

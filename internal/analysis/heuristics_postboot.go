@@ -32,7 +32,7 @@ func checkPostBoot(pb models.PostBootInfo) []models.Insight {
 		// only ever set found/absent/unmeasurable — anything else means a
 		// corrupted or tampered replay bundle, which must not read as "nothing
 		// wrong ever happened".
-		return []models.Insight{unverifiedInsight("INFO", "PostBoot",
+		return []models.Insight{unverifiedInsight(models.ReasonCollectorError, "INFO", "PostBoot",
 			fmt.Sprintf("prior-boot state %q is not a recognized value (expected found/absent/unmeasurable) — post-boot forensics could not be confirmed", pb.State),
 			nil)}
 	}
@@ -57,7 +57,7 @@ func postBootUnmeasurable(pb models.PostBootInfo) models.Insight {
 			"prior-boot forensics unavailable — non-systemd host with no wtmp, so there is no cross-boot record to read",
 			nil)
 	}
-	return unverifiedInsight("INFO", "PostBoot", "prior-boot forensics unavailable (could not read any cross-boot source)", nil)
+	return unverifiedInsight(models.ReasonUnreadable, "INFO", "PostBoot", "prior-boot forensics unavailable (could not read any cross-boot source)", nil)
 }
 
 func postBootFindings(pb models.PostBootInfo) []models.Insight {
@@ -95,12 +95,12 @@ func postBootFindings(pb models.PostBootInfo) []models.Insight {
 	// postBootCleanLine's Source=="wtmp" branch below), not a failed sub-call.
 	if pb.Source == "persistent_journal" {
 		if !pb.OOMChecked {
-			out = append(out, unverifiedInsight("INFO", "PostBoot",
+			out = append(out, unverifiedInsight(models.ReasonCollectorError, "INFO", "PostBoot",
 				"prior-boot OOM-kill check could not be completed — the journalctl sub-call failed",
 				[]string{"to inspect: journalctl -k --boot=-1 --grep 'Out of memory'"}))
 		}
 		if !pb.PanicChecked {
-			out = append(out, unverifiedInsight("INFO", "PostBoot",
+			out = append(out, unverifiedInsight(models.ReasonCollectorError, "INFO", "PostBoot",
 				"prior-boot kernel-panic check could not be completed — the journalctl sub-call failed",
 				[]string{"to inspect: journalctl -k --boot=-1"}))
 		}

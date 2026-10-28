@@ -15,7 +15,7 @@ import (
 // (no crash kernel loaded / no memory reserved), so a real panic produces no dump.
 func checkKdump(d models.KdumpInfo) []models.Insight {
 	if d.Available && d.StateUnverified {
-		return []models.Insight{unverifiedInsight("INFO", "Kdump",
+		return []models.Insight{unverifiedInsight(models.ReasonUnreadable, "INFO", "Kdump",
 			"kdump is present but its enabled/active state could not be read — crash-dump readiness not checked",
 			[]string{"to inspect: systemctl is-enabled kdump; systemctl is-active kdump"})}
 	}
@@ -56,7 +56,7 @@ func checkTuned(d models.TunedInfo) []models.Insight {
 		return nil
 	}
 	if d.StateUnverified {
-		return []models.Insight{unverifiedInsight("INFO", "Tuned",
+		return []models.Insight{unverifiedInsight(models.ReasonUnreadable, "INFO", "Tuned",
 			"tuned is installed but its state or profile could not be read — profile check not run",
 			[]string{"to inspect: tuned-adm active; tuned-adm recommend"})}
 	}
@@ -86,7 +86,7 @@ func checkKernelPatch(d models.KernelPatchInfo) []models.Insight {
 	// collector contends for it under root), so reboot status is genuinely unknown.
 	// Surface it honestly (INFO) rather than dropping the row or implying "Kernel OK".
 	if d.CheckUnverified {
-		return []models.Insight{unverifiedInsight("INFO", "Kernel",
+		return []models.Insight{unverifiedInsight(models.ReasonCollectorError, "INFO", "Kernel",
 			"kernel reboot-needed status could not be determined — the package manager (zypp) was locked by another process",
 			[]string{"to inspect: zypper needs-rebooting   (re-run when no other zypper/PackageKit process holds the lock)"})}
 	}
@@ -114,7 +114,7 @@ func checkKsplice(d models.KspliceInfo) []models.Insight {
 		return nil
 	}
 	if d.CheckUnverified {
-		return []models.Insight{unverifiedInsight("INFO", "Ksplice",
+		return []models.Insight{unverifiedInsight(models.ReasonUnreadable, "INFO", "Ksplice",
 			"Ksplice is installed but its update status could not be read",
 			[]string{"to inspect: uptrack-show   (or: uptrack-upgrade -n)"})}
 	}
@@ -166,7 +166,7 @@ func checkServiceRestart(d models.ServiceRestartInfo) []models.Insight {
 // update can fail mid-write), and the unbounded-retention policy that leads there.
 func checkKernelRetention(d models.KernelRetentionInfo) []models.Insight {
 	if d.BootUnreadable {
-		return []models.Insight{unverifiedInsight("INFO", "KernelRetention",
+		return []models.Insight{unverifiedInsight(models.ReasonUnreadable, "INFO", "KernelRetention",
 			"could not read /boot — kernel retention / boot-space risk was not checked this run",
 			[]string{"to inspect: ls -la /boot", "to fix: re-run as root (sudo dsd health)"})}
 	}
@@ -236,7 +236,7 @@ func checkLivePatch(d models.LivePatchInfo) []models.Insight {
 	// surface as INFO so the operator re-runs as root, NOT a WARN — we never measured
 	// these, and asserting they're disabled would be a non-root false-alarm.
 	if len(d.UnverifiedPatches) > 0 {
-		out = append(out, unverifiedInsight("INFO", "LivePatch",
+		out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", "LivePatch",
 			fmt.Sprintf("%d kernel livepatch(es) loaded but their enabled-state could not be read (%s) — re-run as root to confirm they are active",
 				len(d.UnverifiedPatches), strings.Join(firstN(d.UnverifiedPatches, 3), ", ")),
 			[]string{"to inspect: sudo cat /sys/kernel/livepatch/*/enabled"}))
@@ -268,7 +268,7 @@ func checkTransactional(d models.TransactionalInfo) []models.Insight {
 		// BootedSnapshot and/or DefaultSnapshot couldn't be read (commonly
 		// `btrfs subvolume get-default` needing CAP_SYS_ADMIN under non-root)
 		// — RebootPending's false zero value must not read as a clean host.
-		return []models.Insight{unverifiedInsight("INFO", "Transactional",
+		return []models.Insight{unverifiedInsight(models.ReasonUnreadable, "INFO", "Transactional",
 			"could not verify whether a transactional update is staged — the booted/default btrfs snapshot could not be read",
 			[]string{"to verify: sudo btrfs subvolume get-default /   (or run dsd as root)"})}
 	}

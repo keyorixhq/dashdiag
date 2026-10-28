@@ -37,7 +37,7 @@ func checkVault(v models.VaultInfo) []models.Insight {
 				},
 			)}
 		}
-		return []models.Insight{unverifiedInsight("INFO", "Vault",
+		return []models.Insight{unverifiedInsight(models.ReasonUnreadable, "INFO", "Vault",
 			"Vault is up but its API could not be read — health state unverified",
 			[]string{
 				"note: /v1/sys/health must be reachable (a firewall or proxy may block it)",
@@ -52,7 +52,7 @@ func checkVault(v models.VaultInfo) []models.Insight {
 		// non-empty HTTP response, not that the responder is really Vault —
 		// spoofable by any unprivileged local process binding :8200 first.
 		// Disclose alongside (never replacing) whatever finding follows.
-		out = append(out, unverifiedInsight("INFO", "Vault",
+		out = append(out, unverifiedInsight(models.ReasonCollectorError, "INFO", "Vault",
 			"Vault was detected via an HTTP response only — the listening process's identity could not be confirmed",
 			[]string{"note: run as root, or verify with: ss -tlnp | grep :8200"}))
 	}

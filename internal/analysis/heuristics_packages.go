@@ -84,7 +84,7 @@ func checkPackageDBHealth(pkg models.PackagesInfo) []models.Insight {
 	// manager at all ("unknown", the Collect() early-return) doesn't get a
 	// spurious disclosure — DBHealthChecked is legitimately never set there.
 	if pkg.PackageManager != "" && pkg.PackageManager != "unknown" && !pkg.DBHealthChecked {
-		return []models.Insight{unverifiedInsight("INFO", "Packages",
+		return []models.Insight{unverifiedInsight(models.ReasonCollectorError, "INFO", "Packages",
 			"package database health could not be checked — update-blocking corruption/locks are unverified",
 			nil)}
 	}
@@ -129,7 +129,7 @@ func checkPackageUpdates(pkg models.PackagesInfo) []models.Insight {
 		if reason == "" {
 			reason = "the package manager's security query failed"
 		}
-		return []models.Insight{unverifiedInsight("INFO", "Packages",
+		return []models.Insight{unverifiedInsight(models.ReasonCollectorError, "INFO", "Packages",
 			"could not verify security updates: "+reason,
 			[]string{noteUnverifiedResult},
 		)}
@@ -150,14 +150,14 @@ func checkPackageUpdates(pkg models.PackagesInfo) []models.Insight {
 		if refresh != "" {
 			hints = append([]string{"to refresh: " + refresh + "  then re-run dsd"}, hints...)
 		}
-		return []models.Insight{unverifiedInsight("INFO", "Packages", reason, hints)}
+		return []models.Insight{unverifiedInsight(models.ReasonCollectorError, "INFO", "Packages", reason, hints)}
 	}
 
 	// Anything else non-empty is a status this heuristic doesn't recognize (a
 	// future collector change, or a tampered/corrupted `dsd replay` bundle) —
 	// treat it the same as "couldn't verify", never silently as a clean scan.
 	if pkg.Status != "" {
-		return []models.Insight{unverifiedInsight("INFO", "Packages",
+		return []models.Insight{unverifiedInsight(models.ReasonParse, "INFO", "Packages",
 			fmt.Sprintf("could not verify security updates: unrecognized scan status %q", pkg.Status),
 			[]string{noteUnverifiedResult},
 		)}
@@ -296,7 +296,7 @@ func checkCVEHealth(r models.CVEAllResult) []models.Insight {
 	// active-exploitation status.
 	if r.KEVCatalogReadFailed && r.KEVCount == 0 &&
 		(len(r.Critical) > 0 || len(r.Important) > 0 || len(r.Moderate) > 0 || len(r.Low) > 0) {
-		out = append(out, unverifiedInsight("INFO", "CVE",
+		out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", "CVE",
 			"KEV cross-reference could not run — the CISA KEV catalog file is present but failed to load",
 			[]string{"note: active-exploitation status for pending CVEs above could not be confirmed"},
 		))
@@ -382,7 +382,7 @@ func cveHealthSeverityInsights(r models.CVEAllResult) []models.Insight {
 		if reason == "" {
 			reason = "no supported package manager"
 		}
-		return []models.Insight{unverifiedInsight("INFO", "CVE",
+		return []models.Insight{unverifiedInsight(models.ReasonCollectorError, "INFO", "CVE",
 			"CVE scan unavailable: "+reason,
 			[]string{"run `dsd cve --all` for details, or install a supported scanner"},
 		)}
@@ -457,7 +457,7 @@ func checkPackageIntegrity(pi models.PackageIntegrity) []models.Insight {
 	if pi.VerifyLocked {
 		// The integrity check couldn't run because the package manager was locked by
 		// another process — report it as unverified, never a silent clean (false-OK).
-		out = append(out, unverifiedInsight("INFO", "Packages",
+		out = append(out, unverifiedInsight(models.ReasonCollectorError, "INFO", "Packages",
 			"could not verify package integrity — the package manager was locked by another process",
 			[]string{"to run manually: zypper verify   (after any running zypper/packagekit finishes)"},
 		))
@@ -470,7 +470,7 @@ func checkPackageIntegrity(pi models.PackageIntegrity) []models.Insight {
 	// a genuinely clean system. Same "couldn't verify" treatment as
 	// VerifyLocked above.
 	if pi.CheckFailed {
-		out = append(out, unverifiedInsight("INFO", "Packages",
+		out = append(out, unverifiedInsight(models.ReasonCollectorError, "INFO", "Packages",
 			"could not verify package integrity — the underlying check tool failed to run",
 			[]string{"to inspect: dnf check   OR   dpkg --audit && apt-get check"},
 		))
@@ -491,7 +491,7 @@ func checkPackageIntegrity(pi models.PackageIntegrity) []models.Insight {
 		// timing out the probe (e.g. a live-USB overlay), or a permission issue —
 		// NOT necessarily a broken cache. Report "couldn't verify" (INFO), not a
 		// "may be corrupted" WARN, per the couldn't-run ≠ broken principle.
-		out = append(out, unverifiedInsight("INFO", "Packages",
+		out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", "Packages",
 			"could not verify the shared library cache — ldconfig -p did not complete (slow/overlay fs or permissions); not necessarily a problem",
 			[]string{"to check manually: ldconfig -p | head -20", "to rebuild if needed: sudo ldconfig"},
 		))
@@ -515,7 +515,7 @@ func checkTLS(tls models.TLSInfo) []models.Insight {
 			// A permission-denied scan directory, not a bad cert: sudo resolves it.
 			hints = []string{"to fix: re-run with sudo so the certificate directory can be read"}
 		}
-		out = append(out, unverifiedInsight("WARN", "TLS",
+		out = append(out, unverifiedInsight(models.ReasonCollectorError, "WARN", "TLS",
 			fmt.Sprintf("certificate could not be checked: %s (%s)", u.Path, u.Error),
 			hints,
 		))

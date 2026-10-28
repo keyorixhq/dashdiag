@@ -98,7 +98,7 @@ func checkNFS(nfs models.NFSInfo) []models.Insight {
 		))
 	}
 	if nfs.StatsUnreadable {
-		out = append(out, unverifiedInsight("INFO", netCatNFS,
+		out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", netCatNFS,
 			"/proc/net/rpc/nfs could not be read — NFS retransmission and operation counts not measured",
 			[]string{"to inspect: cat /proc/net/rpc/nfs", "to inspect: nfsstat -c"}))
 	}
@@ -147,7 +147,7 @@ func checkBIND(b models.BINDInfo) []models.Insight {
 	}
 	switch {
 	case !b.PortsChecked:
-		out = append(out, unverifiedInsight("INFO", netCatBIND,
+		out = append(out, unverifiedInsight(models.ReasonCollectorError, "INFO", netCatBIND,
 			"could not verify named is listening on port 53 — ss (iproute2) unavailable",
 			[]string{"to install: apt install iproute2  /  dnf install iproute"},
 		))
@@ -156,7 +156,7 @@ func checkBIND(b models.BINDInfo) []models.Insight {
 		// column blind without root) — Port53TCP/UDP staying false here may be
 		// a false negative, not a real "not listening" outage. Disclose the
 		// gap instead of reporting a WARN we can't actually back up.
-		out = append(out, unverifiedInsight("INFO", netCatBIND,
+		out = append(out, unverifiedInsight(models.ReasonCollectorError, "INFO", netCatBIND,
 			"could not verify named is listening on port 53 — ss cannot attribute socket ownership without root",
 			[]string{"to inspect: sudo ss -tulpn | grep :53"},
 		))
@@ -206,7 +206,7 @@ func checkBIND(b models.BINDInfo) []models.Insight {
 	case !b.QueryTested:
 		// dig isn't installed, so we couldn't verify named is answering — say so
 		// rather than falsely asserting an outage.
-		out = append(out, unverifiedInsight("INFO", netCatBIND,
+		out = append(out, unverifiedInsight(models.ReasonCollectorError, "INFO", netCatBIND,
 			"could not verify named is answering — dig not installed",
 			[]string{"to enable the check: install bind-utils (RHEL) / dnsutils (Debian)"},
 		))
@@ -579,12 +579,12 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyc
 	}
 
 	if net.InterfacesUnreadable {
-		out = append(out, unverifiedInsight("INFO", catNetwork,
+		out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", catNetwork,
 			"could not read the network interface list — link state, errors and drops not measured",
 			[]string{"to inspect: ip -s link"}))
 	}
 	if net.ConnectionsUnreadable {
-		out = append(out, unverifiedInsight("INFO", catNetwork,
+		out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", catNetwork,
 			"could not read the TCP connection table — CLOSE_WAIT leak check not run",
 			[]string{"to inspect: ss -tan state close-wait | head -20"}))
 	}
@@ -597,7 +597,7 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyc
 	// collector's own parse path, so these stay silent (both false) on a
 	// non-deep run — no double disclosure for "deep wasn't requested".
 	if net.SockstatUnreadable {
-		out = append(out, unverifiedInsight("INFO", catNetwork,
+		out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", catNetwork,
 			"could not read /proc/net/sockstat — TIME_WAIT count not measured",
 			[]string{"to inspect: cat /proc/net/sockstat"}))
 	}
@@ -608,7 +608,7 @@ func checkNetwork(net models.NetworkInfo) []models.Insight { //nolint:funlen,cyc
 		))
 	}
 	if net.NetstatUnreadable {
-		out = append(out, unverifiedInsight("INFO", catNetwork,
+		out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", catNetwork,
 			"could not read /proc/net/netstat — SYN retransmit/listen-overflow/retransmit-failure counters not measured",
 			[]string{"to inspect: cat /proc/net/netstat | grep TcpExt"}))
 	}
@@ -828,7 +828,7 @@ func checkVLAN(v models.VLANInfo) []models.Insight {
 
 func checkInfiniBand(ib models.InfiniBandInfo) []models.Insight {
 	if ib.ReadFailed {
-		return []models.Insight{unverifiedInsight("INFO", "InfiniBand",
+		return []models.Insight{unverifiedInsight(models.ReasonUnreadable, "INFO", "InfiniBand",
 			"/sys/class/infiniband could not be read — IB fabric status unverified, not confirmed absent",
 			[]string{
 				netInspectIPLink,

@@ -27,7 +27,7 @@ func checkDNS(d models.DNSResolverInfo) []models.Insight {
 		// "resolution is failing" and fire a false CRIT/WARN. Disclose
 		// unmeasured and only report the config-shape issues that don't
 		// depend on the live probe result.
-		out = append(out, unverifiedInsight("INFO", "DNS",
+		out = append(out, unverifiedInsight(models.ReasonCollectorError, "INFO", "DNS",
 			"DNS resolution probe was skipped (DSD_OFFLINE) — external/internal resolution not verified",
 			[]string{"to verify manually: dig google.com"}))
 		out = append(out, checkDNSConfigOnly(d)...)

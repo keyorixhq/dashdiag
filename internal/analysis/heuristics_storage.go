@@ -157,7 +157,7 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen,cyclop // N
 	// Devices/SATADevices are necessarily empty in this state, so it's safe to
 	// return early; there is nothing else this function could check.
 	if n.DrivesListUnreadable {
-		return []models.Insight{unverifiedInsight("INFO", "Drives",
+		return []models.Insight{unverifiedInsight(models.ReasonUnreadable, "INFO", "Drives",
 			"could not enumerate drives — diskutil list failed or returned no output",
 			[]string{"to inspect: diskutil list"})}
 	}
@@ -189,7 +189,7 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen,cyclop // N
 		// healthy. Never suppresses a real CRIT from whatever DID parse below —
 		// only discloses that the picture may be incomplete.
 		if dev.SmartRead && dev.SmartDangerousFieldsUnread {
-			out = append(out, unverifiedInsight("INFO", "Drives",
+			out = append(out, unverifiedInsight(models.ReasonCollectorError, "INFO", "Drives",
 				fmt.Sprintf("%s SMART log read, but critical_warning/media_errors/percentage_used were not all present — drive health not fully verified", dev.Name),
 				[]string{inspectNVMEPrefix + dev.Name}))
 		}
@@ -273,7 +273,7 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen,cyclop // N
 		}
 	}
 	if len(unreadRoot) > 0 {
-		out = append(out, unverifiedInsight("INFO", "Drives",
+		out = append(out, unverifiedInsight(models.ReasonCollectorError, "INFO", "Drives",
 			fmt.Sprintf("%d NVMe drive(s) detected but SMART health not read (%s) — running unprivileged (nvme smart-log needs root)",
 				len(unreadRoot), strings.Join(unreadRoot, ", ")),
 			[]string{
@@ -283,7 +283,7 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen,cyclop // N
 		))
 	}
 	if len(unreadAbsent) > 0 {
-		out = append(out, unverifiedInsight("INFO", "Drives",
+		out = append(out, unverifiedInsight(models.ReasonCollectorError, "INFO", "Drives",
 			fmt.Sprintf("%d NVMe drive(s) detected but SMART health not read (%s) — nvme-cli not installed",
 				len(unreadAbsent), strings.Join(unreadAbsent, ", ")),
 			[]string{
@@ -293,7 +293,7 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen,cyclop // N
 		))
 	}
 	if len(unreadErr) > 0 {
-		out = append(out, unverifiedInsight("INFO", "Drives",
+		out = append(out, unverifiedInsight(models.ReasonCollectorError, "INFO", "Drives",
 			fmt.Sprintf("%d NVMe drive(s) detected but SMART health not read (%s) — nvme smart-log failed",
 				len(unreadErr), strings.Join(unreadErr, ", ")),
 			[]string{
@@ -309,7 +309,7 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen,cyclop // N
 	// is actively wrong, not merely absent, and a consumer should know the
 	// device reported nonsense rather than assume a missing tool.
 	if len(implausible) > 0 {
-		out = append(out, unverifiedInsight("WARN", "Drives",
+		out = append(out, unverifiedInsight(models.ReasonParse, "WARN", "Drives",
 			fmt.Sprintf("%d NVMe drive(s) returned implausible SMART data (%s) — health unverified, values rejected",
 				len(implausible), strings.Join(implausible, ", ")),
 			[]string{
@@ -326,7 +326,7 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen,cyclop // N
 	// High blast radius: pre-gate, every EBS volume on every EC2 instance tripped
 	// the implausible WARN.
 	if len(noData) > 0 {
-		out = append(out, unverifiedInsight("INFO", "Drives",
+		out = append(out, unverifiedInsight(models.ReasonParse, "INFO", "Drives",
 			fmt.Sprintf("%d NVMe drive(s) expose no real SMART telemetry (%s) — virtual/cloud volume (e.g. AWS EBS); temperature/wear/spare not reported, on-device health not measurable",
 				len(noData), strings.Join(noData, ", ")),
 			[]string{
@@ -407,7 +407,7 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen,cyclop // N
 		}
 	}
 	if len(sataImplausible) > 0 {
-		out = append(out, unverifiedInsight("WARN", "Drives",
+		out = append(out, unverifiedInsight(models.ReasonParse, "WARN", "Drives",
 			fmt.Sprintf("%d SATA/SAS drive(s) returned implausible SMART data (%s) — health unverified, values rejected",
 				len(sataImplausible), strings.Join(sataImplausible, ", ")),
 			[]string{
@@ -417,7 +417,7 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen,cyclop // N
 		))
 	}
 	if len(sataNeedsRoot) > 0 {
-		out = append(out, unverifiedInsight("INFO", "Drives",
+		out = append(out, unverifiedInsight(models.ReasonCollectorError, "INFO", "Drives",
 			fmt.Sprintf("%d SATA/SAS drive(s) detected but SMART health not read (%s) — running unprivileged (smartctl needs root)",
 				len(sataNeedsRoot), strings.Join(sataNeedsRoot, ", ")),
 			[]string{
@@ -428,7 +428,7 @@ func checkNVMe(n models.NVMeInfo) []models.Insight { //nolint:funlen,cyclop // N
 		))
 	}
 	if len(sataNoSmart) > 0 {
-		out = append(out, unverifiedInsight("INFO", "Drives",
+		out = append(out, unverifiedInsight(models.ReasonCollectorError, "INFO", "Drives",
 			fmt.Sprintf("%d SATA/SAS drive(s) detected but no SMART data exposed (%s) — a virtual disk, or a drive behind a RAID/HBA controller or USB bridge that doesn't pass SMART through",
 				len(sataNoSmart), strings.Join(sataNoSmart, ", ")),
 			[]string{
@@ -499,7 +499,7 @@ func checkZFS(z models.ZFSInfo) []models.Insight {
 	if z.ListReadFailed {
 		// zpool is installed but `zpool list` failed (commonly permission denied) —
 		// no pool was inspected, so don't pass as a silent "no ZFS problems".
-		out = append(out, unverifiedInsight("INFO", "ZFS",
+		out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", "ZFS",
 			"ZFS is present but pools could NOT be verified — `zpool list` failed (run as root?)",
 			[]string{"to inspect: zpool list", "to inspect: zpool status"}))
 	}
@@ -580,7 +580,7 @@ func checkZFSPool(pool models.ZFSPool) []models.Insight { //nolint:funlen // fla
 		// class recurs with every unrecognized state string (a newer zpool
 		// version, a typo, or corrupted output). Never let an unrecognized
 		// state fall through as if it were ONLINE.
-		out = append(out, unverifiedInsight("INFO", "ZFS",
+		out = append(out, unverifiedInsight(models.ReasonParse, "INFO", "ZFS",
 			fmt.Sprintf("ZFS pool %s state %q is not a recognized value — health could not be confirmed", pool.Name, pool.State),
 			[]string{fmt.Sprintf(inspectZPoolStatusFmt, safeName)},
 		))
@@ -643,7 +643,7 @@ func checkZFSPool(pool models.ZFSPool) []models.Insight { //nolint:funlen // fla
 	// unverified rather than pass as clean; and skip the scrub-age check below.
 	if pool.StatusReadFailed {
 		if pool.State == "" || pool.State == "ONLINE" {
-			out = append(out, unverifiedInsight("INFO", "ZFS",
+			out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", "ZFS",
 				fmt.Sprintf("ZFS pool %s is ONLINE, but `zpool status` could not be read — per-vdev error counts and scrub status are unverified", pool.Name),
 				[]string{fmt.Sprintf("to inspect: zpool status %s  (it can hang on a sick pool — check dmesg)", safeName)}))
 		}
@@ -681,7 +681,7 @@ func checkLVM(l models.LVMInfo) []models.Insight {
 	// absent — found the binary but it errored. Nothing below was queried, so
 	// this must not read the same as a clean "no LVM installed" host.
 	if l.PresenceReadFailed {
-		return []models.Insight{unverifiedInsight("INFO", "LVM",
+		return []models.Insight{unverifiedInsight(models.ReasonUnreadable, "INFO", "LVM",
 			"could not confirm whether LVM is installed — `lvs --version` failed unexpectedly",
 			[]string{"to inspect: lvs --version"})}
 	}
@@ -863,7 +863,7 @@ func checkLVMRaid(l models.LVMInfo) []models.Insight {
 	// collection succeeded; without it a DEGRADED RAID LV is missed entirely. Only
 	// flag when LVM is actually present (VGs found) so non-LVM hosts stay silent.
 	if len(l.VGs) > 0 && l.RaidReadFailed {
-		out = append(out, unverifiedInsight("INFO", "LVM",
+		out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", "LVM",
 			"LVM RAID/mirror LV health could not be read — a degraded RAID LV cannot be ruled out",
 			[]string{"to inspect: lvs -o lv_name,vg_name,lv_attr,copy_percent"}))
 	}
@@ -874,12 +874,12 @@ func checkLVMRaid(l models.LVMInfo) []models.Insight {
 	// where LVM IS installed (collector gate), so they imply presence on their own.
 	if l.PVReadFailed {
 		// Most dangerous: a failed `pvs` leaves MissingPVs=0, hiding a failed/removed PV.
-		out = append(out, unverifiedInsight("INFO", "LVM",
+		out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", "LVM",
 			"LVM physical-volume state could NOT be verified — `pvs` failed; a missing/failed PV cannot be ruled out",
 			[]string{"to inspect: pvs -o vg_name,pv_name,pv_attr", "note: run as root if permission denied"}))
 	}
 	if l.VGReadFailed {
-		out = append(out, unverifiedInsight("INFO", "LVM",
+		out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", "LVM",
 			"LVM volume-group state could NOT be verified — `vgs` failed; VG free space not checked",
 			[]string{"to inspect: vgs -o vg_name,vg_size,vg_free,vg_attr"}))
 	}
@@ -891,7 +891,7 @@ func checkLVMRaid(l models.LVMInfo) []models.Insight {
 		if len(l.VGs) > 0 {
 			lvReadLevel = "WARN"
 		}
-		out = append(out, unverifiedInsight(lvReadLevel, "LVM",
+		out = append(out, unverifiedInsight(models.ReasonCollectorError, lvReadLevel, "LVM",
 			"LVM logical-volume state could NOT be verified — `lvs` failed; thin-pool/snapshot usage not checked",
 			[]string{
 				"to inspect: lvs -o lv_name,vg_name,lv_attr,data_percent,metadata_percent",
@@ -926,7 +926,7 @@ func checkDRBD(d models.DRBDInfo) []models.Insight {
 		// The 8.x partial-read producer: some resources were parsed (and scored
 		// above) before the scanner errored — say the list may be incomplete
 		// rather than silently implying it's exhaustive.
-		out = append(out, unverifiedInsight("INFO", "DRBD",
+		out = append(out, unverifiedInsight(models.ReasonCollectorError, "INFO", "DRBD",
 			"/proc/drbd read was incomplete — additional DRBD resources beyond those listed above may exist and are not reflected here",
 			[]string{"to verify: cat /proc/drbd", fmt.Sprintf(inspectDRBDStatusFmt, "all")}))
 	case strings.HasPrefix(d.Version, "9"):
@@ -934,13 +934,13 @@ func checkDRBD(d models.DRBDInfo) []models.Insight {
 		// only sets Unverified on this path when netlink returned nothing under
 		// a non-root euid) — never omit (a split-brain/diskless resource must not
 		// hide behind silence).
-		out = append(out, unverifiedInsight("INFO", "DRBD",
+		out = append(out, unverifiedInsight(models.ReasonCollectorError, "INFO", "DRBD",
 			"DRBD 9 present — resource state needs root (drbdsetup status uses netlink/CAP_NET_ADMIN)",
 			[]string{"to verify: sudo drbdsetup status --json all   (or run dsd as root)"}))
 	default:
 		// A partial read that failed before parsing anything (or before the
 		// version header), so neither branch above applies.
-		out = append(out, unverifiedInsight("INFO", "DRBD",
+		out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", "DRBD",
 			"/proc/drbd could not be read — DRBD resource state NOT verified",
 			[]string{"to verify: cat /proc/drbd", fmt.Sprintf(inspectDRBDStatusFmt, "all")}))
 	}
@@ -1032,7 +1032,7 @@ func checkDRBDResource(res models.DRBDResource) []models.Insight { //nolint:funl
 		// recurs with the next new/renamed/typo'd connection-state string from a
 		// future drbdsetup version. Never let an unrecognized ConnState fall
 		// through as if it were Connected.
-		out = append(out, unverifiedInsight("INFO", "DRBD",
+		out = append(out, unverifiedInsight(models.ReasonParse, "INFO", "DRBD",
 			fmt.Sprintf("%s: connection state %q is not a recognized value — replication health could not be confirmed", name, res.ConnState),
 			[]string{fmt.Sprintf(inspectDRBDStatusFmt, name)},
 		))
@@ -1095,7 +1095,7 @@ func checkDRBDResource(res models.DRBDResource) []models.Insight { //nolint:funl
 		// internal-analysis-10-04: same recurring defect class as the ConnState
 		// switch above — never let an unrecognized local-disk state fall through
 		// as if it were UpToDate.
-		out = append(out, unverifiedInsight("INFO", "DRBD",
+		out = append(out, unverifiedInsight(models.ReasonParse, "INFO", "DRBD",
 			fmt.Sprintf("%s: local disk state %q is not a recognized value — disk health could not be confirmed", name, res.LocalDisk),
 			[]string{fmt.Sprintf(inspectDRBDStatusFmt, name)},
 		))
@@ -1109,7 +1109,7 @@ func checkDRBDResource(res models.DRBDResource) []models.Insight { //nolint:funl
 func checkRAID(r models.RAIDInfo) []models.Insight {
 	var out []models.Insight
 	if r.ReadFailed {
-		out = append(out, unverifiedInsight("INFO", "RAID",
+		out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", "RAID",
 			"RAID array state could not be verified — /proc/mdstat could not be read",
 			[]string{inspectMdstat}))
 	}
@@ -1174,7 +1174,7 @@ func checkRAID(r models.RAIDInfo) []models.Insight {
 			// four cases handled here, but defensively guard against a future
 			// parsing change (or an unexpected /proc/mdstat format) passing
 			// through an unrecognized state and reading as healthy by omission.
-			out = append(out, unverifiedInsight("INFO", "RAID",
+			out = append(out, unverifiedInsight(models.ReasonParse, "INFO", "RAID",
 				fmt.Sprintf("%s state %q is not a recognized value — array health could not be confirmed", arr.Name, arr.State),
 				[]string{fmt.Sprintf("to inspect: mdadm --detail /dev/%s", safeArrName)},
 			))
@@ -1349,7 +1349,7 @@ func checkBtrfsVolume(v models.BtrfsVolume) []models.Insight {
 	// "healthy" volume. The mount may in fact be DEGRADED or have I/O errors;
 	// disclose that this was never actually checked.
 	if !v.ShowRead {
-		return []models.Insight{unverifiedInsight("INFO", "Disk",
+		return []models.Insight{unverifiedInsight(models.ReasonTimeout, "INFO", "Disk",
 			fmt.Sprintf("btrfs %s could not be checked — `btrfs filesystem show` failed (btrfs-progs missing, timeout, or permission denied)", v.MountPoint),
 			[]string{
 				fmt.Sprintf("to inspect: btrfs filesystem show %s", safeMount),
@@ -1372,7 +1372,7 @@ func checkBtrfsVolume(v models.BtrfsVolume) []models.Insight {
 	// failed, it is NOT a missing device. Surface that honestly as INFO rather than the
 	// false DEGRADED CRIT it used to raise (every btrfs filesystem on a non-root run).
 	if v.DevReadUnverified {
-		return []models.Insight{unverifiedInsight("INFO", "Disk",
+		return []models.Insight{unverifiedInsight(models.ReasonUnreadable, "INFO", "Disk",
 			fmt.Sprintf("btrfs %s device state could not be verified — run as root (devices show unreadable without privilege)", v.MountPoint),
 			[]string{
 				fmt.Sprintf("to inspect: sudo btrfs filesystem show %s", safeMount),
@@ -1385,7 +1385,7 @@ func checkBtrfsVolume(v models.BtrfsVolume) []models.Insight {
 	// counters were never inspected — Status defaulted to "healthy". Don't pass that
 	// as a clean OK. (When errors WERE found, StatsRead is true, so this won't fire.)
 	if !v.StatsRead {
-		return []models.Insight{unverifiedInsight("INFO", "Disk",
+		return []models.Insight{unverifiedInsight(models.ReasonCollectorError, "INFO", "Disk",
 			fmt.Sprintf("btrfs %s device error counters not read — run as root: btrfs device stats %s", v.MountPoint, v.MountPoint),
 			[]string{fmt.Sprintf(inspectBtrfsStatsFmt, safeMount)},
 		)}
@@ -1431,7 +1431,7 @@ func checkDiskExtras(disk models.DiskInfo) []models.Insight {
 	// real Mac hardware — so disclose it explicitly rather than silently
 	// skipping every SMART insight below.
 	if disk.DrivesListUnreadable {
-		out = append(out, unverifiedInsight("INFO", "Disk",
+		out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", "Disk",
 			"could not enumerate physical drives — diskutil list failed or returned no output",
 			[]string{"to inspect: diskutil list"}))
 	}
@@ -1443,7 +1443,7 @@ func checkDiskExtras(disk models.DiskInfo) []models.Insight {
 			safeMount = "<mount>"
 		}
 		hints := []string{"to inspect: findmnt " + safeMount}
-		out = append(out, unverifiedInsight("WARN", "Disk",
+		out = append(out, unverifiedInsight(models.ReasonCollectorError, "WARN", "Disk",
 			fmt.Sprintf("mount %s (%s) is unreachable — statfs failed or hung (stale mount?); its usage is NOT verified", m.Mount, m.FSType),
 			hints))
 	}
@@ -1478,7 +1478,7 @@ func checkDiskExtras(disk models.DiskInfo) []models.Insight {
 	}
 	// ZFS — a live mount exists (zfsGate) but `zpool list` failed, so no pool was read.
 	if disk.ZFSListReadFailed {
-		out = append(out, unverifiedInsight("INFO", "Disk",
+		out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", "Disk",
 			"ZFS mount present but pools could NOT be verified — `zpool list` failed (run as root?)",
 			[]string{"to inspect: zpool list", "to inspect: zpool status"},
 		))
@@ -1505,7 +1505,7 @@ func checkHBA(hba models.HBAInfo) []models.Insight {
 			// port_state was unreadable (sysfs read failed). Don't whitelist it as
 			// healthy — the inline renderer already counts it as not-online, so a
 			// silent OK here was a sibling-divergence false-OK. Surface it as unknown.
-			out = append(out, unverifiedInsight("WARN", "HBA",
+			out = append(out, unverifiedInsight(models.ReasonUnreadable, "WARN", "HBA",
 				fmt.Sprintf("FC port %s state could not be read — storage path health unknown", p.Name),
 				[]string{
 					inspectFCHostPrefix + p.Name + "/port_state",
@@ -1545,7 +1545,7 @@ func checkHBA(hba models.HBAInfo) []models.Insight {
 			// without this the WARN check above silently passes over an
 			// unmeasured fabric instead of disclosing that the counters
 			// themselves couldn't be verified.
-			out = append(out, unverifiedInsight("INFO", "HBA",
+			out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", "HBA",
 				fmt.Sprintf("FC port %s: link/sync/signal error counters could not be read — fabric error history unverified", p.Name),
 				[]string{inspectFCHostPrefix + p.Name + "/statistics/"},
 			))
@@ -1566,7 +1566,7 @@ func checkMultipath(m models.MultipathInfo) []models.Insight {
 		if reason == "" {
 			reason = "multipath paths unreadable"
 		}
-		return []models.Insight{unverifiedInsight("WARN", "Multipath",
+		return []models.Insight{unverifiedInsight(models.ReasonUnreadable, "WARN", "Multipath",
 			"multipath path health could NOT be verified — "+reason,
 			[]string{
 				inspectMultipath,
@@ -1622,7 +1622,7 @@ func checkCeph(c models.CephInfo) []models.Insight {
 		// root-only, not because the cluster is down. Surface "could not verify",
 		// never a false CRIT (the run-as-both rule).
 		if c.NeedsRoot {
-			return []models.Insight{unverifiedInsight("INFO", "Ceph",
+			return []models.Insight{unverifiedInsight(models.ReasonCollectorError, "INFO", "Ceph",
 				"Ceph cluster state not verified — `ceph health` needs root (admin keyring is root-only)",
 				[]string{"to verify: sudo ceph -s   (or run dsd as root)"})}
 		}
@@ -1658,7 +1658,7 @@ func checkCeph(c models.CephInfo) []models.Insight {
 	case "HEALTH_UNKNOWN":
 		// `ceph health detail` ran but returned no parseable status — surface that
 		// rather than letting an empty Health read as a healthy cluster.
-		return []models.Insight{unverifiedInsight("WARN", "Ceph",
+		return []models.Insight{unverifiedInsight(models.ReasonParse, "WARN", "Ceph",
 			"Ceph cluster health could not be read — `ceph health detail` returned no parseable status",
 			[]string{inspectCephDetail, "to inspect: ceph -s"})}
 	}
@@ -1677,7 +1677,7 @@ func checkISCSI(i models.ISCSIInfo) []models.Insight {
 	// silently omit, which would hide a failed/reconnecting session (the run-as-both
 	// rule).
 	if i.NeedsRoot {
-		return []models.Insight{unverifiedInsight("INFO", "iSCSI",
+		return []models.Insight{unverifiedInsight(models.ReasonCollectorError, "INFO", "iSCSI",
 			"iSCSI session(s) present but their state needs root (iscsiadm reads root-only sysfs fields)",
 			[]string{"to verify: sudo iscsiadm -m session -P 1   (or run dsd as root)"})}
 	}
@@ -1685,7 +1685,7 @@ func checkISCSI(i models.ISCSIInfo) []models.Insight {
 		// internal-collectors-17-02: sysfs confirms session(s) exist, but
 		// iscsiadm's output didn't match the expected format — session state
 		// (logged-in vs failed/reconnecting) could not be determined.
-		return []models.Insight{unverifiedInsight("INFO", "iSCSI",
+		return []models.Insight{unverifiedInsight(models.ReasonParse, "INFO", "iSCSI",
 			"iSCSI session(s) present (per /sys/class/iscsi_session) but their state could not be parsed from iscsiadm output",
 			[]string{"to inspect: iscsiadm -m session -P 1", "note: check LANG/LC_ALL — a non-English locale can change iscsiadm's field labels"})}
 	}
