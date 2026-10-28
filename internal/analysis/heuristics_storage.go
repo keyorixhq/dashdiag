@@ -20,6 +20,7 @@ const (
 	inspectCephDetail     = "to inspect: ceph health detail"
 	inspectMdstat         = "to inspect: cat /proc/mdstat"
 	noteNVMeUnverified    = "note: drive presence is known; wear, media errors, and spare capacity are unverified"
+	mountPlaceholder      = "<mount>"
 )
 
 // nvmeSmartPlausible reports whether an NVMe SMART reading is physically
@@ -1208,7 +1209,7 @@ func checkDisk(disk models.DiskInfo, thresh Thresholds) []models.Insight {
 		// looksLikeSafeToken), same guard checkKVMVMs applies for VM names.
 		safeMount := fs.Mount
 		if !looksLikeSafeToken(safeMount) {
-			safeMount = "<mount>"
+			safeMount = mountPlaceholder
 		}
 		// Inherently read-only image filesystems (iso9660, squashfs, erofs,
 		// cramfs) are packed to capacity at build time — 100% used is their
@@ -1341,7 +1342,7 @@ func checkBtrfsVolume(v models.BtrfsVolume) []models.Insight {
 	// applies for fs.Mount.
 	safeMount := v.MountPoint
 	if !looksLikeSafeToken(safeMount) {
-		safeMount = "<mount>"
+		safeMount = mountPlaceholder
 	}
 	// internal-collectors-03-01: `btrfs filesystem show` failed entirely (binary
 	// missing, timeout, permission denied, OOM) — every other field on this
@@ -1440,7 +1441,7 @@ func checkDiskExtras(disk models.DiskInfo) []models.Insight {
 	for _, m := range disk.UnreachableMounts {
 		safeMount := m.Mount
 		if !looksLikeSafeToken(safeMount) {
-			safeMount = "<mount>"
+			safeMount = mountPlaceholder
 		}
 		hints := []string{"to inspect: findmnt " + safeMount}
 		out = append(out, unverifiedInsight(models.ReasonCollectorError, "WARN", "Disk",

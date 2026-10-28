@@ -41,8 +41,9 @@ ENV CGO_ENABLED=0
 # into internal/version) — `dsd --version` must report the real release
 # version inside the image, not "dev", and must match across every
 # distribution channel (binary, .deb/.rpm, AppImage, image).
-RUN GOOS=$TARGETOS GOARCH=$TARGETARCH go build \
-      -ldflags "-X github.com/keyorixhq/dashdiag/internal/version.Version=${VERSION} -X github.com/keyorixhq/dashdiag/internal/version.Commit=${COMMIT} -X github.com/keyorixhq/dashdiag/internal/version.Built=${BUILT} -s -w" \
+RUN PKG=github.com/keyorixhq/dashdiag/internal/version \
+ && GOOS=$TARGETOS GOARCH=$TARGETARCH go build \
+      -ldflags "-X ${PKG}.Version=${VERSION} -X ${PKG}.Commit=${COMMIT} -X ${PKG}.Built=${BUILT} -s -w" \
       -trimpath -o /out/dsd ./cmd/dsd
 
 # ── final stage ───────────────────────────────────────────────────────────

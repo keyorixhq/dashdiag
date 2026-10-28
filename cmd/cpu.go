@@ -115,11 +115,21 @@ func runCPU(cmd *cobra.Command, _ []string) error {
 		hw = &v
 	}
 
-	printCPUReport(ctx, cpu, freq, thermal, hw, mode, elapsed, verdict)
+	printCPUReport(ctx, cpuReportData{CPU: cpu, Freq: freq, Thermal: thermal, HW: hw}, mode, elapsed, verdict)
 	return nil
 }
 
-func printCPUReport(ctx context.Context, cpu *models.CPUInfo, freq *models.CPUFreqInfo, thermal *models.ThermalInfo, hw *models.HardwareInfo, mode output.OutputMode, elapsed time.Duration, v render.VerdictInfo) { //nolint:funlen,cyclop // NOSONAR — flat display renderer — each section is independent
+// cpuReportData groups the collected inputs printCPUReport renders. Only CPU is
+// required; Freq, Thermal and HW are optional and may be nil.
+type cpuReportData struct {
+	CPU     *models.CPUInfo
+	Freq    *models.CPUFreqInfo
+	Thermal *models.ThermalInfo
+	HW      *models.HardwareInfo
+}
+
+func printCPUReport(ctx context.Context, d cpuReportData, mode output.OutputMode, elapsed time.Duration, v render.VerdictInfo) { //nolint:funlen,cyclop // NOSONAR — flat display renderer — each section is independent
+	cpu, freq, thermal, hw := d.CPU, d.Freq, d.Thermal, d.HW
 	sep := strings.Repeat("─", 56)
 	timing := fmt.Sprintf(" in %.1fs", elapsed.Seconds())
 

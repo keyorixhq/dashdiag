@@ -20,6 +20,7 @@ const (
 	svcSectionUserUnits   = "User units"
 	svcSectionFailedUnits = "Failed units"
 	svcValNone            = "none"
+	svcLabelMaskedUnits   = "Masked units"
 )
 
 func init() {
@@ -268,11 +269,11 @@ func printSystemdHealth(info *models.ServicesDeepInfo, mode output.OutputMode) {
 
 	if len(info.MaskedUnits) == 0 && !info.MaskedUnitsQueried {
 		// Same rule as Failed units: an unqueried list is "couldn't look", not none.
-		printLine(mode, "info", "Masked units", "not queried — systemctl error")
+		printLine(mode, "info", svcLabelMaskedUnits, "not queried — systemctl error")
 	} else if len(info.MaskedUnits) == 0 {
-		printLine(mode, "ok", "Masked units", svcValNone)
+		printLine(mode, "ok", svcLabelMaskedUnits, svcValNone)
 	} else {
-		printLine(mode, "info", "Masked units",
+		printLine(mode, "info", svcLabelMaskedUnits,
 			fmt.Sprintf("%d: %s", len(info.MaskedUnits), strings.Join(capSlice(info.MaskedUnits, 3), ", ")))
 	}
 
