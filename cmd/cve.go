@@ -85,7 +85,6 @@ func runCVE(cmd *cobra.Command, args []string) error {
 			// implementation (oval.go) can genuinely return nil, and CI
 			// lints on Linux, where this never fires. Verified via a real
 			// Linux staticcheck run: zero findings there.
-			//lint:ignore SA4023 cross-platform stub, see comment above
 			if err != nil { //nolint:staticcheck // SA4023: cross-platform stub, see comment above
 				failed++
 				lastErr = err
@@ -559,7 +558,6 @@ func runOVALScan(ctx context.Context, ovalPath string, jsonOut bool) error {
 
 	results, err := cvedata.ScanOVALPackages(ctx, ovalPath) //nolint:staticcheck // SA4023: cross-platform stub, see comment below
 	// Same cross-platform-stub false positive as CheckCVEFromOVAL above.
-	//lint:ignore SA4023 cross-platform stub, see comment above
 	if err != nil { //nolint:staticcheck // SA4023: see comment above
 		return fmt.Errorf("OVAL scan: %w", err)
 	}
