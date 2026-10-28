@@ -96,11 +96,11 @@ see §4).
   recognised), `not_recorded` (`dsd replay` only: the bundle never recorded the
   input, a recording gap and not a finding on the captured host) or `unverified`
   (fallback: no finer cause is known, e.g. a snapshot from an older dsd). `parse`
-  and `not_recorded` are new, and `timeout`/`unreadable`/`collector_error` now also
+  and `not_recorded` are new in 2.7.0, and `timeout`/`unreadable`/`collector_error` now also
   appear where `unverified` used to: additive, a consumer sees a finer value where
   it saw `unverified`. The same values are `not_checked_subchecks[].reason`, and an
   insight with `unverified: true` carries its own `unverified_reason` (omitted when
-  unknown).
+  unknown; added in 2.7.0).
 - **Partial rule.** A collector that ran and returned data is `checked`. Whatever
   part of it could not be read (an `unverified` insight it owns) is listed in
   `not_checked_subchecks` (`check`, `reason` = any not-checked reason above,

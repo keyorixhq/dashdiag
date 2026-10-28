@@ -11,6 +11,10 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.7.0] - 2026-10-29
+
+### Added
+
 - **Probe-gated collectors are counted as not applicable** (DD-COVERAGE-2).
   Collectors `dsd health` skips because a probe finds nothing (no InfiniBand, no
   Ceph, not a cloud VM, no database) used to be invisible, so "K not applicable"
@@ -38,6 +42,14 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   line saying so. Replay runs collectors one at a time to attribute a gap to its
   collector.
 
+### Changed
+
+- **Building from source needs Go 1.26.10 or newer.** The `go` directive in `go.mod`
+  and `go.work` was raised from 1.26.4 so a source build (`go install`) cannot pick up
+  a 1.26 standard library without the `crypto/x509` fixes below. A toolchain that is
+  too old is upgraded automatically (`GOTOOLCHAIN=auto`, the default). Release
+  binaries are unaffected: they were already built with the newest 1.26.x.
+
 ### Security
 
 - **Hardened: tar extraction of capture bundles** (CodeQL "Zip Slip" alert #138).
@@ -60,6 +72,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   never file content, and a `gitdir:` pointer is resolved against the `.git`
   file's directory and must be a directory holding a `HEAD` file. Absolute
   `gitdir:` pointers still work (worktrees, submodules).
+- **Fixed: the container image was built with an outdated Go toolchain.** The
+  `ghcr.io/keyorixhq/dashdiag` image compiles `dsd` in a `golang:1.26` stage pinned
+  by digest, and that pin had gone stale: the 2.6.0 image's `dsd` was built with
+  Go 1.26.8, while the 2.6.0 release binaries (which use the newest 1.26.x) were
+  built with 1.26.10. The pin now resolves to Go 1.26.10, which carries the
+  standard-library fixes of 1.26.9 and 1.26.10, among them GO-2026-6809
+  (`crypto/x509`: distrust of compromised intermediate certificates) and
+  CVE-2026-56857 (`os.Root.Mkdir` following junctions on Windows only).
+- **Updated: `golang.org/x/net` v0.60.0 to v0.62.0** (GO-2026-6860, GO-2026-6866).
+  An indirect dependency; `govulncheck` reports that `dsd` does not call the
+  affected code. Updated to clear the advisories in every binary and in the image.
 
 ## [2.6.0] - 2026-10-28
 
