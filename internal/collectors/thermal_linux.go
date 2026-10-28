@@ -62,7 +62,7 @@ func (c *ThermalCollector) Collect(ctx context.Context) (interface{}, error) {
 		}
 
 		info.Source = driverName
-		if readFailed := readHwmonTemps(ctx, hwmon, info); readFailed && info.CPUTempC == 0 {
+		if readHwmonTemps(ctx, hwmon, info) && info.CPUTempC == 0 {
 			info.SensorUnreadable = true
 		}
 		break // use first CPU thermal sensor found
