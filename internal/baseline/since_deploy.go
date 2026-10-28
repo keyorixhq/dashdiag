@@ -116,7 +116,7 @@ func findGitDir(start string) (string, error) {
 			if fi.IsDir() {
 				return p, nil
 			}
-			if data, readErr := os.ReadFile(p); readErr == nil {
+			if data, readErr := os.ReadFile(p); readErr == nil { // #nosec G304 -- constant ".git" name in an ancestor of the operator's cwd; its content is validated by resolveGitdirPointer
 				if after, ok := strings.CutPrefix(strings.TrimSpace(string(data)), "gitdir: "); ok {
 					return resolveGitdirPointer(dir, after)
 				}
@@ -151,10 +151,14 @@ func resolveGitdirPointer(dir, pointer string) (string, error) {
 		pointer = filepath.Join(dir, pointer)
 	}
 	gitDir := filepath.Clean(pointer)
-	if fi, err := os.Stat(gitDir); err != nil || !fi.IsDir() {
+	// OpenRoot fails unless gitDir is a directory; Stat("HEAD") through the
+	// root cannot leave it (a HEAD symlink pointing outside is refused).
+	root, err := os.OpenRoot(gitDir)
+	if err != nil {
 		return "", errBad
 	}
-	if fi, err := os.Stat(filepath.Join(gitDir, "HEAD")); err != nil || !fi.Mode().IsRegular() {
+	defer func() { _ = root.Close() }()
+	if fi, err := root.Stat("HEAD"); err != nil || !fi.Mode().IsRegular() {
 		return "", errBad
 	}
 	return gitDir, nil
@@ -162,7 +166,15 @@ func resolveGitdirPointer(dir, pointer string) (string, error) {
 
 // resolveHEAD returns the commit SHA that HEAD currently points to.
 func resolveHEAD(gitDir string) (string, error) {
-	head, err := os.ReadFile(filepath.Join(gitDir, "HEAD")) // #nosec G304 -- fixed filename under resolved gitDir
+	// HEAD and the loose ref are read through an os.Root on gitDir: besides the
+	// ref validation below, the kernel-level confinement refuses any path (or
+	// symlink) that would leave gitDir.
+	root, err := os.OpenRoot(gitDir)
+	if err != nil {
+		return "", err
+	}
+	defer func() { _ = root.Close() }()
+	head, err := root.ReadFile("HEAD")
 	if err != nil {
 		return "", err
 	}
@@ -171,24 +183,24 @@ func resolveHEAD(gitDir string) (string, error) {
 	if !ok {
 		return validateSHA(line) // detached HEAD: HEAD contains the SHA directly
 	}
-	refPath, err := refFilePath(gitDir, ref)
+	rel, err := refRelPath(gitDir, ref)
 	if err != nil {
 		return "", err
 	}
-	if data, readErr := os.ReadFile(refPath); readErr == nil {
+	if data, readErr := root.ReadFile(rel); readErr == nil {
 		return validateSHA(strings.TrimSpace(string(data)))
 	}
 	// Ref may be packed (common after `git gc`) rather than a loose file.
 	return resolvePackedRef(gitDir, ref)
 }
 
-// refFilePath maps a symbolic HEAD target to its loose-ref file. ref comes
-// from the CONTENT of .git/HEAD, which whoever controls the checkout controls,
-// and dsd is often run as root in whatever directory the operator is in, so it
-// is validated before it is allowed anywhere near a path: it must be a
-// well-formed refs/... name, and the joined path must still lie under gitDir.
-// The error deliberately does not quote the ref.
-func refFilePath(gitDir, ref string) (string, error) {
+// refRelPath maps a symbolic HEAD target to its loose-ref file, relative to
+// gitDir. ref comes from the CONTENT of .git/HEAD, which whoever controls the
+// checkout controls, and dsd is often run as root in whatever directory the
+// operator is in, so it is validated before it is allowed anywhere near a
+// path: it must be a well-formed refs/... name, and the joined path must still
+// lie under gitDir. The error deliberately does not quote the ref.
+func refRelPath(gitDir, ref string) (string, error) {
 	if !validRefName(ref) {
 		return "", errMalformedRef(len(ref))
 	}
@@ -197,7 +209,7 @@ func refFilePath(gitDir, ref string) (string, error) {
 	if err != nil || !filepath.IsLocal(rel) {
 		return "", errMalformedRef(len(ref))
 	}
-	return p, nil
+	return rel, nil
 }
 
 // errMalformedRef is the only way this file reports a bad HEAD/ref: attacker-
@@ -237,7 +249,7 @@ func resolvePackedRef(gitDir, ref string) (string, error) {
 	if !validRefName(ref) {
 		return "", errMalformedRef(len(ref))
 	}
-	data, err := os.ReadFile(filepath.Join(gitDir, "packed-refs")) // #nosec G304 -- fixed filename under resolved gitDir
+	data, err := os.ReadFile(filepath.Join(gitDir, "packed-refs")) // #nosec G304 -- constant filename; gitDir is a directory holding a HEAD file (findGitDir), and ref was validated above
 	if err != nil {
 		return "", err
 	}
@@ -274,7 +286,7 @@ func validateSHA(sha string) (string, error) {
 // extracts the committer timestamp.
 func readCommitTime(gitDir, sha string) (time.Time, error) {
 	objPath := filepath.Join(gitDir, "objects", sha[:2], sha[2:])
-	f, err := os.Open(filepath.Clean(objPath)) // #nosec G304 -- path built from a hex-validated sha under resolved gitDir
+	f, err := os.Open(filepath.Clean(objPath)) // #nosec G304 -- objects/<2 hex>/<rest hex>: sha passed validateSHA (hex only, 4-64 chars), gitDir is a directory holding a HEAD file
 	if err != nil {
 		return time.Time{}, fmt.Errorf("commit object not found (possibly packed): %w", err)
 	}

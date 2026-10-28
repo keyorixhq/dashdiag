@@ -147,6 +147,22 @@ func TestGitLastCommitTime_LooseRefInNestedBranch(t *testing.T) {
 	}
 }
 
+// A loose ref that is a symlink out of gitDir must not be followed (os.Root).
+func TestGitLastCommitTime_RefSymlinkOutOfGitDirRefused(t *testing.T) {
+	t.Parallel()
+	root, repo, gitDir := hostileRepo(t, "ref: refs/heads/main\n")
+	if err := os.MkdirAll(filepath.Join(gitDir, "refs", "heads"), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	// root/secret holds a valid sha of a real commit: following the link would succeed.
+	if err := os.Symlink(filepath.Join(root, "secret"), filepath.Join(gitDir, "refs", "heads", "main")); err != nil {
+		t.Skipf("symlinks unavailable: %v", err)
+	}
+	if got, err := gitLastCommitTime(repo); err == nil {
+		t.Errorf("followed a ref symlink out of gitDir and returned %v", got)
+	}
+}
+
 // Item 3: the "gitdir: <path>" pointer of a worktree/submodule .git file.
 
 // worktreeLayout builds a real-looking repo whose git dir is outside the
