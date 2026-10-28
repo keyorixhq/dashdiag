@@ -19,7 +19,7 @@
 # linux/amd64 and linux/arm64 under buildx with ZERO QEMU-emulated execution,
 # only a metadata-level platform pull for the distroless base and a plain
 # COPY for the cross-compiled binary.
-FROM --platform=$BUILDPLATFORM golang:1.26@sha256:6c2a5538f964f1c82f97ad14988bf05de100d922d159d0e398b54c7b0ca0c6c9 AS build
+FROM --platform=$BUILDPLATFORM golang:1.26@sha256:670bb5aa5349ae03b8516764718486f4f16399134bdc9acd0c46a23f043ab05c AS build
 
 WORKDIR /src
 
