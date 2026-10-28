@@ -141,15 +141,72 @@ func resolveHEAD(gitDir string) (string, error) {
 	if !ok {
 		return validateSHA(line) // detached HEAD: HEAD contains the SHA directly
 	}
-	refPath := filepath.Join(gitDir, filepath.FromSlash(ref))
-	if data, readErr := os.ReadFile(filepath.Clean(refPath)); readErr == nil { // #nosec G304 -- ref path is under resolved gitDir, read from HEAD's own "ref: refs/..." line
+	refPath, err := refFilePath(gitDir, ref)
+	if err != nil {
+		return "", err
+	}
+	if data, readErr := os.ReadFile(refPath); readErr == nil {
 		return validateSHA(strings.TrimSpace(string(data)))
 	}
 	// Ref may be packed (common after `git gc`) rather than a loose file.
 	return resolvePackedRef(gitDir, ref)
 }
 
+// refFilePath maps a symbolic HEAD target to its loose-ref file. ref comes
+// from the CONTENT of .git/HEAD, which whoever controls the checkout controls,
+// and dsd is often run as root in whatever directory the operator is in, so it
+// is validated before it is allowed anywhere near a path: it must be a
+// well-formed refs/... name, and the joined path must still lie under gitDir.
+// The error deliberately does not quote the ref.
+func refFilePath(gitDir, ref string) (string, error) {
+	if !validRefName(ref) {
+		return "", errMalformedRef(len(ref))
+	}
+	p := filepath.Join(gitDir, filepath.FromSlash(ref))
+	rel, err := filepath.Rel(gitDir, p)
+	if err != nil || !filepath.IsLocal(rel) {
+		return "", errMalformedRef(len(ref))
+	}
+	return p, nil
+}
+
+// errMalformedRef is the only way this file reports a bad HEAD/ref: attacker-
+// controlled bytes are never quoted back, only their length.
+func errMalformedRef(n int) error {
+	return fmt.Errorf("malformed HEAD/ref (%d bytes)", n)
+}
+
+// validRefName reports whether ref is acceptable as a symbolic HEAD target,
+// following git's check-ref-format rules plus the stricter requirement that it
+// live under refs/ (which also rules out absolute paths and "HEAD"-style
+// names). Rejected: any ".." or "." or empty component, components ending in
+// ".lock", backslash, control characters, and the characters git forbids in
+// refnames (space ~ ^ : ? * [ and "@{").
+func validRefName(ref string) bool {
+	const maxRefLen = 1024
+	if len(ref) <= len("refs/") || len(ref) > maxRefLen || !strings.HasPrefix(ref, "refs/") {
+		return false
+	}
+	if strings.Contains(ref, "..") || strings.Contains(ref, "@{") || strings.HasSuffix(ref, "/") {
+		return false
+	}
+	for _, r := range ref {
+		if r < 0x20 || r == 0x7f || strings.ContainsRune(" ~^:?*[\\", r) {
+			return false
+		}
+	}
+	for _, comp := range strings.Split(ref, "/") {
+		if comp == "" || comp == "." || strings.HasSuffix(comp, ".lock") {
+			return false
+		}
+	}
+	return filepath.IsLocal(filepath.FromSlash(ref))
+}
+
 func resolvePackedRef(gitDir, ref string) (string, error) {
+	if !validRefName(ref) {
+		return "", errMalformedRef(len(ref))
+	}
 	data, err := os.ReadFile(filepath.Join(gitDir, "packed-refs")) // #nosec G304 -- fixed filename under resolved gitDir
 	if err != nil {
 		return "", err
