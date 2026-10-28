@@ -63,7 +63,7 @@ const (
 
 type Renderer struct {
 	mode output.OutputMode
-	// cov is the run's coverage (SetCoverage). PrintSummary only has insights, so
+	// cov is the run's coverage (SetCoverageFrom). PrintSummary only has insights, so
 	// without it the Not checked group is derived from the insights alone and the
 	// "N checked" counts are left out: only a caller with the collector results
 	// knows them.

@@ -39,21 +39,21 @@ import (
 // The verdict is untouched: Verdict still floors on every not_checked item
 // except needs_root ones (TestCoverageMatchesVerdict pins the two together).
 
-// Coverage derives the coverage of one run from the collector results and the
-// insights analysis produced from them.
-func Coverage(results []runner.Result, insights []models.Insight) models.CoverageSummary {
+// ownedInsights is what the insights say about one collector result.
+type ownedInsights struct {
+	count      int               // insights of any level
+	unverified []models.SubCheck // the Unverified ones, as sub-checks
+}
+
+// ownInsights assigns every insight to the result that owns it (at most one, so
+// an Unverified one is counted once); Unverified insights no result owns are
+// returned as orphans.
+func ownInsights(results []runner.Result, insights []models.Insight) (map[string]*ownedInsights, []models.SubCheck) {
 	names := make([]string, 0, len(results))
 	for _, r := range results {
 		names = append(names, r.Name)
 	}
-
-	// Every insight is owned by at most one result, so an Unverified one is
-	// counted once.
-	type perCheck struct {
-		insights   int
-		unverified []models.SubCheck
-	}
-	owned := map[string]*perCheck{}
+	owned := map[string]*ownedInsights{}
 	var orphans []models.SubCheck
 	for _, ins := range insights {
 		owner := insightOwner(ins.Check, names)
@@ -65,14 +65,21 @@ func Coverage(results []runner.Result, insights []models.Insight) models.Coverag
 		}
 		pc := owned[owner]
 		if pc == nil {
-			pc = &perCheck{}
+			pc = &ownedInsights{}
 			owned[owner] = pc
 		}
-		pc.insights++
+		pc.count++
 		if ins.Unverified {
 			pc.unverified = append(pc.unverified, subCheckOf(ins))
 		}
 	}
+	return owned, orphans
+}
+
+// Coverage derives the coverage of one run from the collector results and the
+// insights analysis produced from them.
+func Coverage(results []runner.Result, insights []models.Insight) models.CoverageSummary {
+	owned, orphans := ownInsights(results, insights)
 
 	var sum models.CoverageSummary
 	seenItem := map[string]string{} // check name -> reason of the item already counted
@@ -100,45 +107,21 @@ func Coverage(results []runner.Result, insights []models.Insight) models.Coverag
 		seenResult[r.Name] = true
 		pc := owned[r.Name]
 		if pc == nil {
-			pc = &perCheck{}
+			pc = &ownedInsights{}
 		}
-		cc := models.CheckCoverage{Name: r.Name, Coverage: models.CoverageChecked}
-		switch {
-		case r.Err != nil:
-			cc.Coverage = models.CoverageNotChecked
-			cc.Reason = errReason(r.Err)
-			addItem(r.Name, cc.Reason)
-		case r.Data == nil || !runner.IsAvailable(r.Data):
-			switch {
-			case len(pc.unverified) > 0:
-				cc.Coverage = models.CoverageNotChecked
-				cc.Reason = worstReason(pc.unverified)
-				addItem(r.Name, cc.Reason)
-				cc.NotCheckedSubchecks = pc.unverified
-				for _, sc := range pc.unverified {
-					addItem(sc.Check, sc.Reason)
-				}
-			case pc.insights > 0:
-				// An insight about an absent collector is an actionable finding.
-			case r.Data == nil:
-				cc.Coverage = models.CoverageNotApplicable
-				cc.Reason = models.ReasonNotSupportedPlatform
-			default:
-				cc.Coverage = models.CoverageNotApplicable
-				cc.Reason = models.ReasonNotPresent
-			}
-		default:
-			for _, sc := range pc.unverified {
-				cc.NotCheckedSubchecks = append(cc.NotCheckedSubchecks, sc)
-				addItem(sc.Check, sc.Reason)
-			}
-			if len(cc.NotCheckedSubchecks) > 0 {
-				sum.Partial++
-			}
+		cc := classifyResult(r, pc)
+		if cc.Coverage == models.CoverageNotChecked {
+			addItem(cc.Name, cc.Reason)
+		}
+		for _, sc := range cc.NotCheckedSubchecks {
+			addItem(sc.Check, sc.Reason)
 		}
 		switch cc.Coverage {
 		case models.CoverageChecked:
 			sum.Checked++
+			if len(cc.NotCheckedSubchecks) > 0 {
+				sum.Partial++
+			}
 		case models.CoverageNotApplicable:
 			sum.NotApplicable++
 		}
@@ -154,6 +137,28 @@ func Coverage(results []runner.Result, insights []models.Insight) models.Coverag
 	}
 	sort.SliceStable(sum.Checks, func(i, j int) bool { return sum.Checks[i].Name < sum.Checks[j].Name })
 	return sum
+}
+
+// classifyResult applies the rule at the top of this file to one collector
+// result and the insights it owns.
+func classifyResult(r runner.Result, pc *ownedInsights) models.CheckCoverage {
+	cc := models.CheckCoverage{Name: r.Name, Coverage: models.CoverageChecked}
+	switch {
+	case r.Err != nil:
+		cc.Coverage, cc.Reason = models.CoverageNotChecked, errReason(r.Err)
+	case r.Data != nil && runner.IsAvailable(r.Data):
+		cc.NotCheckedSubchecks = pc.unverified
+	case len(pc.unverified) > 0:
+		cc.Coverage, cc.Reason = models.CoverageNotChecked, worstReason(pc.unverified)
+		cc.NotCheckedSubchecks = pc.unverified
+	case pc.count > 0:
+		// An insight about an absent collector is an actionable finding.
+	case r.Data == nil:
+		cc.Coverage, cc.Reason = models.CoverageNotApplicable, models.ReasonNotSupportedPlatform
+	default:
+		cc.Coverage, cc.Reason = models.CoverageNotApplicable, models.ReasonNotPresent
+	}
+	return cc
 }
 
 func addReason(s *models.CoverageSummary, reason string) { addReasonDelta(s, reason, 1) }
@@ -290,7 +295,7 @@ func reasonCounts(s *models.CoverageSummary) string {
 		reason string
 		n      int
 	}
-	var rcs []rc
+	rcs := make([]rc, 0, len(s.Reasons))
 	for r, n := range s.Reasons {
 		rcs = append(rcs, rc{r, n})
 	}

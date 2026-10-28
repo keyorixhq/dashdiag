@@ -442,7 +442,7 @@ func TestGuardC_NotCheckedNeverClean(t *testing.T) {
 var passedMarker = []string{"✅", "passed", "healthy", "all clear", "class=\"st ok\"", "class=\"verdict ok\""}
 
 var okWord = func(s string) bool {
-	for _, f := range strings.FieldsFunc(s, func(r rune) bool { return !(r >= 'A' && r <= 'Z' || r >= 'a' && r <= 'z') }) {
+	for _, f := range strings.FieldsFunc(s, func(r rune) bool { return (r < 'A' || r > 'Z') && (r < 'a' || r > 'z') }) {
 		if f == "OK" {
 			return true
 		}
