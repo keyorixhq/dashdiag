@@ -146,7 +146,7 @@ func statSizeHint(path string) (size int64) {
 			size = -1
 		}
 	}()
-	meta, err := curSource().Stat(path)
+	meta, err := source.StatProbe(curSource(), path)
 	if err != nil {
 		return -1
 	}

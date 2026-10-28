@@ -13,10 +13,13 @@ import (
 // exactly like insight() (same Level/Check/Message/Hints) plus Unverified set.
 func TestUnverifiedInsightHelper(t *testing.T) {
 	t.Parallel()
-	got := unverifiedInsight("INFO", "Widget", "could not read widget state", []string{"hint"})
+	got := unverifiedInsight(models.ReasonUnreadable, "INFO", "Widget", "could not read widget state", []string{"hint"})
 	if got.Level != "INFO" || got.Check != "Widget" || got.Message != "could not read widget state" || !got.Unverified {
 		t.Errorf("unverifiedInsight() = %+v, want Level=INFO Check=Widget Message=%q Unverified=true",
 			got, "could not read widget state")
+	}
+	if got.UnverifiedReason != models.ReasonUnreadable {
+		t.Errorf("UnverifiedReason = %q, want %q", got.UnverifiedReason, models.ReasonUnreadable)
 	}
 	if len(got.Hints) != 1 || got.Hints[0] != "hint" {
 		t.Errorf("Hints = %+v, want [hint]", got.Hints)

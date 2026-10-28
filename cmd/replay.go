@@ -107,8 +107,13 @@ func loadBundle(path string) (*source.Bundle, error) {
 // the one place replay drives runHealthOnce, so the normal and --diff paths use
 // an identical pipeline (and the same flag handling).
 func replayBundle(b *source.Bundle, deep, pkg, gpu, cve bool) ([]runner.Result, []models.Insight, *baseline.Snapshot) {
-	prev := collectors.SetSource(source.NewReplay(b))
+	rp := source.NewReplay(b)
+	prev := collectors.SetSource(rp)
 	defer collectors.SetSource(prev)
+	// Run collectors one at a time so each Result knows if the bundle lacked an
+	// input for it (a recording gap: reason not_recorded, not a host finding).
+	runner.GapCount = rp.Gaps
+	defer func() { runner.GapCount = nil }()
 
 	// Report the CAPTURED host's identity (from the manifest), not the replaying
 	// machine's — so the snapshot/JSON carry the right hostname/OS (e.g. dsd diff).
@@ -152,6 +157,10 @@ func runReplay(cmd *cobra.Command, args []string) error {
 	}
 
 	results, insights, snap := replayBundle(b, deep, pkg, gpu, cve)
+	if n := render.Coverage(results, insights).Reasons[models.ReasonNotRecorded]; n > 0 {
+		fmt.Fprintf(os.Stderr, "note: %d check(s) show as not checked (not_recorded) because this bundle never recorded their inputs.\n"+
+			"That is a gap in the capture, not a finding on the captured host; re-capture with a current dsd to fill it.\n\n", n)
+	}
 
 	// Keep the captured host's identity active through the render below too
 	// (replayBundle restored it on return).

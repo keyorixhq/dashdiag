@@ -68,7 +68,7 @@ func checkKVMVMs(kvm models.KVMInfo) []models.Insight {
 	}
 	// State could not be read (virsh dominfo failed) — couldn't verify, not healthy.
 	if kvm.VMsUnreadable > 0 {
-		out = append(out, unverifiedInsight("WARN", virtCatKVM,
+		out = append(out, unverifiedInsight(models.ReasonUnreadable, "WARN", virtCatKVM,
 			fmt.Sprintf("%d VM(s) defined but their state could not be read (virsh dominfo failed) — true state unknown", kvm.VMsUnreadable),
 			[]string{
 				virtInspectVirsh,
@@ -130,7 +130,7 @@ func checkKVMVMsDiskErrors(kvm models.KVMInfo) []models.Insight {
 	// has — disclose it as unverified rather than letting it silently pass
 	// as "no I/O errors", same treatment VMsUnreadable gets in checkKVMVMs.
 	if kvm.DiskErrorChecksFailed > 0 {
-		out = append(out, unverifiedInsight("WARN", virtCatKVM,
+		out = append(out, unverifiedInsight(models.ReasonUnreadable, "WARN", virtCatKVM,
 			fmt.Sprintf("%d VM(s) had an unreadable disk-error check (virsh domblkerror failed) — I/O error status unknown for them", kvm.DiskErrorChecksFailed),
 			[]string{
 				"to inspect: virsh domblkerror <name>",
@@ -235,7 +235,7 @@ func checkKVM(kvm models.KVMInfo) []models.Insight {
 	// verify, not healthy. Same treatment as VMsUnreadable above: a pool this
 	// affects could be near-full and PoolsNearFull would never fire for it.
 	if kvm.PoolsCapUnknown > 0 {
-		out = append(out, unverifiedInsight("WARN", virtCatKVM,
+		out = append(out, unverifiedInsight(models.ReasonUnreadable, "WARN", virtCatKVM,
 			fmt.Sprintf("%d storage pool(s) had unreadable capacity (virsh pool-info failed) — near-full detection unreliable for them", kvm.PoolsCapUnknown),
 			[]string{
 				"to inspect: virsh pool-info <name>",
@@ -288,7 +288,7 @@ func checkDocker(d models.DockerInfo) []models.Insight {
 		if reason == "" {
 			reason = "Docker daemon is reachable but its containers could not be listed — health not verified"
 		}
-		return []models.Insight{unverifiedInsight("WARN", virtCatDocker, reason,
+		return []models.Insight{unverifiedInsight(models.ReasonCollectorError, "WARN", virtCatDocker, reason,
 			[]string{"to inspect: docker ps -a", "to inspect: journalctl -u docker --since '10 min ago'"})}
 	}
 
@@ -344,17 +344,17 @@ func checkContainerd(d models.ContainerdInfo) []models.Insight {
 	// byte identical to a genuinely idle containerd with zero namespaces. Never
 	// let that read as "verified clean".
 	if d.NamespacesUnreadable {
-		out = append(out, unverifiedInsight("INFO", virtCatContainerd,
+		out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", virtCatContainerd,
 			"containerd is reachable but `ctr namespaces list` failed — namespaces and container counts not measured",
 			[]string{"to inspect: ctr namespaces list"}))
 	}
 	if d.ContainerCountsUnreadable {
-		out = append(out, unverifiedInsight("INFO", virtCatContainerd,
+		out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", virtCatContainerd,
 			"at least one containerd namespace's container list could not be read — the container total is a lower bound",
 			[]string{"to inspect: ctr -n <namespace> containers list"}))
 	}
 	if !d.CtrBinaryFound {
-		out = append(out, unverifiedInsight("INFO", virtCatContainerd,
+		out = append(out, unverifiedInsight(models.ReasonCollectorError, "INFO", virtCatContainerd,
 			"containerd namespaces/containers could not be enumerated — no ctr/containerd-ctr binary found",
 			[]string{
 				"to inspect: which ctr containerd-ctr",
@@ -426,7 +426,7 @@ func checkPodmanQuadlets(d models.DockerInfo) []models.Insight {
 		))
 	}
 	if len(unverified) > 0 {
-		out = append(out, unverifiedInsight("INFO", virtCatDocker,
+		out = append(out, unverifiedInsight(models.ReasonCollectorError, "INFO", virtCatDocker,
 			fmt.Sprintf("could not determine state of %d Podman quadlet(s): %s", len(unverified), strings.Join(firstN(unverified, 3), ", ")),
 			[]string{"to inspect: systemctl show <unit> --property=ActiveState,LoadState   (systemctl unavailable or unit not found)"},
 		))
@@ -583,7 +583,7 @@ func checkDockerResources(d models.DockerInfo) []models.Insight { //nolint:funle
 	// could not be checked at all; must not be silently dropped from the
 	// unbounded-logging picture as if confirmed clean.
 	if d.LogDriver != nil && len(d.LogDriver.UnverifiedContainers) > 0 {
-		out = append(out, unverifiedInsight("INFO", virtCatDocker,
+		out = append(out, unverifiedInsight(models.ReasonCollectorError, "INFO", virtCatDocker,
 			fmt.Sprintf("%d container(s) log config could not be verified (inspect failed): %s",
 				len(d.LogDriver.UnverifiedContainers), strings.Join(firstN(d.LogDriver.UnverifiedContainers, 3), ", ")),
 			[]string{"to inspect: docker inspect <container>"},
@@ -751,7 +751,7 @@ func checkK8s(k models.K8sInfo) []models.Insight {
 	// identical host — the cmd<->health tally-drift class (#275) this
 	// architecture exists to prevent, defeated by this one early return.
 	if !k.APIReachable {
-		out = append(out, unverifiedInsight("INFO", virtCatK8s,
+		out = append(out, unverifiedInsight(models.ReasonCollectorError, "INFO", virtCatK8s,
 			"kubectl/k3s present but the cluster API was unreachable — cluster health NOT verified",
 			[]string{
 				"to inspect: kubectl get nodes",
@@ -984,7 +984,7 @@ func checkK8sWorkloadsAndEvents(k models.K8sInfo) []models.Insight {
 		{k.EventsUnreadable, "Warning events", "kubectl get events -A --field-selector type=Warning"},
 	} {
 		if u.failed {
-			out = append(out, unverifiedInsight("INFO", virtCatK8s,
+			out = append(out, unverifiedInsight(models.ReasonCollectorError, "INFO", virtCatK8s,
 				u.what+" could NOT be listed (forbidden/timeout) — their health is NOT verified",
 				[]string{"to inspect: " + u.hint, "check: RBAC for this kubeconfig covers " + u.what}))
 		}
@@ -1218,7 +1218,7 @@ func checkK8sOSLayerCoverageGaps(l models.K8sOSLayer) []models.Insight {
 	// at this field from "iptables-save unavailable". Including it would put a
 	// permanent, un-actionable INFO on every healthy Cilium cluster.
 	if !l.KubeForwardChecked || !l.CNIChecked {
-		out = append(out, unverifiedInsight("INFO", virtCatK8s,
+		out = append(out, unverifiedInsight(models.ReasonCollectorError, "INFO", virtCatK8s,
 			"some OS-layer checks limited — the KUBE-FORWARD chain and/or CNI config could not be verified (needs root, or the relevant tool is not on PATH — common on k3s)",
 			nil,
 		))
@@ -1229,7 +1229,7 @@ func checkK8sOSLayerCoverageGaps(l models.K8sOSLayer) []models.Insight {
 	// the firewalld-masquerade check below silently can't fire even if flannel IS
 	// in use and misconfigured.
 	if l.FlannelCNIUnreadable {
-		out = append(out, unverifiedInsight("INFO", virtCatK8s,
+		out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", virtCatK8s,
 			"CNI config directory not readable — could not verify whether flannel is in use (firewalld-masquerade check skipped)",
 			[]string{"to audit: re-run as root (sudo dsd k8s --deep)"},
 		))
@@ -1300,7 +1300,7 @@ func CheckK8sOSLayer(l models.K8sOSLayer) []models.Insight {
 		// 0700 root-owned under a non-root deep run) — distinct from neither
 		// kubeadm's nor k3s's cert dir applying to this distro, which leaves
 		// both CertChecked and CertDirUnreadable false and stays silent below.
-		out = append(out, unverifiedInsight("INFO", virtCatK8s,
+		out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", virtCatK8s,
 			"k8s certificate expiry could not be verified — cert directory unreadable (commonly needs root)",
 			[]string{"to inspect: sudo ls -la /etc/kubernetes/pki /var/lib/rancher/k3s/server/tls 2>/dev/null"},
 		))
@@ -1352,12 +1352,12 @@ func checkRancher(d models.RancherInfo) []models.Insight {
 	}
 	var out []models.Insight
 	if d.ServerUnreadable {
-		out = append(out, unverifiedInsight("INFO", "Rancher",
+		out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", "Rancher",
 			"Rancher is installed but its server deployment could not be read — replica health not measured (RBAC or API error)",
 			[]string{"to inspect: kubectl -n cattle-system get deploy rancher", "to inspect: kubectl auth can-i get deployments -n cattle-system"}))
 	}
 	if d.WebhookUnreadable {
-		out = append(out, unverifiedInsight("INFO", "Rancher",
+		out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", "Rancher",
 			"Rancher is installed but its rancher-webhook deployment could not be read — replica health not measured (RBAC or API error)",
 			[]string{"to inspect: kubectl -n cattle-system get deploy rancher-webhook"}))
 	}
@@ -1387,7 +1387,7 @@ func checkNspawn(n models.NspawnInfo) []models.Insight {
 			})}
 	}
 	if n.Status == "query-failed" {
-		return []models.Insight{unverifiedInsight("INFO", "Nspawn",
+		return []models.Insight{unverifiedInsight(models.ReasonCollectorError, "INFO", "Nspawn",
 			"systemd-nspawn container status could not be determined: "+n.StatusReason,
 			[]string{
 				"to inspect: machinectl list",

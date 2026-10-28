@@ -23,12 +23,12 @@ func checkHWRaid(d models.HWRaidInfo) []models.Insight {
 		return nil
 	}
 	if d.NeedsRoot {
-		return []models.Insight{unverifiedInsight("INFO", hwRaidCat,
+		return []models.Insight{unverifiedInsight(models.ReasonCollectorError, "INFO", hwRaidCat,
 			"hardware RAID controller detected but its status is root-only — re-run as root to verify the array is healthy",
 			[]string{"to inspect: sudo " + hwRaidInspectHint(d.Tool)})}
 	}
 	if d.ReadFailed {
-		return []models.Insight{unverifiedInsight("INFO", hwRaidCat,
+		return []models.Insight{unverifiedInsight(models.ReasonParse, "INFO", hwRaidCat,
 			"hardware RAID controller detected but its status output could not be parsed — treat as UNVERIFIED, not healthy",
 			[]string{hwRaidInspectPfx + hwRaidInspectHint(d.Tool)})}
 	}
@@ -79,7 +79,7 @@ func checkHWRaid(d models.HWRaidInfo) []models.Insight {
 			// internal-collectors-16-02: a BBU/CacheVault entry was present
 			// but its state couldn't be read — distinct from no entry at all
 			// (genuinely no battery-backed cache, which stays silent).
-			out = append(out, unverifiedInsight("INFO", hwRaidCat,
+			out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", hwRaidCat,
 				fmt.Sprintf("%s: cache battery/capacitor state could not be read — health unverified", label),
 				[]string{hwRaidInspectPfx + hwRaidInspectHint(d.Tool)}))
 		}

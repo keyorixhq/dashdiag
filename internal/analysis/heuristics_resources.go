@@ -24,7 +24,7 @@ func cpuSampleFailedInsight(cpu models.CPUInfo) []models.Insight {
 	if !cpu.UsageSampleFailed {
 		return nil
 	}
-	return []models.Insight{unverifiedInsight("INFO", catCPULoadRunQ,
+	return []models.Insight{unverifiedInsight(models.ReasonCollectorError, "INFO", catCPULoadRunQ,
 		"CPU usage sample failed — run queue, steal, iowait and usage are not measured (load average is)",
 		[]string{"to inspect: vmstat 1 5", "to inspect: head -8 /proc/stat"})}
 }
@@ -83,7 +83,7 @@ func checkCPU(cpu models.CPUInfo, thresh Thresholds, ctrCtx platform.ContainerCo
 			// (INFO — doesn't raise the verdict, since it may be dsd's own
 			// noise) so a genuine short burst isn't evadable with no signal
 			// at all.
-			out = append(out, unverifiedInsight("INFO", corrCatCPULoad,
+			out = append(out, unverifiedInsight(models.ReasonCollectorError, "INFO", corrCatCPULoad,
 				fmt.Sprintf("%.0f%% CPU (user+sys) momentarily — could not corroborate against the 1-min load average (may be a transient spike, including dsd's own collectors, or a genuine short burst)", cpu.UsagePct),
 				[]string{"to inspect: uptime", inspectPsCPUHead},
 			))
@@ -169,7 +169,7 @@ func checkCPU(cpu models.CPUInfo, thresh Thresholds, ctrCtx platform.ContainerCo
 			// matching tier — the same "could be dsd's own parallel
 			// collectors" ambiguity the corroboration gate above exists for.
 			// Disclose rather than silently drop it with no trace.
-			out = append(out, unverifiedInsight("INFO", catCPULoadRunQ,
+			out = append(out, unverifiedInsight(models.ReasonCollectorError, "INFO", catCPULoadRunQ,
 				fmt.Sprintf("%d runnable tasks on %s momentarily — could not corroborate against the 1-min load average", cpu.RunQueue, cpuLabel),
 				runQueueHints(cpu),
 			))
@@ -189,11 +189,11 @@ func checkMemory(mem models.MemoryInfo, thresh Thresholds, ctrCtx platform.Conta
 	// idle container) in either direction. Skip rather than guess.
 	ramUnmeasurable := ctrCtx.InContainer && ctrCtx.MemLimitMB > 0 && !mem.CgroupMemMeasured
 	if mem.MeminfoUnreadable {
-		out = append(out, unverifiedInsight("INFO", "Memory",
+		out = append(out, unverifiedInsight(models.ReasonParse, "INFO", "Memory",
 			"RAM usage check skipped — proc meminfo could not be read or parsed, so Total/Free/UsedPct are unmeasured",
 			[]string{"to inspect: cat /proc/meminfo"}))
 	} else if ramUnmeasurable {
-		out = append(out, unverifiedInsight("INFO", "Memory",
+		out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", "Memory",
 			"RAM usage check skipped — cgroup memory usage could not be read in this container, so host /proc/meminfo can't be validly scored against the container's memory limit",
 			[]string{"note: needs the memory controller mounted and readable (memory.current on cgroup v2, memory.usage_in_bytes on v1)"}))
 	} else if l := levelPct(mem.UsedPct, thresh.RAMWarnPct, thresh.RAMCritPct); l != "" {
@@ -239,7 +239,7 @@ func checkMemory(mem models.MemoryInfo, thresh Thresholds, ctrCtx platform.Conta
 		// surface even if another controller's read failed.
 		out = append(out, eccInsights(mem.CorrectedErrors, mem.UncorrectedErrors, "Memory")...)
 		if mem.EDACCountersUnreadable {
-			out = append(out, unverifiedInsight("INFO", "Memory",
+			out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", "Memory",
 				"ECC error counters could not be fully read — the corrected/uncorrected counts above may be incomplete",
 				[]string{"to inspect: edac-util -s 4"}))
 		}
@@ -253,12 +253,12 @@ func checkMemory(mem models.MemoryInfo, thresh Thresholds, ctrCtx platform.Conta
 func swapUnreadableInsights(swap models.SwapInfo) []models.Insight {
 	var out []models.Insight
 	if swap.SwapsUnreadable {
-		out = append(out, unverifiedInsight("INFO", "Swap",
+		out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", "Swap",
 			"/proc/swaps could not be read — swap occupancy not measured",
 			[]string{"to inspect: cat /proc/swaps", "to inspect: swapon --show"}))
 	}
 	if swap.ZramUnreadable {
-		out = append(out, unverifiedInsight("INFO", "Swap",
+		out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", "Swap",
 			"zram swap devices could not be fully read — zram utilisation not measured",
 			[]string{"to inspect: zramctl", "to inspect: cat /sys/block/zram0/mm_stat"}))
 	}
@@ -384,7 +384,7 @@ func checkIO(io models.IOInfo, thresh Thresholds) []models.Insight {
 func checkHealthDeep(d models.HealthDeepInfo) []models.Insight {
 	var out []models.Insight
 	if d.MemDetailUnreadable {
-		out = append(out, unverifiedInsight("INFO", "CPUDeep",
+		out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", "CPUDeep",
 			"/proc/meminfo could not be read — dirty-page backlog and cache breakdown not measured",
 			[]string{"to inspect: cat /proc/meminfo"}))
 	}
@@ -430,7 +430,7 @@ func checkHealthDeep(d models.HealthDeepInfo) []models.Insight {
 		// gate above didn't confirm it — the same "could be dsd's own deep
 		// collection" ambiguity the gate exists for. Disclose the
 		// uncorroborated reading instead of silently dropping it with no trace.
-		out = append(out, unverifiedInsight("INFO", "CPUDeep",
+		out = append(out, unverifiedInsight(models.ReasonCollectorError, "INFO", "CPUDeep",
 			fmt.Sprintf("all CPU cores near saturation momentarily (max: %.0f%%, min: %.0f%%) — could not corroborate against the 1-min load average (may be a transient spike, including dsd's own collectors, or a genuine short burst)", d.MaxCorePct, d.MinCorePct),
 			[]string{inspectMpstatAll},
 		))

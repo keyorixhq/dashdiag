@@ -11,8 +11,13 @@ import (
 
 // TestStatfsToFSRoot exercises the non-blocking statfsToFS happy path: the root
 // filesystem must return real numbers within the timeout.
+//
+// Serial and pinned to the live source: it reads the process-global source, so
+// running in parallel let another test's replay source answer Statfs("/") with a
+// recording gap.
 func TestStatfsToFSRoot(t *testing.T) {
-	t.Parallel()
+	prev := SetSource(source.Live{Exec: localeSafeExec})
+	t.Cleanup(func() { SetSource(prev) })
 	fs, err := statfsToFS(mountEntry{device: "rootdev", mountPoint: "/", fsType: "testfs"})
 	if err != nil {
 		t.Fatalf("statfsToFS(/): %v", err)

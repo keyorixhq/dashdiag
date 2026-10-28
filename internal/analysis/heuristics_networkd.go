@@ -33,7 +33,7 @@ func checkNetworkdConfig(info models.NetworkdConfigInfo) []models.Insight {
 	// without disclosing it, this exact permission-audit collector would
 	// silently claim "audited, clean" on a directory it never actually saw.
 	if info.ConfigDirUnreadable {
-		out = append(out, unverifiedInsight("INFO", nwdCatNetworkd,
+		out = append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", nwdCatNetworkd,
 			"could not read /etc/systemd/network — permission-file audit skipped this run",
 			[]string{"to inspect: ls -la /etc/systemd/network"},
 		))

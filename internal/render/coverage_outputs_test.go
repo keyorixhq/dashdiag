@@ -1,7 +1,8 @@
 package render
 
 import (
-	"errors"
+	"context"
+	"fmt"
 	"strings"
 	"testing"
 	"time"
@@ -20,7 +21,7 @@ func coverageRun() guardRun {
 		results: []runner.Result{
 			{Name: "CPU Load", Data: &models.CPUInfo{}},
 			{Name: "Hardening", Data: &models.CPUInfo{}},
-			{Name: "Memory", Err: errors.New("collector Memory timed out after 2s")},
+			{Name: "Memory", Err: fmt.Errorf("collector Memory timed out after 2s: %w", context.DeadlineExceeded)},
 			{Name: "GPU"},
 			{Name: "Docker", Data: models.DockerInfo{Available: false}},
 		},

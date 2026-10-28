@@ -36,4 +36,11 @@ type Insight struct {
 	// stock distro is not "Not fully verified" forever. Any other unverified
 	// insight still floors at WARN.
 	NeedsRoot bool `json:"needs_root,omitempty"`
+
+	// UnverifiedReason says why an Unverified insight could not look (one of
+	// UnverifiedReasons: needs_root, timeout, unreadable, collector_error, parse,
+	// not_recorded). Set only where Unverified is; render.Coverage maps it to
+	// coverage_reason. Empty on an insight from older data: the reader falls back
+	// to "unverified".
+	UnverifiedReason string `json:"unverified_reason,omitempty"`
 }

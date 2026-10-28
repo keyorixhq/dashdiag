@@ -30,7 +30,7 @@ func checkOCI(o models.OCIInfo) []models.Insight {
 		if !o.IMDSChecked && !o.AgentChecked && !o.TimeSyncChecked && !o.VNICChecked {
 			// Nothing at all could be verified — the recognition line reflects
 			// that, not a confirmed-clean posture.
-			out = append(out, unverifiedInsight("INFO", "OCI", ociRecognitionLine(o), nil))
+			out = append(out, unverifiedInsight(models.ReasonCollectorError, "INFO", "OCI", ociRecognitionLine(o), nil))
 		} else {
 			out = append(out, insight("INFO", "OCI", ociRecognitionLine(o), nil))
 		}

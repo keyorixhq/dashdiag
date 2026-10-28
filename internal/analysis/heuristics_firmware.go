@@ -28,7 +28,7 @@ func checkFirmware(f models.FirmwareInfo) []models.Insight {
 	// updates. Surface it rather than pass as clean. Status=="OK" is the recognized
 	// "nothing to do" path, which is a genuine clean.
 	if f.StatusReason != "" && f.Status != "OK" {
-		return []models.Insight{unverifiedInsight("INFO", fwCatFirmware,
+		return []models.Insight{unverifiedInsight(models.ReasonCollectorError, "INFO", fwCatFirmware,
 			"firmware update status could not be verified: "+f.StatusReason,
 			[]string{
 				fwInspectFwupd,
@@ -90,7 +90,7 @@ func checkSnapper(s models.SnapperInfo) []models.Insight {
 		// "run as root" is an expected non-root limitation — INFO not WARN, and
 		// unverified (snapper's real state, not confirmed clean/broken).
 		if strings.Contains(s.Error, "run as root") {
-			out = append(out, unverifiedInsight("INFO", fwCatSnapshots,
+			out = append(out, unverifiedInsight(models.ReasonCollectorError, "INFO", fwCatSnapshots,
 				fmt.Sprintf("snapper: %s", s.Error),
 				nil,
 			))
@@ -119,7 +119,7 @@ func checkSnapper(s models.SnapperInfo) []models.Insight {
 	switch {
 	case s.LastSnapshotH < 0:
 		// Could not determine last snapshot time — treat as stale
-		out = append(out, unverifiedInsight("WARN", fwCatSnapshots,
+		out = append(out, unverifiedInsight(models.ReasonCollectorError, "WARN", fwCatSnapshots,
 			fmt.Sprintf("%d snapshot(s) found but last snapshot time could not be determined", s.SnapshotCount),
 			[]string{"to check: sudo snapper list"},
 		))
@@ -196,7 +196,7 @@ func checkSUSESubscription(s models.SUSEConnectInfo) []models.Insight {
 		// SUSEConnect present but the status query failed — we couldn't read whether
 		// the host is registered, so don't assert it's unregistered (FALSE_OK_SWEEP #14).
 		if s.Status == "query-failed" {
-			return []models.Insight{unverifiedInsight("INFO", fwCatSubscription,
+			return []models.Insight{unverifiedInsight(models.ReasonCollectorError, "INFO", fwCatSubscription,
 				"SUSE registration not verified — SUSEConnect --status failed (network/SCC error?)",
 				[]string{"to inspect: SUSEConnect --status", "to inspect: SUSEConnect --status-text"},
 			)}
@@ -217,7 +217,7 @@ func checkSUSESubscription(s models.SUSEConnectInfo) []models.Insight {
 		// and the two positive ranges, so -1 fell through to the default
 		// "current — no insight needed" case — reporting a registered-but-
 		// unverified host identically to one confirmed to have >30 days left.
-		return []models.Insight{unverifiedInsight("INFO", fwCatSubscription,
+		return []models.Insight{unverifiedInsight(models.ReasonCollectorError, "INFO", fwCatSubscription,
 			"SUSE subscription is registered but its expiry date could not be determined",
 			[]string{"to inspect: SUSEConnect --status", "to inspect: SUSEConnect --status-text"},
 		)}
@@ -247,7 +247,7 @@ func checkRHELSubscription(s models.SUSEConnectInfo) []models.Insight {
 	// unparsed. Don't let that silently read as "current" via the default case
 	// below; disclose that the status could not be determined.
 	if s.StatusUnverified {
-		return []models.Insight{unverifiedInsight("INFO", fwCatSubscription,
+		return []models.Insight{unverifiedInsight(models.ReasonCollectorError, "INFO", fwCatSubscription,
 			"RHEL/Oracle subscription status could not be determined — subscription-manager output did not match a known pattern",
 			[]string{"to inspect: subscription-manager status"},
 		)}

@@ -25,13 +25,13 @@ func checkEnvoy(e models.EnvoyInfo) []models.Insight {
 		// a spoofed "everything healthy" response would otherwise return nil
 		// here, the same silent-clean result a genuinely healthy Envoy gets.
 		// Disclose alongside (never replacing) whatever finding follows.
-		out = append(out, unverifiedInsight("INFO", "Envoy",
+		out = append(out, unverifiedInsight(models.ReasonCollectorError, "INFO", "Envoy",
 			"Envoy was detected via an HTTP response shape match only — the listening process's identity could not be confirmed",
 			[]string{"note: run as root, or verify with: ss -tlnp | grep :9901"}))
 	}
 
 	if !e.StatsRead {
-		return append(out, unverifiedInsight("INFO", "Envoy",
+		return append(out, unverifiedInsight(models.ReasonUnreadable, "INFO", "Envoy",
 			"Envoy's admin interface is up, but its cluster stats could not be read",
 			[]string{
 				"note: the admin interface must be reachable to read upstream health",
@@ -45,7 +45,7 @@ func checkEnvoy(e models.EnvoyInfo) []models.Insight {
 	// an Envoy whose membership stats use unexpected names. Upstream health was never
 	// actually assessed, so surface it rather than let all-zeros pass as clean.
 	if e.ClustersTotal == 0 {
-		return append(out, unverifiedInsight("INFO", "Envoy",
+		return append(out, unverifiedInsight(models.ReasonCollectorError, "INFO", "Envoy",
 			"Envoy admin stats were read, but no upstream cluster membership data was found — upstream host health could not be verified",
 			[]string{
 				"to inspect: curl -s localhost:9901/stats | grep membership_",
@@ -59,7 +59,7 @@ func checkEnvoy(e models.EnvoyInfo) []models.Insight {
 	// mismatch) or a spoofed one. Trusting it would compute a nonsensical
 	// negative "down" count below and silently fall through as healthy.
 	if e.UpstreamsHealthy > e.UpstreamsTotal {
-		return append(out, unverifiedInsight("INFO", "Envoy",
+		return append(out, unverifiedInsight(models.ReasonCollectorError, "INFO", "Envoy",
 			fmt.Sprintf("Envoy admin stats report %d healthy of %d total upstream hosts — an impossible count, the response could not be trusted", e.UpstreamsHealthy, e.UpstreamsTotal),
 			[]string{"to inspect: curl -s localhost:9901/stats | grep membership_"},
 		))
