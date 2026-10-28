@@ -104,7 +104,7 @@ func (rp *Replay) stat(path string, count bool) (FileMeta, error) {
 	if !ok {
 		err := fmt.Errorf("%w: Stat %s", ErrNotRecorded, path)
 		if count {
-			rp.gap(err)
+			_ = rp.gap(err)
 		}
 		return FileMeta{}, err
 	}
