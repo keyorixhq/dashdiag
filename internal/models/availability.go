@@ -58,3 +58,34 @@ func (i KernelRetentionInfo) IsAvailable() bool { return i.Available }
 func (i LivePatchInfo) IsAvailable() bool       { return i.Available }
 func (i TransactionalInfo) IsAvailable() bool   { return i.Available }
 func (i VaultInfo) IsAvailable() bool           { return i.Available }
+
+// Collectors that signal absence with Detected (or Present) instead of Available.
+// buildHealthCollectors registers most of them after a probe, but a probe can pass
+// while the collector then finds nothing (a port answers but is not that product,
+// kubectl is installed but there is no cluster); without these methods that result
+// would read as a phantom "OK" in checks[] and count as checked. With them it
+// counts as not applicable, as an Available=false one does; an insight about it
+// (for example "kubectl present but the API was unreachable") still keeps it
+// visible and not_checked. TestAbsenceFlagStructsImplementIsAvailable enforces it.
+func (i AlertmanagerInfo) IsAvailable() bool   { return i.Detected }
+func (i ApacheInfo) IsAvailable() bool         { return i.Detected }
+func (i BatteryInfo) IsAvailable() bool        { return i.Present }
+func (i BINDInfo) IsAvailable() bool           { return i.Detected }
+func (i ElasticsearchInfo) IsAvailable() bool  { return i.Detected }
+func (i EnvoyInfo) IsAvailable() bool          { return i.Detected }
+func (i GrafanaInfo) IsAvailable() bool        { return i.Detected }
+func (i HAProxyInfo) IsAvailable() bool        { return i.Detected }
+func (i K8sInfo) IsAvailable() bool            { return i.Detected }
+func (i KafkaInfo) IsAvailable() bool          { return i.Detected }
+func (i KVMInfo) IsAvailable() bool            { return i.Detected }
+func (i MemcachedInfo) IsAvailable() bool      { return i.Detected }
+func (i MongoDBInfo) IsAvailable() bool        { return i.Detected }
+func (i MySQLInfo) IsAvailable() bool          { return i.Detected }
+func (i NetworkdConfigInfo) IsAvailable() bool { return i.Detected }
+func (i NginxInfo) IsAvailable() bool          { return i.Detected }
+func (i PostgresInfo) IsAvailable() bool       { return i.Detected }
+func (i PrometheusInfo) IsAvailable() bool     { return i.Detected }
+func (i RabbitMQInfo) IsAvailable() bool       { return i.Detected }
+func (i RedisInfo) IsAvailable() bool          { return i.Detected }
+func (i SteamOSInfo) IsAvailable() bool        { return i.Detected }
+func (i TraefikInfo) IsAvailable() bool        { return i.Detected }

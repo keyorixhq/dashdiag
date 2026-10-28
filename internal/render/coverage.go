@@ -144,6 +144,9 @@ func Coverage(results []runner.Result, insights []models.Insight) models.Coverag
 func classifyResult(r runner.Result, pc *ownedInsights) models.CheckCoverage {
 	cc := models.CheckCoverage{Name: r.Name, Coverage: models.CoverageChecked}
 	switch {
+	case r.Absent != "":
+		// Never run: its probe found nothing on this host (cmd.buildHealthRegistry).
+		cc.Coverage, cc.Reason = models.CoverageNotApplicable, r.Absent
 	case r.Err != nil:
 		cc.Coverage, cc.Reason = models.CoverageNotChecked, errReason(r.Err)
 	case r.Data != nil && runner.IsAvailable(r.Data):
