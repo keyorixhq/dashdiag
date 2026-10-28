@@ -46,7 +46,8 @@ jobs:
           fetch-depth: 0
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: go.mod
+          go-version: '1.26' # floating minor, not go.mod's exact patch (see ci.yml's top note)
+          check-latest: true
           cache: true
       - name: Determine fuzz targets to run
         id: plan
@@ -124,7 +125,8 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version-file: go.mod
+          go-version: '1.26' # floating minor, not go.mod's exact patch (see ci.yml's top note)
+          check-latest: true
           cache: true
       - name: Fuzz shard targets
         env:

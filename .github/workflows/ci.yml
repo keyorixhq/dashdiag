@@ -31,6 +31,12 @@ concurrency:
 # minimum-language-version floor, not an exact pin, so a newer installed patch
 # is always compatible — floating here means CI auto-tracks security fixes
 # without anyone remembering to bump go.mod.
+#
+# Each floating step also sets `check-latest: true`. Without it setup-go reuses
+# whichever 1.26.x the runner image already has cached (the macOS images lag by
+# weeks), so the float silently stops tracking fixes and, once go.mod's floor is
+# above the cached patch, fails with "go.work requires go >= 1.26.x (running go
+# 1.26.y; GOTOOLCHAIN=local)". Add it to any new setup-go step.
 
 jobs:
   # Lints this repo's own .github/workflows/*.yml files. Ported from Keyorix
@@ -178,6 +184,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26'
+          check-latest: true
           cache: true
       - name: Compile all packages (all GOOS/GOARCH targets)
         run: |
@@ -299,6 +306,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26'
+          check-latest: true
           cache: true
 
       - name: Self-test the closure guard (must be able to go red)
@@ -360,6 +368,7 @@ jobs:
         if: needs.preflight.result == 'success'
         with:
           go-version: '1.26' # floating minor, not go.mod's exact patch — see note below
+          check-latest: true
           cache: true
 
       - name: Format check
@@ -408,6 +417,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26' # floating minor, not go.mod's exact patch — see note below
+          check-latest: true
           cache: true
       - name: Build dsd
         run: go build -o /tmp/dsd ./cmd/dsd
@@ -477,6 +487,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26' # floating minor, not go.mod's exact patch — see note below
+          check-latest: true
           cache: true
       - name: Replay distinctive fixtures in a container, assert golden verdicts
         run: ./scripts/check-replay-fidelity.sh
@@ -494,6 +505,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26' # floating minor, not go.mod's exact patch — see note below
+          check-latest: true
           cache: true
       - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
         with:
@@ -531,6 +543,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26'
+          check-latest: true
           cache: true
       - name: Install go-licenses
         run: go install github.com/google/go-licenses@v1.6.0
@@ -732,6 +745,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26' # floating minor, not go.mod's exact patch — see note below
+          check-latest: true
           cache: true
       - name: Build dsd
         run: CGO_ENABLED=0 go build -o "$RUNNER_TEMP/dsd" ./cmd/dsd
@@ -758,6 +772,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26' # floating minor, not go.mod's exact patch — see note below
+          check-latest: true
           cache: true
       - name: Assert dsd fleet --bin removes the remote binary it uploads
         run: ./scripts/check-fleet-cleanup.sh
@@ -782,6 +797,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26' # floating minor, not go.mod's exact patch — see note below
+          check-latest: true
           cache: true
       - name: Build static dsd (musl-compatible)
         run: CGO_ENABLED=0 go build -o "$RUNNER_TEMP/dsd" ./cmd/dsd
@@ -809,6 +825,7 @@ jobs:
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
           go-version: '1.26' # floating minor, not go.mod's exact patch — see note below
+          check-latest: true
           cache: true
       - name: Build static dsd
         run: CGO_ENABLED=0 go build -o "$RUNNER_TEMP/dsd" ./cmd/dsd
