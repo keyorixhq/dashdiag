@@ -59,3 +59,25 @@ func TestCheckLogs_NeedsRootSplit(t *testing.T) {
 		t.Errorf("plain unverified insights = %d, want 1", plain)
 	}
 }
+
+// DD-COVERAGE-1 item 3: on a ROOT run the same needs-root-tagged checks are plain
+// Unverified (no NeedsRoot), which is what makes Verdict floor them and coverage
+// report them as unverified rather than needs_root. render.TestCoverageVerdictRules
+// pins the consumer side with insights of exactly this shape.
+func TestRootRun_NeedsRootTaggedChecksAreNotExempt(t *testing.T) {
+	withRoot(t, true)
+	th := DefaultThresholds(0)
+	var n int
+	for _, ins := range checkLogs(models.LogsInfo{NeedsRoot: true, KmsgUnreadable: true, CrashFilesUnreadable: true}, th) {
+		if !ins.Unverified {
+			continue
+		}
+		n++
+		if ins.NeedsRoot {
+			t.Errorf("root run: %q is NeedsRoot, so it would be exempt from the verdict floor", ins.Message)
+		}
+	}
+	if n == 0 {
+		t.Fatal("expected unverified insights for the unreadable log sources")
+	}
+}
