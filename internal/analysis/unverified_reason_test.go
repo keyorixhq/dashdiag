@@ -172,15 +172,18 @@ func TestUnverifiedInsightAlwaysHasReason(t *testing.T) {
 	// Nothing else may mark an Insight Unverified.
 	root := filepath.Join("..", "..")
 	for _, dir := range []string{"internal", "cmd"} {
-		_ = filepath.WalkDir(filepath.Join(root, dir), func(p string, de fs.DirEntry, err error) error {
-			if err != nil || de.IsDir() || !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go") {
+		if err := filepath.WalkDir(filepath.Join(root, dir), func(p string, de fs.DirEntry, err error) error {
+			if err != nil {
+				return err
+			}
+			if de.IsDir() || !strings.HasSuffix(p, ".go") || strings.HasSuffix(p, "_test.go") {
 				return nil
 			}
 			rel, _ := filepath.Rel(root, p)
 			rel = filepath.ToSlash(rel)
 			af, perr := parser.ParseFile(token.NewFileSet(), p, nil, 0)
 			if perr != nil {
-				return nil
+				return perr
 			}
 			ast.Inspect(af, func(n ast.Node) bool {
 				var hit bool
@@ -204,7 +207,9 @@ func TestUnverifiedInsightAlwaysHasReason(t *testing.T) {
 				return true
 			})
 			return nil
-		})
+		}); err != nil {
+			t.Fatal(err)
+		}
 	}
 }
 
