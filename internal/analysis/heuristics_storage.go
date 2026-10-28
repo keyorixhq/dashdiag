@@ -1349,7 +1349,7 @@ func checkBtrfsVolume(v models.BtrfsVolume) []models.Insight {
 	// "healthy" volume. The mount may in fact be DEGRADED or have I/O errors;
 	// disclose that this was never actually checked.
 	if !v.ShowRead {
-		return []models.Insight{unverifiedInsight(models.ReasonTimeout, "INFO", "Disk",
+		return []models.Insight{unverifiedInsight(models.ReasonCollectorError, "INFO", "Disk",
 			fmt.Sprintf("btrfs %s could not be checked — `btrfs filesystem show` failed (btrfs-progs missing, timeout, or permission denied)", v.MountPoint),
 			[]string{
 				fmt.Sprintf("to inspect: btrfs filesystem show %s", safeMount),

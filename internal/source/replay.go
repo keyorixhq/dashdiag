@@ -95,12 +95,18 @@ func (rp *Replay) Readlink(path string) (string, error) {
 	return rec.target, nil
 }
 
-func (rp *Replay) Stat(path string) (FileMeta, error) {
+func (rp *Replay) Stat(path string) (FileMeta, error) { return rp.stat(path, true) }
+
+// stat is Stat; count says whether a miss is a recording gap. A size probe that
+// tolerates the miss (StatProbe) is not one.
+func (rp *Replay) stat(path string, count bool) (FileMeta, error) {
 	rec, ok := rp.b.getStat(path)
 	if !ok {
-		// Not counted as a gap: readFile probes Stat before every read (statSizeHint)
-		// and tolerates the miss on older bundles.
-		return FileMeta{}, fmt.Errorf("%w: Stat %s", ErrNotRecorded, path)
+		err := fmt.Errorf("%w: Stat %s", ErrNotRecorded, path)
+		if count {
+			rp.gap(err)
+		}
+		return FileMeta{}, err
 	}
 	if rec.notExist {
 		return FileMeta{}, &fs.PathError{Op: "stat", Path: path, Err: fs.ErrNotExist}
@@ -154,4 +160,14 @@ func (rp *Replay) Run(ctx context.Context, name string, args ...string) (Result,
 		return rec.res, &exec.Error{Name: name, Err: exec.ErrNotFound}
 	}
 	return rec.res, nil
+}
+
+// StatProbe is src.Stat for a best-effort probe whose caller tolerates a miss
+// (collectors' size hint before a read, which older bundles never recorded): a
+// Replay does not count that miss as a recording gap.
+func StatProbe(src Source, path string) (FileMeta, error) {
+	if rp, ok := src.(*Replay); ok {
+		return rp.stat(path, false)
+	}
+	return src.Stat(path)
 }

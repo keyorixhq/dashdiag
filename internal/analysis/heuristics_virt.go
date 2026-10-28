@@ -984,7 +984,7 @@ func checkK8sWorkloadsAndEvents(k models.K8sInfo) []models.Insight {
 		{k.EventsUnreadable, "Warning events", "kubectl get events -A --field-selector type=Warning"},
 	} {
 		if u.failed {
-			out = append(out, unverifiedInsight(models.ReasonTimeout, "INFO", virtCatK8s,
+			out = append(out, unverifiedInsight(models.ReasonCollectorError, "INFO", virtCatK8s,
 				u.what+" could NOT be listed (forbidden/timeout) — their health is NOT verified",
 				[]string{"to inspect: " + u.hint, "check: RBAC for this kubeconfig covers " + u.what}))
 		}
