@@ -8,6 +8,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/keyorixhq/dashdiag/internal/baseline"
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
 	"github.com/keyorixhq/dashdiag/internal/runner"
@@ -321,4 +322,48 @@ func CoverageLine(s *models.CoverageSummary) string {
 		parts = append(parts, fmt.Sprintf("%d not applicable", s.NotApplicable))
 	}
 	return strings.Join(parts, " · ")
+}
+
+// NewSnapshot is baseline.BuildSnapshot plus the run's coverage, so the reports,
+// `dsd share` and the stored snapshot all carry it. Build a snapshot for output
+// through this, not baseline.BuildSnapshot directly.
+func NewSnapshot(results []runner.Result, insights []models.Insight) *baseline.Snapshot {
+	snap := baseline.BuildSnapshot(results, insights)
+	cov := Coverage(results, insights)
+	snap.Coverage = &cov
+	return snap
+}
+
+// coverageView is what the snapshot-based outputs (the Markdown and HTML
+// reports, `dsd share`) print: the summary line, what was not looked at and the
+// not-applicable names. A snapshot with no coverage (stored before it existed,
+// or built without NewSnapshot) falls back to the insights alone: the line is
+// left out because the checked/not-applicable counts are unknown, but what was
+// not checked is still listed.
+type coverageView struct {
+	Line          string
+	NotChecked    []NotCheckedItem
+	NotApplicable []string // names, sorted
+}
+
+func coverageViewOf(snap *baseline.Snapshot, insights []models.Insight) coverageView {
+	var cov *models.CoverageSummary
+	var v coverageView
+	if snap != nil && snap.Coverage != nil {
+		cov = snap.Coverage
+		v.Line = CoverageLine(cov)
+	} else {
+		derived := Coverage(nil, insights)
+		cov = &derived
+	}
+	v.NotChecked = NotCheckedItems(cov)
+	for _, na := range NotApplicableChecks(cov) {
+		v.NotApplicable = append(v.NotApplicable, output.SanitizeControl(na.Name))
+	}
+	return v
+}
+
+// empty reports a view with nothing to print.
+func (v coverageView) empty() bool {
+	return v.Line == "" && len(v.NotChecked) == 0 && len(v.NotApplicable) == 0
 }

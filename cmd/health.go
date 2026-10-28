@@ -428,7 +428,7 @@ func printHealthResults(cmd *cobra.Command, ctrCtx platform.ContainerContext, mo
 		fmt.Fprintln(os.Stderr, "dsd: no collectors ran — nothing could be determined")
 		return 3, noticeW
 	}
-	renderer := render.NewRenderer(mode)
+	renderer := render.NewRenderer(mode).SetCoverageFrom(snap)
 	hostRootFlag, _ := cmd.Flags().GetBool("host-root")
 	if ctrCtx.InContainer && !hostRootFlag {
 		renderer.PrintContainerBanner(ctrCtx)
@@ -618,7 +618,7 @@ func runHealthOnce(ctx context.Context, ctrCtx platform.ContainerContext, cloudE
 	if !opts.Terse {
 		insights = drilldown.PopulateAll(ctx, insights, results)
 	}
-	snap := baseline.BuildSnapshot(results, insights)
+	snap := render.NewSnapshot(results, insights)
 	return results, insights, snap, p.Elapsed()
 }
 

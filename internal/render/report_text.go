@@ -5,6 +5,7 @@ import (
 	"sort"
 	"strings"
 
+	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
 )
 
@@ -33,9 +34,12 @@ func RenderReportText(o JSONOutput) string {
 		return ins[i].Check < ins[j].Check
 	})
 
-	if len(ins) == 0 {
+	switch {
+	case len(ins) == 0 && o.Coverage.NotChecked > 0:
+		b.WriteString("\nNo findings, but not everything was checked — see Coverage below.\n")
+	case len(ins) == 0:
 		b.WriteString("\nNo findings — all checks reported OK.\n")
-	} else {
+	default:
 		b.WriteString("\n")
 		for _, in := range ins {
 			fmt.Fprintf(&b, "[%s] %s: %s\n", in.Level, output.SanitizeControl(in.Check), output.SanitizeControl(in.Message))
@@ -74,7 +78,33 @@ func RenderReportText(o JSONOutput) string {
 		fmt.Fprintf(&b, "\nneeds root: %d %s skipped — re-run with sudo\n", n, unit)
 	}
 
+	writeCoverageText(&b, o)
+
 	return b.String()
+}
+
+// writeCoverageText prints the blob's coverage: the summary line and what was
+// not looked at. A blob from a dsd that predates coverage has none, and prints
+// nothing here.
+func writeCoverageText(b *strings.Builder, o JSONOutput) {
+	c := o.Coverage
+	if c.Checked == 0 && c.NotChecked == 0 && c.NotApplicable == 0 {
+		return
+	}
+	sum := models.CoverageSummary{Checked: c.Checked, NotChecked: c.NotChecked, NotApplicable: c.NotApplicable, Reasons: c.NotCheckedReasons}
+	for _, ck := range o.Checks {
+		sum.Checks = append(sum.Checks, models.CheckCoverage{
+			Name: ck.Name, Coverage: ck.Coverage, Reason: ck.CoverageReason, NotCheckedSubchecks: ck.NotCheckedSubchecks,
+		})
+	}
+	fmt.Fprintf(b, "\nCoverage: %s\n", CoverageLine(&sum))
+	for _, it := range NotCheckedItems(&sum) {
+		line := fmt.Sprintf("  not checked: %s — %s", output.SanitizeControl(it.Check), strings.ReplaceAll(it.Reason, "_", " "))
+		if act := it.Action(); act != "" {
+			line += " — " + act
+		}
+		fmt.Fprintln(b, line)
+	}
 }
 
 func orDash(s string) string {

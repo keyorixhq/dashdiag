@@ -73,6 +73,32 @@ func PrometheusMetrics(results []runner.Result, insights []models.Insight) strin
 		fmt.Fprintf(&b, "dsd_check_status{check=%q} %d\n", promLabel(res.Name), worstByCheck[res.Name])
 	}
 
+	// Coverage (DD-COVERAGE-1): a check that was not looked at has no finding, so
+	// dsd_check_status reads 0 for it. These say whether the 0 means "looked".
+	cov := Coverage(results, insights)
+	b.WriteString("# HELP dsd_check_checked 1 if the check ran, 0 if it was not checked (errored, timed out, or its input unreadable). A check with a not-checked part still reads 1.\n")
+	b.WriteString("# TYPE dsd_check_checked gauge\n")
+	for _, cc := range cov.Checks {
+		if cc.Coverage == models.CoverageNotApplicable {
+			continue
+		}
+		checked := 0
+		if cc.Coverage == models.CoverageChecked {
+			checked = 1
+		}
+		fmt.Fprintf(&b, "dsd_check_checked{check=%q} %d\n", promLabel(cc.Name), checked)
+	}
+	b.WriteString("# HELP dsd_checks_coverage Number of checks by coverage: checked, not_checked (things not looked at) or not_applicable (nothing to check on this host).\n")
+	b.WriteString("# TYPE dsd_checks_coverage gauge\n")
+	fmt.Fprintf(&b, "dsd_checks_coverage{coverage=\"checked\"} %d\n", cov.Checked)
+	fmt.Fprintf(&b, "dsd_checks_coverage{coverage=\"not_checked\"} %d\n", cov.NotChecked)
+	fmt.Fprintf(&b, "dsd_checks_coverage{coverage=\"not_applicable\"} %d\n", cov.NotApplicable)
+	b.WriteString("# HELP dsd_checks_not_checked Number of things not looked at, by reason.\n")
+	b.WriteString("# TYPE dsd_checks_not_checked gauge\n")
+	for _, reason := range models.CoverageReasons[:5] {
+		fmt.Fprintf(&b, "dsd_checks_not_checked{reason=%q} %d\n", reason, cov.Reasons[reason])
+	}
+
 	b.WriteString("# HELP dsd_health_status Worst severity across all checks (0=OK, 1=WARN, 2=CRIT).\n")
 	b.WriteString("# TYPE dsd_health_status gauge\n")
 	fmt.Fprintf(&b, "dsd_health_status %d\n", Verdict(results, insights).Severity())

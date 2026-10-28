@@ -20,6 +20,11 @@ type Snapshot struct {
 	Timestamp time.Time     `json:"timestamp"`
 	Version   string        `json:"version"`
 	Checks    []CheckResult `json:"checks"`
+	// Coverage is what the run actually looked at (render.Coverage, attached by
+	// render.NewSnapshot): checked / not checked / not applicable. Additive and
+	// omitempty: a snapshot stored before it existed has none, and its reports
+	// fall back to the verdict phrases alone.
+	Coverage *models.CoverageSummary `json:"coverage,omitempty"`
 }
 
 type CheckResult struct {
