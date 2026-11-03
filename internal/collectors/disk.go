@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	gopsutildisk "github.com/shirou/gopsutil/v3/disk"
+	gopsutildisk "github.com/shirou/gopsutil/v4/disk"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/platform"

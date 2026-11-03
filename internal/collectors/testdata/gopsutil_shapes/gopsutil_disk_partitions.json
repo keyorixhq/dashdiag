@@ -1,0 +1,10 @@
+[
+  {
+    "device": "s1",
+    "fstype": "s3",
+    "mountpoint": "s2",
+    "opts": [
+      "s4"
+    ]
+  }
+]

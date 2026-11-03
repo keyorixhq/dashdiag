@@ -16,7 +16,7 @@ import (
 	"time"
 
 	goping "github.com/prometheus-community/pro-bing"
-	gopsutilnet "github.com/shirou/gopsutil/v3/net"
+	gopsutilnet "github.com/shirou/gopsutil/v4/net"
 
 	"github.com/keyorixhq/dashdiag/internal/debug"
 	"github.com/keyorixhq/dashdiag/internal/models"

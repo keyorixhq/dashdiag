@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	gopsutilnet "github.com/shirou/gopsutil/v3/net"
+	gopsutilnet "github.com/shirou/gopsutil/v4/net"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/source"

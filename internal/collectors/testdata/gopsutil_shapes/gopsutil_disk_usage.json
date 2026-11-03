@@ -1,0 +1,12 @@
+{
+  "free": 1099511628780,
+  "fstype": "s2",
+  "inodesFree": 1099511628785,
+  "inodesTotal": 1099511628783,
+  "inodesUsed": 1099511628784,
+  "inodesUsedPercent": 10.5,
+  "path": "s1",
+  "total": 1099511628779,
+  "used": 1099511628781,
+  "usedPercent": 6.5
+}
