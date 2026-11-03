@@ -5,13 +5,13 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
-	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/testutil/srcpath"
 )
 
 // TestNoStatusSwitchSwallowsALevel is a repo-wide completeness tripwire, same
@@ -41,7 +41,7 @@ import (
 // implies a positive claim for an unhandled level, so they are out of scope
 // for this guard by construction (scanning for `default:` is the filter).
 func TestNoStatusSwitchSwallowsALevel(t *testing.T) {
-	root := repoRootForStatusSwitchGovernance(t)
+	root := srcpath.RepoRoot()
 
 	goFiles := collectNonTestGoFiles(t, root)
 	if len(goFiles) < 200 { // sanity: repo has ~900 non-test .go files as of writing
@@ -163,26 +163,4 @@ func collectNonTestGoFiles(t *testing.T, root string) []string {
 		t.Fatalf("walking %s for .go files: %v", root, err)
 	}
 	return files
-}
-
-// repoRootForStatusSwitchGovernance resolves the module root via this test
-// file's own path (runtime.Caller), not the process working directory —
-// go test's CWD is the package directory, not the repo root.
-func repoRootForStatusSwitchGovernance(t *testing.T) string {
-	t.Helper()
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller(0) failed to resolve this test file's path")
-	}
-	dir := filepath.Dir(thisFile)
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			t.Fatalf("could not find go.mod walking up from %s", thisFile)
-		}
-		dir = parent
-	}
 }

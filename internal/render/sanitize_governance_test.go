@@ -6,10 +6,11 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/testutil/srcpath"
 )
 
 // TestEveryRendererFunctionSanitizesInsightText is a completeness tripwire,
@@ -54,15 +55,9 @@ import (
 // top-level statements by construction. Closing that gap needs real
 // data-flow/taint tracking, not a fingerprint test — out of scope here.
 func TestEveryRendererFunctionSanitizesInsightText(t *testing.T) {
-	// Resolve this package's directory via this test file's own path
-	// (runtime.Caller), not os.Getwd() — that's only the package directory
-	// under `go test`, not when the compiled test binary is run directly
-	// from another working directory (see repoRootForStatusSwitchGovernance).
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller(0) failed to resolve this test file's path")
-	}
-	dir := filepath.Dir(thisFile)
+	// The package directory captured at test-binary start (srcpath), immune
+	// to a later t.Chdir and valid under -trimpath.
+	dir := srcpath.PkgDir()
 
 	entries, err := os.ReadDir(dir)
 	if err != nil {

@@ -9,6 +9,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/testutil/srcpath"
 )
 
 // TestOutboundNetworkCallsGatedByNetworkAllowed is a completeness tripwire for
@@ -52,7 +54,7 @@ import (
 // caller anywhere in the chain) exactly as reliably as a same-function check
 // would.
 func TestOutboundNetworkCallsGatedByNetworkAllowed(t *testing.T) {
-	root := repoRootForGovernanceTest(t)
+	root := srcpath.RepoRoot()
 	dir := filepath.Join(root, "internal", "collectors")
 
 	files := []string{

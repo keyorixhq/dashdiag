@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/testutil/srcpath"
 )
 
 // TestParseFloatCallSitesGuardNaNInf is a completeness tripwire for the bug
@@ -46,7 +48,7 @@ import (
 // (FuzzParseZFSVdevErrors, FuzzParseMiB) are the regression guard for that
 // layer instead — see internal/collectors/testdata/fuzz/.
 func TestParseFloatCallSitesGuardNaNInf(t *testing.T) {
-	root := repoRootForGovernanceTest(t)
+	root := srcpath.RepoRoot()
 	dirs := []string{
 		filepath.Join(root, "internal"),
 		filepath.Join(root, "cmd"),
@@ -54,6 +56,7 @@ func TestParseFloatCallSitesGuardNaNInf(t *testing.T) {
 
 	fset := token.NewFileSet()
 	var violations []string
+	scannedFiles := 0
 
 	for _, dir := range dirs {
 		err := filepath.WalkDir(dir, func(path string, d os.DirEntry, err error) error {
@@ -73,6 +76,7 @@ func TestParseFloatCallSitesGuardNaNInf(t *testing.T) {
 			if perr != nil {
 				return fmt.Errorf("parse %s: %w", path, perr)
 			}
+			scannedFiles++
 			rel, _ := filepath.Rel(root, path)
 			violations = append(violations, checkFileForUnguardedParseFloat(file, fset, rel)...)
 			return nil
@@ -80,6 +84,11 @@ func TestParseFloatCallSitesGuardNaNInf(t *testing.T) {
 		if err != nil {
 			t.Fatalf("walking %s: %v", dir, err)
 		}
+	}
+
+	t.Logf("scanned %d files", scannedFiles)
+	if scannedFiles < 200 {
+		t.Fatalf("scanned only %d files — the walk is broken, this test would silently police nothing", scannedFiles)
 	}
 
 	var real []string

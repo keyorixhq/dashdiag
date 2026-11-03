@@ -11,6 +11,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/testutil/srcpath"
 )
 
 // GUARD B (structural) — DD-VERDICT-1, DEFECT-CLASSES.md C1.
@@ -207,7 +209,7 @@ func verdictGuardFiles(t *testing.T, root string) []string {
 }
 
 func TestGuardB_NoSecondVerdictDerivation(t *testing.T) {
-	root := repoRootForStatusSwitchGovernance(t)
+	root := srcpath.RepoRoot()
 	files := verdictGuardFiles(t, root)
 	if len(files) < 30 { // sanity: render alone has ~50 production files
 		t.Fatalf("only %d files in scope — the walk is broken, this guard would police nothing", len(files))

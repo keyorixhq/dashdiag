@@ -22,13 +22,13 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
-	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/testutil/srcpath"
 )
 
-// installShLibrary reads install.sh from the repo root (this test file's own
-// directory — it lives at the repo root by construction) and returns its
+// installShLibrary reads install.sh from the repo root (srcpath.RepoRoot) and returns its
 // content with the trailing `main "$@"` line removed, so sourcing it defines
 // every function and variable without actually running the installer (which
 // needs network access and touches the filesystem). Fails loudly if that
@@ -37,12 +37,7 @@ import (
 // pass by accident.
 func installShLibrary(t *testing.T) string {
 	t.Helper()
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller(0) failed to resolve this test file's path")
-	}
-	repoRoot := filepath.Dir(thisFile)
-	raw, err := os.ReadFile(filepath.Join(repoRoot, "install.sh"))
+	raw, err := os.ReadFile(filepath.Join(srcpath.RepoRoot(), "install.sh"))
 	if err != nil {
 		t.Fatalf("reading install.sh: %v", err)
 	}

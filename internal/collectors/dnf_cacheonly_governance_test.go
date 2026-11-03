@@ -10,6 +10,8 @@ import (
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/testutil/srcpath"
 )
 
 // TestDNFCallSitesUseCacheOnly is the regression proof for the fix to GitHub
@@ -45,7 +47,7 @@ import (
 // closed on an unreviewed change" shape as this repo's other governance
 // tests (parsefloat_governance_test.go, parallel_mutation_governance_test.go).
 func TestDNFCallSitesUseCacheOnly(t *testing.T) {
-	root := repoRootForGovernanceTest(t)
+	root := srcpath.RepoRoot()
 	dir := filepath.Join(root, "internal", "collectors")
 
 	entries, err := os.ReadDir(dir)
@@ -56,6 +58,7 @@ func TestDNFCallSitesUseCacheOnly(t *testing.T) {
 	fset := token.NewFileSet()
 	var warmCacheSites []string
 	var badCacheOnlySites []string
+	scannedFiles := 0
 
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".go") {
@@ -66,6 +69,7 @@ func TestDNFCallSitesUseCacheOnly(t *testing.T) {
 		if perr != nil {
 			t.Fatalf("parse %s: %v", path, perr)
 		}
+		scannedFiles++
 
 		ast.Inspect(file, func(n ast.Node) bool {
 			if ident, ok := n.(*ast.Ident); ok && ident.Name == "dnfWarmCache" {
@@ -110,6 +114,10 @@ func TestDNFCallSitesUseCacheOnly(t *testing.T) {
 		})
 	}
 
+	t.Logf("scanned %d files in %s", scannedFiles, dir)
+	if scannedFiles < 100 {
+		t.Fatalf("scanned only %d files in %s — the walk is broken, this test would silently police nothing", scannedFiles, dir)
+	}
 	sort.Strings(warmCacheSites)
 	sort.Strings(badCacheOnlySites)
 
