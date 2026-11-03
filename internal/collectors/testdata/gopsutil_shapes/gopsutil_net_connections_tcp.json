@@ -1,0 +1,20 @@
+[
+  {
+    "family": 1002,
+    "fd": 1001,
+    "localaddr": {
+      "ip": "s4",
+      "port": 1005
+    },
+    "pid": 1010,
+    "remoteaddr": {
+      "ip": "s6",
+      "port": 1007
+    },
+    "status": "s8",
+    "type": 1003,
+    "uids": [
+      1009
+    ]
+  }
+]

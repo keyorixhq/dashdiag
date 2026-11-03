@@ -1,0 +1,16 @@
+[
+  {
+    "addrs": [
+      {
+        "addr": "s6"
+      }
+    ],
+    "flags": [
+      "s5"
+    ],
+    "hardwareAddr": "s4",
+    "index": 1001,
+    "mtu": 1002,
+    "name": "s3"
+  }
+]
