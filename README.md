@@ -505,8 +505,27 @@ dsd health --watch --watch-interval 5s
 
 ## Distro support
 
-Validated on: RHEL 10, Rocky Linux 10, AlmaLinux 10, CentOS Stream 10,
-Fedora 44, Debian 13, Ubuntu 26.04, openSUSE Leap 16, SLES 16, Linux Mint 22.
+Tested on **24 Linux distributions** plus macOS: every major package manager,
+four init systems (systemd, OpenRC, sysvinit, runit), glibc and musl.
+
+| Family | Distributions |
+|---|---|
+| Debian / apt | Debian 12 and 13, Ubuntu 24.04 and 26.04, Linux Mint 22, Kali Rolling, Devuan 6 (sysvinit) |
+| RHEL / dnf | RHEL 10, AlmaLinux 9 and 10, Rocky Linux 10, CentOS Stream 8 and 10, Fedora 43 and 44, Oracle Linux 9 and 10, Amazon Linux 2023 |
+| SUSE / zypper | openSUSE Leap 16, openSUSE Tumbleweed, SLES 16 |
+| Immutable | Fedora CoreOS 44, openSUSE Leap Micro 6.2 (transactional-update), NixOS 25.05 |
+| Independent | Arch Linux, Artix Linux (OpenRC), Gentoo (Portage), Alpine 3.22 and 3.23 (musl, OpenRC), Void Linux (runit), VMware Photon OS 5 (tdnf) |
+
+Environments: bare metal (Intel, AMD, Apple Silicon), Proxmox VE (LXC and KVM),
+VMware guests, AWS EC2 (x86_64 and Graviton), Azure, Oracle Cloud (Ampere A1),
+and Kubernetes nodes (kubeadm, k0s, RKE2, MicroK8s).
+
+SteamOS (Steam Deck): the SteamOS checks are validated on a Debian UEFI VM built
+to present as a Steam Deck (real `rauc`, Jupiter DMI); a run on physical Deck
+hardware is still pending.
+
+Per-platform evidence and validation depth (real hardware, VM or container):
+[`docs/PLATFORM_COVERAGE.md`](docs/PLATFORM_COVERAGE.md).
 
 Requires: Linux kernel 4.18+ or macOS 12+. Single binary, no dependencies.
 
