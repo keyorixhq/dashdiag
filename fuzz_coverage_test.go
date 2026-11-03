@@ -27,24 +27,13 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/testutil/srcpath"
 )
 
 var fuzzFuncRe = regexp.MustCompile(`(?m)^func (Fuzz\w+)\(f \*testing\.F\)`)
-
-// repoRoot resolves the repo root via this file's own path (this file lives
-// at the repo root by construction) — matches install_script_test.go's
-// runtime.Caller(0) convention rather than relying on `go test`'s cwd.
-func repoRoot(t *testing.T) string {
-	t.Helper()
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller(0) failed to resolve this test file's path")
-	}
-	return filepath.Dir(thisFile)
-}
 
 // sourceFuzzFuncs scans every _test.go file this host's toolchain would
 // actually build (go/build.MatchFile evaluates the same //go:build
@@ -114,7 +103,7 @@ func discoveredFuzzFuncs(t *testing.T, root string) map[string]bool {
 }
 
 func TestFuzzDiscoveryCoversEverySourceFuzzFunc(t *testing.T) {
-	root := repoRoot(t)
+	root := srcpath.RepoRoot()
 	source := sourceFuzzFuncs(t, root)
 	discovered := discoveredFuzzFuncs(t, root)
 

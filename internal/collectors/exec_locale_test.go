@@ -8,6 +8,8 @@ import (
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/testutil/srcpath"
 )
 
 // Every external command dsd runs must be PATH-trust resolved
@@ -160,7 +162,7 @@ func findRawExecViolations(t *testing.T, root string, exempt map[string]string) 
 }
 
 func TestAllExecCallsResolveThroughTrustedWrapper(t *testing.T) {
-	root := repoRootForGovernanceTest(t)
+	root := srcpath.RepoRoot()
 	violations, checked := findRawExecViolations(t, root, execWrapperFiles)
 
 	if checked < 400 { // sanity: repo has ~556 non-test .go files as of writing

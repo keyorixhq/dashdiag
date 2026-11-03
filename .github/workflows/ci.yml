@@ -388,6 +388,16 @@ jobs:
         if: needs.preflight.result == 'success'
         run: go test -race -count=1 -timeout 300s ./...
 
+      # Tests that locate source files must not depend on runtime.Caller paths,
+      # which become import paths under -trimpath (see internal/testutil/srcpath).
+      # Many developer machines and agent setups set GOFLAGS=-trimpath, so keep
+      # the suite green with it. One OS is enough; the failure mode is not OS-specific.
+      - name: Test with -trimpath
+        if: needs.preflight.result == 'success' && matrix.os == 'ubuntu-24.04'
+        env:
+          GOFLAGS: -trimpath
+        run: go test -count=1 -timeout 300s ./...
+
       - name: Coverage floor (≥96%)
         if: needs.preflight.result == 'success' && matrix.os == 'ubuntu-24.04'
         run: |

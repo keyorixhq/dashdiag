@@ -33,10 +33,11 @@ import (
 	"go/parser"
 	"go/token"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/testutil/srcpath"
 )
 
 // mcpGovernanceExemptions lists MCP tool handler function names explicitly
@@ -72,11 +73,7 @@ var mcpGovernanceExemptions = map[string]string{
 // TestEveryMCPToolHandlerRedactsSecrets is this file's completeness
 // tripwire. See the file-level doc comment for the bug class and reasoning.
 func TestEveryMCPToolHandlerRedactsSecrets(t *testing.T) {
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller(0) failed to resolve this test file's path")
-	}
-	mcpGoPath := filepath.Join(filepath.Dir(thisFile), "mcp.go")
+	mcpGoPath := filepath.Join(srcpath.PkgDir(), "mcp.go")
 
 	fset := token.NewFileSet()
 	file, err := parser.ParseFile(fset, mcpGoPath, nil, 0)

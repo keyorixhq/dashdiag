@@ -6,11 +6,12 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strconv"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/testutil/srcpath"
 )
 
 // TestNoBareOSWriteFileInCmdOrRender is a completeness tripwire for the
@@ -50,7 +51,7 @@ import (
 // os.MkdirTemp dir or another non-predictable path, where this class of bug
 // doesn't apply).
 func TestNoBareOSWriteFileInCmdOrRender(t *testing.T) {
-	root := repoRootForWriteFileGovernanceTest(t)
+	root := srcpath.RepoRoot()
 	dirs := []string{filepath.Join(root, "cmd"), filepath.Join(root, "internal", "render")}
 
 	fset := token.NewFileSet()
@@ -128,27 +129,3 @@ func TestNoBareOSWriteFileInCmdOrRender(t *testing.T) {
 // by an earlier process. Both sites now route through writeFileNoFollow like
 // every sibling call site and no longer need an exemption.
 var writeFileGovernanceExemptions = map[string]string{}
-
-// repoRootForWriteFileGovernanceTest mirrors this package's own
-// repoRootForNetworkPolicyGovernanceTest (and internal/collectors',
-// internal/render's siblings): self-resolves the repo root from this file's
-// own path via runtime.Caller rather than trusting the process CWD, which a
-// t.Chdir in another test in this package could have changed.
-func repoRootForWriteFileGovernanceTest(t *testing.T) string {
-	t.Helper()
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller(0) failed to resolve this test file's path")
-	}
-	dir := filepath.Dir(thisFile)
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			t.Fatalf("could not find go.mod walking up from %s", thisFile)
-		}
-		dir = parent
-	}
-}
