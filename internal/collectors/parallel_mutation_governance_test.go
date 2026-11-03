@@ -8,10 +8,11 @@ import (
 	"io/fs"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/testutil/srcpath"
 )
 
 // TestNoGlobalMutationInParallelTests is a repo-wide completeness tripwire,
@@ -43,7 +44,7 @@ import (
 // pass (ast.Inspect naturally descends into nested t.Run closures) catches
 // that shape without needing to special-case parent-vs-subtest at all.
 func TestNoGlobalMutationInParallelTests(t *testing.T) {
-	root := repoRootForGovernanceTest(t)
+	root := srcpath.RepoRoot()
 
 	testFiles := collectTestFiles(t, root)
 	if len(testFiles) < 500 { // sanity: repo has ~693 _test.go files as of writing
@@ -271,31 +272,4 @@ func collectTestFiles(t *testing.T, root string) []string {
 		t.Fatalf("walking %s for _test.go files: %v", root, err)
 	}
 	return files
-}
-
-// repoRootForGovernanceTest resolves the module root via this test file's own
-// path (runtime.Caller), NOT the process working directory — a relative path
-// here would reintroduce exactly the CWD-race class this whole test exists to
-// police: this test itself calls t.Parallel() nowhere, but other parallel
-// tests in this package do (see the fixture tests this file's doc comment
-// names), and any one of them could still have a CWD mutated by an in-package
-// hazard added later. Anchoring on an absolute, self-resolved path sidesteps
-// the question entirely rather than relying on package discipline.
-func repoRootForGovernanceTest(t *testing.T) string {
-	t.Helper()
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller(0) failed to resolve this test file's path")
-	}
-	dir := filepath.Dir(thisFile)
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			t.Fatalf("could not find go.mod walking up from %s", thisFile)
-		}
-		dir = parent
-	}
 }

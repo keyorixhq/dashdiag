@@ -8,6 +8,7 @@ import (
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 // TestWalkSUIDDir_RecursesAndDetectsSetuid is a regression guard for the switch
@@ -76,7 +77,12 @@ func TestWalkSUIDDir_UnreadableDir(t *testing.T) {
 // walkSUIDDir must skip it (not abort the whole scan) and still find a
 // sibling SUID binary.
 func TestWalkSUIDDir_StatFailureSkipped(t *testing.T) {
-	t.Parallel()
+	// Deliberately NOT t.Parallel(): walkSUIDDir reads the real filesystem
+	// through the process-global activeSource, which parallel tests swap to
+	// replay fixtures. Running serially (parallel tests are paused until all
+	// serial tests finish) and pinning the live source removes that race.
+	prev := SetSource(source.Live{Exec: localeSafeExec})
+	t.Cleanup(func() { SetSource(prev) })
 	root := t.TempDir()
 	brokenLink := filepath.Join(root, "broken-symlink")
 	if err := os.Symlink(filepath.Join(root, "does-not-exist-target"), brokenLink); err != nil {

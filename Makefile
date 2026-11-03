@@ -111,10 +111,23 @@ lint:
 # lint-linux runs golangci-lint inside the dashdiag-dev OrbStack container so
 # linux-only code paths (//go:build linux) are linted with the real linux tags.
 # Use this before pushing when you've touched linux-only files.
+#
+# The image is built from ~/proj/dashdiag-container (not part of this repo):
+#   docker build --platform linux/arm64 -t dashdiag-dev:latest ~/proj/dashdiag-container
+# (or ./run.sh there, which builds it when its context changed). --entrypoint ""
+# bypasses the image's container-setup.sh, which needs NET_ADMIN for its egress
+# firewall, secrets and a git identity, none of which a lint run wants. The
+# dashdiag-dev-cache volume (created by run.sh, devuser-owned) keeps the Go build
+# and golangci-lint caches warm between runs.
 .PHONY: lint-linux
 lint-linux:
-	docker run --rm \
+	@docker image inspect dashdiag-dev:latest >/dev/null 2>&1 || { \
+		echo "dashdiag-dev:latest image not found; build it with:"; \
+		echo "  docker build --platform linux/arm64 -t dashdiag-dev:latest ~/proj/dashdiag-container"; \
+		exit 1; }
+	docker run --rm --entrypoint "" \
 		-v $(CURDIR):/src \
+		-v dashdiag-dev-cache:/home/devuser/.cache \
 		-w /src \
 		dashdiag-dev:latest \
 		golangci-lint run ./...

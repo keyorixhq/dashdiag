@@ -49,9 +49,17 @@ Linux distributions (plus macOS) the tool has been run on, by package/init famil
 
 | 22 | openSUSE Leap Micro 6.2 | SUSE/transactional-update (immutable) | dev (`ebdd7dc`) | **real VMware/vCD guest** | T2 | local `leapmicro-vmware-{20260628,postfix-20260629}.tar.gz` | **First immutable/transactional OS validated (2026-06-28).** Read-only btrfs snapshot root (`transactional-update`, `subvol=@/.snapshots/N/snapshot`). `dsd health` two-pass (root vs nobody) surfaced 3 findings, all fixed in **#620**: BUG-074 non-root SELinux false-OK (now reads `/sys/fs/selinux/enforce`), BUG-075 immutable read-only-root false-WARN, BUG-076 transactional package-install hints. Validated live; before/after capture pair kept local |
 | 23 | Photon OS 5.0 | VMware/tdnf | `feat/photon-tdnf` (#558) | **real Photon 5.0** (VMware tenant `192.168.30.229`) | T2 | local | **VMware's own guest distro.** Added **tdnf CVE/security-update support (#558)** — closed a false-OK where the security/CVE scan silently no-op'd on `tdnf` (now folds to WARN; tdnf exposes no CVSS); + fixed two benign false-CRITs: per-connection `sshd@` instances and `systemd-sysupdate`. Open (backlog): Photon Tier-1 gaps (`.network` perms / `networkctl` state, iptables default-DROP correlation, boot-emergency/fsck, tdnf repo/rpmdb health) + a genuinely-failed cloud-config hidden by the ignore map |
+| 24 | Oracle Linux 9.7 / 9.8 and 10.1 | RHEL/rpm | dev | **real VMware/vCD guest** (9.8, 10.1), KVM with UEK kernel (9.7), real **Oracle Cloud Ampere A1 arm64** (9.7) | T2 | local `oraclelinux9-vmware-vcd-full-20260629`, `oraclelinux10-vmware-vcd-full-20260629`, `oraclelinux9-uek-kvm-20260629`, `oci-a1-oraclelinux9-{20260706,20260716}` | Capture bundles recorded 2026-06-29 to 2026-07-16; per-run review notes not recorded in this matrix |
+| 25 | Devuan 6 (excalibur) | Debian/apt, **sysvinit** | dev | real VMware/vCD guest | T2 | local `devuan6-sysvinit-vmware-20260629` | Only sysvinit host in the matrix. Capture 2026-06-29; review notes not recorded here |
+| 26 | Artix Linux | Arch/pacman, **OpenRC** | dev | real VMware/vCD guest | T2 | local `artix-openrc-vmware-20260629` | OpenRC on a glibc/pacman base (complements musl Alpine). Capture 2026-06-29; review notes not recorded here |
+| 27 | Void Linux | independent/xbps, **runit** | dev | KVM VM on pve01 | T2 | local `void-runit-20260630` | Only runit host in the matrix. Capture 2026-06-30; review notes not recorded here |
+| 28 | Fedora CoreOS 44 | RHEL/rpm-ostree (immutable) | dev | real VMware/vCD guest | T2 | local `fcos44-vmware-20260629{,-sanitized}` | Second immutable OS after Leap Micro (row 22). Capture 2026-06-29; review notes not recorded here |
+| 29 | CentOS Stream 8 | RHEL/rpm | dev | real VMware/vCD guest | T2 | local `vmware-20260626-centos8` | Capture 2026-06-26; review notes not recorded here |
 
-**Family coverage:** apt/dpkg, rpm/dnf, tdnf, zypper, pacman, portage, transactional-update — all major Linux
-package managers. Both init systems (systemd + OpenRC via Alpine). Plus Darwin.
+Also captured but **not counted as supported**: CentOS Linux 7 (`vmware-20260626-centos7`, kernel 3.10, below the 4.18 minimum). Additional versions of rows above: Fedora 43 on AWS Graviton (`dsd-raw-fedora43-graviton`), Alpine 3.23 (`alpine323-openrc-20260701`).
+
+**Family coverage:** apt/dpkg, rpm/dnf, rpm-ostree, tdnf, zypper, pacman, portage, xbps, transactional-update — all major Linux
+package managers. Four init systems: systemd, OpenRC (Alpine, Artix), sysvinit (Devuan), runit (Void). Plus Darwin.
 
 ## Table 2 — Platform / environment awareness
 
@@ -99,9 +107,10 @@ backed by an evidence row above.
 
 ## Coverage at a glance
 
-- **17 Linux distributions** (Table 1, rows 1–17) spanning every major family —
-  apt/dpkg, rpm/dnf, zypper, pacman, portage — plus both init systems (systemd and
-  OpenRC) and macOS. Three **T1 real-hardware** rows: macOS arm64 (row 18), and two
+- **24 Linux distributions** (Table 1: rows 1–17, 22–28; rows 19–21 and 29 are
+  further runs of distributions already counted) spanning every major family —
+  apt/dpkg, rpm/dnf, rpm-ostree, tdnf, zypper, pacman, portage, xbps — plus four init
+  systems (systemd, OpenRC, sysvinit, runit) and macOS. Three **T1 real-hardware** rows: macOS arm64 (row 18), and two
   complementary x86 hardware-collector nodes — Ubuntu on a MacBookAir4,2 (row 19:
   battery-present path, aged SATA SSD) and Debian/PVE on an HP ProDesk (row 20: the
   matrix's only **rotational HDD** + multi-drive SMART, richer thermal sensors).

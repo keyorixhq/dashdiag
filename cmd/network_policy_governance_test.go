@@ -7,10 +7,11 @@ import (
 	"go/token"
 	"os"
 	"path/filepath"
-	"runtime"
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/testutil/srcpath"
 )
 
 // TestPersistentPreRunAppliesNetworkPolicy is a completeness tripwire for the
@@ -34,7 +35,7 @@ import (
 // or do no collection at all — but are wired and covered anyway so a future
 // collection path added to any of them inherits the fix instead of the gap.
 func TestPersistentPreRunAppliesNetworkPolicy(t *testing.T) {
-	root := repoRootForNetworkPolicyGovernanceTest(t)
+	root := srcpath.RepoRoot()
 	dir := filepath.Join(root, "cmd")
 
 	entries, err := os.ReadDir(dir)
@@ -44,6 +45,7 @@ func TestPersistentPreRunAppliesNetworkPolicy(t *testing.T) {
 
 	fset := token.NewFileSet()
 	var violations []string
+	scannedFiles, commands := 0, 0
 
 	for _, e := range entries {
 		name := e.Name()
@@ -55,6 +57,7 @@ func TestPersistentPreRunAppliesNetworkPolicy(t *testing.T) {
 		if err != nil {
 			t.Fatalf("parse %s: %v", path, err)
 		}
+		scannedFiles++
 
 		for _, decl := range file.Decls {
 			gd, ok := decl.(*ast.GenDecl)
@@ -71,12 +74,17 @@ func TestPersistentPreRunAppliesNetworkPolicy(t *testing.T) {
 					if cl == nil {
 						continue
 					}
+					commands++
 					checkPersistentPreRun(cl, name, fset, &violations)
 				}
 			}
 		}
 	}
 
+	t.Logf("scanned %d files, %d cobra command literals", scannedFiles, commands)
+	if scannedFiles < 20 || commands < 20 {
+		t.Fatalf("scanned %d files / %d command literals — the walk is broken, this test would silently police nothing", scannedFiles, commands)
+	}
 	sort.Strings(violations)
 	if len(violations) > 0 {
 		t.Errorf("%d command(s) define their own PersistentPreRun without calling "+
@@ -177,27 +185,3 @@ func checkPersistentPreRun(cl *ast.CompositeLit, file string, fset *token.FileSe
 // explicitly allowed to skip applyNetworkPolicy, each with the reason it's
 // safe. Empty today — every command with its own PersistentPreRun calls it.
 var networkPolicyGateExemptions = map[string]string{}
-
-// repoRootForNetworkPolicyGovernanceTest mirrors
-// internal/collectors/parallel_mutation_governance_test.go's
-// repoRootForGovernanceTest: self-resolves the repo root from this file's own
-// path via runtime.Caller rather than trusting the process CWD, which a
-// t.Chdir in another test in this package could have changed.
-func repoRootForNetworkPolicyGovernanceTest(t *testing.T) string {
-	t.Helper()
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller(0) failed to resolve this test file's path")
-	}
-	dir := filepath.Dir(thisFile)
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return dir
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			t.Fatalf("could not find go.mod walking up from %s", thisFile)
-		}
-		dir = parent
-	}
-}

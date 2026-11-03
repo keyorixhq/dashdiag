@@ -30,6 +30,8 @@ import (
 	"regexp"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/testutil/srcpath"
 )
 
 // writeCallRe matches the exact function set GAP-1 named. OpenFile is
@@ -91,7 +93,7 @@ var writeCapableAllowlist = map[string]string{
 // under internal/fleet/ (the one place dsd deliberately writes to a target —
 // see this file's header) or in a file on writeCapableAllowlist above.
 func TestWriteCapableCallSitesAreOwnArtifactsOnly(t *testing.T) {
-	root := repoRoot(t)
+	root := srcpath.RepoRoot()
 	found := 0
 	var unclassified []string
 

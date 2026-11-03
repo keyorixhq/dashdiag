@@ -8,10 +8,11 @@ import (
 	"os"
 	"path/filepath"
 	"regexp"
-	"runtime"
 	"sort"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/testutil/srcpath"
 )
 
 // TestAllChecksRegistered is a repo-wide completeness tripwire, same idiom as
@@ -600,24 +601,9 @@ func parseModelStructFields(t *testing.T, fset *token.FileSet, dir string) map[s
 }
 
 // packageDirForGovernanceTest resolves rel (a module-root-relative path like
-// "internal/models") to an absolute directory, anchored on this test file's
-// own path (runtime.Caller), not the process working directory — go test's
-// CWD is the package directory, not the repo root.
+// "internal/models") to an absolute directory under srcpath.RepoRoot(), which
+// is valid under -trimpath and immune to a later t.Chdir.
 func packageDirForGovernanceTest(t *testing.T, rel string) string {
 	t.Helper()
-	_, thisFile, _, ok := runtime.Caller(0)
-	if !ok {
-		t.Fatal("runtime.Caller(0) failed to resolve this test file's path")
-	}
-	dir := filepath.Dir(thisFile)
-	for {
-		if _, err := os.Stat(filepath.Join(dir, "go.mod")); err == nil {
-			return filepath.Join(dir, rel)
-		}
-		parent := filepath.Dir(dir)
-		if parent == dir {
-			t.Fatalf("could not find go.mod walking up from %s", thisFile)
-		}
-		dir = parent
-	}
+	return filepath.Join(srcpath.RepoRoot(), rel)
 }
