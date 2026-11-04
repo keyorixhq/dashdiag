@@ -20,6 +20,9 @@ func TestSanitizeControl(t *testing.T) {
 		{"strips NUL", "trunc\x00ated", "truncated"},
 		{"strips C1 control (NEL, U+0085)", "before\u0085after", "beforeafter"},
 		{"tab and newline are also control runes and get stripped", "a\tb\nc", "abc"},
+		{"raw C1 byte (invalid UTF-8) becomes U+FFFD", "raw\x9braw", "raw�raw"},
+		{"invalid bytes become U+FFFD", "mixed\xffbytes\xfe", "mixed�bytes�"},
+		{"invalid byte plus control rune", "a\xffb\x1bc", "a�bc"},
 	}
 	for _, tt := range tests {
 		t.Run(tt.name, func(t *testing.T) {

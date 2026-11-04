@@ -3,6 +3,7 @@ package output
 import (
 	"strings"
 	"unicode"
+	"unicode/utf8"
 )
 
 // SanitizeControl strips ASCII and C1 control characters — including ESC
@@ -16,10 +17,12 @@ import (
 // worse via OSC 52 clipboard writes or DECRQSS-style tricks.
 //
 // Printable text, including multi-byte UTF-8, passes through unchanged;
-// only unicode.IsControl runes are removed (not replaced), so the output
-// stays readable rather than growing placeholder characters.
+// unicode.IsControl runes are removed (not replaced), so the output stays
+// readable rather than growing placeholder characters. Invalid UTF-8 (which
+// includes a raw 8-bit C1 byte such as 0x9B) is replaced with U+FFFD, so the
+// result is always valid UTF-8 and never carries a raw C1 byte.
 func SanitizeControl(s string) string {
-	if !strings.ContainsFunc(s, unicode.IsControl) {
+	if utf8.ValidString(s) && !strings.ContainsFunc(s, unicode.IsControl) {
 		return s
 	}
 	return strings.Map(func(r rune) rune {
