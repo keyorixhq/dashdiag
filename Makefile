@@ -40,6 +40,13 @@ release:
 	@cd dist && sha256sum $(BINARY)-* > checksums.txt
 	@echo "✅ Release binaries in dist/"
 
+# cgo-guard: fails if dsd can link a package with cgo files, or a build command
+# lacks CGO_ENABLED=0. `./scripts/cgo-dependency-guard.sh --binaries dist` also
+# inspects built release binaries (ci.yml runs it after `make release`).
+.PHONY: cgo-guard
+cgo-guard:
+	./scripts/cgo-dependency-guard.sh
+
 .PHONY: build-linux
 build-linux:
 	@mkdir -p dist

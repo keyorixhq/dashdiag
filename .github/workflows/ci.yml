@@ -315,6 +315,34 @@ jobs:
       - name: Verify every product-claim closure names a passing test
         run: ./scripts/check-closures.sh
 
+  # dsd ships as a static CGO_ENABLED=0 binary (distroless/static image, no libc).
+  # A dependency that starts shipping cgo files would break that silently, so
+  # scripts/cgo-dependency-guard.sh checks the dependency graph with cgo switched
+  # on, the CGO_ENABLED=0 on every build command, and the built release binaries.
+  cgo-guard:
+    name: cgo guard
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: read
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
+      - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
+        with:
+          go-version: '1.26'
+          check-latest: true
+          cache: true
+
+      - name: Self-test the guard (must be able to go red)
+        run: ./scripts/cgo-dependency-guard.sh --self-test
+
+      - name: No cgo package in dsd's graph; build commands set CGO_ENABLED=0
+        run: ./scripts/cgo-dependency-guard.sh
+
+      - name: Release binaries are cgo-free
+        run: |
+          make release VERSION=cgo-guard
+          ./scripts/cgo-dependency-guard.sh --binaries dist
+
   # needs: [changes, preflight] (not just [preflight]) + `if: always() && (...
   # == 'success' || ... == 'skipped')` — NOT a bare needs-cascade skip like the
   # other preflight-gated jobs below. A matrix job that's skipped at the job
