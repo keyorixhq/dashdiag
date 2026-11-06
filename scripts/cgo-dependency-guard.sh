@@ -52,13 +52,18 @@ command -v go >/dev/null 2>&1 || die "go not found in PATH"
 
 # cgo_packages DIR GOOS TAGS PKG: non-stdlib packages with active cgo files.
 cgo_packages() {
-	local dir="$1" goos="$2" tags="$3" pkg="$4" out
+	local dir="$1" goos="$2" tags="$3" pkg="$4" out errf
+	# stderr goes to a file, not into $out: "go: downloading ..." progress lines
+	# on a cold module cache would otherwise be parsed as package names.
+	errf="$(mktemp)"
 	if ! out="$(cd "$dir" && GOWORK=off GOOS="$goos" CGO_ENABLED=1 go list ${tags:+-tags "$tags"} -deps \
-		-f '{{if and .CgoFiles (not .Standard)}}{{.ImportPath}}{{end}}' "$pkg" 2>&1)"; then
+		-f '{{if and .CgoFiles (not .Standard)}}{{.ImportPath}}{{end}}' "$pkg" 2>"$errf")"; then
 		echo "cgo-dependency-guard: go list failed in $dir for $pkg ($goos):" >&2
-		echo "$out" >&2
+		cat "$errf" >&2
+		rm -f "$errf"
 		return 2
 	fi
+	rm -f "$errf"
 	printf '%s\n' "$out" | sed '/^$/d' | sort -u
 }
 
@@ -139,6 +144,7 @@ lint_stream() {
 lint_file() {
 	local f="$1" env_ok="$2"
 	if grep -qE '^CGO_ENABLED[[:space:]]*:?=[[:space:]]*0[[:space:]]*$' "$f"; then
+		# shellcheck disable=SC2016 # literal Makefile text, not a shell expansion
 		sed 's/CGO_ENABLED=\$(CGO_ENABLED)/CGO_ENABLED=0/g' "$f" | lint_stream "${f#"$repo_root"/}" "$env_ok"
 	else
 		lint_stream "${f#"$repo_root"/}" "$env_ok" <"$f"
