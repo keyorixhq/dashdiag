@@ -348,7 +348,7 @@ func TestDetectCrashLoops_Found(t *testing.T) {
 		b.PutCmd("systemctl", []string{"list-units", "--state=failed", "--no-legend", "--no-pager", "--plain"},
 			"myapp.service    loaded failed failed My App\n", 0)
 		recentTS := time.Now().UTC().Format("Mon 2006-01-02 15:04:05 MST")
-		b.PutCmd("systemctl", []string{"show", "myapp.service", "--property=NRestarts", "--property=InactiveEnterTimestamp"},
+		b.PutCmd("systemctl", []string{"show", "--property=NRestarts", "--property=InactiveEnterTimestamp", "myapp.service"},
 			"NRestarts=7\nInactiveEnterTimestamp="+recentTS+"\n", 0)
 	})
 	loops, _ := detectCrashLoops(context.Background())
@@ -364,7 +364,7 @@ func TestDetectCrashLoops_BelowThreshold(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("systemctl", []string{"list-units", "--state=failed", "--no-legend", "--no-pager", "--plain"},
 			"myapp.service    loaded failed failed My App\n", 0)
-		b.PutCmd("systemctl", []string{"show", "myapp.service", "--property=NRestarts", "--property=InactiveEnterTimestamp"},
+		b.PutCmd("systemctl", []string{"show", "--property=NRestarts", "--property=InactiveEnterTimestamp", "myapp.service"},
 			"NRestarts=2\nInactiveEnterTimestamp=\n", 0)
 	})
 	if loops, _ := detectCrashLoops(context.Background()); loops != nil {
@@ -425,7 +425,7 @@ func TestDetectCrashLoops_ShowFails(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("systemctl", []string{"list-units", "--state=failed", "--no-legend", "--no-pager", "--plain"},
 			"myapp.service    loaded failed failed My App\n", 0)
-		b.PutCmd("systemctl", []string{"show", "myapp.service", "--property=NRestarts", "--property=InactiveEnterTimestamp"},
+		b.PutCmd("systemctl", []string{"show", "--property=NRestarts", "--property=InactiveEnterTimestamp", "myapp.service"},
 			"", 1)
 	})
 	if loops, _ := detectCrashLoops(context.Background()); loops != nil {
@@ -442,7 +442,7 @@ func TestDetectCrashLoops_StaleLoopSkipped(t *testing.T) {
 		b.PutCmd("systemctl", []string{"list-units", "--state=failed", "--no-legend", "--no-pager", "--plain"},
 			"myapp.service    loaded failed failed My App\n", 0)
 		staleTS := time.Now().Add(-30 * 24 * time.Hour).UTC().Format("Mon 2006-01-02 15:04:05 MST")
-		b.PutCmd("systemctl", []string{"show", "myapp.service", "--property=NRestarts", "--property=InactiveEnterTimestamp"},
+		b.PutCmd("systemctl", []string{"show", "--property=NRestarts", "--property=InactiveEnterTimestamp", "myapp.service"},
 			"NRestarts=7\nInactiveEnterTimestamp="+staleTS+"\n", 0)
 	})
 	if loops, _ := detectCrashLoops(context.Background()); loops != nil {

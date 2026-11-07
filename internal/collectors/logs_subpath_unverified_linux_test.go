@@ -71,7 +71,7 @@ func TestDetectCrashLoops_UnitShowFailureIsUnverified(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("systemctl", []string{"list-units", "--state=failed", "--no-legend", "--no-pager", "--plain"},
 			"myapp.service    loaded failed failed My App\n", 0)
-		b.PutCmd("systemctl", []string{"show", "myapp.service", "--property=NRestarts", "--property=InactiveEnterTimestamp"}, "", 1)
+		b.PutCmd("systemctl", []string{"show", "--property=NRestarts", "--property=InactiveEnterTimestamp", "myapp.service"}, "", 1)
 	})
 	loops, unverified := detectCrashLoops(context.Background())
 	if len(loops) != 0 || !unverified {

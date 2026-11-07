@@ -84,7 +84,7 @@ func detectResolver(ctx context.Context, info *models.ResolverAuditInfo) {
 
 	// systemd-resolved inactive — find what else manages DNS.
 	for _, svc := range []string{"NetworkManager", "dnsmasq", "unbound"} {
-		if out, e := runCmd(ctx, "systemctl", "is-active", svc); e == nil &&
+		if out, e := runSystemctl(ctx, runCmd, []string{"is-active"}, svc); e == nil &&
 			strings.TrimSpace(out) == "active" {
 			info.ResolverType = svc
 			info.ResolverActive = true

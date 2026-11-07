@@ -160,7 +160,7 @@ func collectOneDrive(ctx context.Context, devPath string) models.HardwareDrive {
 	// content (never reaching the !d.SmartOK CRIT branch in
 	// heuristics_hardware.go). Use runCmdOutput, which keeps stdout
 	// regardless of exit code, the same helper already used for rpm/dnf.
-	out, err := runCmdOutput(ctx, "smartctl", "--json=c", "-a", devPath)
+	out, err := guarded(validOperand, "device path", devPath, func() (string, error) { return runCmdOutput(ctx, "smartctl", "--json=c", "-a", devPath) })
 	if err != nil && out == "" {
 		errStr := err.Error()
 		// runCmd/runCmdOutput's cmdError formats as "<name> exited <code>"

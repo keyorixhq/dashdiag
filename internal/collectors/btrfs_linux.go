@@ -81,7 +81,7 @@ var btrfsShowUUIDRe = regexp.MustCompile(`uuid:\s+([a-f0-9-]+)`)
 
 // parseBtrfsShow runs `btrfs filesystem show <mount>` and returns a BtrfsVolume.
 func parseBtrfsShow(ctx context.Context, mount string) *models.BtrfsVolume {
-	out, err := runCmd(ctx, "btrfs", "filesystem", "show", mount)
+	out, err := guarded(validOperand, "mount path", mount, func() (string, error) { return runCmd(ctx, "btrfs", "filesystem", "show", mount) })
 	if err != nil || out == "" {
 		return nil
 	}
@@ -156,7 +156,7 @@ var btrfsDevStatRe = regexp.MustCompile(`\[([^\]]+)\]\.(read_io_errs|write_io_er
 
 // parseBtrfsDevStats runs `btrfs device stats <mount>` and populates error counters.
 func parseBtrfsDevStats(ctx context.Context, mount string, vol *models.BtrfsVolume) {
-	out, err := runCmd(ctx, "btrfs", "device", "stats", mount)
+	out, err := guarded(validOperand, "mount path", mount, func() (string, error) { return runCmd(ctx, "btrfs", "device", "stats", mount) })
 	if err != nil || out == "" {
 		return
 	}

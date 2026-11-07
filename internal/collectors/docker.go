@@ -1123,8 +1123,7 @@ func quadletServiceUnit(filename string) string {
 func quadletUnitState(ctx context.Context, unit string) (active, failed bool, state string) {
 	sCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
 	defer cancel()
-	out, err := runCmd(sCtx, "systemctl", "show", unit,
-		"--property=ActiveState,SubState,LoadState")
+	out, err := runSystemctl(sCtx, runCmd, []string{"show", "--property=ActiveState,SubState,LoadState"}, unit)
 	if err != nil {
 		return false, false, ""
 	}
