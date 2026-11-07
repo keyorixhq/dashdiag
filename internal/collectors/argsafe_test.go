@@ -36,8 +36,8 @@ func (s *argvSpy) count() int {
 var optionShaped = []string{"--version", "-h", "--help", "-", "--output=x", "-x"}
 
 func TestValidUnitName(t *testing.T) {
-	good := []string{"sshd.service", "sshd@10.0.0.1:22-1.2.3.4:5.service", "systemd-resolved", `getty@tty1.service`, `dev-disk-by\x2duuid.device`, "a", "NetworkManager"}
-	bad := []string{"", "--version", "-h", "-.mount", "a b", "a;b", "a/b", "$(id)", "a\nb", "a`b`", "é.service", strings.Repeat("a", 257)}
+	good := []string{"sshd.service", "sshd@10.0.0.1:22-1.2.3.4:5.service", "systemd-resolved", `getty@tty1.service`, `dev-disk-by\x2duuid.device`, "a", "NetworkManager", "-.mount", "-.slice"}
+	bad := []string{"", "--version", "-h", "-x", "-foo", "--help", "-", "-.service", "a b", "a\tb", "a\x00b", "a;b", "a/b", "$(id)", "a\nb", "a`b`", "é.service", strings.Repeat("a", 257)}
 	for _, s := range good {
 		if !validUnitName(s) {
 			t.Errorf("validUnitName(%q) = false, want true", s)
@@ -83,8 +83,11 @@ func TestRunSystemctl_Argv(t *testing.T) {
 		{"is-active", []string{"is-active"}, []string{"sshd.service"}, []string{"systemctl", "is-active", "--", "sshd.service"}},
 		{"show props", []string{"show", "--property=ActiveState"}, []string{"cron.service"}, []string{"systemctl", "show", "--property=ActiveState", "--", "cron.service"}},
 		{"batch", []string{"show"}, []string{"a.service", "b.service"}, []string{"systemctl", "show", "--", "a.service", "b.service"}},
+		{"root mount", []string{"show", "--property=ActiveState"}, []string{"-.mount"}, []string{"systemctl", "show", "--property=ActiveState", "--", "-.mount"}},
 		{"leading dash --version", []string{"is-active"}, []string{"--version"}, nil},
 		{"leading dash -h", []string{"show"}, []string{"-h"}, nil},
+		{"leading dash -x", []string{"show"}, []string{"-x"}, nil},
+		{"leading dash -foo", []string{"show"}, []string{"-foo"}, nil},
 		{"dash among valid", []string{"show"}, []string{"a.service", "--user"}, nil},
 		{"shell metachar", []string{"show"}, []string{"a;reboot"}, nil},
 		{"empty", []string{"show"}, []string{""}, nil},
