@@ -496,7 +496,7 @@ func selinuxPolicyPkgInstalled(policyType string) bool {
 	// Try rpm first — RHEL, CentOS, Fedora, openSUSE.
 	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel()
-	out, err := runCmd(ctx, "rpm", "-q", pkgName)
+	out, err := guarded(validOperand, "package name", pkgName, func() (string, error) { return runCmd(ctx, "rpm", "-q", "--", pkgName) })
 	if err == nil && !strings.Contains(out, "not installed") {
 		return true
 	}
@@ -504,7 +504,7 @@ func selinuxPolicyPkgInstalled(policyType string) bool {
 	// Try dpkg — Debian, Ubuntu.
 	ctx2, cancel2 := context.WithTimeout(context.Background(), 3*time.Second)
 	defer cancel2()
-	out2, err2 := runCmd(ctx2, "dpkg", "-s", pkgName)
+	out2, err2 := guarded(validOperand, "package name", pkgName, func() (string, error) { return runCmd(ctx2, "dpkg", "-s", pkgName) })
 	if err2 == nil && strings.Contains(out2, "Status: install ok installed") {
 		return true
 	}

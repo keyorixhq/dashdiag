@@ -437,8 +437,7 @@ func detectCrashLoops(ctx context.Context) (loops []string, unverified bool) {
 			continue
 		}
 		// Check NRestarts + recency via systemctl show.
-		showOut, err := runCmd(ctx, "systemctl", "show", unit,
-			"--property=NRestarts", "--property=InactiveEnterTimestamp")
+		showOut, err := runSystemctl(ctx, runCmd, []string{"show", "--property=NRestarts", "--property=InactiveEnterTimestamp"}, unit)
 		if err != nil {
 			unverified = true // this unit's restart count is unknown
 			continue
@@ -815,7 +814,7 @@ func readJournaldConfig(key string) string {
 func isServiceActive(name string) bool {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	out, err := runCmd(ctx, "systemctl", "is-active", name)
+	out, err := runSystemctl(ctx, runCmd, []string{"is-active"}, name)
 	return err == nil && strings.TrimSpace(out) == "active"
 }
 

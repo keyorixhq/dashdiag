@@ -72,7 +72,7 @@ func (c *NVMeCollector) Collect(ctx context.Context) (interface{}, error) {
 		}
 
 		// Read SMART log via nvme-cli
-		out, err := runCmd(ctx, "nvme", "smart-log", dev.Name, "--output-format=normal")
+		out, err := guarded(validOperand, "device name", dev.Name, func() (string, error) { return runCmd(ctx, "nvme", "smart-log", dev.Name, "--output-format=normal") })
 		if err != nil {
 			// SMART unread — record WHY so the heuristic gives the right
 			// remediation instead of a blanket "nvme-cli not installed".
@@ -345,7 +345,7 @@ func collectSATADrives(ctx context.Context, info *models.NVMeInfo) {
 		}
 
 		// Read SMART data
-		smartOut, err := runCmd(ctx, "smartctl", "--json=c", "-a", d.Name)
+		smartOut, err := guarded(validOperand, "device name", d.Name, func() (string, error) { return runCmd(ctx, "smartctl", "--json=c", "-a", d.Name) })
 		if err != nil && smartOut == "" {
 			dev.Error = "smartctl failed"
 			dev.SmartUnreadReason = "error"

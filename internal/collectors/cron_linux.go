@@ -56,7 +56,7 @@ var cronDaemonNames = []string{"crond", "cron", "fcron"}
 
 func detectCronDaemon(ctx context.Context, info *models.CronInfo) {
 	systemctlActive := func(d string) bool {
-		out, err := runCmd(ctx, "systemctl", "is-active", d)
+		out, err := runSystemctl(ctx, runCmd, []string{"is-active"}, d)
 		return err == nil && strings.TrimSpace(out) == "active"
 	}
 	// Systemd-independent confirmation: on a non-systemd host (Alpine/OpenRC,

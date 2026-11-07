@@ -131,7 +131,7 @@ func ociAgentState(ctx context.Context) (checked, installed, running, updaterRun
 // absent unit — unlike `systemctl is-active`, which returns the same non-zero
 // exit for both "inactive" and "unit does not exist".
 func ociServiceState(ctx context.Context, unit string) (loadState, activeState string) {
-	out, err := runCmd(ctx, "systemctl", "show", unit, "-p", "LoadState,ActiveState", "--value")
+	out, err := runSystemctl(ctx, runCmd, []string{"show", "-p", "LoadState,ActiveState", "--value"}, unit)
 	if err != nil {
 		return "", ""
 	}
@@ -207,7 +207,7 @@ func ociVNICRingStats(ctx context.Context) (checked bool, vnics []models.OCIVNIC
 		if !strings.EqualFold(drv, "virtio_net") {
 			continue
 		}
-		out, err := runCmd(ctx, "ethtool", "-S", iface)
+		out, err := guarded(validIfaceName, "interface name", iface, func() (string, error) { return runCmd(ctx, "ethtool", "-S", iface) })
 		if err != nil {
 			continue
 		}

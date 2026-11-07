@@ -79,14 +79,19 @@ func (c *ServicesDeepCollector) Collect(ctx context.Context) (interface{}, error
 			break
 		}
 		unit := &info.FailedUnits[i]
-		logOut, err := runCmd(ctx, "journalctl", "-u", unit.Name,
-			"-n", "8", svcNoPager, "--output=short", "--no-hostname")
+		var logOut string
+		var err error
+		if validUnitName(unit.Name) { // value of -u is consumed as its argument; still refuse odd names
+			logOut, err = runCmd(ctx, "journalctl", "-u", unit.Name,
+				"-n", "8", svcNoPager, "--output=short", "--no-hostname")
+		} else {
+			err = newUnsafeArg("systemd unit name", unit.Name)
+		}
 		if err == nil {
 			unit.LastLogLines = parseJournalLines(logOut)
 		}
 		// Exit code from systemctl show
-		showOut, err := runCmd(ctx, "systemctl", "show", unit.Name,
-			"--property=ExecMainStatus,ActiveState,SubState")
+		showOut, err := runSystemctl(ctx, runCmd, []string{"show", "--property=ExecMainStatus,ActiveState,SubState"}, unit.Name)
 		if err == nil {
 			parseUnitShow(showOut, unit)
 		}
@@ -231,8 +236,13 @@ func collectNeedsDaemonReload(ctx context.Context) []string {
 	// Batch query — systemctl accepts multiple unit names in one call.
 	// The systemd unit property is NeedDaemonReload (singular); the plural
 	// "NeedsDaemonReload" returns empty for every unit (the bug this had before).
-	args := append([]string{"show", "--property=Id,NeedDaemonReload"}, unitNames...)
-	showOut, err := runCmd(ctx, "systemctl", args...)
+	// Names come from systemctl output; drop any that are not conservative unit
+	// names rather than let one odd entry fail the whole batch.
+	unitNames = filterUnitNames(unitNames)
+	if len(unitNames) == 0 {
+		return nil
+	}
+	showOut, err := runSystemctl(ctx, runCmd, []string{"show", "--property=Id,NeedDaemonReload"}, unitNames...)
 	if err != nil {
 		return nil
 	}
@@ -386,4 +396,15 @@ func collectUserUnits(ctx context.Context) *models.UserUnitsInfo {
 		}
 	}
 	return info
+}
+
+// filterUnitNames returns the entries of names that are valid unit names.
+func filterUnitNames(names []string) []string {
+	out := make([]string, 0, len(names))
+	for _, n := range names {
+		if validUnitName(n) {
+			out = append(out, n)
+		}
+	}
+	return out
 }
