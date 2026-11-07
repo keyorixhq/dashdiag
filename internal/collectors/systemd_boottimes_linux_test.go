@@ -234,7 +234,7 @@ func TestSystemdCollect_SSHDStatusUnverified(t *testing.T) {
 		b.PutStat("/run/systemd/private", source.FileMeta{})
 		b.PutCmd("systemctl", []string{"list-units", "--state=failed", "--no-legend", "--no-pager", "--plain"},
 			sshdUnit+" loaded failed failed noise\n", 0)
-		b.PutCmdNotFound("systemctl", []string{"show", sshdUnit, "-p", "ExecMainStatus", "--value"})
+		b.PutCmdNotFound("systemctl", []string{"show", "-p", "ExecMainStatus", "--value", sshdUnit})
 		b.PutGlob("/etc/sysupdate.d/*.transfer", nil)
 		b.PutGlob("/usr/lib/sysupdate.d/*.transfer", nil)
 		b.PutCmd("systemd-analyze", []string{"time"},
@@ -280,7 +280,7 @@ func TestSystemdCollect_SSHDAliasingBug(t *testing.T) {
 				"my-real.service loaded failed failed my real service\n", 0)
 		// A non-benign exit status (not 0/255/"") — this sshd@ instance failed
 		// for a REAL reason and must be added back to FailedUnits.
-		b.PutCmd("systemctl", []string{"show", sshdUnit, "-p", "ExecMainStatus", "--value"}, "1\n", 0)
+		b.PutCmd("systemctl", []string{"show", "-p", "ExecMainStatus", "--value", sshdUnit}, "1\n", 0)
 		b.PutGlob("/etc/sysupdate.d/*.transfer", nil)
 		b.PutGlob("/usr/lib/sysupdate.d/*.transfer", nil)
 		b.PutCmd("systemd-analyze", []string{"time"},

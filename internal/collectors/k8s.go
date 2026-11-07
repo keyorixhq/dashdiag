@@ -560,7 +560,7 @@ func flannelCNIConfigured() (inUse, unreadable bool) {
 // exist and are active, which breaks on k3s where only k3s/k3s-agent exist).
 func k8sUnitActive(ctx context.Context, units ...string) bool {
 	for _, u := range units {
-		if out, err := runCmd(ctx, "systemctl", "is-active", u); err == nil && strings.TrimSpace(out) == "active" {
+		if out, err := runSystemctl(ctx, runCmd, []string{"is-active"}, u); err == nil && strings.TrimSpace(out) == "active" {
 			return true
 		}
 	}

@@ -160,7 +160,7 @@ func readAuthLogFrom(ctx context.Context, candidates []string) (content string, 
 		_ = f.Close()
 		// Readable. grep exit 1 (no matches) is fine — the file opened, so an
 		// empty result genuinely means no failed logins.
-		out, _ := runCmd(ctx, "grep", "-E", "Failed password|Invalid user", path)
+		out, _ := guarded(validOperand, "path", path, func() (string, error) { return runCmd(ctx, "grep", "-E", "Failed password|Invalid user", "--", path) })
 		return out, true, denied
 	}
 	return "", false, denied

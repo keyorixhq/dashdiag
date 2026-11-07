@@ -376,7 +376,7 @@ func waagentState(ctx context.Context) (installed, running bool) {
 		return false, false
 	}
 	for _, unit := range []string{"walinuxagent", "waagent"} {
-		if out, err := runCmd(ctx, "systemctl", "is-active", unit); err == nil &&
+		if out, err := runSystemctl(ctx, runCmd, []string{"is-active"}, unit); err == nil &&
 			strings.TrimSpace(out) == "active" {
 			return true, true
 		}

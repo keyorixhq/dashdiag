@@ -222,7 +222,7 @@ func TestServicesDeep_PortProbesGated_SystemdHealthUnaffected(t *testing.T) {
 			"postgresql.service loaded failed failed PostgreSQL Database\n", 0)
 		b.PutCmd("journalctl", []string{"-u", "postgresql.service", "-n", "8", "--no-pager", "--output=short", "--no-hostname"},
 			"May 19 10:00:00 host postgresql[123]: FATAL: could not bind IPv4 socket\n", 0)
-		b.PutCmd("systemctl", []string{"show", "postgresql.service", "--property=ExecMainStatus,ActiveState,SubState"},
+		b.PutCmd("systemctl", []string{"show", "--property=ExecMainStatus,ActiveState,SubState", "postgresql.service"},
 			"ExecMainStatus=1\nActiveState=failed\nSubState=failed\n", 0)
 		b.PutCmd("systemctl", []string{"show", "-p", "TriggeredBy", "--value", "postgresql.service"}, "", 0)
 		b.PutCmd("systemctl", []string{"list-units", "--type=service", "--state=loaded", "--plain", "--no-legend", "--no-pager"}, "", 0)

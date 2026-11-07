@@ -371,7 +371,7 @@ func TestCollectK8sOSLayer_KubeletErrorsTruncated(t *testing.T) {
 	}, "\n") + "\n"
 
 	prev := SetSource(mockExec(func(name string, args []string) (source.Result, error) {
-		if name == "systemctl" && len(args) >= 2 && args[0] == "is-active" && args[1] == "kubelet" {
+		if name == "systemctl" && len(args) >= 2 && args[0] == "is-active" && args[len(args)-1] == "kubelet" {
 			return source.Result{Stdout: []byte("active\n"), ExitCode: 0}, nil
 		}
 		if name == "journalctl" {

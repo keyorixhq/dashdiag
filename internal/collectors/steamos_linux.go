@@ -185,7 +185,7 @@ func collectSteamOSWifi(ctx context.Context) *models.SteamOSWifi {
 	}
 
 	if w.Interface != "" {
-		if out, err := runCmd(ctx, "iw", "dev", w.Interface, "link"); err == nil {
+		if out, err := guarded(validIfaceName, "interface name", w.Interface, func() (string, error) { return runCmd(ctx, "iw", "dev", w.Interface, "link") }); err == nil {
 			conn, sig := parseIwLinkSignal(out)
 			w.Connected = w.Connected || conn
 			w.SignalDBm = sig
@@ -445,7 +445,7 @@ func steamUserHome() string {
 // duGB returns the size of a directory tree in GB via `du -sb` (bytes). Returns
 // 0 on any error so a missing tool or permission issue stays quiet.
 func duGB(ctx context.Context, path string) float64 {
-	out, err := runCmd(ctx, "du", "-sb", path)
+	out, err := guarded(validOperand, "path", path, func() (string, error) { return runCmd(ctx, "du", "-sb", "--", path) })
 	if err != nil {
 		return 0
 	}
@@ -463,7 +463,7 @@ func duGB(ctx context.Context, path string) float64 {
 // unitActive reports whether a systemd unit is active (is-active exits 0 and
 // prints "active").
 func unitActive(ctx context.Context, unit string) bool {
-	out, err := runCmd(ctx, "systemctl", "is-active", unit)
+	out, err := runSystemctl(ctx, runCmd, []string{"is-active"}, unit)
 	return err == nil && strings.TrimSpace(out) == "active"
 }
 

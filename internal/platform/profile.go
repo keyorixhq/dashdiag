@@ -414,7 +414,10 @@ func systemctlIsActiveWithLookup(unit string, lookup func(string) (string, error
 	// exit code is read here (nothing parses stdout/stderr), so
 	// RunHardened's locale forcing is a no-op for this call site, not a
 	// requirement.
-	cmd, err := RunHardened(ctx, "systemctl", "is-active", unit)
+	if !ValidUnitName(unit) {
+		return false // never hand a host-derived, option-shaped name to systemctl
+	}
+	cmd, err := RunHardened(ctx, "systemctl", "is-active", "--", unit)
 	if err != nil {
 		return false
 	}

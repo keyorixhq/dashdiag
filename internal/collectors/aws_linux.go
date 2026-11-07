@@ -146,7 +146,7 @@ func enaExpressState(ctx context.Context) (checked, active bool) {
 		return false, false
 	}
 	for _, iface := range ifaces {
-		out, err := runCmd(ctx, "ethtool", "-S", iface)
+		out, err := guarded(validIfaceName, "interface name", iface, func() (string, error) { return runCmd(ctx, "ethtool", "-S", iface) })
 		if err != nil {
 			continue
 		}
@@ -216,7 +216,7 @@ var enaAllowanceKeys = map[string]string{
 func enaRead(ctx context.Context) map[string]map[string]uint64 {
 	out := map[string]map[string]uint64{}
 	for _, iface := range enaInterfaces() {
-		stats, err := runCmd(ctx, "ethtool", "-S", iface)
+		stats, err := guarded(validIfaceName, "interface name", iface, func() (string, error) { return runCmd(ctx, "ethtool", "-S", iface) })
 		if err != nil {
 			continue
 		}
@@ -629,7 +629,7 @@ func ssmState(ctx context.Context) (installed, running bool) {
 		return true, true
 	}
 	for _, unit := range []string{awsSvcSSMAgent, "snap.amazon-ssm-agent.amazon-ssm-agent"} {
-		if out, err := runCmd(ctx, "systemctl", "is-active", unit); err == nil &&
+		if out, err := runSystemctl(ctx, runCmd, []string{"is-active"}, unit); err == nil &&
 			strings.TrimSpace(out) == "active" {
 			return true, true
 		}
