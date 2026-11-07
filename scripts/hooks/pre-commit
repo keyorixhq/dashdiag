@@ -1,6 +1,6 @@
 #!/bin/bash
 # Pre-commit: fast checks only — gofmt/vet are near-instant; the -short test
-# run is the long pole (typically ~50-55s, hard-capped at 300s, see below)
+# run covers only the packages you changed
 # Install: cp scripts/hooks/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
 
 set -e
@@ -44,19 +44,23 @@ if ! go vet ./... 2>&1; then
 fi
 echo "  ✅ go vet"
 
-# 4. Tests with -short flag — skips slow integration tests. Budget matches
-# CI's own timeout (300s, see ci.yml `go test -race ... -timeout 300s`): the
-# cmd package's test suite alone now regularly takes 45-55s even under
-# -short (its every-subcommand-spawns-a-subprocess smoke tests already skip
-# under -short — see cmd/smoke_test.go — but the remaining ~1200 in-process
-# tests in that package are enough on their own to blow a 60s ceiling under
-# load), so a flat 60s ceiling here was intermittently killing the whole
-# `go test` run on unrelated commits, not just slow ones (issue #1108).
-if ! go test -short -count=1 -timeout 300s ./... 2>&1; then
-    echo "❌ Tests failed"
-    exit 1
+# 4. Tests with -short, ONLY for packages that contain staged .go files. The
+# full -short run over ./... took ~1 minute of laptop CPU on every commit and CI
+# runs the whole suite anyway. HOOK_ALL_TESTS=1 restores the full run.
+if [ "${HOOK_ALL_TESTS:-0}" = "1" ]; then
+    test_targets="./..."
+else
+    test_targets="$(git diff --cached --name-only --diff-filter=ACMR -- '*.go' | xargs -n1 dirname 2>/dev/null | sort -u | sed 's#^#./#' | tr '\n' ' ')"
 fi
-echo "  ✅ tests (short)"
+if [ -n "$test_targets" ]; then
+    if ! go test -short -count=1 -timeout 300s $test_targets 2>&1; then
+        echo "❌ Tests failed"
+        exit 1
+    fi
+    echo "  ✅ tests (short, changed packages)"
+else
+    echo "  ⏭  no staged Go files, tests skipped"
+fi
 
 echo ""
 echo "✅ Pre-commit passed — run 'make check' for full lint before pushing"
