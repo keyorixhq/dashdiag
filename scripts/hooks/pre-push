@@ -3,15 +3,21 @@
 # Install: cp scripts/hooks/pre-push .git/hooks/pre-push && chmod +x .git/hooks/pre-push
 
 set -e
-echo "→ Pre-push (thorough checks)"
+echo "→ Pre-push (lint and security checks; tests run in CI)"
 
-# 1. Full test suite with race detector
-echo "  Running tests with race detector..."
-if ! go test -race -count=1 -timeout 300s ./... 2>&1; then
-    echo "❌ Tests failed (race detector)"
-    exit 1
+# 1. Tests are NOT run here by default: CI runs the full suite with the race
+# detector (ci.yml), and running it on a laptop costs minutes of CPU on every
+# push. Opt in when you want it locally: PREPUSH_TESTS=1 git push
+if [ "${PREPUSH_TESTS:-0}" = "1" ]; then
+    echo "  Running tests with race detector (PREPUSH_TESTS=1)..."
+    if ! go test -race -count=1 -timeout 300s ./... 2>&1; then
+        echo "❌ Tests failed (race detector)"
+        exit 1
+    fi
+    echo "  ✅ tests (race)"
+else
+    echo "  ⏭  full tests skipped (CI runs them; PREPUSH_TESTS=1 to run locally)"
 fi
-echo "  ✅ tests (race)"
 
 # 2. golangci-lint — full linter suite. On a non-Linux dev machine this
 # lints for the HOST's GOOS, so any symbol whose only real callers live in a
