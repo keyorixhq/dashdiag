@@ -1,6 +1,8 @@
 module github.com/keyorixhq/dashdiag
 
-go 1.26.10
+go 1.27
+
+toolchain go1.27.3
 
 require (
 	github.com/charmbracelet/bubbletea v1.3.10
