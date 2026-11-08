@@ -79,10 +79,8 @@ jobs:
       contents: read
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
-      # Floats '1.26' like the other jobs (see ci.yml's top note). This job had a
-      # temporary exact pin for GO-2026-6809 (crypto/x509, fixed in 1.26.10) while
-      # GitHub's setup-go manifest lagged; the manifest now lists 1.26.10, so the
-      # pin is gone. Do not re-pin to a patch version: it goes stale silently.
+      # Uses go-version-file: go.mod like the other jobs (see ci.yml's top note);
+      # the Go patch version comes from go.mod, not from a separate pin here.
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with: {go-version-file: go.mod, cache: true}
 
