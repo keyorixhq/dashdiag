@@ -22,7 +22,7 @@ SIZE=Standard_D2pls_v6                              # arm64, NVMe
 IMAGE="Canonical:ubuntu-24_04-lts:server-arm64:latest"   # arm64 image (x86 image won't boot on D2pls)
 ADMIN=azureuser
 DATA_DISK_GB=16                                     # data disk at ReadWrite caching → host-cache check
-GO_VER=1.26.4                                       # bump if the build step 404s on the Go arm64 tarball
+GO_VER=1.27.3                                      # bump if the build step 404s on the Go arm64 tarball
 
 command -v az >/dev/null || { echo "az not found — run in Azure Cloud Shell (Bash)."; exit 1; }
 command -v jq >/dev/null || { echo "jq not found — run in Azure Cloud Shell (Bash)."; exit 1; }

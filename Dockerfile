@@ -6,7 +6,7 @@
 # vehicle for that binary, not a runtime environment it depends on.
 
 # ── build stage ───────────────────────────────────────────────────────────
-# Pinned by digest, not just the floating "1.26" tag ci.yml/release.yml use
+# Pinned by digest, not just the floating "1.27" tag ci.yml/release.yml use
 # for setup-go — a tag can move underneath a cached build; a digest can't.
 # Re-pin deliberately (not automatically) alongside the next Go version bump,
 # same cadence as every other pinned-by-digest tool in this repo.
@@ -19,7 +19,7 @@
 # linux/amd64 and linux/arm64 under buildx with ZERO QEMU-emulated execution,
 # only a metadata-level platform pull for the distroless base and a plain
 # COPY for the cross-compiled binary.
-FROM --platform=$BUILDPLATFORM golang:1.26@sha256:670bb5aa5349ae03b8516764718486f4f16399134bdc9acd0c46a23f043ab05c AS build
+FROM --platform=$BUILDPLATFORM golang:1.27.3@sha256:e519d3b0a5b285e5aa53ab9eef02bc6bbb9cb04608389b743a136a9ce75f0d1e AS build
 
 WORKDIR /src
 

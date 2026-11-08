@@ -31,7 +31,7 @@ SIZE=Standard_NC4as_T4_v3             # AMD EPYC + 1× NVIDIA Tesla T4, 4 vCPU �
 IMAGE=Ubuntu2404                      # x86 gen2
 ADMIN=azureuser
 DATA_DISK_GB=16                       # ReadWrite-cached on purpose: re-exercises the Azure host-caching WARN
-GO_VER=1.26.4
+GO_VER=1.27.3
 GPU_EXT_VERSION=1.9                   # Microsoft.HpcCompute/NvidiaGpuDriverLinux; bump if a newer line is required
 
 command -v az >/dev/null || { echo "az not found — run in Azure Cloud Shell (Bash)."; exit 1; }

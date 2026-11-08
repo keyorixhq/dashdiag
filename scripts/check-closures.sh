@@ -35,7 +35,7 @@
 # run it on the GOOS the ledger row's test actually requires. CI wires it into
 # ubuntu-24.04 jobs (ci.yml), so linux-gated rows verify correctly there. A
 # local run on macOS will report a false FAIL for any linux-gated proving test
-# — use the dashdiag-dev container, or the golang:1.26 Docker recipe in
+# — use the dashdiag-dev container, or the golang:1.27 Docker recipe in
 # CLAUDE.md's containerized-Linux-tests section, for an honest local result.
 #
 # Usage:
