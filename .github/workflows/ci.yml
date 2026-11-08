@@ -533,7 +533,7 @@ jobs:
           cache: true
       - uses: golangci/golangci-lint-action@ba0d7d2ec06a0ea1cb5fa41b2e4a3ab91d21278a # v9
         with:
-          version: v2.12.2  # keep in sync with local dev (brew)
+          version: v2.14.0  # keep in sync with scripts/ci/tool-versions.env in keyorix
 
   # SSDLC Layer 1 (ADR-0007): custom semgrep rules for our recurring risk
   # patterns (root-privileged exec + parsing). Rules live in .semgrep/.
