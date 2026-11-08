@@ -19,7 +19,7 @@ SIZE=Standard_D2as_v6                 # AMD v6, x86, NVMe-ONLY
 IMAGE=Ubuntu2404                      # x86 gen2; must be NVMe-tagged (NVMe-only size errors loudly if not)
 ADMIN=azureuser
 DATA_DISK_GB=16
-GO_VER=1.26.4
+GO_VER=1.27.3
 
 command -v az >/dev/null || { echo "az not found — run in Azure Cloud Shell (Bash)."; exit 1; }
 command -v jq >/dev/null || { echo "jq not found — run in Azure Cloud Shell (Bash)."; exit 1; }

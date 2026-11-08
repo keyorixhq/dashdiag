@@ -195,7 +195,7 @@ test-contract:
 ## Run the Linux-only collector tests (the *_linux.go files compile out on macOS)
 ## in a golang container — no remote host needed. Named volumes cache the build +
 ## module downloads so reruns are fast. Mirrors what CI runs on ubuntu.
-DOCKER_GO ?= golang:1.26
+DOCKER_GO ?= golang:1.27.3
 test-linux:
 	@echo "→ Running linux-gated collector tests in $(DOCKER_GO)"
 	docker run --rm -v "$(CURDIR)":/src \
