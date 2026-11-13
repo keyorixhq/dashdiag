@@ -268,19 +268,19 @@ func FuzzSecurityUpdatesCrossDistroDifferential(f *testing.F) {
 		}
 
 		// O-B1 TOTAL agreement across all three dialects.
-		if !(dnf.SecurityUpdates == apt.SecurityUpdates && apt.SecurityUpdates == zyp.SecurityUpdates) {
+		if dnf.SecurityUpdates != apt.SecurityUpdates || apt.SecurityUpdates != zyp.SecurityUpdates {
 			t.Fatalf("CROSS-DISTRO SecurityUpdates DIVERGENCE: dnf=%d apt=%d zypper=%d (logical N=%d, classes=%v)",
 				dnf.SecurityUpdates, apt.SecurityUpdates, zyp.SecurityUpdates, total, classes)
 		}
 
 		// O-B2 CRITICAL agreement across all three.
-		if !(dnf.CriticalUpdates == apt.CriticalUpdates && apt.CriticalUpdates == zyp.CriticalUpdates && dnf.CriticalUpdates == crit) {
+		if dnf.CriticalUpdates != apt.CriticalUpdates || apt.CriticalUpdates != zyp.CriticalUpdates || dnf.CriticalUpdates != crit {
 			t.Fatalf("CROSS-DISTRO Critical DIVERGENCE: dnf=%d apt=%d zypper=%d (want %d, classes=%v)",
 				dnf.CriticalUpdates, apt.CriticalUpdates, zyp.CriticalUpdates, crit, classes)
 		}
 
 		// O-B3 IMPORTANT agreement dnf vs zypper (apt excluded by design, F5).
-		if !(dnf.ImportantUpdates == zyp.ImportantUpdates && dnf.ImportantUpdates == imp) {
+		if dnf.ImportantUpdates != zyp.ImportantUpdates || dnf.ImportantUpdates != imp {
 			t.Fatalf("dnf/zypper Important DIVERGENCE: dnf=%d zypper=%d (want %d, classes=%v)",
 				dnf.ImportantUpdates, zyp.ImportantUpdates, imp, classes)
 		}
