@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"go.yaml.in/yaml/v3"
+	"github.com/keyorixhq/dashdiag/internal/yamlsafe"
 )
 
 // PolicyFile is the YAML structure for a dsd policy file.
@@ -87,7 +87,7 @@ func LoadPolicy(path string) (*PolicyFile, error) {
 		return nil, fmt.Errorf("cannot read policy file %q: %w", path, err)
 	}
 	var p PolicyFile
-	if err := yaml.Unmarshal(data, &p); err != nil {
+	if err := yamlsafe.Unmarshal(data, &p); err != nil {
 		return nil, fmt.Errorf("cannot parse policy file %q: %w", path, err)
 	}
 	if err := validatePolicy(&p); err != nil {

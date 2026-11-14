@@ -35,13 +35,13 @@ import (
 	"time"
 
 	"github.com/spf13/cobra"
-	"go.yaml.in/yaml/v3"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
 	"github.com/keyorixhq/dashdiag/internal/render"
 	"github.com/keyorixhq/dashdiag/internal/runner"
 	"github.com/keyorixhq/dashdiag/internal/version"
+	"github.com/keyorixhq/dashdiag/internal/yamlsafe"
 )
 
 // MockFixture is the top-level YAML structure.
@@ -134,7 +134,7 @@ func runMock(cmd *cobra.Command, args []string) error {
 	}
 
 	var fix MockFixture
-	if err := yaml.Unmarshal(data, &fix); err != nil {
+	if err := yamlsafe.Unmarshal(data, &fix); err != nil {
 		return fmt.Errorf("invalid fixture YAML: %w", err)
 	}
 

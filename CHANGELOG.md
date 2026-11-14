@@ -11,6 +11,15 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Security
+
+- **Duplicate keys in a `--policy` or mock fixture file are rejected in linear time.** The
+  YAML library takes O(n²) time and memory on a mapping that repeats a key and reports the
+  error only afterwards: a 20 KB file allocated about 1.4 GB, and the 1 MiB file-size cap does
+  not bound that (reported upstream at yaml/go-yaml#510). The files are now parsed to a node
+  tree first and the first duplicate key fails the load. Files without duplicate keys behave
+  as before (#1179).
+
 ### Changed
 
 - **YAML parsing moves to the maintained `go.yaml.in/yaml/v3`.** `gopkg.in/yaml.v3` was
