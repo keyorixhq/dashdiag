@@ -19,7 +19,18 @@
  			}
 --- a/internal/cis/rules.go
 +++ b/internal/cis/rules.go
-@@ -5464,6 +5464,7 @@
+@@ -3177,7 +3177,9 @@
+ 				if err != nil {
+ 					return skipr(r, fmt.Sprintf("could not read %s", loginDefsPath))
+ 				}
+-				for line := range strings.SplitSeq(string(data), "\n") {
++				lines := strings.Split(string(data), "\n")
++				for i := len(lines) - 1; i >= 0; i-- { // last assignment wins, as in shadow-utils
++					line := lines[i]
+ 					if strings.HasPrefix(strings.TrimSpace(line), "#") || strings.TrimSpace(line) == "" {
+ 						continue
+ 					}
+@@ -5464,6 +5466,7 @@
  	if err != nil {
  		return skipr(r, fmt.Sprintf("could not read %s", path))
  	}
@@ -27,29 +38,28 @@
  	for line := range strings.SplitSeq(string(data), "\n") {
  		trimmed := strings.TrimSpace(line)
  		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
-@@ -5472,19 +5473,27 @@
- 		lineFields := strings.Fields(trimmed)
+@@ -5473,18 +5476,26 @@
  		if len(lineFields) == 0 || lineFields[0] != field {
  			continue
--		}
+ 		}
 -		// Matched field name exactly — now check that a value is present.
 -		if len(lineFields) < 2 {
 -			return failr(r, fmt.Sprintf("%s has no value", field), failFix)
++		found, last = true, ""
++		if len(lineFields) >= 2 {
++			last = lineFields[1]
  		}
 -		days := 0
 -		fmt.Sscanf(lineFields[1], "%d", &days) //nolint:errcheck
 -		if fails(days) {
 -			return failr(r, fmt.Sprintf(failFmt, days), failFix)
-+		found, last = true, ""
-+		if len(lineFields) >= 2 {
-+			last = lineFields[1]
- 		}
+-		}
 -		return pass(r)
- 	}
--	return failr(r, notSetFinding, notSetFix)
++	}
 +	if !found {
 +		return failr(r, notSetFinding, notSetFix)
-+	}
+ 	}
+-	return failr(r, notSetFinding, notSetFix)
 +	if last == "" {
 +		return failr(r, fmt.Sprintf("%s has no value", field), failFix)
 +	}
@@ -65,7 +75,7 @@
  }
  
  // checkSysctl reads a /proc/sys path and compares to wantVal.
-@@ -5654,12 +5663,14 @@
+@@ -5654,12 +5665,14 @@
  	if err != nil {
  		return skipr(r, fmt.Sprintf("could not read %s", procMountsPath))
  	}

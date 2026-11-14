@@ -4,6 +4,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"regexp"
 	"slices"
 	"strconv"
 	"strings"
@@ -169,8 +170,11 @@ func loginDefsVerdicts(t *testing.T, path, content string) []models.CISStatus {
 //  2. field whitespace: re-joining fields with tabs keeps every verdict;
 //  3. reference verdict for PASS (false-OK guard; gated, DS1-F4, found by
 //     this target in under a second): when a password-aging
-//     rule PASSES, the line that decides it must hold a strict decimal
-//     integer (strconv.Atoi) inside the compliant range the rule's own
+//     rule PASSES, the line that decides it must hold a whole-token integer
+//     as shadow-utils reads it (shadowNum: C strtol base 0, so 0x3c is 60
+//     and 0400 is octal 256; the first version used decimal Atoi, a premise
+//     error the fuzzer found by flagging 0400 against the candidate fix)
+//     inside the compliant range the rule's own
 //     description states (PASS_MAX_DAYS 1..365, STIG 1..60; PASS_MIN_DAYS >= 1;
 //     PASS_WARN_AGE >= 7). shadow-utils' getdef_num rejects a value such as
 //     "7days" and falls back to a non-compliant default, and a negative
@@ -180,9 +184,10 @@ func loginDefsVerdicts(t *testing.T, path, content string) []models.CISStatus {
 //     the effective value; a verdict must follow the appended value. Checked
 //     by appending non-compliant lines and requiring that no rule PASSES.
 //
-// What it does NOT verify: hex/octal value spellings (shadow's base handling
-// is not modelled), /etc/login.defs.d drop-ins, PAM overrides of these
-// values, or whether CIS thresholds themselves are right.
+// What it does NOT verify: shadow-utils behaviour beyond the spellings
+// checked live (decimal, 0x hex, leading-0 octal, trailing garbage, -1),
+// values that overflow a C long, /etc/login.defs.d drop-ins, PAM overrides
+// of these values, or whether the CIS thresholds themselves are right.
 func FuzzCISLoginDefsMetamorphic(f *testing.F) {
 	for _, s := range []string{
 		"PASS_MAX_DAYS 90\nPASS_MIN_DAYS 1\nPASS_WARN_AGE 7\nENCRYPT_METHOD SHA512\n",
@@ -224,7 +229,7 @@ func FuzzCISLoginDefsMetamorphic(f *testing.F) {
 			return
 		}
 		// Oracle 3 (DS1-F4): a PASS needs the deciding line (the first one,
-		// as the code reads it) to hold a strict decimal integer inside the
+		// as the code reads it) to hold a shadow-utils integer inside the
 		// rule's compliant range.
 		for i, r := range loginDefsRules {
 			if r.lo == 0 && r.hi == 0 || base[i] != models.CISPass {
@@ -235,7 +240,7 @@ func FuzzCISLoginDefsMetamorphic(f *testing.F) {
 				if len(fs) == 0 || strings.HasPrefix(fs[0], "#") || fs[0] != r.field {
 					continue
 				}
-				v, err := strconv.Atoi(fs[min(1, len(fs)-1)])
+				v, err := shadowNum(fs[min(1, len(fs)-1)])
 				if len(fs) < 2 || err != nil || v < r.lo || v > r.hi {
 					t.Fatalf("rule %s PASSES on %s value %q, outside the compliant range [%d,%d] or not an integer (shadow-utils ignores a malformed value and applies a non-compliant default; a negative PASS_MAX_DAYS disables expiry); input %q",
 						r.id, r.field, strings.Join(fs[1:], " "), r.lo, r.hi, defs)
@@ -253,6 +258,22 @@ func FuzzCISLoginDefsMetamorphic(f *testing.F) {
 			}
 		}
 	})
+}
+
+// cIntRe is the whole-token shape C strtol(s, &end, 0) accepts: optional
+// sign, then hex (0x...), octal (leading 0) or decimal.
+var cIntRe = regexp.MustCompile(`^[+-]?(0[xX][0-9a-fA-F]+|0[0-7]*|[1-9][0-9]*)$`)
+
+// shadowNum parses a login.defs number the way shadow-utils does (base 0,
+// whole token): checked in Debian's shadow 4.17.4, "0x3c" is 60, "010" is 8,
+// and "1x" is a configuration error. Go's base-0 extras (underscores, 0o,
+// 0b) are rejected by cIntRe first.
+func shadowNum(s string) (int, error) {
+	if !cIntRe.MatchString(s) {
+		return 0, strconv.ErrSyntax
+	}
+	v, err := strconv.ParseInt(s, 0, 0)
+	return int(v), err
 }
 
 // TestCISKnownFalsePass pins the false PASS verdicts behind DS1-F2/F3/F4.
