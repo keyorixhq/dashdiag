@@ -1,7 +1,7 @@
 # NET1 — fuzzing pro-bing / go-sdk (MCP) / cobra+viper / go-qrcode as DashDiag calls them
 
 Branch `fuzz/net-cli-mcp` (from origin/main 096ef46a). No production code changed.
-Status: targets committed and red-proven; fuzz campaign IN PROGRESS (see §5).
+Status: six targets committed and red-proven; ≈106 min of fuzzing done (§5); final checks in §9.
 
 ## 0. Readings taken (no one to ask)
 
@@ -129,9 +129,10 @@ pro-bing PacketsSent and Min/Max sub-checks, cobra positionals check.
 | NET1-F3 | DEFECT (DashDiag) / HARDENING | one forged echo reply with a future payload timestamp gives a negative RTT; DashDiag's `< 0` "unreachable" sentinel collides with it: a reachable gateway reads as "not responding" (or CRIT "host appears offline" if the internet probe is forged too) and the packet-loss check is skipped | TestReproProBingNegativeRTT |
 | NET1-F4 | DEFECT (latent) | any `$HOME/.dsd.yaml` zeroes every Security default (AllowedPorts empty, SSH thresholds 0) — only thresholds/logs get SetDefault. No live consumer reads Security (or Thresholds) today | `internal/config/load_precedence_fuzz_test.go` TestReproLoadDropsSecurityDefaults |
 | NET1-F5 | DEFECT (cosmetic, unreachable) | `PrintQRCode` checks `url == ""` before sanitizing; an all-control url prints a dangling `QR: ` line | `internal/output/qr_roundtrip_fuzz_test.go` TestReproPrintQRCodeAllControlURL |
+| NET1-F6 | DEFECT (upstream go-sdk) | the stdio/IO transport decodes a JSON stream instead of newline-delimited frames: a one-line truncated frame swallows the following request, which is never answered | `cmd/mcp_framing_repro_test.go` |
 | NET1-E1 | EXPECTED-DIFFERENCE | go-sdk closes the session on a frame that is not JSON-RPC 2.0 (`"jsonrpc":"1.0"`, non-UTF-8) instead of answering -32700 | seeds #13/#15 of FuzzMCPJSONRPCToolArgs |
 | NET1-E2 | EXPECTED-DIFFERENCE | go-qrcode rejects empty content | FuzzQRCodeRoundTrip corpus 755b0c52 |
-| NET1-A1..A4 | ARTIFACT (harness, fixed) | MCP raw-frame close premise; pro-bing racy forged seq (corpus a4c03a4c); config block renderer dropped scalar list items (corpus fdfae522); cobra empty string rendered as bare flag | committed as regression seeds |
+| NET1-A1..A7 | ARTIFACT (harness, fixed) | see §6 "Expected differences and artifacts" | regression seeds committed |
 
 Every red reproducer was replayed 3× (all 3 red, all greens pass).
 
@@ -139,4 +140,240 @@ Every red reproducer was replayed 3× (all 3 red, all greens pass).
 
 ## 5. Fuzz campaign
 
-IN PROGRESS — filled in as chunks complete.
+Foreground chunks, `GOMAXPROCS=3 nice -n 10 go test -fuzz … -fuzztime 510s
+-parallel 2`, macOS arm64 laptop, go1.27.3. Real wall-clock time; logs in
+`.scratch/fz_*.txt` (not committed). Loopback listeners were never needed:
+MCP runs over io.Pipe, pro-bing over a fake packetConn.
+
+| Target | Chunks (real time) | Total | Execs (clean chunks) | Hits → triage |
+|---|---|---|---|---|
+| FuzzProBingReplyAccounting | 8m30 + 8m30 (+1m45 smoke) | 17.0 min (+1.75) | 440k + 604k | smoke: racy forged seq (A2, fixture fixed), AvgRtt overflow (F2, reproduced, fixture bounded) |
+| FuzzMCPJSONRPCToolArgs | 16 s + 8m31 + 8m31 | 17.3 min | 437k + 381k | truncated frame swallows the next (F6, reproduced, quarantined) |
+| FuzzSafeBundlePathContainment | 8m31 + 8m30 | 17.0 min | 1.89M + 3.10M | none |
+| FuzzLoadPrecedenceMetamorphic | 1m41 + 8m31 + 2m31 + 8m30 (+2 min smoke) | 21.2 min (+2) | 375k + 480k | smoke: block renderer bug (A3); DEL/C1 in YAML scalar (A5, harness); host substring inside echoed name (A6, harness) |
+| FuzzCobraArgvMetamorphic | 8m30 + 8m30 (+1 min smoke) | 17.0 min (+1) | 356k + 395k | smoke: empty value as bare flag (A4, harness) |
+| FuzzQRCodeRoundTrip | 8m31 + 8m31 (+1.2 min smoke) | 17.0 min (+1.2) | 185k + 88k | smoke: empty content (E2), all-control url (F5, reproduced) |
+| **Total** | | **≈106.5 min** (+≈7 smoke) | | |
+
+Every hit was minimised by the Go fuzzer, replayed 3× (`-count=3`), and kept
+as a committed regression seed when it was a harness artifact or an
+expected difference (the seed now passes).
+
+## 6. Findings in detail, with reachability
+
+### NET1-F1 — CANDIDATE: directory-symlink escape of the MCP CWD constraint
+
+- **Trace:** MCP client → go-sdk tools/call → `toolCapture` (cmd/mcp.go:269)
+  → `safeBundlePath(in.OutPath)` (lexical Clean + `..` + HasPrefix(cwd)) →
+  `b.SaveTarball(outPath)` → `tarGzDir` → `os.OpenFile(dst,
+  O_WRONLY|O_CREATE|O_TRUNC|O_NOFOLLOW)` (internal/source/tarball.go:83).
+  O_NOFOLLOW guards only the final component. Read side: `toolReplay`,
+  `toolDiff`, `toolShare` (from_path) → same check → `loadBundle`.
+- **Who controls it:** out_path is LLM-generated (THREAT_MODEL §5's own
+  premise). The symlink must already exist under CWD — e.g. shipped inside a
+  cloned repository (git stores symlinks) that also carries the injected text.
+- **Impact:** truncate-and-overwrite of any file the dsd user can write,
+  outside CWD, with a gzip tarball (content not attacker-chosen), and reads of
+  files outside CWD. This is exactly what THREAT_MODEL §5 says the CWD
+  constraint prevents; §5's residual-gaps list does not mention symlinks.
+- **Proof:** `TestReproSafeBundlePathDirSymlinkEscape` (red ×3: `toolCapture`
+  wrote 675-677 bytes into the outside dir); `…_ProposedFixGreen` (passes).
+- **Why CANDIDATE, not VULNERABILITY:** not exercised end to end with a real
+  agent and a real malicious repository; needs a pre-planted symlink.
+- **Issue-ready proposal:** open the CWD once at `dsd mcp` start with
+  `os.OpenRoot(cwd)` (Go ≥1.24) and do every bundle read/write through the
+  `*os.Root` (it refuses symlink and `..` escapes at open time, TOCTOU-safe);
+  short of that, `filepath.EvalSymlinks` on the parent directory and re-check
+  containment on the real path (the harness's `safeBundlePathProposedFix`),
+  and add the symlink case to THREAT_MODEL §5 residual gaps.
+
+### NET1-F2 — DEFECT (upstream pro-bing v0.9.1): AvgRtt int64 overflow
+
+- **Trace:** `tryOnePing` (network_quick.go:516-554) → `p.Run()` →
+  processPacket → updateStatistics → `stats.AvgRtt` → `avgMs`. Bytes: echo
+  replies from the ping target / on-path host, which see the request payload.
+- **Upstream-ready reproducer** (internal test in package `probing`):
+
+  ```go
+  func TestUpdateStatisticsAvgRttOverflow(t *testing.T) {
+  	p := New("127.0.0.1")
+  	const year = 365 * 24 * time.Hour
+  	p.updateStatistics(&Packet{Rtt: -100 * year})
+  	p.updateStatistics(&Packet{Rtt: 200 * year})
+  	if got, want := p.Statistics().AvgRtt, 50*year; got != want {
+  		t.Fatalf("AvgRtt = %v, want %v", got, want)
+  	}
+  }
+  ```
+
+  Version: github.com/prometheus-community/pro-bing v0.9.1, Go 1.27.
+  Expected: 438000h (50 years). Actual: a large negative duration —
+  `delta := pkt.Rtt - p.avgRtt` (ping.go:358) is 300 years in ns, beyond
+  MaxInt64, and wraps. Both RTTs are reachable because Rtt is
+  `receivedAt.Sub(payloadTimestamp)` with the timestamp taken from the reply.
+  DashDiag-side harness: `TestReproProBingAvgRttOverflow` (red ×3: AvgRtt
+  −1416031h vs exact mean +1051200000002802333 ns).
+- **Suggested upstream fix:** accumulate in float64 or big-int, or saturate.
+
+### NET1-F3 — DEFECT (DashDiag) / HARDENING: forged RTT collides with the unreachable sentinel
+
+- **Trace:** forged echo reply (future payload timestamp) → pro-bing Rtt < 0
+  → `tryOnePing` returns `avgMs < 0, loss 0, ok=true` → `GatewayPingMs` /
+  `InternetPingMs` → `internal/analysis/heuristics_network.go:520-541`, where
+  `< 0` means "unreachable": a reachable gateway becomes INFO "gateway not
+  responding to probes" (or CRIT "host appears offline" if both are forged),
+  latency WARN/CRIT is skipped, and the packet-loss check (`GatewayPingMs >=
+  0`) is skipped.
+- **Proof:** `TestReproProBingNegativeRTT` (red ×3: −4996…−4999.9 ms from one
+  forged reply); green with an honest reply.
+- **Severity:** an on-path party can already drop packets; this lets it
+  produce a *specific* misleading verdict and hide real loss. Not security
+  beyond that. pro-bing trusting the echoed timestamp is by design (iputils
+  ping does the same but warns on negative time).
+- **Proposal:** in `tryOnePing`, treat `AvgRtt < 0` (or `> Timeout`) as an
+  implausible measurement (fall back to TCP / report "measurement invalid"),
+  and stop overloading `< 0` as "unreachable" in NetworkInfo (explicit
+  reachable flag).
+
+### NET1-F4 — DEFECT (latent): any config file zeroes the Security defaults
+
+- **Trace:** `services.go:25` `config.Load("")` → `v.Unmarshal(&cfg)` into a
+  zero Config; SetDefault exists only for thresholds/logs (config.go:194-210).
+  Security (and Thresholds) have **no consumer** today — only `cfg.Services`
+  is read — so no live verdict changes.
+- **Proof:** `TestReproLoadDropsSecurityDefaults` (red ×3: AllowedPorts [],
+  SSH warn/crit 0/0 vs 22,80,…/20/50); green with no file.
+- **Proposal:** `cfg := defaults` (with a cloned AllowedPorts) then
+  `v.Unmarshal(&cfg)` so absent keys keep defaults, or SetDefault the
+  security keys; decide whether Thresholds/Security should exist at all while
+  nothing consumes them (users editing them get no effect, silently).
+
+### NET1-F5 — DEFECT (cosmetic, unreachable today)
+
+`PrintQRCode` checks `url == ""` before `SanitizeControl`; an all-control url
+prints `QR: ` and nothing else. Unreachable: the only caller passes "".
+Proposal: sanitize first, then the empty check. Proof:
+`TestReproPrintQRCodeAllControlURL` (red ×3), green with "".
+
+### NET1-F6 — DEFECT (upstream go-sdk v1.8.0): stdio frames are not newline-delimited
+
+- **Trace:** `runMCP` → `srv.Run(ctx, &mcp.StdioTransport{})` →
+  `newIOConnLimited` (mcp/transport.go:500-554) → `json.NewDecoder(reader)`.
+  A line that is incomplete JSON is not rejected at its newline; the decoder
+  keeps reading and absorbs the following frame(s). Any decode error is also
+  terminal for the session (NET1-E1).
+- **Who controls it:** only the MCP client (trusted). The LLM cannot emit a
+  raw frame; Claude Code/Cursor serialise complete lines. Not a security
+  issue for dsd; a robustness/spec-conformance issue upstream.
+- **Upstream-ready reproducer:**
+
+  ```go
+  func TestIOTransportTruncatedLineSwallowsNext(t *testing.T) {
+  	inR, inW := io.Pipe()
+  	outR, outW := io.Pipe()
+  	srv := mcp.NewServer(&mcp.Implementation{Name: "s", Version: "0"}, nil)
+  	ss, err := srv.Connect(context.Background(), &mcp.IOTransport{Reader: inR, Writer: outW}, nil)
+  	if err != nil {
+  		t.Fatal(err)
+  	}
+  	defer ss.Close()
+  	go io.WriteString(inW, `{"jsonrpc":"2.0","id":1,"method":"initialize","params":{"protocolVersion":"2025-06-18","capabilities":{},"clientInfo":{"name":"c","version":"0"}}}`+"\n"+
+  		`{"jsonrpc":"2.0","method":"notifications/initialized","params":{}}`+"\n"+
+  		`{"":`+"\n"+
+  		`{"jsonrpc":"2.0","id":2,"method":"ping"}`+"\n")
+  	got := make(chan string, 8)
+  	go func() {
+  		sc := bufio.NewScanner(outR)
+  		for sc.Scan() {
+  			got <- sc.Text()
+  		}
+  		close(got)
+  	}()
+  	timeout := time.After(3 * time.Second)
+  	for {
+  		select {
+  		case line, ok := <-got:
+  			if !ok || strings.Contains(line, `"id":2`) {
+  				return // answered, or the session ended: both acceptable
+  			}
+  		case <-timeout:
+  			t.Fatal("line 3 was not rejected on its own; ping (id 2) swallowed")
+  		}
+  	}
+  }
+  ```
+
+  Expected (MCP stdio spec: newline-delimited messages): line 3 is rejected
+  by itself (parse error or session end) and id 2 is answered or the session
+  ends. Actual: no output; the ping is consumed as part of the unterminated
+  object. DashDiag-side proof: `cmd/mcp_framing_repro_test.go` (red ×3,
+  green ×3).
+- **Suggested upstream fix:** split on '\n' first (bufio.Reader.ReadSlice
+  with the existing frame limit), then decode each line on its own.
+
+### Expected differences and artifacts
+
+- **NET1-E1:** go-sdk ends the session on a frame that is not JSON-RPC 2.0
+  instead of answering −32700 (seen as `io: read/write on closed pipe`).
+  Bounded; trusted client only.
+- **NET1-E2:** go-qrcode refuses empty content.
+- **Harness artifacts (all fixed in the harness, never by loosening an
+  assertion):** A1 MCP raw-frame premise (closing ≠ hanging); A2 pro-bing
+  forged seq not yet sent (racy); A3 config block renderer dropped scalar list
+  items; A4 cobra empty string value rendered as a bare flag; A5 DEL/C1 left
+  raw in YAML by json.Marshal; A6 host-substring heuristic matched inside the
+  echoed service name; A7 QR idempotence compared aliased storage (found by
+  the red-proof plant, not by fuzzing).
+
+### Findings table (summary)
+
+| ID | Class | Library | Live caller | Reproducer |
+|---|---|---|---|---|
+| F1 | CANDIDATE | DashDiag (cmd/mcp.go) | dsd mcp → toolCapture/Replay/Diff/Share | cmd/mcp_symlink_repro_test.go |
+| F2 | DEFECT (upstream) | pro-bing v0.9.1 | dsd health --network (macOS; Linux fallback) | internal/collectors/probing_reply_repro_test.go |
+| F3 | DEFECT / HARDENING | DashDiag + pro-bing | same | internal/collectors/probing_reply_repro_test.go |
+| F4 | DEFECT (latent) | DashDiag (config) | services collector (Security unused) | internal/config/load_precedence_fuzz_test.go |
+| F5 | DEFECT (cosmetic) | DashDiag (output) | none today (shareURL stub) | internal/output/qr_roundtrip_fuzz_test.go |
+| F6 | DEFECT (upstream) | go-sdk v1.8.0 | dsd mcp (trusted client only) | cmd/mcp_framing_repro_test.go |
+| E1, E2 | EXPECTED-DIFFERENCE | go-sdk, go-qrcode | — | corpus seeds |
+| A1–A7 | ARTIFACT | harness | — | fixed, seeds kept |
+
+No VULNERABILITY is claimed. Nothing was reported upstream or pushed.
+
+Run all red halves: `DSD_NET1_REPRO=1 go test ./cmd ./internal/collectors
+./internal/config ./internal/output -run 'TestRepro' -count=3`.
+
+## 7. Issue-ready proposals (no production change made)
+
+1. **cmd/mcp.go — confine MCP bundle I/O with os.Root** (F1). Title: "dsd mcp:
+   CWD constraint on path arguments is bypassable through a directory
+   symlink". Body: trace + reproducer above; fix via `os.OpenRoot`, or
+   EvalSymlinks + re-check; THREAT_MODEL §5 residual gap.
+2. **network_quick.go — reject implausible RTTs; stop using < 0 as
+   "unreachable"** (F3, mitigates F2 for DashDiag).
+3. **pro-bing upstream — overflow-safe running mean** (F2) with the test above.
+4. **go-sdk upstream — line-delimited stdio framing** (F6) with the test above.
+5. **config.go — keep defaults for keys the file omits** (F4); and decide on
+   the unconsumed Thresholds/Security sections.
+6. **qr.go — sanitize before the empty check** (F5).
+7. **go.mod hygiene** — `golang.org/x/net` and `github.com/spf13/pflag` are
+   now direct test imports; run `go mod tidy` in a deps PR.
+
+## 8. Talk material
+
+DashDiag's five network/CLI dependencies were fuzzed the way DashDiag
+actually calls them: the real pro-bing receive path through a fake socket,
+the real MCP SDK over an in-memory pipe, dsd's own command tree and config
+path, and the real QR printer decoded by a decoder written for the job. Every
+oracle is a round-trip, a differential against an independent model, or a
+metamorphic relation, and each one was watched failing on a planted bug first
+— one of them (QR idempotence) turned out to be vacuous until the plant
+exposed it. The fuzzers found an int64 overflow in pro-bing's running mean, a
+JSON-stream framing flaw in the MCP SDK where one truncated line swallows the
+next request, and harness bugs that were fixed in the harness instead of
+loosening assertions. Reading the callers mattered as much as fuzzing:
+a forged ping reply can turn a reachable gateway into "host offline" because
+DashDiag uses negative milliseconds as its unreachable sentinel, and a
+directory symlink walks straight through the lexical CWD check meant to stop
+prompt-injected MCP paths. Nothing here is claimed as a vulnerability; the one
+security candidate comes with a red/green proof and a concrete os.Root fix.
