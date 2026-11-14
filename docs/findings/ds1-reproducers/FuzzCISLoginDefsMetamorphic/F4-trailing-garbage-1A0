@@ -1,0 +1,2 @@
+go test fuzz v1
+string("PASS_MIN_DAYS 1A0")

@@ -13,7 +13,7 @@ import (
 )
 
 // knownDefects gates the reference-semantics properties that fail on the
-// current code (DS1-F2, DS1-F3 in docs/findings/2026-11-14-DS1-*.md). They
+// current code (DS1-F2, DS1-F3, DS1-F4 in docs/findings/2026-11-14-DS1-*.md). They
 // stay in the target so a fix can be proven by flipping one env var, without
 // breaking the seed-corpus run in CI meanwhile.
 func knownDefects() bool { return os.Getenv("DSD_KNOWN_DEFECTS") == "1" }
@@ -167,7 +167,8 @@ func loginDefsVerdicts(t *testing.T, path, content string) []models.CISStatus {
 //  1. comments and blank lines: inserting "#"-comment lines (including ones
 //     that name the field) and blank lines anywhere keeps every verdict;
 //  2. field whitespace: re-joining fields with tabs keeps every verdict;
-//  3. reference verdict for PASS (false-OK guard): when a password-aging
+//  3. reference verdict for PASS (false-OK guard; gated, DS1-F4, found by
+//     this target in under a second): when a password-aging
 //     rule PASSES, the line that decides it must hold a strict decimal
 //     integer (strconv.Atoi) inside the compliant range the rule's own
 //     description states (PASS_MAX_DAYS 1..365, STIG 1..60; PASS_MIN_DAYS >= 1;
@@ -219,9 +220,12 @@ func FuzzCISLoginDefsMetamorphic(f *testing.F) {
 		check("comment and blank lines inserted", strings.Join(withComments, "\n"))
 		check("tab-separated fields", strings.Join(tabbed, "\n"))
 
-		// Oracle 3: a PASS needs the deciding line (the first one, as the code
-		// reads it) to hold a strict decimal integer inside the rule's
-		// compliant range.
+		if !knownDefects() {
+			return
+		}
+		// Oracle 3 (DS1-F4): a PASS needs the deciding line (the first one,
+		// as the code reads it) to hold a strict decimal integer inside the
+		// rule's compliant range.
 		for i, r := range loginDefsRules {
 			if r.lo == 0 && r.hi == 0 || base[i] != models.CISPass {
 				continue
@@ -240,15 +244,64 @@ func FuzzCISLoginDefsMetamorphic(f *testing.F) {
 			}
 		}
 
-		if !knownDefects() {
-			return
-		}
 		weak := "\nPASS_MAX_DAYS 99999\nPASS_MIN_DAYS 0\nPASS_WARN_AGE 0\nENCRYPT_METHOD MD5\n"
 		got := loginDefsVerdicts(t, path, defs+weak)
 		for i, st := range got {
 			if st == models.CISPass {
 				t.Fatalf("rule %s PASSES although the last %s line, the one shadow-utils applies, is non-compliant (DS1-F3, first-match vs last-wins); input %q",
 					loginDefsRules[i].id, loginDefsRules[i].field, defs+weak)
+			}
+		}
+	})
+}
+
+// TestCISKnownFalsePass pins the false PASS verdicts behind DS1-F2/F3/F4.
+// Every case was checked against the real component on 2026-11-14:
+// shadow-utils 4.17.4 (Debian stable, useradd then /etc/shadow) for
+// login.defs, and a privileged Debian container for the overmount (both
+// entries listed in /proc/mounts, a binary on the "noexec" path executed).
+// Skipped unless DSD_KNOWN_DEFECTS=1; a fix turns it green.
+//
+// What it does NOT verify: other rules with the same first-match shape
+// (sshd_config, useradd defaults), or the remediation text.
+func TestCISKnownFalsePass(t *testing.T) {
+	if !knownDefects() {
+		t.Skip("DS1-F2/F3/F4 known false PASS; set DSD_KNOWN_DEFECTS=1 to run")
+	}
+	dir := t.TempDir()
+	origDefs, origMounts := loginDefsPath, procMountsPath
+	t.Cleanup(func() { loginDefsPath, procMountsPath = origDefs, origMounts })
+	loginDefsPath = filepath.Join(dir, "login.defs")
+	procMountsPath = filepath.Join(dir, "mounts")
+
+	defs := []struct{ name, content, rule, shadowSays string }{
+		{"F3 duplicate key, last wins", "PASS_MAX_DAYS 60\nPASS_MAX_DAYS 99999\n", "V-238380", "max=99999"},
+		{"F3 duplicate key, last wins", "PASS_MIN_DAYS 1\nPASS_MIN_DAYS 0\n", "5.4.4", "min=0"},
+		{"F3 duplicate key, last wins", "PASS_WARN_AGE 7\nPASS_WARN_AGE 2\n", "5.4.6", "warn=2"},
+		{"F4 trailing garbage rejected", "PASS_MAX_DAYS 60x\n", "V-238380", "max unset (configuration error)"},
+		{"F4 trailing garbage rejected", "PASS_MIN_DAYS 1A0\n", "5.4.4", "min unset (configuration error)"},
+		{"F4 trailing garbage rejected", "PASS_WARN_AGE 7days\n", "5.4.6", "warn unset (configuration error)"},
+		{"F4 negative max disables expiry", "PASS_MAX_DAYS -1\n", "5.4.1", "max unset (no expiry)"},
+	}
+	for _, c := range defs {
+		t.Run(c.name+"/"+c.rule, func(t *testing.T) {
+			if err := os.WriteFile(loginDefsPath, []byte(c.content), 0o600); err != nil {
+				t.Fatal(err)
+			}
+			if got := ruleByID(c.rule).Check(models.SecurityInfo{}, models.KernelSecurityInfo{}); got.Status == models.CISPass {
+				t.Errorf("rule %s PASSES on %q; shadow-utils applies %s", c.rule, c.content, c.shadowSays)
+			}
+		})
+	}
+
+	t.Run("F2 overmount hides noexec", func(t *testing.T) {
+		mounts := "tmpfs /tmp tmpfs rw,nosuid,nodev,noexec,relatime 0 0\ntmpfs /tmp tmpfs rw,relatime 0 0\n"
+		if err := os.WriteFile(procMountsPath, []byte(mounts), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		for _, id := range []string{"1.1.3", "1.1.4", "1.1.5"} {
+			if got := ruleByID(id).Check(models.SecurityInfo{}, models.KernelSecurityInfo{}); got.Status == models.CISPass {
+				t.Errorf("rule %s PASSES; the visible /tmp mount (last entry) is rw,relatime", id)
 			}
 		}
 	})
