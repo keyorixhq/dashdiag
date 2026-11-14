@@ -207,7 +207,8 @@ expected difference (the seed now passes).
   ```
 
   Version: github.com/prometheus-community/pro-bing v0.9.1, Go 1.27.
-  Expected: 438000h (50 years). Actual: a large negative duration —
+  Expected: 438000h (50 years). Actual (validated in a scratch copy via
+  linkname to updateStatistics): `AvgRtt = -2124047h47m16.854775808s` —
   `delta := pkt.Rtt - p.avgRtt` (ping.go:358) is 300 years in ns, beyond
   MaxInt64, and wraps. Both RTTs are reachable because Rtt is
   `receivedAt.Sub(payloadTimestamp)` with the timestamp taken from the reply.
@@ -305,8 +306,8 @@ Proposal: sanitize first, then the empty check. Proof:
 
   Expected (MCP stdio spec: newline-delimited messages): line 3 is rejected
   by itself (parse error or session end) and id 2 is answered or the session
-  ends. Actual: no output; the ping is consumed as part of the unterminated
-  object. DashDiag-side proof: `cmd/mcp_framing_repro_test.go` (red ×3,
+  ends. Actual (this exact test run in a scratch copy against v1.8.0):
+  `line 3 was not rejected on its own; ping (id 2) swallowed` after 3 s. DashDiag-side proof: `cmd/mcp_framing_repro_test.go` (red ×3,
   green ×3).
 - **Suggested upstream fix:** split on '\n' first (bufio.Reader.ReadSlice
   with the existing frame limit), then decode each line on its own.
@@ -377,3 +378,21 @@ DashDiag uses negative milliseconds as its unreachable sentinel, and a
 directory symlink walks straight through the lexical CWD check meant to stop
 prompt-injected MCP paths. Nothing here is claimed as a vulnerability; the one
 security candidate comes with a red/green proof and a concrete os.Root fix.
+
+## 9. Final checks (at the branch head)
+
+- `gofmt -l cmd internal/collectors internal/config internal/output`: clean.
+- `go vet` on the four touched packages, darwin and `GOOS=linux`: clean.
+- `go build ./...`: OK.
+- Seed corpus of all six targets + every `TestRepro*` (red halves skip
+  without `DSD_NET1_REPRO=1`): `ok` in all four packages.
+- Full `go test` of cmd, internal/collectors, internal/config,
+  internal/output: `ok` (cmd 92 s).
+- `go test -race` on the MCP and pro-bing harness seeds + reproducers: clean.
+- `TestFuzzDiscoveryCoversEverySourceFuzzFunc` (scripts/fuzz-discover.sh sees
+  every new target): pass.
+- `make lint-linux` (golangci-lint in the dashdiag-dev container) was NOT
+  run: no new file is `//go:build linux`, and Docker was not used in this
+  session; linux was covered by `GOOS=linux go vet` only.
+- Scratch plant worktree removed; go.work.sum left untouched; no background
+  processes started.
