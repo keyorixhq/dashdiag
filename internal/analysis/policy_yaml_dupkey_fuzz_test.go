@@ -42,6 +42,10 @@ import (
 //     collide; the library compares raw spellings). That exception is counted
 //     as an EXPECTED-DIFFERENCE, not a failure.
 //
+// Every input is also checked in a structured form: its first line (up to 32
+// bytes) used as a flow-mapping key keyRepeats times under deny:, since the
+// quadratic shapes need repeated identical spellings.
+//
 // What it does NOT verify:
 //   - Inputs over maxFuzzPolicyBytes; the real cap is 1 MiB, so absolute
 //     cost at that size is only covered by
@@ -63,7 +67,6 @@ func FuzzPolicyYAMLDupKeyDifferential(f *testing.F) {
 		"1: a\n0x1: b\n",
 		"a: 1\na: 1\na: 1\na: 1\na: 1\n",
 		"disk_warn_pct: .inf\n",
-		"? [a]\n: 1\n",
 		"io_await_warn_ms: 1e3\nntp_offset_crit_ms: -0\n",
 	} {
 		f.Add([]byte(s))
@@ -75,10 +78,18 @@ func FuzzPolicyYAMLDupKeyDifferential(f *testing.F) {
 			return
 		}
 		checkPolicyYAMLDupKey(t, data, path)
+		// Structured amplification: the quadratic shapes need several keys
+		// with the same spelling, which byte mutation rarely produces. Also
+		// check the first line used as a key repeated keyRepeats times.
+		if k, _, _ := strings.Cut(string(data), "\n"); k != "" && len(k) <= 32 {
+			doc := "deny:\n  - {" + strings.Repeat(k+": v, ", keyRepeats) + "}\n"
+			checkPolicyYAMLDupKey(t, []byte(doc), path)
+		}
 	})
 }
 
 const (
+	keyRepeats           = 6
 	maxFuzzPolicyBytes   = 2048
 	hardenedAllocBase    = 256 << 10
 	hardenedAllocPerByte = 1024
