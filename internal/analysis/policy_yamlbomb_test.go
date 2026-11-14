@@ -17,7 +17,7 @@ import (
 // bounds bytes READ, not what the decoder expands them into) and stays on
 // as a regression guard for the finding: LoadPolicy is safe today, but only
 // because PolicyFile is a flat struct of named scalar fields and
-// gopkg.in/yaml.v3 discards unrecognized keys (the bomb's anchors) without
+// go.yaml.in/yaml/v3 discards unrecognized keys (the bomb's anchors) without
 // walking their aliased content. That safety is a property of PolicyFile's
 // shape, not something LoadPolicy enforces directly — a future PolicyFile
 // field typed map[string]any or []any would silently reopen this exact
