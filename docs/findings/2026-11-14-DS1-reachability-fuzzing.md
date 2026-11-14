@@ -3,8 +3,8 @@
 Branch `fuzz/reachability-ds1` from `096ef46a` (origin/main). Test and tooling
 code only; no production file changed, nothing ships.
 
-Status: IN PROGRESS (fuzz campaign running; this file is updated after each
-chunk).
+Status: campaign complete (101 min on the committed targets, plus 14 min
+fuzzing the candidate fixes); final checks at the end of this file.
 
 ## Readings taken (nobody to ask)
 
@@ -194,6 +194,7 @@ Unmodified copy: all five targets green.
 | p-live: LoadPolicy skips validatePolicy | policy: LoadPolicy vs library | FIRED |
 | p-hard: yamlsafe rejects >=3 keys | policy: hardened vs library | FIRED |
 | (unmodified, DSD_KNOWN_DEFECTS=1) | policy: bypass shapes test | FIRED (= finding F1) |
+| p-gate: p-pairs again after the F1 shape gate was added | policy: pair count | FIRED (gate does not hide plain duplicates) |
 | s-diff: parseStoreLine skips validateEntry | store: differential | FIRED |
 | s-det: alternate Hostname suffix | store: determinism | FIRED |
 | s-rt: append "_" to Hostname | store: round trip | FIRED |
@@ -201,6 +202,16 @@ Unmodified copy: all five targets green.
 | b-meta: first ")" instead of last | procstart: reference/comm | FIRED |
 | b-sanity: subtract instead of add | procstart: before-boot bound | FIRED |
 | b-btime: off by one second | procstart: btime | FIRED |
+
+Green half for the findings (the gated properties fail on today's code and
+must pass once fixed): with `proposed-fixes.diff` applied in the scratch copy
+and `DSD_KNOWN_DEFECTS=1`, `TestCISKnownFalsePass` (F2, F3, F4),
+`TestParseStoreLine_SanitizedCheckKeyCollisionIsDeterministic` (F5),
+`TestParseProcStart_StarttimeOverflow` (F6), `TestYamlsafeCopy_QuadraticBypassShapes`
+(F1) and the seed corpora of all five targets pass, with one exception
+that confirms the oracle rather than the fix: the gated last-wins property
+still fails on rule 5.4.3 (ENCRYPT_METHOD), which has the same first-match
+shape inline and was deliberately left out of the candidate fix.
 
 ## 3. Fuzz campaign (GOMAXPROCS=3, -parallel 2, nice 10, foreground 9-minute chunks)
 
@@ -216,8 +227,27 @@ Unmodified copy: all five targets green.
 | FuzzProcStartDifferential | 1 | 9 m | 8.77 M | clean |
 | FuzzPolicyYAMLDupKeyDifferential | 2 (with repeated-key amplification) | 1 s | - | F1 found (`[]` key) |
 | FuzzPolicyYAMLDupKeyDifferential | 2b | 9 m | 679 k | clean (no fourth bypass shape) |
+| FuzzCISLoginDefsMetamorphic | 2 | 9 m | 787 k | clean |
+| FuzzCISMountRulesMetamorphic | 2 | 9 m | 186 k | clean |
+| FuzzStoreLineDifferential | 2 | 9 m | 4.31 M | clean |
+| FuzzProcStartDifferential | 2 | 9 m | 11.0 M | clean |
+| FuzzPolicyYAMLDupKeyDifferential | 3 | 9 m | 689 k | clean |
 
-(more chunks follow)
+Totals on the committed targets: **99 minutes of clean chunks plus ~2 minutes
+of runs that ended in a hit**, per target: policy 27 min, login.defs 18,
+mounts 18, store 18, procstart 18 (+2 min harness-bug run). Each chunk was
+`go test ./<pkg> -run '^$' -fuzz '^<Target>$' -fuzztime 9m -parallel 2`
+under `GOMAXPROCS=3 nice -n 10`, one at a time, in the foreground; the
+GOCACHE corpus carried over between chunks. Mounts is slow (17 rules x 7
+variants x a file write per input).
+
+Fix validation in the scratch copy (DSD_KNOWN_DEFECTS=1, so every gated
+property is live; fixes = `docs/findings/ds1-reproducers/proposed-fixes.diff`):
+
+| target | real time | execs | result |
+|---|---|---|---|
+| FuzzPolicyYAMLDupKeyDifferential, with the P1 yamlsafe fix | 9 m | 541 k | clean: the fix closes F1 and introduces no rejection the library would not make |
+| FuzzCISMountRulesMetamorphic, with the P2 fix | 5 m | 83 k | clean, overmount property included |
 
 ## 4. Findings
 
@@ -239,6 +269,12 @@ plain duplicate-key quadratic cost (#1179's motivation) is live there today;
 #1179 fixes the common shape, F1 is what it misses.
 
 ## 5. Issue-ready proposals (no production change made)
+
+Candidate code for P1, P2, P3 (password-aging part), P4 and P5 is in
+`docs/findings/ds1-reproducers/proposed-fixes.diff` (`git apply --check`
+clean against this branch). It was only ever applied in the scratch copy;
+P1 patches the test-local yamlsafe copy, so it must be ported to
+`internal/yamlsafe/yamlsafe.go` on the #1179 branch.
 
 **P1 (F1) yamlsafe: close the three bypass shapes before #1179 merges.**
 In `CheckDuplicateKeys`, (a) key NaN by its canonical string (e.g. `"!!float:nan"`)
