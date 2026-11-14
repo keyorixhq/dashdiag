@@ -3,7 +3,7 @@
 Branch `fuzz/reachability-ds1` from `096ef46a` (origin/main). Test and tooling
 code only; no production file changed, nothing ships.
 
-Status: campaign complete (101 min on the committed targets, plus 14 min
+Status: campaign complete (101 min on the committed targets, plus 31 min
 fuzzing the candidate fixes); final checks at the end of this file.
 
 ## Readings taken (nobody to ask)
@@ -220,10 +220,10 @@ must pass once fixed): with `proposed-fixes.diff` applied in the scratch copy
 and `DSD_KNOWN_DEFECTS=1`, `TestCISKnownFalsePass` (F2, F3, F4),
 `TestParseStoreLine_SanitizedCheckKeyCollisionIsDeterministic` (F5),
 `TestParseProcStart_StarttimeOverflow` (F6), `TestYamlsafeCopy_QuadraticBypassShapes`
-(F1) and the seed corpora of all five targets pass, with one exception
-that confirms the oracle rather than the fix: the gated last-wins property
-still fails on rule 5.4.3 (ENCRYPT_METHOD), which has the same first-match
-shape inline and was deliberately left out of the candidate fix.
+(F1) and the seed corpora of all five targets pass. On the first try the
+gated last-wins property still failed on rule 5.4.3 (ENCRYPT_METHOD), which
+has the same first-match shape inline and was not yet in the candidate fix,
+so the oracle caught the incomplete fix; the patch now covers 5.4.3 too.
 
 ## 3. Fuzz campaign (GOMAXPROCS=3, -parallel 2, nice 10, foreground 9-minute chunks)
 
@@ -260,6 +260,12 @@ property is live; fixes = `docs/findings/ds1-reproducers/proposed-fixes.diff`):
 |---|---|---|---|
 | FuzzPolicyYAMLDupKeyDifferential, with the P1 yamlsafe fix | 9 m | 541 k | clean: the fix closes F1 and introduces no rejection the library would not make |
 | FuzzCISMountRulesMetamorphic, with the P2 fix | 5 m | 83 k | clean, overmount property included |
+| FuzzCISLoginDefsMetamorphic, with the P3 fix (incl. 5.4.3) | 7.9 m | - | hit: `PASS_MAX_DAYS 0400`; the fix reads octal 256 (shadow-utils does too), the oracle read decimal 400. ARTIFACT: oracle premise error, reference corrected to C strtol base 0 |
+| FuzzCISLoginDefsMetamorphic, with the P3 fix, corrected oracle | 9 m | 462 k | clean |
+
+Re-proof after the oracle correction: planting "5.4.4 accepts 0" on top of
+the fixed copy fires both gated login.defs oracles; removing the plant is
+green, and the `0400` input replays green 3/3.
 
 ## 4. Findings
 
@@ -283,7 +289,7 @@ plain duplicate-key quadratic cost (#1179's motivation) is live there today;
 
 ## 5. Issue-ready proposals (no production change made)
 
-Candidate code for P1, P2, P3 (password-aging part), P4 and P5 is in
+Candidate code for P1, P2, P3 (password aging and 5.4.3), P4 and P5 is in
 `docs/findings/ds1-reproducers/proposed-fixes.diff` (`git apply --check`
 clean against this branch). It was only ever applied in the scratch copy;
 P1 patches the test-local yamlsafe copy, so it must be ported to
@@ -308,9 +314,12 @@ covered by a later one. Proof: `TestCISKnownFalsePass/F2*` and the gated
 overmount property of FuzzCISMountRulesMetamorphic.
 
 **P3 (F3, F4) login.defs: parse like shadow-utils.** Last assignment wins;
-parse the value with strict base-0 integer semantics (`strconv.ParseInt(v, 0, 64)`
-matches 0x3c and 010 as shadow does); an unparseable value is "not set" ->
-FAIL with "invalid value"; `PASS_MAX_DAYS` < 1 (incl. -1) is non-compliant.
+parse the value as a whole token with C strtol base-0 semantics (0x3c is 60,
+010 is 8; reject Go-only spellings such as `1_0`, `0o7`); an unparseable
+value is "not set" -> FAIL with "invalid value"; `PASS_MAX_DAYS` < 1 (incl.
+-1) is non-compliant. Side effect worth noting: today `PASS_MAX_DAYS 0x3c`
+reads as 0 and FAILs, and `0400` reads as 400 and FAILs 5.4.1 although
+shadow applies 256, so the fix also removes false alarms.
 Proof: `TestCISKnownFalsePass/F3*`, `F4*`, and the gated oracles of
 FuzzCISLoginDefsMetamorphic. The same first-match shape exists in 5.4.3,
 5.4.5 and 5.4.7 (`/etc/default/useradd`); worth auditing together.
@@ -342,17 +351,51 @@ in integers). Proof: `TestParseProcStart_StarttimeOverflow`.
 
 ## Talk material
 
-DashDiag turns about 400 different kinds of untrusted text into verdicts, and
-an offline go/types scan shows only 18% of those parsers are fuzzed directly,
-with the most-called unfuzzed ones being the CIS compliance checks. Fuzzing
-them for crashes would have found nothing: every bug here is a parser that
-returns a confident, wrong answer, so each target asks a semantic question
-(does rewriting the same facts change the verdict, does a second parse path
-agree, does the work stay linear). The best oracles came from the real
-consumer's semantics, the kernel's overmount order and shadow-utils' "last
-assignment wins", and Docker confirmed both in minutes. Plain byte mutation
-missed the inputs that need repetition (the YAML bypass, the store key
-collision) until one structured amplification found the YAML bypass in a
-second. Red proofs kept the harness honest: two harness bugs (a STIG
-threshold premise and a paren-anchoring skip) were caught before any claim
-was made.
+DashDiag has about 400 functions that turn untrusted text into verdicts, and
+an offline go/types scan shows only 18% are fuzzed directly, with the CIS
+compliance checks the most-called of the rest. Crash-only fuzzing would have
+found nothing here, because every bug is a parser returning a confident wrong
+answer, so each target asks a semantic question instead: does the same fact
+written differently change the verdict, does a second parse path agree, does
+the work stay linear. The strongest oracles encoded the real consumer's
+precedence rule (the kernel's mount stack, shadow-utils' last assignment,
+sshd's first value), and a local Docker container confirmed the first two
+false PASS verdicts in minutes. Plain byte mutation never built the repeated
+keys that break the proposed YAML hardening, until one structured
+amplification found the bypass in a second. Red proofs on planted defects
+kept the harness honest, and three harness bugs were fixed in the harness
+without loosening any assertion, one of them exposed by fuzzing the proposed
+fix.
+
+## Final checks (18:58Z)
+
+- `gofmt -l internal scripts cmd`: clean.
+- `go vet` on analysis, cis, store, baseline, scripts/reachscan (darwin) and on
+  collectors, cis, analysis, store, baseline (linux container): clean.
+- `go build ./...`: ok.
+- `go test` of analysis, cis, store, baseline and the module root
+  (`fuzz_coverage_test.go`: discovery sees all five new targets): ok on darwin;
+  seed corpora of all five targets plus the gated tests (skipping) also ok in
+  a linux container.
+- `golangci-lint run` on the touched packages: 0 issues. `make lint-linux`
+  was not run (the dashdiag-dev image is not present locally); the one
+  linux-tagged file was vetted in the golang:1.27 container instead.
+- Production code: unchanged. Outside test files, docs and
+  `scripts/reachscan/`, the branch only adds three checksum lines to
+  `go.work.sum`.
+- No background processes were started; all fuzzing ran in the foreground.
+  `.scratch/` (gitignored) holds logs, the scratch copy and the plant files.
+
+## Files on this branch
+
+- `scripts/reachscan/main.go` — the reachability scan.
+- `internal/cis/fuzz_mounts_logindefs_metamorphic_test.go` — two CIS targets, `TestCISKnownFalsePass`.
+- `internal/analysis/policy_yaml_dupkey_fuzz_test.go`, `internal/analysis/yamlsafe_copy_test.go` — policy target, yamlsafe copy, `TestYamlsafeCopy_QuadraticBypassShapes`.
+- `internal/store/fuzz_parse_line_differential_test.go`, `internal/store/known_defect_checks_collision_test.go`.
+- `internal/baseline/fuzz_procstart_differential_test.go`.
+- `internal/collectors/ssh_firstmatch_known_defect_linux_test.go`.
+- `docs/findings/ds1-reproducers/` — minimised fuzzer reproducers (kept out of
+  `testdata/` so seed runs stay green) and `proposed-fixes.diff`.
+
+Run every gated property: `DSD_KNOWN_DEFECTS=1 go test ./internal/cis ./internal/analysis ./internal/store ./internal/baseline`
+(fails today, by design) and, on linux, `./internal/collectors -run TestParseSSHFileContent_FirstObtainedValueWins`.
