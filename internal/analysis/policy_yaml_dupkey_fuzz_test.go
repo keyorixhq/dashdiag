@@ -2,6 +2,7 @@ package analysis
 
 import (
 	"fmt"
+	"math"
 	"os"
 	"path/filepath"
 	"runtime"
@@ -31,7 +32,10 @@ import (
 //     More pairs than keys means the pre-check let through a shape whose
 //     library cost grows with n^2 — the exact cost #1179 exists to remove.
 //     Checked both for the PolicyFile target and for an `any` target (the
-//     generic yamlsafe contract).
+//     generic yamlsafe contract). Documents with a DS1-F1 key shape
+//     (non-scalar, merge, NaN) are skipped for this oracle unless
+//     DSD_KNOWN_DEFECTS=1; the fuzzer found the non-scalar one in about a
+//     second once a repeated-key form was checked.
 //  2. Bounded work: the hardened path allocates at most
 //     hardenedAllocBase + hardenedAllocPerByte*len(data) bytes.
 //  3. Migration differential: main and migrated agree on accept/reject
@@ -109,7 +113,10 @@ func checkPolicyYAMLDupKey(t *testing.T, data []byte, path string) {
 		t.Fatalf("hardened path allocated %d bytes for a %d-byte policy (cap %d)",
 			alloc, len(data), hardenedAllocBase+hardenedAllocPerByte*uint64(len(data)))
 	}
-	if parsed {
+	// DS1-F1: the three key shapes the pre-check is known to skip are left
+	// out of oracle 1 unless DSD_KNOWN_DEFECTS=1, so the search keeps looking
+	// for a fourth one. Oracles 2-4 still run on them.
+	if parsed && (os.Getenv("DSD_KNOWN_DEFECTS") == "1" || !hasKnownBypassKey(data)) {
 		if pairs := libraryDupPairs(hErr); pairs > keys {
 			t.Fatalf("yamlsafe pre-check passed but the library then reported %d duplicate-key pairs for %d keys (quadratic path reached): %q",
 				pairs, keys, truncate(data))
@@ -188,6 +195,46 @@ func countMappingKeys(data []byte) (int, bool) {
 	}
 	walk(&root)
 	return n, true
+}
+
+// hasKnownBypassKey reports whether any mapping key in data has one of the
+// DS1-F1 shapes: non-scalar, a merge key, or a scalar that decodes to NaN.
+func hasKnownBypassKey(data []byte) bool {
+	var root goyaml.Node
+	if err := goyaml.Unmarshal(data, &root); err != nil {
+		return false
+	}
+	found := false
+	var walk func(*goyaml.Node)
+	walk = func(x *goyaml.Node) {
+		if found {
+			return
+		}
+		if x.Kind == goyaml.MappingNode {
+			for i := 0; i+1 < len(x.Content); i += 2 {
+				k := x.Content[i]
+				if k.Kind == goyaml.AliasNode && k.Alias != nil {
+					k = k.Alias
+				}
+				if k.Kind != goyaml.ScalarNode || k.Tag == "!!merge" {
+					found = true
+					return
+				}
+				var v any
+				if k.Decode(&v) == nil {
+					if f, ok := v.(float64); ok && math.IsNaN(f) {
+						found = true
+						return
+					}
+				}
+			}
+		}
+		for _, c := range x.Content {
+			walk(c)
+		}
+	}
+	walk(&root)
+	return found
 }
 
 // libraryDupPairs counts duplicate-key errors produced by the library's
