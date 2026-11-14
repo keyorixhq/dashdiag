@@ -274,6 +274,7 @@ fail); hand-found ones were replayed 3 times through their pinned test.
 | DS1-F4 | SECURITY-DEFECT | `fmt.Sscanf("%d")` accepts a numeric prefix: `PASS_MIN_DAYS 1A0`, `PASS_WARN_AGE 7days`, `PASS_MAX_DAYS 60x` PASS; shadow-utils rejects them ("configuration error - cannot parse") and applies no aging. `PASS_MAX_DAYS -1` (no expiry) also PASSES 5.4.1 and V-238380 | fuzzer, < 1 s | `docs/findings/ds1-reproducers/FuzzCISLoginDefsMetamorphic/F4-trailing-garbage-1A0`; `TestCISKnownFalsePass/F4_*` | same as F3 |
 | DS1-F5 | DEFECT | validateEntry strips control characters from Checks keys after decoding, so `disk` and `disk\a` collapse and the surviving status depends on map order: one store line reads back disk=OK on one run, CRIT on the next | code reading (the determinism oracle catches it; 5.3 M fuzz execs did not build the collision) | `TestParseStoreLine_SanitizedCheckKeyCollisionIsDeterministic` | ReadAll <- `dsd history`, `dsd diff`, `dsd health --persist` |
 | DS1-F6 | HARDENING | parseProcStart guards NaN/Inf/negative but not size: starttime 1.2e13 ticks overflows time.Duration and yields 1734 (arm64). A real kernel cannot produce it (~292 years uptime); same float->int class as #727 | fuzzer, 1.3 s | `docs/findings/ds1-reproducers/FuzzProcStartDifferential/F6-starttime-overflow`; `TestParseProcStart_StarttimeOverflow` | `dsd health --since-deploy` -> newestProcStart (live /proc only) |
+| DS1-F7 | CANDIDATE (SECURITY-DEFECT if confirmed) | sshd_config: parseSSHFileContent lets later lines overwrite earlier ones and the non-root fallback parses sshd_config then drop-ins in glob order; sshd_config(5) says the FIRST obtained value is used. 50-cloud-init.conf `PasswordAuthentication yes` + 99-hardening.conf `no` -> sshd allows passwords, dsd reports disabled | code reading while auditing the F2/F3 class; red in a linux container 3/3; not checked against a live sshd (no openssh-server image offline) | `TestParseSSHFileContent_FirstObtainedValueWins` (linux, gated) | `dsd health` / `dsd cis` non-root -> SecurityCollector -> parseSSHConfig fallback -> parseSSHFileContent |
 | DS1-E1 | EXPECTED-DIFFERENCE (doc defect in #1179) | yamlsafe rejects `1: a` / `0x1: b` (decoded keys equal) that the library accepts; its doc says it compares "as they do in the library", but the library compares raw spellings (decode.go mapping(): `ni.Value == nj.Value`) | reading + oracle 4 tally | `"1: a\n0x1: b\n"` seed | branch only |
 
 Not a finding: on main, `LoadPolicy` calls `yaml.Unmarshal` directly, so the
@@ -313,6 +314,22 @@ FAIL with "invalid value"; `PASS_MAX_DAYS` < 1 (incl. -1) is non-compliant.
 Proof: `TestCISKnownFalsePass/F3*`, `F4*`, and the gated oracles of
 FuzzCISLoginDefsMetamorphic. The same first-match shape exists in 5.4.3,
 5.4.5 and 5.4.7 (`/etc/default/useradd`); worth auditing together.
+
+**P6 (F7) sshd_config fallback: first obtained value wins.** Track which
+keywords have been set and ignore later assignments, across the main file
+and the drop-ins; better, follow the `Include` line where it appears in
+sshd_config instead of appending drop-ins after it. Confirm first with
+`sshd -T` on a host carrying the 50/99 drop-in pair. Proof:
+`DSD_KNOWN_DEFECTS=1 go test ./internal/collectors -run TestParseSSHFileContent_FirstObtainedValueWins`
+(linux; `make test-linux`-style container).
+
+**P7 (class) add "consumer-semantics precedence" to DEFECT-CLASSES.md.** F2,
+F3 and F7 are one class: dsd reads a config with a different precedence
+rule from the program that consumes it (kernel mount stack: last on top;
+shadow-utils: last assignment; sshd: first obtained). Every config parser
+should name its consumer's rule and carry a test with a duplicated key.
+Other parsers worth the same check: `/etc/default/useradd` (5.4.5, 5.4.7),
+sysctl.d, journald.conf (`readJournaldConfig`), modprobe.d (`checkModuleDisabled`).
 
 **P4 (F5) store: make key sanitising deterministic.** When two Checks keys
 collapse to the same sanitised name, keep the worst status (CRIT > WARN >
