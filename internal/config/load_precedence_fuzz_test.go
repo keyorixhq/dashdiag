@@ -39,7 +39,7 @@ package config
 
 import (
 	"encoding/binary"
-	"encoding/json"
+	"fmt"
 	"math"
 	"os"
 	"path/filepath"
@@ -101,11 +101,26 @@ func yFloat(v float64) string {
 	return strconv.FormatFloat(v, 'g', -1, 64)
 }
 
-// yString renders s as a YAML double-quoted scalar. JSON string escaping is
-// a subset of YAML double-quoted escaping (for valid UTF-8 input).
+// yString renders s (valid UTF-8) as a YAML double-quoted scalar, escaping
+// every rune outside YAML's c-printable set (json.Marshal is not enough: it
+// leaves DEL and C1 controls raw, which YAML forbids in the stream).
 func yString(s string) string {
-	b, _ := json.Marshal(s)
-	return string(b)
+	var sb strings.Builder
+	sb.WriteByte('"')
+	for _, r := range s {
+		switch {
+		case r == '"' || r == '\\':
+			sb.WriteByte('\\')
+			sb.WriteRune(r)
+		case r == 0x20 || (r > 0x20 && r < 0x7f) ||
+			(r >= 0xa0 && r <= 0xd7ff) || (r >= 0xe000 && r <= 0xfffd && r != 0xfeff) || r >= 0x10000:
+			sb.WriteRune(r)
+		default:
+			fmt.Fprintf(&sb, `\u%04x`, r)
+		}
+	}
+	sb.WriteByte('"')
+	return sb.String()
 }
 
 func renderBlock(n *yNode, indent string, reverse bool, sb *strings.Builder) {
