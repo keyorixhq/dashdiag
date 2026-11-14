@@ -107,8 +107,20 @@ verdicts. 18% are fuzzed directly, two thirds only ride along inside two
 whole-bundle fuzzers, and the most-called unfuzzed ones are the CIS compliance
 checks, the code whose PASS a customer shows an auditor.*
 
+After this branch: 77 direct, 276 transitive, 47 none. The scanner's own
+blind spot showed up on first contact: the CIS targets reach the checks
+through `ruleByID(id).Check(...)`, a func value in the `CISRules` registry, so
+the first version still reported them "none". reachscan now adds registry
+edges (reading a package-level variable reaches whoever assigns it; naming a
+function as a value reaches it); re-run on origin/main this changes nothing
+(73/269/58), on this branch it moves the CIS checks to "transitive". It also
+marks `checkAuditRule` transitive although no target feeds audit rules: the
+registry edge over-approximates. macOS (`-goos darwin`): 171 candidates, 41
+direct, 76 transitive, 54 none; the same CIS helpers top that list.
+
 What reachscan does NOT verify: real taint (a parser fed only constants still
-ranks), dynamic calls (interfaces, func values; "transitive" is a lower bound),
+ranks), interface method calls, func values passed through parameters, the
+precision of the registry approximation (shared variables over-approximate),
 name-based fuzz coverage (collisions overstate), one GOOS per run, and it skips
 `scripts/` and `internal/testutil`.
 

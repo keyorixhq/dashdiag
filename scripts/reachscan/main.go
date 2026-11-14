@@ -18,9 +18,13 @@
 //     []string, io.Reader, *bufio.Scanner or *bufio.Reader and its name or body
 //     looks like parsing. Whether the argument really comes from an external
 //     source is not traced; a parser fed only constants still ranks.
-//   - Dynamic calls. Calls through interfaces, func values and method values
-//     are not followed, so "transitive" coverage is a lower bound and a
-//     function reached only that way shows as uncovered.
+//   - Dynamic calls precisely. Interface method calls are not followed.
+//     Func values are approximated: naming a module function reaches it, and
+//     reading a package-level variable reaches every function that assigns
+//     it (so a registry such as CISRules = buildRules() makes its Check
+//     closures reachable from ruleByID). That over-approximates for shared
+//     variables and still misses values passed through parameters, so
+//     "transitive" is neither a strict lower nor upper bound.
 //   - Fuzz coverage is name-based: a candidate is "direct" when its name is
 //     called from a file that declares a Fuzz target in the same package (or
 //     through pkg.Name from any fuzz file). Name collisions can overstate it.
@@ -155,6 +159,35 @@ func main() {
 					continue
 				}
 				key := funcKey(obj)
+				addEdge := func(from, to string) {
+					if graph[from] == nil {
+						graph[from] = map[string]bool{}
+					}
+					graph[from][to] = true
+				}
+				// Registry edges: reading a package-level variable reaches
+				// whoever assigns it (CISRules = buildRules() makes every Check
+				// closure reachable from ruleByID), and naming a module function
+				// as a value reaches it.
+				ast.Inspect(fd.Body, func(n ast.Node) bool {
+					switch x := n.(type) {
+					case *ast.AssignStmt:
+						for _, l := range x.Lhs {
+							if id, ok := ast.Unparen(l).(*ast.Ident); ok {
+								if v := pkgVarKey(info.Uses[id]); v != "" {
+									addEdge(v, key)
+								}
+							}
+						}
+					case *ast.Ident:
+						if v := pkgVarKey(info.Uses[x]); v != "" {
+							addEdge(key, v)
+						} else if f, ok := info.Uses[x].(*types.Func); ok && f.Pkg() != nil && strings.HasPrefix(f.Pkg().Path(), modulePath) {
+							addEdge(key, funcKey(f.Origin()))
+						}
+					}
+					return true
+				})
 				score := 0
 				ast.Inspect(fd.Body, func(n ast.Node) bool {
 					ce, ok := n.(*ast.CallExpr)
@@ -329,6 +362,16 @@ func mapKeys(m map[string]bool) func(func(string) bool) {
 			}
 		}
 	}
+}
+
+// pkgVarKey names a package-level variable of this module as a graph node,
+// or returns "" for anything else.
+func pkgVarKey(obj types.Object) string {
+	v, ok := obj.(*types.Var)
+	if !ok || v.Pkg() == nil || v.Parent() != v.Pkg().Scope() || !strings.HasPrefix(v.Pkg().Path(), modulePath) {
+		return ""
+	}
+	return "var:" + v.Pkg().Path() + "." + v.Name()
 }
 
 func isThirdParty(path string) bool {
