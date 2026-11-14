@@ -520,7 +520,9 @@ func FuzzQRCodeRoundTrip(f *testing.F) {
 				t.Fatalf("bounded size: %d-byte content rejected at level %d: %v", len(url), level, err)
 			}
 		} else {
-			bm := q.Bitmap()
+			// Deep-copy the first matrix: Bitmap() may hand out storage that a
+			// later call rewrites, which would make the comparison vacuous.
+			bm := qrCloneBitmap(q.Bitmap())
 			bm2 := q.Bitmap()
 			if time.Since(start) > 2*time.Second {
 				t.Fatalf("bounded work: encode+render of %d bytes took %v", len(url), time.Since(start))
@@ -635,6 +637,14 @@ func TestReproPrintQRCodeAllControlURL_EmptyGreen(t *testing.T) {
 			t.Fatalf("empty url printed %q", out)
 		}
 	})
+}
+
+func qrCloneBitmap(bm [][]bool) [][]bool {
+	out := make([][]bool, len(bm))
+	for i, row := range bm {
+		out[i] = append([]bool(nil), row...)
+	}
+	return out
 }
 
 func qrBitmapsEqual(a, b [][]bool) bool {
