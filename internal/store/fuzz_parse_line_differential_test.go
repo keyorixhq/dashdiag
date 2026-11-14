@@ -40,6 +40,8 @@ func FuzzStoreLineDifferential(f *testing.F) {
 		`{"ts":"2026-01-01T00:00:00Z","host":"web\u0007","verdict":"CRIT","checks":{"disk\u0001":"CRIT"}}`,
 		`{"Verdict":"OK","verdict":"WARN"}`,
 		`{"verdict":"OK","checks":null}`,
+		`{"verdict":"BAD","host":"h"}`,
+		`{"verdict":"OK","checks":{"disk":"MAYBE"}}`,
 		`{"verdict":"OK"} trailing`,
 		`[1,2]`,
 		`{"verdict":"OK","metrics":{"x":1e308}}`,

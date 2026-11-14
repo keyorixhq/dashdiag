@@ -61,6 +61,7 @@ func FuzzPolicyYAMLDupKeyDifferential(f *testing.F) {
 		"deny:\n  - {a: 1, b: 2}\n",
 		"x: &a {k: 1}\ny:\n  <<: *a\n  j: 2\n",
 		"1: a\n0x1: b\n",
+		"a: 1\na: 1\na: 1\na: 1\na: 1\n",
 		"disk_warn_pct: .inf\n",
 		"? [a]\n: 1\n",
 		"io_await_warn_ms: 1e3\nntp_offset_crit_ms: -0\n",
