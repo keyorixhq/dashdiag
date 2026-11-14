@@ -38,6 +38,7 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -264,6 +265,20 @@ func (s *mcpFuzzSession) awaitID(t *testing.T, want string, seen map[string]int)
 	}
 }
 
+// jsonIncomplete reports whether a JSON stream decoder would stop at frame
+// waiting for more input (an unterminated value), per encoding/json.
+func jsonIncomplete(frame string) bool {
+	dec := json.NewDecoder(strings.NewReader(frame))
+	for {
+		var v json.RawMessage
+		err := dec.Decode(&v)
+		if err == nil {
+			continue
+		}
+		return errors.Is(err, io.ErrUnexpectedEOF)
+	}
+}
+
 func truncateForMsg(s string) string {
 	if len(s) > 300 {
 		return s[:300] + "…"
@@ -364,6 +379,13 @@ func FuzzMCPJSONRPCToolArgs(f *testing.F) {
 			stdlibOK = !strings.ContainsAny(payload, "\n\r") && json.Unmarshal([]byte(frame), &probe) == nil
 		} else {
 			frame = payload
+		}
+		if jsonIncomplete(frame) {
+			// NET1-F6 (TestReproMCPTruncatedFrameSwallowsNext): the SDK's stdio
+			// reader is a streaming json.Decoder, not line-delimited, so an
+			// incomplete JSON value swallows the frames after it. Reproduced
+			// separately; quarantined here so the fuzzer keeps exploring.
+			return
 		}
 		s.closeOK = !stdlibOK
 		// A frame with embedded newlines is several frames on this transport;
