@@ -65,7 +65,7 @@ func FuzzProcStartDifferential(f *testing.F) {
 		// time.Duration (DS1-F6, found by this target in about a second);
 		// such inputs are skipped unless DSD_KNOWN_DEFECTS=1 so the search
 		// can go on. The assertion itself is unchanged.
-		if ok && os.Getenv("DSD_KNOWN_DEFECTS") != "1" && starttimeBeyondDuration(tail) {
+		if ok && os.Getenv("DSD_KNOWN_DEFECTS") != "1" && starttimeBeyondDuration(rec) {
 			return
 		}
 		if ok && got.Before(boot) {
@@ -107,11 +107,15 @@ func FuzzProcStartDifferential(f *testing.F) {
 // can hold.
 const maxRepresentableSeconds = math.MaxInt64 / int64(time.Second)
 
-// starttimeBeyondDuration reports whether field 22 of the record, read the
-// way parseProcStart reads it (ParseFloat), is a finite tick count whose
-// seconds overflow time.Duration.
-func starttimeBeyondDuration(tail string) bool {
-	fields := strings.Fields(tail)
+// starttimeBeyondDuration reports whether field 22 of the record, located
+// and read the way parseProcStart does (after the LAST ")", ParseFloat), is
+// a finite tick count whose seconds overflow time.Duration.
+func starttimeBeyondDuration(rec string) bool {
+	rp := strings.LastIndex(rec, ")")
+	if rp < 0 || rp+2 > len(rec) {
+		return false
+	}
+	fields := strings.Fields(rec[rp+2:])
 	if len(fields) < 20 {
 		return false
 	}
