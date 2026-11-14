@@ -1,7 +1,7 @@
 # NET1 — fuzzing pro-bing / go-sdk (MCP) / cobra+viper / go-qrcode as DashDiag calls them
 
 Branch `fuzz/net-cli-mcp` (from origin/main 096ef46a). No production code changed.
-Status: six targets committed and red-proven; ≈106 min of fuzzing done (§5); final checks in §9.
+Status: DONE. Six targets committed and red-proven; ≈140 min of fuzzing (§5); final checks in §9.
 
 ## 0. Readings taken (no one to ask)
 
@@ -147,13 +147,13 @@ MCP runs over io.Pipe, pro-bing over a fake packetConn.
 
 | Target | Chunks (real time) | Total | Execs (clean chunks) | Hits → triage |
 |---|---|---|---|---|
-| FuzzProBingReplyAccounting | 8m30 + 8m30 (+1m45 smoke) | 17.0 min (+1.75) | 440k + 604k | smoke: racy forged seq (A2, fixture fixed), AvgRtt overflow (F2, reproduced, fixture bounded) |
-| FuzzMCPJSONRPCToolArgs | 16 s + 8m31 + 8m31 | 17.3 min | 437k + 381k | truncated frame swallows the next (F6, reproduced, quarantined) |
+| FuzzProBingReplyAccounting | 8m30 + 8m30 + 8m31 (+1m45 smoke) | 25.5 min (+1.75) | 440k + 604k + 371k | smoke: racy forged seq (A2, fixture fixed), AvgRtt overflow (F2, reproduced, fixture bounded) |
+| FuzzMCPJSONRPCToolArgs | 16 s + 8m31 + 8m31 + 8m31 | 25.8 min | 437k + 381k + 598k | truncated frame swallows the next (F6, reproduced, quarantined) |
 | FuzzSafeBundlePathContainment | 8m31 + 8m30 | 17.0 min | 1.89M + 3.10M | none |
 | FuzzLoadPrecedenceMetamorphic | 1m41 + 8m31 + 2m31 + 8m30 (+2 min smoke) | 21.2 min (+2) | 375k + 480k | smoke: block renderer bug (A3); DEL/C1 in YAML scalar (A5, harness); host substring inside echoed name (A6, harness) |
-| FuzzCobraArgvMetamorphic | 8m30 + 8m30 (+1 min smoke) | 17.0 min (+1) | 356k + 395k | smoke: empty value as bare flag (A4, harness) |
-| FuzzQRCodeRoundTrip | 8m31 + 8m31 (+1.2 min smoke) | 17.0 min (+1.2) | 185k + 88k | smoke: empty content (E2), all-control url (F5, reproduced) |
-| **Total** | | **≈106.5 min** (+≈7 smoke) | | |
+| FuzzCobraArgvMetamorphic | 8m30 + 8m30 + 8m30 (+1 min smoke) | 25.5 min (+1) | 356k + 395k + 399k | smoke: empty value as bare flag (A4, harness) |
+| FuzzQRCodeRoundTrip | 8m31 + 8m31 + 8m31 (+1.2 min smoke) | 25.5 min (+1.2) | 185k + 88k + 62k | smoke: empty content (E2), all-control url (F5, reproduced) |
+| **Total** | | **≈140.5 min** (+≈7 smoke) | | round 3 (after the final checks): no new hits |
 
 Every hit was minimised by the Go fuzzer, replayed 3× (`-count=3`), and kept
 as a committed regression seed when it was a harness artifact or an
