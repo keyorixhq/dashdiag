@@ -23,8 +23,8 @@ package config
 //     a future AutomaticEnv would be a silent precedence change).
 //  4. Unsafe-file gate: a group/world-writable implicit config is ignored
 //     entirely — defaults, nil error — whatever it contains.
-//  5. No secret echo: a sentinel placed in an unknown key and in every
-//     service host never appears in Load's error text (that error is
+//  5. No secret echo: a sentinel placed in an unknown key and appended to a
+//     third of the service hosts never appears in Load's error text (that error is
 //     surfaced into health output and the MCP dsd_health response).
 //
 // What this does NOT verify: the Security section's defaults when the file
@@ -394,11 +394,10 @@ func FuzzLoadPrecedenceMetamorphic(f *testing.F) {
 			if strings.Contains(msg, cfgSecretSentinel) {
 				t.Fatalf("secret echo: Load error contains the sentinel: %q\nfile:\n%s", msg, block.String())
 			}
-			for _, h := range g.hosts {
-				if len(h) >= 6 && strings.Contains(msg, h) {
-					t.Fatalf("secret echo: Load error contains a service host %q: %q", h, msg)
-				}
-			}
+			// Host echo is checked through the sentinel the generator appends
+			// to a third of the hosts. A plain substring check on every host
+			// is unsound: a short host can occur inside the service name,
+			// which the error echoes by design (fuzz corpus 7fef62da).
 		}
 
 		if g.unsafePerm {
