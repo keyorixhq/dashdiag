@@ -43,6 +43,7 @@ import (
 	"go/token"
 	"go/types"
 	"io/fs"
+	"maps"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -97,6 +98,17 @@ type extCall struct {
 	Pkgs  map[string]bool
 }
 
+// scanner holds what one run collects across all packages.
+type scanner struct {
+	root  string
+	fset  *token.FileSet
+	imp   types.Importer
+	cands map[string]*candidate
+	calls map[string]int             // qualified callee -> production call sites
+	graph map[string]map[string]bool // caller key -> callee keys (module only)
+	ext   map[string]*extCall
+}
+
 func main() {
 	root := flag.String("root", ".", "module root")
 	goos := flag.String("goos", "linux", "GOOS to evaluate build tags for")
@@ -107,161 +119,183 @@ func main() {
 	build.Default.CgoEnabled = false
 
 	fset := token.NewFileSet()
-	imp := importer.ForCompiler(fset, "source", nil)
+	s := &scanner{
+		root: *root, fset: fset, imp: importer.ForCompiler(fset, "source", nil),
+		cands: map[string]*candidate{}, calls: map[string]int{},
+		graph: map[string]map[string]bool{}, ext: map[string]*extCall{},
+	}
+	dirs := packageDirs(*root)
+	for _, dir := range dirs {
+		s.scanPackage(dir)
+	}
+	all := s.rank(fuzzRoots(*root, dirs))
+	printCandidates(all, *goos, *top)
+	printLibraryCalls(s.ext)
+	if os.Getenv("REACHSCAN_ALL") != "" {
+		printAll(all)
+	}
+}
 
-	cands := map[string]*candidate{}
-	calls := map[string]int{}             // qualified callee -> production call sites
-	graph := map[string]map[string]bool{} // caller key -> callee keys (module only)
-	ext := map[string]*extCall{}
+// packageDirs lists every directory under root that may hold a package,
+// skipping hidden dirs, testdata, vendor and the tooling trees.
+func packageDirs(root string) []string {
 	var dirs []string
-	_ = filepath.WalkDir(*root, func(p string, d fs.DirEntry, err error) error {
-		if err != nil || !d.IsDir() {
+	_ = filepath.WalkDir(root, func(p string, d fs.DirEntry, err error) error {
+		if err != nil {
+			return nil //nolint:nilerr // unreadable entries are skipped, not fatal
+		}
+		if !d.IsDir() {
 			return nil
 		}
 		n := d.Name()
-		if p != *root && (strings.HasPrefix(n, ".") || n == "testdata" || n == "vendor" || n == "node_modules" ||
+		if p != root && (strings.HasPrefix(n, ".") || n == "testdata" || n == "vendor" || n == "node_modules" ||
 			n == "scripts" || n == "testutil") {
 			return filepath.SkipDir
 		}
 		dirs = append(dirs, p)
 		return nil
 	})
+	return dirs
+}
 
-	for _, dir := range dirs {
-		bp, err := build.Default.ImportDir(dir, 0)
-		if err != nil || len(bp.GoFiles) == 0 {
-			continue
+func (s *scanner) scanPackage(dir string) {
+	bp, err := build.Default.ImportDir(dir, 0)
+	if err != nil || len(bp.GoFiles) == 0 {
+		return
+	}
+	rel, _ := filepath.Rel(s.root, dir)
+	pkgPath := modulePath
+	if rel != "." {
+		pkgPath += "/" + filepath.ToSlash(rel)
+	}
+	var files []*ast.File
+	for _, f := range bp.GoFiles {
+		if af, err := parser.ParseFile(s.fset, filepath.Join(dir, f), nil, parser.SkipObjectResolution); err == nil {
+			files = append(files, af)
 		}
-		rel, _ := filepath.Rel(*root, dir)
-		pkgPath := modulePath
-		if rel != "." {
-			pkgPath += "/" + filepath.ToSlash(rel)
-		}
-		var files []*ast.File
-		for _, f := range bp.GoFiles {
-			af, err := parser.ParseFile(fset, filepath.Join(dir, f), nil, parser.SkipObjectResolution)
-			if err == nil {
-				files = append(files, af)
-			}
-		}
-		info := &types.Info{Uses: map[*ast.Ident]types.Object{}, Defs: map[*ast.Ident]types.Object{}, Types: map[ast.Expr]types.TypeAndValue{}}
-		conf := types.Config{Importer: imp, Error: func(error) {}}
-		_, _ = conf.Check(pkgPath, fset, files, info)
+	}
+	info := &types.Info{Uses: map[*ast.Ident]types.Object{}, Defs: map[*ast.Ident]types.Object{}, Types: map[ast.Expr]types.TypeAndValue{}}
+	conf := types.Config{Importer: s.imp, Error: func(error) {}}
+	_, _ = conf.Check(pkgPath, s.fset, files, info)
 
-		for _, af := range files {
-			for _, decl := range af.Decls {
-				fd, ok := decl.(*ast.FuncDecl)
-				if !ok || fd.Body == nil {
-					continue
-				}
-				obj, _ := info.Defs[fd.Name].(*types.Func)
-				if obj == nil {
-					continue
-				}
-				key := funcKey(obj)
-				addEdge := func(from, to string) {
-					if graph[from] == nil {
-						graph[from] = map[string]bool{}
-					}
-					graph[from][to] = true
-				}
-				// Registry edges: reading a package-level variable reaches
-				// whoever assigns it (CISRules = buildRules() makes every Check
-				// closure reachable from ruleByID), and naming a module function
-				// as a value reaches it.
-				ast.Inspect(fd.Body, func(n ast.Node) bool {
-					switch x := n.(type) {
-					case *ast.AssignStmt:
-						for _, l := range x.Lhs {
-							if id, ok := ast.Unparen(l).(*ast.Ident); ok {
-								if v := pkgVarKey(info.Uses[id]); v != "" {
-									addEdge(v, key)
-								}
-							}
-						}
-					case *ast.Ident:
-						if v := pkgVarKey(info.Uses[x]); v != "" {
-							addEdge(key, v)
-						} else if f, ok := info.Uses[x].(*types.Func); ok && f.Pkg() != nil && strings.HasPrefix(f.Pkg().Path(), modulePath) {
-							addEdge(key, funcKey(f.Origin()))
-						}
-					}
-					return true
-				})
-				score := 0
-				ast.Inspect(fd.Body, func(n ast.Node) bool {
-					ce, ok := n.(*ast.CallExpr)
-					if !ok {
-						return true
-					}
-					callee := calleeFunc(info, ce)
-					if callee == nil {
-						return true
-					}
-					ck := funcKey(callee)
-					calls[ck]++
-					if primitives[pkgFunc(callee)] {
-						score++
-					}
-					cp := ""
-					if callee.Pkg() != nil {
-						cp = callee.Pkg().Path()
-					}
-					switch {
-					case strings.HasPrefix(cp, modulePath):
-						if graph[key] == nil {
-							graph[key] = map[string]bool{}
-						}
-						graph[key][ck] = true
-					case callee.Exported() && (isThirdParty(cp) || decoderPkgs[cp]) && takesText(info, ce):
-						e := ext[ck]
-						if e == nil {
-							e = &extCall{Key: ck, Path: cp, Pkgs: map[string]bool{}}
-							ext[ck] = e
-						}
-						e.Calls++
-						e.Pkgs[strings.TrimPrefix(pkgPath, modulePath+"/")] = true
-					}
-					return true
-				})
-				params, textual := textParams(obj)
-				if !textual {
-					continue
-				}
-				if !parseNameRe.MatchString(fd.Name.Name) && score < 3 {
-					continue
-				}
-				pos := fset.Position(fd.Pos())
-				relPos, _ := filepath.Rel(*root, pos.Filename)
-				cands[key] = &candidate{Key: key, Pkg: strings.TrimPrefix(pkgPath, modulePath+"/"), Name: fd.Name.Name,
-					Pos: fmt.Sprintf("%s:%d", relPos, pos.Line), Params: params, Score: score}
+	for _, af := range files {
+		for _, decl := range af.Decls {
+			if fd, ok := decl.(*ast.FuncDecl); ok && fd.Body != nil {
+				s.scanFunc(fd, info, pkgPath)
 			}
 		}
 	}
+}
 
-	roots := fuzzRoots(*root, dirs)
+func (s *scanner) addEdge(from, to string) {
+	if s.graph[from] == nil {
+		s.graph[from] = map[string]bool{}
+	}
+	s.graph[from][to] = true
+}
+
+func (s *scanner) scanFunc(fd *ast.FuncDecl, info *types.Info, pkgPath string) {
+	obj, _ := info.Defs[fd.Name].(*types.Func)
+	if obj == nil {
+		return
+	}
+	key := funcKey(obj)
+	s.registryEdges(fd, info, key)
+	score := 0
+	ast.Inspect(fd.Body, func(n ast.Node) bool {
+		ce, ok := n.(*ast.CallExpr)
+		if !ok {
+			return true
+		}
+		if callee := calleeFunc(info, ce); callee != nil && s.recordCall(info, ce, callee, key, pkgPath) {
+			score++
+		}
+		return true
+	})
+	params, textual := textParams(obj)
+	if !textual || !parseNameRe.MatchString(fd.Name.Name) && score < 3 {
+		return
+	}
+	pos := s.fset.Position(fd.Pos())
+	relPos, _ := filepath.Rel(s.root, pos.Filename)
+	s.cands[key] = &candidate{Key: key, Pkg: strings.TrimPrefix(pkgPath, modulePath+"/"), Name: fd.Name.Name,
+		Pos: fmt.Sprintf("%s:%d", relPos, pos.Line), Params: params, Score: score}
+}
+
+// registryEdges adds the approximate func-value edges: reading a
+// package-level variable reaches whoever assigns it (CISRules = buildRules()
+// makes every Check closure reachable from ruleByID), and naming a module
+// function as a value reaches it.
+func (s *scanner) registryEdges(fd *ast.FuncDecl, info *types.Info, key string) {
+	ast.Inspect(fd.Body, func(n ast.Node) bool {
+		switch x := n.(type) {
+		case *ast.AssignStmt:
+			for _, l := range x.Lhs {
+				if id, ok := ast.Unparen(l).(*ast.Ident); ok {
+					if v := pkgVarKey(info.Uses[id]); v != "" {
+						s.addEdge(v, key)
+					}
+				}
+			}
+		case *ast.Ident:
+			if v := pkgVarKey(info.Uses[x]); v != "" {
+				s.addEdge(key, v)
+			} else if f, ok := info.Uses[x].(*types.Func); ok && f.Pkg() != nil && strings.HasPrefix(f.Pkg().Path(), modulePath) {
+				s.addEdge(key, funcKey(f.Origin()))
+			}
+		}
+		return true
+	})
+}
+
+// recordCall counts one call site and reports whether the callee is a
+// parsing primitive.
+func (s *scanner) recordCall(info *types.Info, ce *ast.CallExpr, callee *types.Func, key, pkgPath string) bool {
+	ck := funcKey(callee)
+	s.calls[ck]++
+	cp := ""
+	if callee.Pkg() != nil {
+		cp = callee.Pkg().Path()
+	}
+	switch {
+	case strings.HasPrefix(cp, modulePath):
+		s.addEdge(key, ck)
+	case callee.Exported() && (isThirdParty(cp) || decoderPkgs[cp]) && takesText(info, ce):
+		e := s.ext[ck]
+		if e == nil {
+			e = &extCall{Key: ck, Path: cp, Pkgs: map[string]bool{}}
+			s.ext[ck] = e
+		}
+		e.Calls++
+		e.Pkgs[strings.TrimPrefix(pkgPath, modulePath+"/")] = true
+	}
+	return primitives[pkgFunc(callee)]
+}
+
+// rank marks fuzz coverage and returns the candidates sorted by call sites.
+func (s *scanner) rank(roots map[string]bool) []*candidate {
 	// Direct: the candidate's name is called from a fuzz file of its own
 	// package, or as pkg.Name from any fuzz file.
-	for _, c := range cands {
+	for _, c := range s.cands {
 		pkgName := c.Pkg[strings.LastIndex(c.Pkg, "/")+1:]
 		if roots[c.Pkg+"\x00"+c.Name] || roots["*\x00"+pkgName+"."+c.Name] {
 			c.Direct = true
 		}
 	}
-	// Transitive: reachable in the static call graph from any module function
-	// that a fuzz file calls by name.
-	seen := map[string]bool{}
+	// Transitive: reachable in the graph from any module function that a
+	// fuzz file calls by name.
 	var queue []string
-	for caller := range graph {
+	for caller := range s.graph {
 		if fuzzCalled(roots, caller) {
 			queue = append(queue, caller)
 		}
 	}
-	for k, c := range cands {
+	for k, c := range s.cands {
 		if c.Direct {
 			queue = append(queue, k)
 		}
 	}
+	seen := map[string]bool{}
 	for len(queue) > 0 {
 		k := queue[0]
 		queue = queue[1:]
@@ -269,22 +303,23 @@ func main() {
 			continue
 		}
 		seen[k] = true
-		for callee := range graph[k] {
+		for callee := range s.graph[k] {
 			queue = append(queue, callee)
 		}
 	}
-	var all []*candidate
-	for k, c := range cands {
-		c.Calls = calls[k]
-		if !c.Direct && seen[k] {
-			c.Transitiv = true
-		}
+	all := make([]*candidate, 0, len(s.cands))
+	for k, c := range s.cands {
+		c.Calls = s.calls[k]
+		c.Transitiv = !c.Direct && seen[k]
 		all = append(all, c)
 	}
 	slices.SortFunc(all, func(a, b *candidate) int {
 		return cmp.Or(cmp.Compare(b.Calls, a.Calls), cmp.Compare(b.Score, a.Score), cmp.Compare(a.Key, b.Key))
 	})
+	return all
+}
 
+func printCandidates(all []*candidate, goos string, top int) {
 	direct, trans := 0, 0
 	for _, c := range all {
 		if c.Direct {
@@ -293,10 +328,10 @@ func main() {
 			trans++
 		}
 	}
-	fmt.Printf("# reachscan (GOOS=%s)\n\n", *goos)
+	fmt.Printf("# reachscan (GOOS=%s)\n\n", goos)
 	fmt.Printf("parser candidates: %d; fuzz-covered directly: %d; transitively: %d; uncovered: %d\n\n",
 		len(all), direct, trans, len(all)-direct-trans)
-	fmt.Printf("## Top %d parsers without a direct Fuzz target (by production call sites, then parse-primitive count)\n\n", *top)
+	fmt.Printf("## Top %d parsers without a direct Fuzz target (by production call sites, then parse-primitive count)\n\n", top)
 	fmt.Println("reach: `none` = no Fuzz target reaches it statically; `transitive` = only reached")
 	fmt.Println("inside a larger target (whole-bundle replay, taint sweep), never fed directly.")
 	fmt.Println()
@@ -308,20 +343,25 @@ func main() {
 			continue
 		}
 		n++
-		if n > *top {
+		if n > top {
 			break
 		}
-		reach := "none"
-		if c.Transitiv {
-			reach = "transitive"
-		}
-		fmt.Printf("| %d | `%s.%s` | %d | %d | %s | %s | %s |\n", n, c.Pkg, c.Name, c.Calls, c.Score, reach, c.Params, c.Pos)
+		fmt.Printf("| %d | `%s.%s` | %d | %d | %s | %s | %s |\n", n, c.Pkg, c.Name, c.Calls, c.Score, c.state(), c.Params, c.Pos)
 	}
+}
 
-	var exts []*extCall
-	for _, e := range ext {
-		exts = append(exts, e)
+func (c *candidate) state() string {
+	switch {
+	case c.Direct:
+		return "direct"
+	case c.Transitiv:
+		return "transitive"
 	}
+	return "none"
+}
+
+func printLibraryCalls(ext map[string]*extCall) {
+	exts := slices.Collect(maps.Values(ext))
 	slices.SortFunc(exts, func(a, b *extCall) int {
 		return cmp.Or(cmp.Compare(b.Calls, a.Calls), cmp.Compare(a.Key, b.Key))
 	})
@@ -329,7 +369,7 @@ func main() {
 	fmt.Println("| function | call sites | packages | third-party |")
 	fmt.Println("|---|---|---|---|")
 	for _, e := range exts {
-		pk := slices.Sorted(mapKeys(e.Pkgs))
+		pk := slices.Sorted(maps.Keys(e.Pkgs))
 		if len(pk) > 4 {
 			pk = append(pk[:4], fmt.Sprintf("+%d", len(e.Pkgs)-4))
 		}
@@ -339,28 +379,12 @@ func main() {
 		}
 		fmt.Printf("| `%s` | %d | %s | %s |\n", e.Key, e.Calls, strings.Join(pk, ", "), tp)
 	}
-
-	if os.Getenv("REACHSCAN_ALL") != "" {
-		fmt.Printf("\n## All candidates\n\n")
-		for _, c := range all {
-			state := "uncovered"
-			if c.Direct {
-				state = "direct"
-			} else if c.Transitiv {
-				state = "transitive"
-			}
-			fmt.Printf("%s\t%d\t%d\t%s\t%s\n", c.Key, c.Calls, c.Score, state, c.Pos)
-		}
-	}
 }
 
-func mapKeys(m map[string]bool) func(func(string) bool) {
-	return func(yield func(string) bool) {
-		for k := range m {
-			if !yield(k) {
-				return
-			}
-		}
+func printAll(all []*candidate) {
+	fmt.Printf("\n## All candidates\n\n")
+	for _, c := range all {
+		fmt.Printf("%s\t%d\t%d\t%s\t%s\n", c.Key, c.Calls, c.Score, c.state(), c.Pos)
 	}
 }
 
