@@ -181,6 +181,12 @@ const maxDirSizeWalkBytes = 1 << 40 // 1TiB
 // left to finish (or hit maxDirSizeWalkEntries/maxDirSizeWalkBytes and exit)
 // on its own — it never panics or blocks forever, so it doesn't leak.
 func dirSize(ctx context.Context, path string) (int64, error) {
+	// An already-expired ctx must always report its error: the select below picks
+	// at random when the walk also finishes first, so a small tree would
+	// sometimes return success on a dead context.
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
 	type result struct {
 		total int64
 		err   error
