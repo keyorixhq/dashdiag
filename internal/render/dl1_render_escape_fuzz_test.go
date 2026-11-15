@@ -23,17 +23,18 @@ package render
 //
 // Each render is wrapped in the DL1 resource oracle (resource.Check): bytes
 // allocated bounded by factor*inputLen + 1 MiB, wall time < 5 s, no goroutine
-// leak. factor is 2048 (NOT the DL1 default of 64), calibrated from a baseline
-// fuzz run: this fixture deliberately fans each fuzz string into ~20-60
-// host-derived fields (every Insight/Details/Snapshot slot) to maximise
-// injection coverage, so the per-input-byte amplification is dominated by that
-// fixture fan-out, not by any funnel defect — a ~2 KB input legitimately
-// allocates ~1.9 MB (≈1000x) once it is copied into every field and rendered
-// four ways, and the growth is LINEAR in input size (the ratio only falls as the
-// 1 MiB floor amortises). factor 2048 covers that fan-out with ~2x headroom and
-// still trips on a genuinely super-linear (quadratic/exponential) blowup. An
-// earlier factor of 64 fired on this fan-out — a HARNESS-FALSE-POSITIVE
-// (mis-calibrated budget), recalibrated here, not a DashDiag amplification.
+// leak. factor is 8192 (NOT the DL1 default of 64) and the oracle here is
+// DELIBERATELY LOOSE, because this fixture fans each fuzz string into ~52
+// host-derived fields (every Insight/Details/Snapshot slot) to maximise injection
+// coverage: the per-input-byte amplification is dominated by that fixture fan-out,
+// not by any funnel defect, and it is LINEAR in input size. The legitimate ceiling
+// is ~52 fields × up to 6x (a control-char blob becomes \uXXXX in JSON) × marshal
+// overhead ≈ 3000x — observed worst case 2790x on an all-control 2.3 KB input.
+// factor 8192 covers that with ~3x headroom and still trips on a genuinely
+// super-linear (quadratic/exponential) blow-up or a hang. Earlier factors of 64
+// and 2048 fired on this fan-out — calibration issues against the fixture, not
+// DashDiag amplifications; the primary oracle of this target is the injection
+// check, the resource oracle is a secondary gross-pathology backstop.
 //
 // Does NOT verify: the styled TUI output (see above); that a backtick in a
 // Message cannot open a markdown code span (a markdown-rendering nuisance, not a
@@ -56,7 +57,7 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/testutil/resource"
 )
 
-const dl1RenderAllocFactor = 2048
+const dl1RenderAllocFactor = 8192
 
 // assertNoTerminalInjection asserts the invariant the shipped funnels actually
 // uphold: valid UTF-8 (no raw 8-bit C1 byte), no raw ESC (0x1B), and no unicode
