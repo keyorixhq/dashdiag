@@ -11,6 +11,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Testing
+
+- **DL1 dependency-and-claims fuzzing.** Added a shared per-input resource oracle
+  (`internal/testutil/resource`: `TotalAlloc`/time/goroutine budget + unix
+  filesystem fingerprint for the read-only claim) and three fuzz targets that
+  carry it: `FuzzRenderFunnelNoTerminalInjection` (host strings through the
+  markdown/share/post-mortem/JSON builders emit no raw ESC/C1/control),
+  `FuzzMCPSafeBundlePathContainment` (every accepted MCP path stays inside the
+  cwd subtree — the read-only/no-escape boundary), and `FuzzYAMLSafeDiffAndBound`
+  (yamlsafe-accepted documents decode identically under plain `yaml.Unmarshal`,
+  and yamlsafe stays within budget — the standing guard on the go-yaml #510
+  mitigation). Surfaced
+  hardening leads (bidi-override passthrough in `SanitizeControl`; raw DEL/C1 in
+  JSON output; unsanitized `RenderStory` check names) as issue-ready proposals.
+
 ## [2.7.1] - 2026-11-15
 
 ### Security
