@@ -22,11 +22,18 @@ package render
 // assembled document is checked.
 //
 // Each render is wrapped in the DL1 resource oracle (resource.Check): bytes
-// allocated bounded by 64*inputLen + 1 MiB, wall time < 5 s, no goroutine leak.
-// The pure builders here allocate only a few KB of fixed scaffolding for a tiny
-// input (markdown ~8 KB, share ~6 KB, postmortem ~3 KB, json ~24 KB — measured),
-// all well under the 1 MiB floor, so factor 64 (the DL1 default) holds with
-// wide margin and still catches any super-linear growth with input size.
+// allocated bounded by factor*inputLen + 1 MiB, wall time < 5 s, no goroutine
+// leak. factor is 2048 (NOT the DL1 default of 64), calibrated from a baseline
+// fuzz run: this fixture deliberately fans each fuzz string into ~20-60
+// host-derived fields (every Insight/Details/Snapshot slot) to maximise
+// injection coverage, so the per-input-byte amplification is dominated by that
+// fixture fan-out, not by any funnel defect — a ~2 KB input legitimately
+// allocates ~1.9 MB (≈1000x) once it is copied into every field and rendered
+// four ways, and the growth is LINEAR in input size (the ratio only falls as the
+// 1 MiB floor amortises). factor 2048 covers that fan-out with ~2x headroom and
+// still trips on a genuinely super-linear (quadratic/exponential) blowup. An
+// earlier factor of 64 fired on this fan-out — a HARNESS-FALSE-POSITIVE
+// (mis-calibrated budget), recalibrated here, not a DashDiag amplification.
 //
 // Does NOT verify: the styled TUI output (see above); that a backtick in a
 // Message cannot open a markdown code span (a markdown-rendering nuisance, not a
@@ -49,7 +56,7 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/testutil/resource"
 )
 
-const dl1RenderAllocFactor = 64
+const dl1RenderAllocFactor = 2048
 
 // assertNoTerminalInjection asserts the invariant the shipped funnels actually
 // uphold: valid UTF-8 (no raw 8-bit C1 byte), no raw ESC (0x1B), and no unicode
