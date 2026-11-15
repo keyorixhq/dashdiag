@@ -161,6 +161,7 @@ var execAllowlistContract = map[string]toolRule{
 	// --- storage / RAID / filesystem (read-only query) ---
 	"smartctl": {prefixes: [][]string{{"-H"}, {"-A"}, {"--scan-open", "--json=c"}, {"-a"}}},
 	"nvme":     {prefixes: [][]string{{"smart-log"}, {"get-log"}}},
+	"ethtool":  {prefixes: [][]string{{"-S"}}}, // aws/oci/vmware_linux.go, per-NIC stats (read-only)
 	"zpool":    {prefixes: [][]string{{"list"}, {"status"}}},
 	"lvs": {prefixes: [][]string{
 		{"--version"},

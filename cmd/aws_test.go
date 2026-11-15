@@ -6,6 +6,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/keyorixhq/dashdiag/internal/collectors"
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
 )
@@ -68,6 +69,9 @@ func TestPrintAWSReport_TwoBlockSplit(t *testing.T) {
 // host is not on EC2) in both --plain and --json mode. No t.Parallel() —
 // captureStdout swaps the shared os.Stdout, same constraint as net_dns_test.go.
 func TestRunAWS_NotOnEC2(t *testing.T) {
+	if collectors.AWSGuestAvailable() {
+		t.Skip("running on a real EC2 instance — the not-on-EC2 gate cannot be exercised here")
+	}
 	plainCmd := newBareCloudCmd()
 	_ = plainCmd.Flags().Set("plain", "true")
 	plainOut := captureStdout(t, func() {
