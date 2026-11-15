@@ -11,6 +11,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.7.1] - 2026-11-15
+
+### Security
+
+- **Hardened argument handling when invoking host tools**, and unit-name
+  validation now accepts the root mount and slice units.
+- **Go toolchain bumped to 1.27.4** (GO-2026-6859, `net/http` HTTP/1 server crash);
+  also used by the Docker build image, Makefile and Azure helper.
+
+### Changed
+
+- **YAML parsing migrated to `go.yaml.in/yaml/v4`** (`gopkg.in/yaml.v3` is archived).
+- **gopsutil migrated from v3 to v4.26.10**; `xo/terminfo` bumped to v1.3.1.
+
+### Fixed
+
+- **`SanitizeControl` replaces invalid UTF-8** instead of passing it through.
+
+### Tests / CI
+
+- Exec-allowlist contract lists `ethtool -S`, and the AWS not-on-EC2 test skips on
+  real EC2 hosts, so the suite passes on EC2-hosted runners.
+- New redaction-canary oracle, locale/format metamorphic fuzzing, cgo guard,
+  and opt-in taint fuzz harnesses; the dropped macOS 14 runner is gone from CI.
+
 ### Security
 
 - **Duplicate keys in a `--policy` or mock fixture file are rejected in linear time.** The
