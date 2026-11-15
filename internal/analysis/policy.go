@@ -7,7 +7,7 @@ import (
 	"slices"
 	"strings"
 
-	"gopkg.in/yaml.v3"
+	"github.com/keyorixhq/dashdiag/internal/yamlsafe"
 )
 
 // PolicyFile is the YAML structure for a dsd policy file.
@@ -87,7 +87,7 @@ func LoadPolicy(path string) (*PolicyFile, error) {
 		return nil, fmt.Errorf("cannot read policy file %q: %w", path, err)
 	}
 	var p PolicyFile
-	if err := yaml.Unmarshal(data, &p); err != nil {
+	if err := yamlsafe.Unmarshal(data, &p); err != nil {
 		return nil, fmt.Errorf("cannot parse policy file %q: %w", path, err)
 	}
 	if err := validatePolicy(&p); err != nil {
@@ -104,7 +104,7 @@ type pctField struct {
 
 // validatePolicy rejects threshold values that would silently defeat the CI
 // health gate: a percentage above 100 (or the YAML 1.1 literal ".inf", which
-// gopkg.in/yaml.v3 accepts as +Inf) makes the corresponding WARN/CRIT
+// go.yaml.in/yaml/v4 accepts as +Inf) makes the corresponding WARN/CRIT
 // classification permanently unreachable, since the underlying metric can
 // never reach it. It also validates Deny entries are recognized level names
 // (case-insensitive) and normalizes them to upper-case in place, so a typo'd
