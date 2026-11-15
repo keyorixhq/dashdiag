@@ -104,7 +104,7 @@ type pctField struct {
 
 // validatePolicy rejects threshold values that would silently defeat the CI
 // health gate: a percentage above 100 (or the YAML 1.1 literal ".inf", which
-// go.yaml.in/yaml/v3 accepts as +Inf) makes the corresponding WARN/CRIT
+// go.yaml.in/yaml/v4 accepts as +Inf) makes the corresponding WARN/CRIT
 // classification permanently unreachable, since the underlying metric can
 // never reach it. It also validates Deny entries are recognized level names
 // (case-insensitive) and normalizes them to upper-case in place, so a typo'd

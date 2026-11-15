@@ -22,10 +22,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Changed
 
-- **YAML parsing moves to the maintained `go.yaml.in/yaml/v3`.** `gopkg.in/yaml.v3` was
-  archived upstream in April 2025 and receives no fixes. `--policy` files, `share`,
-  `capture`, `mock` and `demo` now use `go.yaml.in/yaml/v3` v3.0.6 (the YAML organization's
-  fork, same API). Output and policy handling are unchanged.
+- **YAML parsing moves to the maintained `go.yaml.in/yaml/v4`.** `gopkg.in/yaml.v3` was
+  archived upstream in April 2025 and receives no fixes; v3 of the YAML organization's fork
+  gets security fixes only, and development is on v4. `--policy` files, `share`, `capture`,
+  `mock` and `demo` now use `go.yaml.in/yaml/v4` v4.0.0 through the classic API, which keeps
+  v3-compatible settings. Output and policy handling are unchanged.
 
 ## [2.7.0] - 2026-10-29
 

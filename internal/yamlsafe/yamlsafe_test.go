@@ -8,7 +8,7 @@ import (
 	"testing"
 	"time"
 
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 func TestUnmarshal_MatchesLibraryWithoutDuplicates(t *testing.T) {

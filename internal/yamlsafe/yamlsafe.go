@@ -1,5 +1,5 @@
 // Package yamlsafe decodes YAML that an operator hands to DashDiag (a policy
-// file) without paying the quadratic cost go.yaml.in/yaml/v3
+// file) without paying the quadratic cost go.yaml.in/yaml/v4
 // charges for a mapping that repeats a key.
 //
 // The library returns its "mapping key already defined" error only after
@@ -18,7 +18,7 @@ package yamlsafe
 import (
 	"fmt"
 
-	"go.yaml.in/yaml/v3"
+	"go.yaml.in/yaml/v4"
 )
 
 // Unmarshal is yaml.Unmarshal with an up-front, linear-time duplicate-key check.
