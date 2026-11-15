@@ -11,6 +11,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Tests / CI
+
+- **Reachability-first fuzzing of untrusted third-party / stdlib sinks (DS1).**
+  Five new verdict-aware fuzz targets for parsers that take attacker-influenced
+  bytes and had no coverage: TLS certificate expiry
+  (`FuzzParseCertFileExpiryVerdict` — `pem.Decode`/`x509.ParseCertificate`, no
+  silent drop + correct expired sign), the Red Hat OVAL feed path
+  (`FuzzParseRHELOVALVerdict` — `bzip2`/`xml`, fails loudly on a definition-less
+  feed), config loading (`FuzzConfigLoadFailClosed` — viper/yaml, `Load` never
+  accepts a config its own `Validate()` rejects), the self-update asset URL
+  (`FuzzValidateAssetURLFailClosed` — `net/url`, validated host matches the dial
+  host), and the HTML report's `html/template.URL` logo bypass
+  (`FuzzBrandLogoNoAttrInjection` — no `src="..."` attribute break-out).
+
 ## [2.7.1] - 2026-11-15
 
 ### Security
