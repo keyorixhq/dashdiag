@@ -35,6 +35,7 @@ package yamlsafe
 
 import (
 	"reflect"
+	"strings"
 	"testing"
 
 	"go.yaml.in/yaml/v4"
@@ -47,11 +48,19 @@ import (
 const maxPolicyBytes = 1 << 20
 
 // yamlsafe node-tree build + Decode allocates more per input byte than a
-// one-shot parser (a yaml.Node per token, then a second decode pass), so the
-// per-byte factor is higher than the DL1 default of 64. 512 holds with margin on
-// valid documents (calibrated from the baseline run — see the report) while
-// still catching the #510 quadratic, which amplifies by 4-5 orders of magnitude.
-const dl1YAMLAllocFactor = 512
+// one-shot parser (a heavyweight yaml.Node per token, then a second decode pass),
+// so the per-byte factor is far higher than the DL1 default of 64. Calibrated
+// from a baseline run: the worst legitimate case is deep nesting ("[[[[...") at a
+// LINEAR but high ~900-960x constant (measured: 2 KB→1.43 MB/714x, 4 KB→3.55 MB/
+// 887x, 8 KB→7.03 MB/879x, 16 KB→15.4 MB/962x — alloc doubles with input, so it
+// is a heavyweight-node constant, not a quadratic). factor 2048 covers that with
+// ~2x headroom and still trips on the #510 duplicate-key quadratic, which
+// amplifies by ~100,000x (4-5 orders of magnitude). An earlier factor of 512
+// fired on the deep-nesting constant — a calibration issue, recalibrated here,
+// not a yamlsafe defect. The deep-nesting ~900x is itself a HARDENING lead: a
+// hostile 1 MiB nested policy file forces ~1 GB (reported; operator trust
+// boundary lowers severity).
+const dl1YAMLAllocFactor = 2048
 
 func FuzzYAMLSafeDiffAndBound(f *testing.F) {
 	seeds := []string{
@@ -72,6 +81,8 @@ func FuzzYAMLSafeDiffAndBound(f *testing.F) {
 	for _, s := range seeds {
 		f.Add([]byte(s))
 	}
+	// Deep-nesting amplifier seed (linear ~900x; keeps the path in the corpus).
+	f.Add([]byte(strings.Repeat("[", 2000) + strings.Repeat("]", 2000)))
 
 	f.Fuzz(func(t *testing.T, data []byte) {
 		if len(data) > maxPolicyBytes {
