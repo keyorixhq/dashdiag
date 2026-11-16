@@ -9,6 +9,21 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/testutil/resource"
+)
+
+// Resource-oracle calibration (PD1). ParseRHELOVAL drives compress/bzip2 +
+// encoding/xml behind an io.LimitReader cap. Measured amplifications: ~117x at
+// 388 B (fixed decoder overhead, absorbed by the 1 MiB AllocFloor), ~12x on a
+// 1.6 MB 5000-definition feed, ~37x on a 140 KB deeply-nested XML, ~2x on a
+// 500 KB text node. factor 256 covers the 37x structural peak with ~7x headroom
+// and still trips any super-linear XML/bzip2 blow-up. ParseRHELOVAL spawns no
+// goroutines (measured Δ=0); the disk oracle fingerprints the temp feed dir to
+// prove the parse writes nothing back (it opens the file read-only).
+const (
+	pd1OVALAllocFactor  = 256
+	pd1MaxGoroutineDiff = 16
 )
 
 // FuzzParseRHELOVALVerdict fuzzes ParseRHELOVAL — the Red Hat / Rocky / Alma /
@@ -49,15 +64,6 @@ import (
 // (stdlib has no bzip2 writer, so valid .bz2 happy-path bytes are not seeded —
 // the .bz2 branch is exercised for robustness on malformed input only).
 
-func writeOVAL(tb testing.TB, name string, data []byte) string {
-	tb.Helper()
-	p := filepath.Join(tb.TempDir(), name)
-	if err := os.WriteFile(p, data, 0o600); err != nil {
-		tb.Fatalf("write oval: %v", err)
-	}
-	return p
-}
-
 func FuzzParseRHELOVALVerdict(f *testing.F) {
 	good := `<?xml version="1.0"?>
 <oval_definitions><definitions>
@@ -90,7 +96,24 @@ func FuzzParseRHELOVALVerdict(f *testing.F) {
 		if asBz2 {
 			name = "rhel.oval.xml.bz2"
 		}
-		result, err := ParseRHELOVAL(writeOVAL(t, name, data))
+		dir := t.TempDir()
+		p := filepath.Join(dir, name)
+		if werr := os.WriteFile(p, data, 0o600); werr != nil {
+			t.Fatalf("write oval: %v", werr)
+		}
+		// Resource oracle: bound the parse's allocation/time, prove it writes
+		// nothing to the feed dir, and record goroutine growth. The false-negative
+		// and consistency assertions below are unchanged.
+		before := resource.Fingerprint(t, dir)
+		var result map[string]RHELCVERecord
+		var err error
+		rr := resource.Check(t, len(data), pd1OVALAllocFactor, func() {
+			result, err = ParseRHELOVAL(p)
+		})
+		resource.AssertUnchanged(t, dir, before)
+		if rr.GoroutineDiff > pd1MaxGoroutineDiff {
+			t.Fatalf("goroutine growth: ParseRHELOVAL left %d extra goroutines (input=%d B)", rr.GoroutineDiff, len(data))
+		}
 		if err != nil {
 			return // a parse/decompress error is the correct, safe outcome
 		}
