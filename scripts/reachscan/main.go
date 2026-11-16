@@ -34,6 +34,7 @@ package main
 
 import (
 	"cmp"
+	"context"
 	"flag"
 	"fmt"
 	"go/ast"
@@ -46,10 +47,12 @@ import (
 	"io/fs"
 	"maps"
 	"os"
+	"os/exec"
 	"path/filepath"
 	"regexp"
 	"slices"
 	"strings"
+	"time"
 )
 
 const modulePath = "github.com/keyorixhq/dashdiag"
@@ -131,12 +134,21 @@ func run(args []string, w io.Writer) error {
 	// The source importer reads build.Default, so the GOOS must be set there.
 	build.Default.GOOS = *goos
 	build.Default.CgoEnabled = false
+	if err := ensureGOROOT(); err != nil {
+		return err
+	}
 
 	fset := token.NewFileSet()
 	s := &scanner{
 		root: *root, fset: fset, imp: importer.ForCompiler(fset, "source", nil),
 		cands: map[string]*candidate{}, calls: map[string]int{},
 		graph: map[string]map[string]bool{}, ext: map[string]*extCall{},
+	}
+	// Type errors are ignored per package, so an importer that cannot see
+	// the standard library would silently drop every primitive and library
+	// call. Fail instead of printing a plausible but empty report.
+	if _, err := s.imp.Import("strings"); err != nil {
+		return fmt.Errorf("source importer cannot load the standard library (GOROOT=%q): %w", build.Default.GOROOT, err)
 	}
 	dirs := packageDirs(*root)
 	for _, dir := range dirs {
@@ -148,6 +160,23 @@ func run(args []string, w io.Writer) error {
 	if *listAll {
 		printAll(w, all)
 	}
+	return nil
+}
+
+// ensureGOROOT fills build.Default.GOROOT when the binary was built with
+// -trimpath, which leaves it empty and hides the standard library sources
+// from the source importer.
+func ensureGOROOT() error {
+	if build.Default.GOROOT != "" {
+		return nil
+	}
+	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "go", "env", "GOROOT").Output()
+	if err != nil {
+		return fmt.Errorf("resolving GOROOT with go env (binary built with -trimpath): %w", err)
+	}
+	build.Default.GOROOT = strings.TrimSpace(string(out))
 	return nil
 }
 

@@ -2,6 +2,7 @@ package main
 
 import (
 	"bytes"
+	"go/build"
 	"os"
 	"path/filepath"
 	"strings"
@@ -179,6 +180,27 @@ func TestRun(t *testing.T) {
 		}
 		if strings.Contains(got, "| 2 | `") || strings.Contains(got, "## All candidates") {
 			t.Errorf("-top 1 -all=false printed more than one ranked row or the full list\n%s", got)
+		}
+	})
+
+	// A -trimpath build leaves GOROOT empty; run must recover it, and must
+	// refuse to report when the standard library still cannot be loaded.
+	t.Run("GOROOT", func(t *testing.T) {
+		saved := build.Default.GOROOT
+		defer func() { build.Default.GOROOT = saved }()
+
+		build.Default.GOROOT = ""
+		var out bytes.Buffer
+		if err := run([]string{"-root", root}, &out); err != nil {
+			t.Fatalf("empty GOROOT not recovered: %v", err)
+		}
+		if !strings.Contains(out.String(), "`strconv.Atoi`") {
+			t.Errorf("stdlib calls missing after GOROOT recovery\n%s", out.String())
+		}
+
+		build.Default.GOROOT = t.TempDir()
+		if err := run([]string{"-root", root}, &out); err == nil {
+			t.Fatal("want error when the standard library cannot be imported")
 		}
 	})
 
