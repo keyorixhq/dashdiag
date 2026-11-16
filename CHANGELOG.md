@@ -58,6 +58,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   JSON output; unsanitized `RenderStory` check names) as issue-ready proposals.
 ### Tests / CI
 
+- **Capture-replay & cross-distro differential harness (DD2).** A test-only harness
+  drives the existing `dsd replay` seam over a directory of real `dsd capture --raw`
+  bundles and over the committed `fixtures/replay-fidelity` bundles: a capture×check
+  verdict matrix, a determinism/no-panic oracle (three replays identical), a
+  sibling-parity check (sanitize-vs-raw twins asserted verdict-identical), and a new
+  `FuzzCaptureReplayMutationRobustness` fuzz target that applies one
+  information-destroying mutation to a single captured file or command output and
+  requires no panic, bounded work, and no non-OK check silently flipping to `OK`.
+  The 49-capture tests skip unless a capture dir is provided, so CI stays green on the
+  committed fixtures. Surfaced a replay fail-open when a derived-state cache
+  (`clock/state`, `net/connectivity`) is absent from a bundle.
 - **Verdict-integrity fuzzing of the analysis-layer health verdict (DV1).** Three
   new fuzz targets whose oracle is the VERDICT (`models.Insight.Level`), not a
   panic, aimed at the "false OK" defect class in `BUGS.md` — the tool rendering a
