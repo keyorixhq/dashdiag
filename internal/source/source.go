@@ -159,7 +159,18 @@ func cleanPath(p string) string {
 // collides with a recorded file read.
 func cacheKey(k string) string { return cacheKeyPrefix + k }
 
-// cmdKey canonicalises an argv into a single map key.
+// cmdKey canonicalises an argv into a single map key. A bare "--" argument (the
+// end-of-options marker collectors place before host-derived operands) is not
+// part of the key: it does not change what a command reports, and ignoring it
+// keeps bundles captured before the marker was added replayable (and the
+// marker free to be added or dropped per call site without invalidating them).
 func cmdKey(name string, args []string) string {
-	return strings.Join(append([]string{name}, args...), "\x00")
+	parts := make([]string, 0, len(args)+1)
+	parts = append(parts, name)
+	for _, a := range args {
+		if a != "--" {
+			parts = append(parts, a)
+		}
+	}
+	return strings.Join(parts, "\x00")
 }

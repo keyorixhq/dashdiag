@@ -1087,7 +1087,7 @@ func uniqueAVCPaths(groups []models.SELinuxAVCGroup) []string {
 // matchpathconContext returns the policy-default context for path via
 // `matchpathcon -n` (the -n flag prints only the context, no path prefix).
 func matchpathconContext(ctx context.Context, path string) string {
-	out, err := runCmdTimeout(ctx, 3*time.Second, "matchpathcon", "-n", path)
+	out, err := guarded(validOperand, "path", path, func() (string, error) { return runCmdTimeout(ctx, 3*time.Second, "matchpathcon", "-n", path) })
 	if err != nil {
 		return ""
 	}
@@ -1097,7 +1097,7 @@ func matchpathconContext(ctx context.Context, path string) string {
 // lsZContext returns the actual context of path via `ls -dZ` (the -d flag
 // stops it from listing a directory's contents instead of the path itself).
 func lsZContext(ctx context.Context, path string) string {
-	out, err := runCmdTimeout(ctx, 3*time.Second, "ls", "-dZ", path)
+	out, err := guarded(validOperand, "path", path, func() (string, error) { return runCmdTimeout(ctx, 3*time.Second, "ls", "-dZ", "--", path) })
 	if err != nil {
 		return ""
 	}
@@ -2426,6 +2426,6 @@ func suggestSELinuxFix(ctx context.Context, stype, ttype, tclass string, perms [
 
 // boolExists returns true if an SELinux boolean with the given name is available.
 func boolExists(ctx context.Context, name string) bool {
-	out, err := runCmd(ctx, "getsebool", name)
+	out, err := guarded(validOperand, "boolean name", name, func() (string, error) { return runCmd(ctx, "getsebool", name) })
 	return err == nil && strings.Contains(out, name)
 }

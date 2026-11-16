@@ -100,7 +100,7 @@ func fuserBusyProcesses(ctx context.Context, mountpoint string) []models.FSBusyP
 	// fuser exits non-zero when it finds nothing to report; stdout is still the
 	// authoritative answer either way (mirrors the smartctl exit-code handling in
 	// collectSMART — parse output, don't gate on exit status).
-	out, _ := runCmdTimeout(ctx, 3*time.Second, "fuser", "-m", mountpoint)
+	out, _ := guarded(validOperand, "mount path", mountpoint, func() (string, error) { return runCmdTimeout(ctx, 3*time.Second, "fuser", "-m", mountpoint) })
 	prefix := strings.TrimSuffix(mountpoint, "/") + "/"
 	pids := parseFuserPIDs(out)
 	procs := make([]models.FSBusyProcess, 0, len(pids))

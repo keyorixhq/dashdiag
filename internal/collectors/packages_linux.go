@@ -1178,7 +1178,7 @@ func pkgIntegrityLdd(ctx context.Context, pi *models.PackageIntegrity) {
 			continue
 		}
 		readelfCtx, rcancel := context.WithTimeout(ctx, 3*time.Second)
-		out, rerr := runCmd(readelfCtx, "readelf", "-d", bin)
+		out, rerr := guarded(validOperand, "path", bin, func() (string, error) { return runCmd(readelfCtx, "readelf", "-d", "--", bin) })
 		rcancel()
 		if rerr != nil {
 			continue

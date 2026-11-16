@@ -66,7 +66,7 @@ func TestServicesDeepCollector_Collect_HappyPath(t *testing.T) {
 			"postgresql.service loaded failed failed PostgreSQL Database\n", 0)
 		b.PutCmd("journalctl", []string{"-u", "postgresql.service", "-n", "8", "--no-pager", "--output=short", "--no-hostname"},
 			"May 19 10:00:00 host postgresql[123]: FATAL: could not bind IPv4 socket\n", 0)
-		b.PutCmd("systemctl", []string{"show", "postgresql.service", "--property=ExecMainStatus,ActiveState,SubState"},
+		b.PutCmd("systemctl", []string{"show", "--property=ExecMainStatus,ActiveState,SubState", "postgresql.service"},
 			"ExecMainStatus=1\nActiveState=failed\nSubState=failed\n", 0)
 
 		b.PutCmd("systemctl", []string{"list-units", "--type=service", "--state=loaded", "--plain", "--no-legend", "--no-pager"},
@@ -154,7 +154,7 @@ func TestServicesDeepCollector_Collect_FailedUnitsInspectCap(t *testing.T) {
 			// if the cap didn't stop the loop, ALL of them would get enriched.
 			b.PutCmd("journalctl", []string{"-u", name, "-n", "8", "--no-pager", "--output=short", "--no-hostname"},
 				"May 19 10:00:00 host unit["+fmt.Sprint(i)+"]: boom\n", 0)
-			b.PutCmd("systemctl", []string{"show", name, "--property=ExecMainStatus,ActiveState,SubState"},
+			b.PutCmd("systemctl", []string{"show", "--property=ExecMainStatus,ActiveState,SubState", name},
 				"ExecMainStatus=1\nActiveState=failed\nSubState=failed\n", 0)
 		}
 		b.PutCmd("systemctl", []string{"list-units", "--failed", "--plain", "--no-legend", "--no-pager"}, listOut.String(), 0)
@@ -231,7 +231,7 @@ func TestServicesDeepCollector_Collect_NonBenignSSHDAddedBack(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("systemctl", []string{"list-units", "--failed", "--plain", "--no-legend", "--no-pager"},
 			"sshd@10.0.0.1:22-10.0.0.2:5555.service loaded failed failed OpenSSH per-connection\n", 0)
-		b.PutCmd("systemctl", []string{"show", "sshd@10.0.0.1:22-10.0.0.2:5555.service", "-p", "ExecMainStatus", "--value"},
+		b.PutCmd("systemctl", []string{"show", "-p", "ExecMainStatus", "--value", "sshd@10.0.0.1:22-10.0.0.2:5555.service"},
 			"1\n", 0)
 		b.PutCmdNotFound("systemctl", []string{"list-units", "--type=service", "--state=loaded", "--plain", "--no-legend", "--no-pager"})
 		b.PutCmdNotFound("systemctl", []string{"list-units", "--type=service", "--state=masked", "--plain", "--no-legend", "--no-pager"})
@@ -258,7 +258,7 @@ func TestServicesDeepCollector_Collect_SSHDStatusUnverified(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutCmd("systemctl", []string{"list-units", "--failed", "--plain", "--no-legend", "--no-pager"},
 			sshdUnit+" loaded failed failed OpenSSH per-connection\n", 0)
-		b.PutCmdNotFound("systemctl", []string{"show", sshdUnit, "-p", "ExecMainStatus", "--value"})
+		b.PutCmdNotFound("systemctl", []string{"show", "-p", "ExecMainStatus", "--value", sshdUnit})
 		b.PutCmdNotFound("systemctl", []string{"list-units", "--type=service", "--state=loaded", "--plain", "--no-legend", "--no-pager"})
 		b.PutCmdNotFound("systemctl", []string{"list-units", "--type=service", "--state=masked", "--plain", "--no-legend", "--no-pager"})
 		b.PutCmdNotFound("systemd-analyze", []string{"blame", "--no-pager"})
@@ -295,7 +295,7 @@ func TestServicesDeepCollector_Collect_SSHDAliasingBug(t *testing.T) {
 		b.PutCmd("systemctl", []string{"list-units", "--failed", "--plain", "--no-legend", "--no-pager"},
 			sshdUnit+" loaded failed failed OpenSSH per-connection\n"+
 				"my-real.service loaded failed failed my real service\n", 0)
-		b.PutCmd("systemctl", []string{"show", sshdUnit, "-p", "ExecMainStatus", "--value"}, "1\n", 0)
+		b.PutCmd("systemctl", []string{"show", "-p", "ExecMainStatus", "--value", sshdUnit}, "1\n", 0)
 		b.PutCmdNotFound("systemctl", []string{"list-units", "--type=service", "--state=loaded", "--plain", "--no-legend", "--no-pager"})
 		b.PutCmdNotFound("systemctl", []string{"list-units", "--type=service", "--state=masked", "--plain", "--no-legend", "--no-pager"})
 		b.PutCmdNotFound("systemd-analyze", []string{"blame", "--no-pager"})

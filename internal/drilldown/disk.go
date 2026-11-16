@@ -39,7 +39,8 @@ func LargestDirs(ctx context.Context, mount string) (*models.Details, error) {
 		// separate mount (e.g. /mnt on a host where /mnt/data is a different disk)
 		// reports the entire remote filesystem's size instead of its mountpoint
 		// overhead, making it appear as a giant consumer of the scanned filesystem.
-		out, err := runCmd(ctx, "du", "-xsh", full)
+		// "--": full is mount joined with a directory entry name; keep it an operand.
+		out, err := runCmd(ctx, "du", "-xsh", "--", full)
 		if err != nil {
 			// A permission-denied child (another user's home dir, a service's
 			// private data dir) is silently invisible here — count it rather
@@ -180,6 +181,12 @@ const maxDirSizeWalkBytes = 1 << 40 // 1TiB
 // left to finish (or hit maxDirSizeWalkEntries/maxDirSizeWalkBytes and exit)
 // on its own — it never panics or blocks forever, so it doesn't leak.
 func dirSize(ctx context.Context, path string) (int64, error) {
+	// An already-expired ctx must always report its error: the select below picks
+	// at random when the walk also finishes first, so a small tree would
+	// sometimes return success on a dead context.
+	if err := ctx.Err(); err != nil {
+		return 0, err
+	}
 	type result struct {
 		total int64
 		err   error

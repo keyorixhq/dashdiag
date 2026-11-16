@@ -627,7 +627,7 @@ func detectGatewayLinux() routeInfo {
 func detectRouteSrcIP(ctx context.Context, dest string) string {
 	rCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
 	defer cancel()
-	out, err := runCmd(rCtx, "ip", "route", "get", dest)
+	out, err := guarded(validOperand, "destination", dest, func() (string, error) { return runCmd(rCtx, "ip", "route", "get", dest) })
 	if err != nil {
 		return ""
 	}
@@ -696,7 +696,7 @@ func readIfaceSpeed(name string) int {
 func readIfaceSpeedDarwin(name string) int {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	out, err := runCmd(ctx, "networksetup", "-getmedia", name)
+	out, err := guarded(validOperand, "interface name", name, func() (string, error) { return runCmd(ctx, "networksetup", "-getmedia", name) })
 	if err != nil || out == "" {
 		return 0
 	}
@@ -839,7 +839,7 @@ func collectWiFiInfo(iface string) *models.WiFiInfo {
 func collectWiFiIwconfig(iface string, w *models.WiFiInfo) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	out, err := runCmd(ctx, "iwconfig", iface)
+	out, err := guarded(validIfaceName, "interface name", iface, func() (string, error) { return runCmd(ctx, "iwconfig", iface) })
 	if err != nil || strings.TrimSpace(out) == "" {
 		return
 	}

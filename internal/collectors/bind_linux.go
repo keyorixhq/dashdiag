@@ -71,7 +71,7 @@ func (c *BINDCollector) Collect(ctx context.Context) (interface{}, error) {
 // (Alpine/OpenRC/Devuan) systemctl is absent, so fall back to the running process.
 func bindServiceActive(ctx context.Context) bool {
 	for _, unit := range []string{bindProcNamed, bindProcBIND9, bindProcNamedSDB} {
-		if out, err := runCmd(ctx, "systemctl", "is-active", unit); err == nil && strings.TrimSpace(out) == "active" {
+		if out, err := runSystemctl(ctx, runCmd, []string{"is-active"}, unit); err == nil && strings.TrimSpace(out) == "active" {
 			return true
 		}
 	}
@@ -114,7 +114,7 @@ func bindCheckConfig(ctx context.Context, info *models.BINDInfo) {
 		info.ConfigError = "named.conf not found"
 		return
 	}
-	out, err := runCmdCombined(ctx, "named-checkconf", info.ConfigFile)
+	out, err := guarded(validOperand, "config path", info.ConfigFile, func() (string, error) { return runCmdCombined(ctx, "named-checkconf", info.ConfigFile) })
 	if err == nil && strings.TrimSpace(out) == "" {
 		info.ConfigOK = true
 	} else {
@@ -389,7 +389,7 @@ func bindCheckZones(ctx context.Context, info *models.BINDInfo, zones []namedZon
 			continue
 		}
 		zoneCtx, cancel := context.WithTimeout(ctx, 3*time.Second)
-		out, err := runCmdCombined(zoneCtx, "named-checkzone", z.name, z.file)
+		out, err := guarded(func(s string) bool { return validOperand(z.name) && validOperand(s) }, "zone name/file", z.file, func() (string, error) { return runCmdCombined(zoneCtx, "named-checkzone", z.name, z.file) })
 		cancel()
 		if err == nil && strings.Contains(out, "OK") {
 			bz.OK = true

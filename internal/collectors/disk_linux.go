@@ -213,7 +213,7 @@ func collectSMART(ctx context.Context, devName string) *models.SMARTInfo {
 	// failing drive was dropped, never producing the CRIT). So parse stdout
 	// regardless of exit code; only error out when no verdict is present (e.g. the
 	// device genuinely couldn't be opened).
-	healthOut, err := runCmdTimeout(ctx, 3*time.Second, "smartctl", "-H", devPath)
+	healthOut, err := guarded(validOperand, "device path", devPath, func() (string, error) { return runCmdTimeout(ctx, 3*time.Second, "smartctl", "-H", devPath) })
 	if healthy, ok := parseSMARTHealth(healthOut); ok {
 		s.Healthy = healthy
 	} else {
@@ -226,7 +226,7 @@ func collectSMART(ctx context.Context, devName string) *models.SMARTInfo {
 	}
 
 	// Attributes for NVMe: smartctl -A gives wear, temp, errors
-	attrOut, _ := runCmdTimeout(ctx, 3*time.Second, "smartctl", "-A", devPath)
+	attrOut, _ := guarded(validOperand, "device path", devPath, func() (string, error) { return runCmdTimeout(ctx, 3*time.Second, "smartctl", "-A", devPath) })
 	parseSMARTAttributes(attrOut, s)
 
 	return s
@@ -433,7 +433,7 @@ func collectZFSPools(ctx context.Context) (pools []models.ZFSPool, listReadFaile
 		// sick pool and hit the timeout; on error we must NOT leave the counts at 0
 		// and ScrubAgeDays at -1 (which read as "no errors"/"never scrubbed") — flag
 		// it so the verdict says "unverified" instead.
-		statusOut, statusErr := runCmdTimeout(ctx, 3*time.Second, "zpool", "status", pool.Name)
+		statusOut, statusErr := guarded(validOperand, "pool name", pool.Name, func() (string, error) { return runCmdTimeout(ctx, 3*time.Second, "zpool", "status", pool.Name) })
 		if statusErr != nil {
 			pool.StatusReadFailed = true
 		} else {

@@ -34,8 +34,8 @@ func DetectLastDeployTime() (time.Time, string, error) {
 		// hijack vector), gives ExecHook a chance to observe/deny (fuzz/test
 		// only), and force-kills on context cancel — the same primitive
 		// collectors/drilldown use.
-		cmd, err := platform.RunHardened(ctx, "systemctl", "show", svc,
-			"--property=ActiveEnterTimestamp", "--value")
+		cmd, err := platform.RunHardened(ctx, "systemctl", "show",
+			"--property=ActiveEnterTimestamp", "--value", "--", svc)
 		if err != nil {
 			cancel()
 			continue

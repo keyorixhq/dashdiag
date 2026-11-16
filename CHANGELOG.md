@@ -11,6 +11,62 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Tests / CI
+
+- **Reachability-first fuzzing of untrusted third-party / stdlib sinks (DS1).**
+  Five new verdict-aware fuzz targets for parsers that take attacker-influenced
+  bytes and had no coverage: TLS certificate expiry
+  (`FuzzParseCertFileExpiryVerdict` — `pem.Decode`/`x509.ParseCertificate`, no
+  silent drop + correct expired sign), the Red Hat OVAL feed path
+  (`FuzzParseRHELOVALVerdict` — `bzip2`/`xml`, fails loudly on a definition-less
+  feed), config loading (`FuzzConfigLoadFailClosed` — viper/yaml, `Load` never
+  accepts a config its own `Validate()` rejects), the self-update asset URL
+  (`FuzzValidateAssetURLFailClosed` — `net/url`, validated host matches the dial
+  host), and the HTML report's `html/template.URL` logo bypass
+  (`FuzzBrandLogoNoAttrInjection` — no `src="..."` attribute break-out).
+
+## [2.7.1] - 2026-11-15
+
+### Security
+
+- **Hardened argument handling when invoking host tools**, and unit-name
+  validation now accepts the root mount and slice units.
+- **Go toolchain bumped to 1.27.4** (GO-2026-6859, `net/http` HTTP/1 server crash);
+  also used by the Docker build image, Makefile and Azure helper.
+
+### Changed
+
+- **YAML parsing migrated to `go.yaml.in/yaml/v4`** (`gopkg.in/yaml.v3` is archived).
+- **gopsutil migrated from v3 to v4.26.10**; `xo/terminfo` bumped to v1.3.1.
+
+### Fixed
+
+- **`SanitizeControl` replaces invalid UTF-8** instead of passing it through.
+
+### Tests / CI
+
+- Exec-allowlist contract lists `ethtool -S`, and the AWS not-on-EC2 test skips on
+  real EC2 hosts, so the suite passes on EC2-hosted runners.
+- New redaction-canary oracle, locale/format metamorphic fuzzing, cgo guard,
+  and opt-in taint fuzz harnesses; the dropped macOS 14 runner is gone from CI.
+
+### Security
+
+- **Duplicate keys in a `--policy` or mock fixture file are rejected in linear time.** The
+  YAML library takes O(n²) time and memory on a mapping that repeats a key and reports the
+  error only afterwards: a 20 KB file allocated about 1.4 GB, and the 1 MiB file-size cap does
+  not bound that (reported upstream at yaml/go-yaml#510). The files are now parsed to a node
+  tree first and the first duplicate key fails the load. Files without duplicate keys behave
+  as before (#1179).
+
+### Changed
+
+- **YAML parsing moves to the maintained `go.yaml.in/yaml/v4`.** `gopkg.in/yaml.v3` was
+  archived upstream in April 2025 and receives no fixes; v3 of the YAML organization's fork
+  gets security fixes only, and development is on v4. `--policy` files, `share`, `capture`,
+  `mock` and `demo` now use `go.yaml.in/yaml/v4` v4.0.0 through the classic API, which keeps
+  v3-compatible settings. Output and policy handling are unchanged.
+
 ## [2.7.0] - 2026-10-29
 
 ### Added

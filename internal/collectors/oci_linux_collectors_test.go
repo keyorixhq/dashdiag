@@ -133,7 +133,7 @@ func TestOciIMDSv1Open_OpenAndBlocked(t *testing.T) {
 
 func TestOciServiceState_Found(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutCmd("systemctl", []string{"show", "oracle-cloud-agent.service", "-p", "LoadState,ActiveState", "--value"},
+		b.PutCmd("systemctl", []string{"show", "-p", "LoadState,ActiveState", "--value", "oracle-cloud-agent.service"},
 			"loaded\nactive\n", 0)
 	})
 	loadState, activeState := ociServiceState(context.Background(), "oracle-cloud-agent.service")
@@ -144,7 +144,7 @@ func TestOciServiceState_Found(t *testing.T) {
 
 func TestOciServiceState_NotFound(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutCmd("systemctl", []string{"show", "bogus.service", "-p", "LoadState,ActiveState", "--value"},
+		b.PutCmd("systemctl", []string{"show", "-p", "LoadState,ActiveState", "--value", "bogus.service"},
 			"not-found\ninactive\n", 0)
 	})
 	loadState, activeState := ociServiceState(context.Background(), "bogus.service")
@@ -155,7 +155,7 @@ func TestOciServiceState_NotFound(t *testing.T) {
 
 func TestOciServiceState_CommandFails(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutCmdNotFound("systemctl", []string{"show", "x.service", "-p", "LoadState,ActiveState", "--value"})
+		b.PutCmdNotFound("systemctl", []string{"show", "-p", "LoadState,ActiveState", "--value", "x.service"})
 	})
 	loadState, activeState := ociServiceState(context.Background(), "x.service")
 	if loadState != "" || activeState != "" {
@@ -168,7 +168,7 @@ func TestOciServiceState_CommandFails(t *testing.T) {
 // be indexed into as if both LoadState and ActiveState were present.
 func TestOciServiceState_TooFewLines(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutCmd("systemctl", []string{"show", "y.service", "-p", "LoadState,ActiveState", "--value"},
+		b.PutCmd("systemctl", []string{"show", "-p", "LoadState,ActiveState", "--value", "y.service"},
 			"loaded\n", 0)
 	})
 	loadState, activeState := ociServiceState(context.Background(), "y.service")
@@ -179,9 +179,9 @@ func TestOciServiceState_TooFewLines(t *testing.T) {
 
 func TestOciAgentState_InstalledAndRunning(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutCmd("systemctl", []string{"show", "oracle-cloud-agent.service", "-p", "LoadState,ActiveState", "--value"},
+		b.PutCmd("systemctl", []string{"show", "-p", "LoadState,ActiveState", "--value", "oracle-cloud-agent.service"},
 			"loaded\nactive\n", 0)
-		b.PutCmd("systemctl", []string{"show", "oracle-cloud-agent-updater.service", "-p", "LoadState,ActiveState", "--value"},
+		b.PutCmd("systemctl", []string{"show", "-p", "LoadState,ActiveState", "--value", "oracle-cloud-agent-updater.service"},
 			"loaded\nactive\n", 0)
 	})
 	checked, installed, running, updaterRunning := ociAgentState(context.Background())
@@ -192,7 +192,7 @@ func TestOciAgentState_InstalledAndRunning(t *testing.T) {
 
 func TestOciAgentState_NotSystemd(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutCmdNotFound("systemctl", []string{"show", "oracle-cloud-agent.service", "-p", "LoadState,ActiveState", "--value"})
+		b.PutCmdNotFound("systemctl", []string{"show", "-p", "LoadState,ActiveState", "--value", "oracle-cloud-agent.service"})
 	})
 	checked, installed, running, updaterRunning := ociAgentState(context.Background())
 	if checked || installed || running || updaterRunning {
@@ -202,9 +202,9 @@ func TestOciAgentState_NotSystemd(t *testing.T) {
 
 func TestOciAgentState_InstalledButNotRunning(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutCmd("systemctl", []string{"show", "oracle-cloud-agent.service", "-p", "LoadState,ActiveState", "--value"},
+		b.PutCmd("systemctl", []string{"show", "-p", "LoadState,ActiveState", "--value", "oracle-cloud-agent.service"},
 			"loaded\ninactive\n", 0)
-		b.PutCmd("systemctl", []string{"show", "oracle-cloud-agent-updater.service", "-p", "LoadState,ActiveState", "--value"},
+		b.PutCmd("systemctl", []string{"show", "-p", "LoadState,ActiveState", "--value", "oracle-cloud-agent-updater.service"},
 			"not-found\ninactive\n", 0)
 	})
 	checked, installed, running, updaterRunning := ociAgentState(context.Background())
@@ -321,9 +321,9 @@ func TestOCICollector_Collect_FullHappyPath(t *testing.T) {
 			"/sys/class/net/ens3/device/driver": "/sys/bus/virtio/drivers/virtio_net",
 		},
 		func(b *source.Bundle) {
-			b.PutCmd("systemctl", []string{"show", "oracle-cloud-agent.service", "-p", "LoadState,ActiveState", "--value"},
+			b.PutCmd("systemctl", []string{"show", "-p", "LoadState,ActiveState", "--value", "oracle-cloud-agent.service"},
 				"loaded\nactive\n", 0)
-			b.PutCmd("systemctl", []string{"show", "oracle-cloud-agent-updater.service", "-p", "LoadState,ActiveState", "--value"},
+			b.PutCmd("systemctl", []string{"show", "-p", "LoadState,ActiveState", "--value", "oracle-cloud-agent-updater.service"},
 				"loaded\nactive\n", 0)
 			b.PutFile("/etc/chrony.conf", []byte("server 169.254.169.254 iburst\n"))
 			b.PutCmd("chronyc", []string{"sources"}, "^* 169.254.169.254   3 6 377 10 +100us\n", 0)
@@ -365,7 +365,7 @@ func TestOCICollector_Collect_FullHappyPath(t *testing.T) {
 func TestOCICollector_Collect_NotConfiguredForOCITimeSync(t *testing.T) {
 	withOCIFixture(t, nil, nil, func(b *source.Bundle) {
 		b.PutFile("/etc/chrony.conf", []byte("pool 2.pool.ntp.org iburst\n"))
-		b.PutCmdNotFound("systemctl", []string{"show", "oracle-cloud-agent.service", "-p", "LoadState,ActiveState", "--value"})
+		b.PutCmdNotFound("systemctl", []string{"show", "-p", "LoadState,ActiveState", "--value", "oracle-cloud-agent.service"})
 		b.PutDir("/sys/class/net", []string{})
 	})
 
