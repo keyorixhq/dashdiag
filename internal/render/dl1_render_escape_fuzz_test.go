@@ -11,8 +11,11 @@ package render
 // except the newlines DashDiag itself emits. That is what stops a hostile host
 // from planting CSI/OSC (incl. OSC 52 clipboard, OSC 8 hyperlinks), C1 controls
 // or embedded newlines to forge a report line, hide text, or fake an OK/CRIT
-// verdict. (Bidi-override runes are a SEPARATE, currently-unmet gap — see
-// assertNoTerminalInjection's note and the report.)
+// verdict. Bidi-override and isolate runes (U+202A-202E, U+2066-2069, plus the
+// implicit marks U+200E/U+200F/U+061C) are stripped and ASSERTED here too: DL1
+// found them surviving output.SanitizeControl (Unicode category Cf, not Cc, so
+// unicode.IsControl missed them); DH1 (task) closed that gap and this oracle now
+// asserts it (the Trojan-Source / CVE-2021-42574 visual-reordering class).
 //
 // The funnels under test are the NON-styled builders. The lipgloss/TUI path
 // legitimately emits ESC for its own styling and is covered separately by
@@ -39,9 +42,11 @@ package render
 // Does NOT verify: the styled TUI output (see above); that a backtick in a
 // Message cannot open a markdown code span (a markdown-rendering nuisance, not a
 // terminal control sequence — logged in the report, not asserted here); any
-// format DashDiag does not emit from these funnels; and off-funnel sinks
-// (Prometheus/Nagios lines) — the report records the Nagios check-name
-// sanitization gap the mapping surfaced, as a HARDENING lead, separately.
+// format DashDiag does not emit from these funnels; JSON DEL/C1 passthrough
+// (machine format — see assertJSONTerminalSafe and the report's JSON decision);
+// and the off-funnel Nagios/Prometheus lines, whose own check-name sanitization
+// is asserted by TestNagiosLineSanitizesCheckNames /
+// TestPrometheusLabelsAreControlAndBidiSafe, not by this in-memory funnel oracle.
 
 import (
 	"bytes"
@@ -59,22 +64,36 @@ import (
 
 const dl1RenderAllocFactor = 8192
 
-// assertNoTerminalInjection asserts the invariant the shipped funnels actually
-// uphold: valid UTF-8 (no raw 8-bit C1 byte), no raw ESC (0x1B), and no unicode
-// control rune other than the '\n' DashDiag emits itself. ESC is the gate for
-// CSI/OSC (incl. OSC 52 clipboard, OSC 8 hyperlinks); stripping it and the C1
-// 0x80-0x9F bytes closes the escape-sequence class.
+// bidiFormatting reports whether r is a Unicode bidirectional formatting rune
+// that can visually reorder surrounding text (the Trojan-Source /
+// CVE-2021-42574 class): the explicit override/embedding/isolate runes
+// U+202A-202E and U+2066-2069, plus the implicit directional marks U+200E/U+200F
+// (LRM/RLM) and U+061C (ALM). These are Unicode category Cf, not Cc, so
+// unicode.IsControl does NOT catch them. This oracle re-derives the set
+// INDEPENDENTLY of output.SanitizeControl, so a guard-logic bug there (a missed
+// rune, an off-by-one range) is caught here rather than mirrored.
 //
-// It deliberately does NOT assert "no bidi-override rune". DL1 found that
-// output.SanitizeControl strips unicode control runes but passes directional-
-// formatting runes (U+202A-202E, U+2066-2069), which are unicode category Cf,
-// not Cc — so a hostile hostname/process-name carrying an RLO survives into the
-// pasted markdown/share/postmortem report and can visually reorder a line
-// (Trojan-Source, CVE-2021-42574 class). That is a real HARDENING gap, reported
-// as an issue-ready proposal in docs/fuzz/dl1-dependency-and-claims.md with a
-// standalone reproducer; it is NOT asserted here because the committed code does
-// not yet strip these and a red seed would break the build. The assertion is
-// scoped to the current guarantee, not weakened to hide the gap.
+// The ZERO WIDTH JOINER (U+200D) and variation selectors used by legitimate
+// emoji (see output.TestSanitizeControlValidUTF8Identity) are deliberately NOT
+// in this set — only the direction-affecting runes are.
+func bidiFormatting(r rune) bool {
+	switch r {
+	case 0x202A, 0x202B, 0x202C, 0x202D, 0x202E, // LRE RLE PDF LRO RLO
+		0x2066, 0x2067, 0x2068, 0x2069, // LRI RLI FSI PDI
+		0x200E, 0x200F, // LRM RLM (implicit directional marks)
+		0x061C: // ALM
+		return true
+	}
+	return false
+}
+
+// assertNoTerminalInjection asserts the invariant the shipped funnels uphold:
+// valid UTF-8 (no raw 8-bit C1 byte), no raw ESC (0x1B), no unicode control rune
+// other than the '\n' DashDiag emits itself, and — since DH1 — no bidi
+// formatting rune. ESC is the gate for CSI/OSC (incl. OSC 52 clipboard, OSC 8
+// hyperlinks); stripping it and the C1 0x80-0x9F bytes closes the escape-sequence
+// class. The bidi check closes the visual-reordering (Trojan-Source) class DL1
+// found open in output.SanitizeControl and DH1 fixed.
 func assertNoTerminalInjection(t *testing.T, format, out string) {
 	t.Helper()
 	if !utf8.ValidString(out) {
@@ -86,6 +105,9 @@ func assertNoTerminalInjection(t *testing.T, format, out string) {
 		}
 		if unicode.IsControl(r) && r != '\n' {
 			t.Fatalf("%s: rendered output contains control rune %U at byte %d (only '\\n' is allowed)", format, r, i)
+		}
+		if bidiFormatting(r) {
+			t.Fatalf("%s: rendered output contains bidi formatting rune %U at byte %d (Trojan-Source / CVE-2021-42574 class)", format, r, i)
 		}
 	}
 }
