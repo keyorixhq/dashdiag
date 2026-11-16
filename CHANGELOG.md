@@ -56,6 +56,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   mitigation). Surfaced
   hardening leads (bidi-override passthrough in `SanitizeControl`; raw DEL/C1 in
   JSON output; unsanitized `RenderStory` check names) as issue-ready proposals.
+### Tests / CI
+
+- **Verdict-integrity fuzzing of the analysis-layer health verdict (DV1).** Three
+  new fuzz targets whose oracle is the VERDICT (`models.Insight.Level`), not a
+  panic, aimed at the "false OK" defect class in `BUGS.md` — the tool rendering a
+  system healthy when it has not verified. They exercise the live
+  `checkNVMe`/`checkDisk`/`checkCloudInit` heuristics dispatched by
+  `applyOne`: `FuzzDriveVerdictMonotonic` (a failing SMART attribute or an unread
+  drive must never read as a silent OK — the BUG-048 smartctl/nvme family),
+  `FuzzDiskUsageVerdictMonotonic` (disk-full is monotone; a writable fs remounted
+  read-only is not OK), and `FuzzCloudInitVerdictFalseOK` (a failed cloud-init is
+  CRIT, an unreadable status is disclosed). Each ships an INVARIANT note, a seed
+  corpus, and a documented red/green proof (false-OK planted → oracle fires →
+  reverted; no plant committed).
+- **Reachability-first fuzzing of untrusted third-party / stdlib sinks (DS1).**
+  Five new verdict-aware fuzz targets for parsers that take attacker-influenced
+  bytes and had no coverage: TLS certificate expiry
+  (`FuzzParseCertFileExpiryVerdict` — `pem.Decode`/`x509.ParseCertificate`, no
+  silent drop + correct expired sign), the Red Hat OVAL feed path
+  (`FuzzParseRHELOVALVerdict` — `bzip2`/`xml`, fails loudly on a definition-less
+  feed), config loading (`FuzzConfigLoadFailClosed` — viper/yaml, `Load` never
+  accepts a config its own `Validate()` rejects), the self-update asset URL
+  (`FuzzValidateAssetURLFailClosed` — `net/url`, validated host matches the dial
+  host), and the HTML report's `html/template.URL` logo bypass
+  (`FuzzBrandLogoNoAttrInjection` — no `src="..."` attribute break-out).
 
 ## [2.7.1] - 2026-11-15
 
