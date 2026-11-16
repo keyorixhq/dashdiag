@@ -15,7 +15,12 @@ func RenderPostMortem(title string, snap *baseline.Snapshot, insights []models.I
 	var sb strings.Builder
 
 	now := time.Now().UTC().Format(time.RFC3339)
-	fmt.Fprintf(&sb, "#### Incident: %s\n", title)
+	// title is the operator's --post-mortem incident ID. It is operator-, not
+	// host-derived, so low severity — but it was the one field in this funnel not
+	// run through SanitizeControl, and this document is designed to be pasted into
+	// incident channels/tickets, so strip control/ANSI/bidi bytes for consistency
+	// with every other field below (DL1 §3 finding #4).
+	fmt.Fprintf(&sb, "#### Incident: %s\n", output.SanitizeControl(title))
 	fmt.Fprintf(&sb, "**Server:** %s  |  **Captured:** %s  |  **By:** dsd %s\n\n",
 		output.SanitizeControl(snap.Hostname), now, version.Version)
 

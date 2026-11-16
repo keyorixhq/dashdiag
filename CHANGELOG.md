@@ -11,8 +11,64 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Security
+
+- **Strip Unicode bidi-override/isolate runes in terminal-output sanitization
+  (DH1).** `output.SanitizeControl` — and its documented mirrors
+  `source.SanitizeControl` and `inventory.stripControl` — now also remove the
+  bidirectional formatting runes U+202A–202E, U+2066–2069, U+200E/U+200F and
+  U+061C. These are Unicode category Cf, which `unicode.IsControl` does not
+  catch, so a hostile hostname or process name carrying a right-to-left override
+  previously survived into pasted markdown/share/post-mortem reports and could
+  visually reorder a line — making a `FAIL` read `OK` to a human (the
+  Trojan-Source / CVE-2021-42574 class). The legitimate ZERO WIDTH JOINER
+  (U+200D) and emoji variation selectors are untouched.
+- **Sanitize host-influenced check names in the remaining render sinks (DH1).**
+  `RenderStory` (`ins.Check` / `CheckResult.Name`), the `--post-mortem` incident
+  title, and the Nagios plugin line (`--nagios`) now run check names through
+  `SanitizeControl` like every other funnel; the Nagios line additionally maps a
+  check-name `|` to `/` so it cannot inject or truncate perfdata. The
+  `--prometheus` path was already safe by construction (label values are reduced
+  to `[a-z0-9_]`). The `--json` machine format is unchanged: its raw DEL/C1
+  passthrough is now documented as not terminal-safe (pipe through a sanitizer
+  before display) rather than altered, since consumers compare the exact bytes.
+
+### Testing
+
+- **DH1 render sanitize hardening, test-first.** The DL1 render-funnel oracle
+  `FuzzRenderFunnelNoTerminalInjection` now ASSERTS the no-bidi guarantee it
+  previously only reported (re-deriving the rune set independently of
+  `SanitizeControl`), with a red→green proof. Added per-sink table tests:
+  `SanitizeControl` bidi stripping, `RenderStory` (single-point and history
+  paths), `RenderPostMortem` title, `NagiosLine`/`nagiosText`, and the Prometheus
+  label safety property.
+
+
+- **DL1 dependency-and-claims fuzzing.** Added a shared per-input resource oracle
+  (`internal/testutil/resource`: `TotalAlloc`/time/goroutine budget + unix
+  filesystem fingerprint for the read-only claim) and three fuzz targets that
+  carry it: `FuzzRenderFunnelNoTerminalInjection` (host strings through the
+  markdown/share/post-mortem/JSON builders emit no raw ESC/C1/control),
+  `FuzzMCPSafeBundlePathContainment` (every accepted MCP path stays inside the
+  cwd subtree — the read-only/no-escape boundary), and `FuzzYAMLSafeDiffAndBound`
+  (yamlsafe-accepted documents decode identically under plain `yaml.Unmarshal`,
+  and yamlsafe stays within budget — the standing guard on the go-yaml #510
+  mitigation). Surfaced
+  hardening leads (bidi-override passthrough in `SanitizeControl`; raw DEL/C1 in
+  JSON output; unsanitized `RenderStory` check names) as issue-ready proposals.
 ### Tests / CI
 
+- **Capture-replay & cross-distro differential harness (DD2).** A test-only harness
+  drives the existing `dsd replay` seam over a directory of real `dsd capture --raw`
+  bundles and over the committed `fixtures/replay-fidelity` bundles: a capture×check
+  verdict matrix, a determinism/no-panic oracle (three replays identical), a
+  sibling-parity check (sanitize-vs-raw twins asserted verdict-identical), and a new
+  `FuzzCaptureReplayMutationRobustness` fuzz target that applies one
+  information-destroying mutation to a single captured file or command output and
+  requires no panic, bounded work, and no non-OK check silently flipping to `OK`.
+  The 49-capture tests skip unless a capture dir is provided, so CI stays green on the
+  committed fixtures. Surfaced a replay fail-open when a derived-state cache
+  (`clock/state`, `net/connectivity`) is absent from a bundle.
 - **Verdict-integrity fuzzing of the analysis-layer health verdict (DV1).** Three
   new fuzz targets whose oracle is the VERDICT (`models.Insight.Level`), not a
   panic, aimed at the "false OK" defect class in `BUGS.md` — the tool rendering a
