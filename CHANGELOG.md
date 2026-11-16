@@ -11,6 +11,16 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Fixed
+
+- **Kdump state read no longer false-OKs on a whitespace-only `systemctl`
+  answer.** `KdumpCollector` keyed its "did we get a state?" decision on raw
+  `out != ""`, so a whitespace-only `systemctl is-enabled/is-active kdump`
+  response (e.g. a truncated write after a context-cancel force-kill) was
+  silently read as "kdump not enabled — no fault" instead of
+  `StateUnverified`. It now trims before the emptiness check, matching the
+  sibling `TunedCollector`. Found by the new EXF1 exec-failure fuzz oracle.
+
 ### Testing
 
 - **DL1 dependency-and-claims fuzzing.** Added a shared per-input resource oracle
