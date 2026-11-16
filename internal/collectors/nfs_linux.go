@@ -99,10 +99,40 @@ func nfsCheckMount(ctx context.Context, m *models.NFSMount) {
 		latencyMs int
 		err       error
 	}
+
+	// NFL1 in-flight guard: the goroutine below CANNOT be joined — a stale-NFS
+	// statfs parks in D-state forever, so on the timeout/ctx path we abandon it.
+	// In one-shot `dsd health` that leaks one goroutine until the process exits
+	// (bounded). In the long-running `dsd mcp` server the process persists across
+	// many dsd_health calls, so WITHOUT this guard every re-probe of the same
+	// still-wedged mount abandons ANOTHER goroutine — unbounded growth. The guard
+	// caps outstanding probes at one per mount: if this mount's previous probe is
+	// still parked, do not spawn a second goroutine. An entry persists only while
+	// a statfs is genuinely still blocked (the goroutine clears it via statfsProbeEnd
+	// the moment statfs returns), so "in flight" means "currently unresponsive" —
+	// report Stale (the same conclusion the parked probe already reached at its
+	// deadline) with a clear note, rather than fabricating a fresh measurement or
+	// a green OK. See statfs_inflight.go.
+	if !statfsProbeBegin(m.Mount) {
+		// Previous probe for this mount is still parked in statfs — the mount is
+		// unresponsive right now. Report it stale (same verdict the parked probe
+		// reached at its deadline, same CRIT the operator already needs to see:
+		// "mount is STALE — processes will hang in D-state") without spawning a
+		// duplicate goroutine. No separate warning line: that would attach a
+		// mismatched "remount with correct options" hint (checkNFS routes
+		// OptionsWarnings there); the STALE CRIT carries the correct umount/remount
+		// guidance. LatencyMs stays 0 — no fresh round-trip was measured, which is
+		// already how every stale mount reads.
+		m.Stale = true
+		m.Healthy = false
+		return
+	}
+
 	ch := make(chan result, 1)
 	start := time.Now()
 
 	go func() {
+		defer statfsProbeEnd(m.Mount) // clears the in-flight slot if/when statfs ever returns
 		_, err := statFs(m.Mount)
 		ch <- result{int(time.Since(start).Milliseconds()), err}
 	}()
