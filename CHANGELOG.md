@@ -13,6 +13,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Testing
 
+- **VI1 generalised verdict integrity.** Added a table-driven verdict-integrity
+  fuzz generator over `internal/analysis` check functions
+  (`FuzzVerdictIntegrity`, `internal/analysis/vi1_verdict_integrity_fuzz_test.go`):
+  each registered check is driven through four oracles that hold for any correct
+  verdict function — (a) metamorphic monotonicity (worsening a monotone metric
+  never improves the verdict), (b) false-OK (a measurement-gap input must surface
+  an Unverified insight, never a silent confident OK), (c) idempotence + order
+  independence of aggregation, (d) the shared DL1 per-input resource bound. Adding
+  a check is one registry entry; CloudInit, Memory, Swap, DiskUsage and Drive are
+  registered. Every oracle has a committed red/green proof
+  (`vi1_verdict_integrity_redgreen_test.go`). Surfaced a determinism lead
+  (`checkNVMe` lists unread-drive names in input order in its aggregated INFO) as
+  an issue-ready proposal.
 - **DL1 dependency-and-claims fuzzing.** Added a shared per-input resource oracle
   (`internal/testutil/resource`: `TotalAlloc`/time/goroutine budget + unix
   filesystem fingerprint for the read-only claim) and three fuzz targets that
