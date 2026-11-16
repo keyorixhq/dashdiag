@@ -112,10 +112,7 @@ func readShimTrace() []string {
 		return nil
 	}
 	_ = os.Truncate(shimTracePath, 0)
-	var out []string
-	for _, ln := range splitNonEmptyLines(string(data)) {
-		out = append(out, ln)
-	}
+	out := append([]string(nil), splitNonEmptyLines(string(data))...)
 	sort.Strings(out)
 	return out
 }

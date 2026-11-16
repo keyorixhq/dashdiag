@@ -149,7 +149,7 @@ func TestPrometheusLabelsAreControlAndBidiSafe(t *testing.T) {
 		for _, in := range []string{"Disk" + testESC, "Mem" + testRLO, "CPU|Load", "a\nb"} {
 			got := promLabel(in)
 			for _, r := range got {
-				if !((r >= 'a' && r <= 'z') || (r >= '0' && r <= '9') || r == '_') {
+				if (r < 'a' || r > 'z') && (r < '0' || r > '9') && r != '_' {
 					t.Fatalf("promLabel(%q) = %q leaked rune %U", in, got, r)
 				}
 			}

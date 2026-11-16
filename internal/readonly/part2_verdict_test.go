@@ -57,10 +57,11 @@ func driveVerdict(t *testing.T, meminfo, swaps, vmstat, mounts []byte) []models.
 	ctx, cancel := context.WithTimeout(context.Background(), 4*time.Second)
 	defer cancel()
 
-	var results []runner.Result
-	results = append(results, collectUnderReplay(ctx, collectors.NewMemoryCollector(cc), b))
-	results = append(results, collectUnderReplay(ctx, collectors.NewSwapCollector(cc), b))
-	results = append(results, collectUnderReplay(ctx, collectors.NewDiskCollector(cc), b))
+	results := []runner.Result{
+		collectUnderReplay(ctx, collectors.NewMemoryCollector(cc), b),
+		collectUnderReplay(ctx, collectors.NewSwapCollector(cc), b),
+		collectUnderReplay(ctx, collectors.NewDiskCollector(cc), b),
+	}
 
 	thresh := analysis.DefaultThresholds(platform.CloudEnvironment(0))
 	return analysis.ApplyThresholds(results, thresh, platform.CloudEnvironment(0), cc)

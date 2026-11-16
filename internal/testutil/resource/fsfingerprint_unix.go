@@ -64,7 +64,7 @@ func Fingerprint(t testing.TB, dir string) string {
 			e.kind = "dir"
 		case fi.Mode().IsRegular():
 			e.kind = "file"
-			data, rerr := os.ReadFile(path) // #nosec G304 -- test-controlled temp tree
+			data, rerr := os.ReadFile(path) // #nosec G304 G122 -- test-controlled temp tree, no untrusted writers
 			if rerr == nil {
 				sum := sha256.Sum256(data)
 				e.extra = fmt.Sprintf("%x", sum[:8])

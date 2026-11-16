@@ -137,7 +137,7 @@ func assertJSONTerminalSafe(t *testing.T, out string) {
 // buildHostileSnapshot plants the fuzz string into every host-derived field.
 func buildHostileSnapshot(s string) (*baseline.Snapshot, []models.Insight) {
 	levels := []string{"CRIT", "WARN", "INFO", "OK"}
-	var insights []models.Insight
+	insights := make([]models.Insight, 0, len(levels))
 	for i, lvl := range levels {
 		insights = append(insights, models.Insight{
 			Level:   lvl,
@@ -198,7 +198,7 @@ func FuzzRenderFunnelNoTerminalInjection(f *testing.F) {
 	f.Fuzz(func(t *testing.T, s string) {
 		snap, insights := buildHostileSnapshot(s)
 		n := len(s)
-		var mode output.OutputMode = output.ModeHuman
+		mode := output.ModeHuman
 
 		var md, share, pm string
 		resource.Check(t, n, dl1RenderAllocFactor, func() {
