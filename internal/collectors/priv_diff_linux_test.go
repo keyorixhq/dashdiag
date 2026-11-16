@@ -151,13 +151,14 @@ func (c privDiffCase) runDenied(t testing.TB, content []byte) *models.SecurityIn
 }
 
 // assertPrivDifferential is the shared oracle. For any host state:
-//   (1) the denied (non-root) model MUST disclose it could not audit (typed
-//       unreadable flag) — this is what names, to the verdict layer, exactly
-//       what was NOT checked;
-//   (2) the denied model MUST NOT carry a concrete finding — a finding derived
-//       from bytes it never read would be fabricated;
-//   (3) the denied model is never HEALTHIER than the readable one: it may only
-//       drop to "unverified", never report a clean/benign audit it didn't do.
+//
+//	(1) the denied (non-root) model MUST disclose it could not audit (typed
+//	    unreadable flag) — this is what names, to the verdict layer, exactly
+//	    what was NOT checked;
+//	(2) the denied model MUST NOT carry a concrete finding — a finding derived
+//	    from bytes it never read would be fabricated;
+//	(3) the denied model is never HEALTHIER than the readable one: it may only
+//	    drop to "unverified", never report a clean/benign audit it didn't do.
 func assertPrivDifferential(t testing.TB, c privDiffCase, readable, denied *models.SecurityInfo) {
 	t.Helper()
 	if !c.unreadable(denied) {
