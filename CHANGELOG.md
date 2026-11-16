@@ -26,6 +26,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   hardening leads (bidi-override passthrough in `SanitizeControl`; raw DEL/C1 in
   JSON output; unsanitized `RenderStory` check names) as issue-ready proposals.
 
+- **TU1 TUI render-frame escape fuzzing.** Added
+  `FuzzTUIStyledFrameNoHostEscape` (`internal/render`): drives the real
+  lipgloss-styled `dsd health` terminal frame (rows, Details, summary, hints,
+  coverage) with host-derived bytes planted in every field and proves the host
+  contributes no ESC of its own — rendered under a forced `termenv.Ascii` profile
+  (dsd emits zero styling ESC, so any surviving ESC/control is a sanitize gap) and
+  cross-checked against the `termenv.TrueColor` frame with dsd's own CSI-SGR
+  stripped. Carries the DL1 `resource` oracle. Companion
+  `FuzzTUISelectModelKeyStream` (`internal/tui`) fuzzes the bubbletea
+  Single/Multi-select `Update`/`View` under a hostile key stream and arbitrary
+  option counts (incl. empty), asserting no panic and the cursor never leaves
+  bounds. Recorded that the lipgloss/cellbuf display-width path and the raw
+  ICMP-reply parser are not reachable from a live dsd caller (see the TU1 report).
+
 ## [2.7.1] - 2026-11-15
 
 ### Security
