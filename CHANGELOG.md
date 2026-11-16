@@ -24,6 +24,18 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   The 49-capture tests skip unless a capture dir is provided, so CI stays green on the
   committed fixtures. Surfaced a replay fail-open when a derived-state cache
   (`clock/state`, `net/connectivity`) is absent from a bundle.
+- **Verdict-integrity fuzzing of the analysis-layer health verdict (DV1).** Three
+  new fuzz targets whose oracle is the VERDICT (`models.Insight.Level`), not a
+  panic, aimed at the "false OK" defect class in `BUGS.md` — the tool rendering a
+  system healthy when it has not verified. They exercise the live
+  `checkNVMe`/`checkDisk`/`checkCloudInit` heuristics dispatched by
+  `applyOne`: `FuzzDriveVerdictMonotonic` (a failing SMART attribute or an unread
+  drive must never read as a silent OK — the BUG-048 smartctl/nvme family),
+  `FuzzDiskUsageVerdictMonotonic` (disk-full is monotone; a writable fs remounted
+  read-only is not OK), and `FuzzCloudInitVerdictFalseOK` (a failed cloud-init is
+  CRIT, an unreadable status is disclosed). Each ships an INVARIANT note, a seed
+  corpus, and a documented red/green proof (false-OK planted → oracle fires →
+  reverted; no plant committed).
 - **Reachability-first fuzzing of untrusted third-party / stdlib sinks (DS1).**
   Five new verdict-aware fuzz targets for parsers that take attacker-influenced
   bytes and had no coverage: TLS certificate expiry
