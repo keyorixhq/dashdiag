@@ -183,8 +183,8 @@ func FuzzRenderFunnelNoTerminalInjection(f *testing.F) {
 		"c1raw\x9bmcsi",                                 // raw C1 CSI byte 0x9B
 		"c1osc\x9d52;c;x\x9c",                           // raw C1 OSC
 		"title\x1b]0;pwned\x07",                         // window-title rewrite
-		"bidi‮KO‬ vs OK",                                // RLO override to flip text
-		"iso⁦FAIL⁩",                                     // bidi isolate
+		"bidi\u202eKO\u202c vs OK",                      // RLO override to flip text
+		"iso\u2066FAIL\u2069",                           // bidi isolate
 		"newline\nfake\n### 🔴 CRIT forged check",        // line-forge attempt
 		"fence```\ninjected markdown",                   // markdown fence break
 		"nul\x00byte and \x07bell \x08bs",               // assorted C0 controls
