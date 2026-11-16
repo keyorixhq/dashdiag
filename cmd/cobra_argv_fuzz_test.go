@@ -354,7 +354,7 @@ func FuzzCobraArgvMetamorphic(f *testing.F) {
 				t.Fatalf("argv metamorphic: eq %q -> %+v\n%s %q -> %+v", renderings["eq"], base, name, argv, got)
 			}
 		}
-		if !base.err && base.path != "" && !slices.Equal(base.args, pos) && !(len(pos) == 0 && len(base.args) == 0) {
+		if !base.err && base.path != "" && !slices.Equal(base.args, pos) && (len(pos) != 0 || len(base.args) != 0) {
 			t.Fatalf("positionals: %q parsed args %q, want %q", renderings["eq"], base.args, pos)
 		}
 

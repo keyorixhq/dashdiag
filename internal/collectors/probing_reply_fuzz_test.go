@@ -283,7 +283,7 @@ func (c *pbFakeConn) ReadFrom(b []byte) (int, int, net.Addr, error) {
 
 		if ready {
 			if c.unprivDarw {
-				hdr := make([]byte, ipv4.HeaderLen)
+				hdr := make([]byte, ipv4.HeaderLen, ipv4.HeaderLen+len(wire))
 				hdr[0] = 0x45
 				wire = append(hdr, wire...)
 			}

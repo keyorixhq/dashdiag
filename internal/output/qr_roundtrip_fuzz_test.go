@@ -359,13 +359,14 @@ func qrDecodeBitmap(bm [][]bool) (qrDecoded, error) {
 				d.content = fmt.Appendf(d.content, "%03d", v)
 				n -= 3
 			}
-			if n == 2 {
+			switch n {
+			case 2:
 				v := br.read(7)
 				if v > 99 {
 					return d, fmt.Errorf("numeric pair %d", v)
 				}
 				d.content = fmt.Appendf(d.content, "%02d", v)
-			} else if n == 1 {
+			case 1:
 				v := br.read(4)
 				if v > 9 {
 					return d, fmt.Errorf("numeric digit %d", v)

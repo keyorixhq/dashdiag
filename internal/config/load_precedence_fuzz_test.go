@@ -207,7 +207,8 @@ func (f *fuzzBytes) str(max int) string {
 // knownAlias reports whether an extra top-level key could alias a known key
 // through viper's dot delimiter or mapstructure's EqualFold matching.
 func knownAlias(k string) bool {
-	known := []string{"thresholds", "logs", "security", "services"}
+	known := make([]string, 0, 4+len(thresholdKeys)+8)
+	known = append(known, "thresholds", "logs", "security", "services")
 	known = append(known, thresholdKeys...)
 	known = append(known, "since_minutes", "allowed_ports", "ssh_failed_login_warn", "ssh_failed_login_crit", "name", "host", "port", "protocol")
 	for seg := range strings.SplitSeq(k, ".") {
