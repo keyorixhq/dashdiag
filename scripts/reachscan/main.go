@@ -34,7 +34,6 @@ package main
 
 import (
 	"cmp"
-	"context"
 	"flag"
 	"fmt"
 	"go/ast"
@@ -52,7 +51,6 @@ import (
 	"regexp"
 	"slices"
 	"strings"
-	"time"
 )
 
 const modulePath = "github.com/keyorixhq/dashdiag"
@@ -165,18 +163,27 @@ func run(args []string, w io.Writer) error {
 
 // ensureGOROOT fills build.Default.GOROOT when the binary was built with
 // -trimpath, which leaves it empty and hides the standard library sources
-// from the source importer.
+// from the source importer. It derives GOROOT from the go binary on PATH
+// (resolving symlinks, e.g. Homebrew's bin/go -> libexec/bin/go) instead of
+// running "go env", so nothing is executed.
 func ensureGOROOT() error {
 	if build.Default.GOROOT != "" {
 		return nil
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
-	defer cancel()
-	out, err := exec.CommandContext(ctx, "go", "env", "GOROOT").Output()
+	const hint = "binary built with -trimpath; set GOROOT to the output of 'go env GOROOT'"
+	goBin, err := exec.LookPath("go")
 	if err != nil {
-		return fmt.Errorf("resolving GOROOT with go env (binary built with -trimpath): %w", err)
+		return fmt.Errorf("locating go on PATH to derive GOROOT (%s): %w", hint, err)
 	}
-	build.Default.GOROOT = strings.TrimSpace(string(out))
+	real, err := filepath.EvalSymlinks(goBin)
+	if err != nil {
+		return fmt.Errorf("resolving %s (%s): %w", goBin, hint, err)
+	}
+	goroot := filepath.Dir(filepath.Dir(real))
+	if _, err := os.Stat(filepath.Join(goroot, "src", "strings")); err != nil {
+		return fmt.Errorf("no standard library under %s (%s): %w", goroot, hint, err)
+	}
+	build.Default.GOROOT = goroot
 	return nil
 }
 
