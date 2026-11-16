@@ -120,6 +120,14 @@ func TestApplyThresholds_ReplayGapSilentCollectorSurfacesInfo(t *testing.T) {
 			wantReason: "",
 		},
 		{
+			// A healthy collector also emits nothing; an older bundle missing a
+			// tolerated presence probe (lookpath/dial) must not flip it to INFO.
+			name:       "replay gap, healthy collector silent -> nothing (gap alone is not unknown)",
+			result:     runner.Result{Name: "Disk", Data: nil, NotRecorded: true},
+			wantCount:  0,
+			wantReason: "",
+		},
+		{
 			name:       "replay gap, collector emitted an Unverified insight -> relabel, no synthetic INFO",
 			result:     runner.Result{Name: "Packages", Data: relabelData, NotRecorded: true},
 			wantCount:  1,

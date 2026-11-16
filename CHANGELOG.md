@@ -19,8 +19,11 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   `apt-get --version` probe was dropped — left its check silently reading `OK`:
   `markNotRecorded` can only relabel insights that already exist, so an empty verdict
   stayed empty. `ApplyThresholds` now synthesizes an Unverified `INFO`
-  (`unverified_reason: not_recorded`) for any such collector, generically, so a lost
-  input surfaces as unknown rather than healthy. Replay-only (`NotRecorded` is never
+  (`unverified_reason: not_recorded`) when the collector's data shows it could not
+  identify what it was checking (today: Packages with an unknown manager), so a lost
+  input surfaces as unknown rather than healthy. A gap alone is not enough: healthy
+  collectors also emit nothing, and older bundles miss presence probes they tolerate,
+  which would flip verified checks to INFO. Replay-only (`NotRecorded` is never
   set on a live run), so live `dsd health` output is unchanged.
 
 ### Security
