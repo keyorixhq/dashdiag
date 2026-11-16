@@ -26,6 +26,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   hardening leads (bidi-override passthrough in `SanitizeControl`; raw DEL/C1 in
   JSON output; unsanitized `RenderStory` check names) as issue-ready proposals.
 
+- **RN1 runner lifecycle and resource-hygiene fuzzing.** Added two fuzz targets
+  for `internal/runner` and the collector-execution path, each carrying the
+  shared resource oracle and a red/green proof, plus `internal/runner/INVARIANTS.md`.
+  `FuzzRunnerLifecycle` drives `RunAll` with fuzz-generated synthetic collectors
+  (fast, ctx-respecting-slow, ctx-ignoring hangers, panickers, errors, big
+  output) and asserts five lifecycle invariants: goleak-style goroutine
+  accounting (an abandoned collector goroutine is bounded and drainable, never a
+  permanent leak — quantifying the RO1 observation), wall time bounded by the
+  single longest timeout (not collector count), a timed-out collector yields an
+  error and never a silent OK, output passed through untouched, and a
+  deterministic report regardless of completion order. `FuzzCollectorExecHygiene`
+  (linux) wraps the real hardened exec path (`source.Live.Run` →
+  `platform.RunHardened`) in a collector, re-execs the test binary as a fake shim
+  (hang, ignore-signals, flood, partial-then-exit, sleep) and asserts no fd leak
+  (`/proc/self/fd`), no leftover/zombie process, bounded captured output
+  (`source.CapWriter`), no temp file, and bounded wall time. No runner defect
+  found.
+
 ## [2.7.1] - 2026-11-15
 
 ### Security
