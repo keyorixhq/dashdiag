@@ -53,10 +53,6 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/testutil/resource"
 )
 
-// maxConfigBytes mirrors internal/config.maxImplicitConfigBytes (1 MiB): the
-// loader never hands viper more than this.
-const maxConfigBytes = 1 << 20
-
 // fuzzInputCap bounds the bytes this TARGET feeds, deliberately BELOW the 1 MiB
 // loader cap. The viper YAML backend (go.yaml.in/yaml mapping decode) is O(n^2)
 // in the number of sibling keys — characterised during calibration and reported
