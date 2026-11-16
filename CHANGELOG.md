@@ -23,7 +23,7 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   (`cmd/mcp.go` `toolHealth` → `runHealthOnce` → `runner.RunAll`) the process
   persists across many `dsd_health` calls, so every re-probe of the same wedged
   mount abandoned *another* goroutine + OS thread — unbounded growth. Added a
-  shared per-mount in-flight guard (`internal/collectors/statfs_inflight.go`):
+  per-collector per-mount in-flight guard (`internal/collectors/statfs_inflight.go`):
   while a mount's previous `Statfs` probe is still parked, a new probe does not
   spawn a second goroutine — it reports the mount unresponsive immediately (the
   same conclusion the parked probe already reached). The guard is keyed by mount

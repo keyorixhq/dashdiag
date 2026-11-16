@@ -113,7 +113,7 @@ func nfsCheckMount(ctx context.Context, m *models.NFSMount) {
 	// report Stale (the same conclusion the parked probe already reached at its
 	// deadline) with a clear note, rather than fabricating a fresh measurement or
 	// a green OK. See statfs_inflight.go.
-	if !statfsProbeBegin(m.Mount) {
+	if !statfsProbeBegin(nsNFS, m.Mount) {
 		// Previous probe for this mount is still parked in statfs — the mount is
 		// unresponsive right now. Report it stale (same verdict the parked probe
 		// reached at its deadline, same CRIT the operator already needs to see:
@@ -132,7 +132,7 @@ func nfsCheckMount(ctx context.Context, m *models.NFSMount) {
 	start := time.Now()
 
 	go func() {
-		defer statfsProbeEnd(m.Mount) // clears the in-flight slot if/when statfs ever returns
+		defer statfsProbeEnd(nsNFS, m.Mount) // clears the in-flight slot if/when statfs ever returns
 		_, err := statFs(m.Mount)
 		ch <- result{int(time.Since(start).Milliseconds()), err}
 	}()

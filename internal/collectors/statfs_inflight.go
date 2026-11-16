@@ -19,48 +19,68 @@ import "sync"
 // same still-wedged mount abandons ANOTHER goroutine + OS thread — unbounded
 // growth, one per health run per wedged mount.
 //
-// The guard caps outstanding statfs probes at ONE per mount path, process-wide
-// and shared across collectors (a path wedged for Disk is the same wedge NFS
-// would hit). While a path's probe is still parked, a new probe does not spawn a
-// second goroutine. An entry exists only while a Statfs is genuinely still
-// blocked — the spawning goroutine clears it via statfsProbeEnd the instant
-// Statfs returns — so "in flight" means "this path is unresponsive right now",
-// and the caller reports that honestly instead of spawning a duplicate. The map
-// is keyed by mount path and bounded by the number of distinct LIVE wedged mounts
-// (a system fact from /proc/mounts, never attacker input), so it cannot grow
-// without limit. A mount that recovers lets its parked Statfs return, clears the
-// entry, and the next probe runs for real again — the guard self-heals.
+// The guard caps outstanding statfs probes at ONE per (collector, mount path).
+// While a (collector, path) probe is still parked, a new probe of the same pair
+// does not spawn a second goroutine. An entry exists only while a Statfs is
+// genuinely still blocked — the spawning goroutine clears it via statfsProbeEnd
+// the instant Statfs returns — so "in flight" means "this path is unresponsive
+// right now", and the caller reports that honestly instead of spawning a
+// duplicate. The map is keyed by (collector, mount path) and bounded by the
+// number of distinct LIVE wedged mounts (a system fact from /proc/mounts, never
+// attacker input) times the small fixed number of statfs-probing collectors, so
+// it cannot grow without limit. A mount that recovers lets its parked Statfs
+// return, clears the entry, and the next probe runs for real again — self-healing.
+//
+// Why the key is (collector, path) and NOT just path: the leak this guard bounds
+// is accumulation ACROSS health runs, which is per-collector anyway (each run
+// invokes each collector once). The NFS and Disk collectors run CONCURRENTLY in
+// one run (runner.RunAll) and both probe NFS mount paths. A path-only key would
+// let one collector's in-flight probe make the OTHER collector short-circuit —
+// and for a HEALTHY mount (statfs returns in microseconds) that overlap is a
+// race window in which a live mount would be falsely reported unresponsive. The
+// collector namespace removes that cross-collector coupling; each collector still
+// gets its own one-probe-per-mount cap, which is all the leak bound needs.
 const statfsMaxInflightPerMount = 1
+
+// statfs-probe namespaces, so the two concurrently-running call sites never
+// contend on each other's in-flight slot (see the file header).
+const (
+	nsNFS  = "nfs\x00"
+	nsDisk = "disk\x00"
+)
 
 var statfsInflight = struct {
 	mu sync.Mutex
-	n  map[string]int // mount path -> currently-parked statfs probes
+	n  map[string]int // "<ns>\x00<mount path>" -> currently-parked statfs probes
 }{n: map[string]int{}}
 
-// statfsProbeBegin records intent to spawn a Statfs probe for mount. It returns
-// true (incrementing the in-flight count) when the caller MAY spawn; it returns
-// false when a probe for this mount is already parked at the cap, in which case
-// the caller must NOT spawn and should report the mount unresponsive.
-func statfsProbeBegin(mount string) bool {
+// statfsProbeBegin records intent to spawn a Statfs probe for (ns, mount). It
+// returns true (incrementing the in-flight count) when the caller MAY spawn; it
+// returns false when a probe for this (ns, mount) is already parked at the cap,
+// in which case the caller must NOT spawn and should report the mount
+// unresponsive.
+func statfsProbeBegin(ns, mount string) bool {
+	key := ns + mount
 	statfsInflight.mu.Lock()
 	defer statfsInflight.mu.Unlock()
-	if statfsInflight.n[mount] >= statfsMaxInflightPerMount {
+	if statfsInflight.n[key] >= statfsMaxInflightPerMount {
 		return false
 	}
-	statfsInflight.n[mount]++
+	statfsInflight.n[key]++
 	return true
 }
 
-// statfsProbeEnd clears one in-flight probe for mount, called by the spawned
-// goroutine when (if ever) its Statfs returns. A wedged D-state probe never calls
-// this, so the mount stays capped — exactly the bounded steady state we want.
-func statfsProbeEnd(mount string) {
+// statfsProbeEnd clears one in-flight probe for (ns, mount), called by the
+// spawned goroutine when (if ever) its Statfs returns. A wedged D-state probe
+// never calls this, so the mount stays capped — the bounded steady state we want.
+func statfsProbeEnd(ns, mount string) {
+	key := ns + mount
 	statfsInflight.mu.Lock()
 	defer statfsInflight.mu.Unlock()
-	if statfsInflight.n[mount] > 0 {
-		statfsInflight.n[mount]--
-		if statfsInflight.n[mount] == 0 {
-			delete(statfsInflight.n, mount) // keep the map bounded by LIVE wedged mounts
+	if statfsInflight.n[key] > 0 {
+		statfsInflight.n[key]--
+		if statfsInflight.n[key] == 0 {
+			delete(statfsInflight.n, key) // keep the map bounded by LIVE wedged mounts
 		}
 	}
 }

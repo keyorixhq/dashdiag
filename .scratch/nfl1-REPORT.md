@@ -52,7 +52,7 @@ Numbers (deterministic, replayed — see §3):
 - [x] Deterministic reproduction: N calls through a forever-blocking fake source.
 - [x] Sibling sweep (Statfs / readdir / FIFO / autofs / hung exec) — §4.
 - [x] Fix (shared per-mount in-flight guard), test-first, flat over 1000 calls.
-- [ ] Fuzz `FuzzNFSMountGoroutineLeak` ≥4×540 s (in progress).
+- [x] Fuzz `FuzzNFSMountGoroutineLeak` 4×540 s (36 min) — all PASS, §3a.
 - [x] Final classification + leftovers — §6/§7.
 
 ---
@@ -139,6 +139,27 @@ blow up is goroutine count.
 This is a genuine red/green: the oracle fires on the real, shipped, unguarded code
 and passes only once the fix lands.
 
+### 3a. Fuzzing
+
+`FuzzNFSMountGoroutineLeak` fuzzed **5 foreground chunks of 540 s = 45 min real
+wall time** (`-parallel 2`, `GOMAXPROCS=2`, `nice -n 10`, per the shared-host
+limits). Each chunk: PASS, no crash. Totals: ~16k execs/chunk (~82k total); the
+leak bound held for every mount-set shape (distinct-mount count 1…8, repeat rounds
+1…32, empty/odd path flavours). Coverage saturated (`new interesting: 0` by chunk 4).
+No crasher written to `testdata/` (none occurred). Chunks 1–4 ran against the
+first-cut shared-key guard; chunk 5 ran against the final per-collector-namespaced
+guard (§5) — the namespacing is a pure key-prefix change that cannot alter the
+NFS-only fuzz path (the fuzz never drives the Disk collector), and chunk 5 confirms
+it. The fuzzer input
+is a `(distinctMounts, rounds, pathFlavour)` triple, so it explores the guard's
+keying (duplicate vs distinct paths) and the per-mount cap under many shapes. Go runs
+fuzz workers as isolated processes, so the global `activeSource`/`statfsInflight`
+state is per-worker — no cross-worker race on the shared fixtures.
+
+Chunk logs: `.scratch/fuzz-chunk{1..4}.log`. Throughput is low (~30 execs/s) by
+design — each exec drives real probes + a goroutine drain — which is irrelevant to
+the wall-time requirement.
+
 ## 4. Sibling sweep — collectors that block in an uncancellable syscall
 
 I grepped every non-test `go func()` in `internal/collectors` (the "spawn a
@@ -173,15 +194,25 @@ blocks on `O_RDONLY`). So within dashdiag the silent per-mount leak class is exa
 ## 5. The fix
 
 `internal/collectors/statfs_inflight.go` (new, portable): a process-wide map
-`mount path → in-flight statfs probe count`, capped at **1 per mount**, shared by
-both call sites (a path wedged for Disk is the same wedge NFS hits). `statfsProbeBegin`
-returns false when a probe for that mount is already parked; the caller then reports
-the mount unresponsive *without spawning a second goroutine*. The spawning goroutine
-`defer`s `statfsProbeEnd`, which runs the instant `Statfs` returns — so an entry
-persists **only while a syscall is genuinely still blocked**, the map is bounded by
-the number of distinct live wedged mounts (a `/proc/mounts` fact, never attacker
-input), and a recovered mount clears its entry and is probed for real again
-(self-healing).
+`(collector, mount path) → in-flight statfs probe count`, capped at **1 per
+(collector, mount)**. `statfsProbeBegin(ns, mount)` returns false when a probe for
+that pair is already parked; the caller then reports the mount unresponsive
+*without spawning a second goroutine*. The spawning goroutine `defer`s
+`statfsProbeEnd`, which runs the instant `Statfs` returns — so an entry persists
+**only while a syscall is genuinely still blocked**, the map is bounded by the
+number of distinct live wedged mounts (a `/proc/mounts` fact, never attacker input)
+× the fixed number of statfs-probing collectors, and a recovered mount clears its
+entry and is probed for real again (self-healing).
+
+**Why the key is (collector, path), not just path.** The NFS and Disk collectors
+run *concurrently* in one `RunAll`, and both probe NFS mount paths. A path-only key
+would let one collector's in-flight probe make the other short-circuit — and for a
+*healthy* mount (`Statfs` returns in microseconds) that overlap is a race window in
+which a live mount would be falsely reported unresponsive (a false CRIT that did not
+exist before). The leak this guard bounds is accumulation *across* health runs,
+which is per-collector anyway, so namespacing by collector loses nothing and removes
+the cross-collector false-positive race. (Caught in self-review after the first cut;
+the deterministic + fuzz oracles stayed green across the change.)
 
 **Conscious deviation from the candidate's wording.** The task suggested the guarded
 probe return *Unverified*. I return **Stale** (NFS) / the existing *timeout error*
@@ -232,6 +263,24 @@ kernel releasing it (mount recovery or a lazy umount), at which point the parked
 - The sweep is a **static** `go func()` audit; it does not prove the absence of a
   blocking-syscall leak reached through a path that does not use `go func()` at all
   (e.g. a third-party library spawning its own goroutine) — out of scope here.
+
+## 8. Verification run (honesty note)
+
+- `go test ./internal/collectors/ -run 'Disk|NFS|Nfs|statfs|Mount'` → **ok (11.8 s)** —
+  all touched collectors + my oracles pass.
+- `go test ./internal/testutil/resource ./internal/runner ./internal/analysis
+  ./internal/models` → **all ok** (resource 0.01 s, runner 1.8 s, analysis 4.3 s,
+  models 0.05 s). The models false-OK registry passes unchanged — the fix adds no
+  model field.
+- `go build` for `GOOS=darwin` → clean (the shared guard is portable; `disk.go` has no
+  build tag).
+- The **full** `internal/collectors` package (561 files) **timed out at the 15 min
+  `-timeout` twice** — but every other package passed instantly in the same runs, and
+  the touched-subset run above passes in 11.8 s. This host runs four parallel
+  unattended sessions on 8 cores; the timeout is a contention artifact of the giant
+  package, not a regression from this change. I could not read the thermal sensor
+  (blocked by the file sandbox — see header), so I leaned on `nice`/`GOMAXPROCS=2`/
+  `-parallel 2` and short fuzz chunks throughout.
 
 ## 7. LEFTOVERS (ranked, suggested vCD minutes)
 
