@@ -46,11 +46,19 @@ package ansienc
 //                      stronger "Strip leaves no ESC" phrasing is a DEAD oracle for
 //                      Truncate/Wrap and is only asserted for Strip itself, where
 //                      leaving an ESC WOULD be a real defect.)
-//   W5 width stability — StringWidth(Strip(s)) == StringWidth(s): escapes are
-//                      zero-width, so stripping them must not change the measured
-//                      width.
+//   (W5 width stability — StringWidth(Strip(s)) == StringWidth(s) — was fuzzed and
+//    DISPROVEN even on valid UTF-8: an ESC between two clustering chars is a
+//    grapheme boundary, so Strip merges clusters and changes width. Reported as
+//    EXPECTED-DIFFERENCE F4, no longer asserted — see the note at the Strip block.)
 //   Plus the shared resource oracle: bounded alloc / wall time / no goroutine
 //     growth per input.
+//
+// The width/idempotence correctness invariants above are genuinely NOT universal
+// properties of ansi on exotic grapheme input (F2 Hardwrap, F3 Strip+invalid-UTF8,
+// F4 Strip width) — all EXPECTED-DIFFERENCE/HARDENING, none reachable from
+// DashDiag. The SECURITY-relevant invariants — W3 (no escape synthesised from host
+// text) and W4 (escape count never increases) — held across millions of execs and
+// are the load-bearing oracles of this target.
 //
 // Does NOT verify: that StringWidth matches any particular terminal's actual
 // rendering (grapheme/east-asian width tables are the library's business, not an
@@ -216,14 +224,15 @@ func FuzzAnsiWidthTruncateWrap(f *testing.F) {
 		if again := ansi.Strip(stripped); again != stripped {
 			t.Fatalf("W2 Strip not idempotent: input=%q\n first=%q\n second=%q", s, stripped, again)
 		}
-		// W5: escapes are zero width, so stripping must not change measured width.
-		// Only meaningful when the input is valid UTF-8 (StringWidth's grapheme
-		// segmentation is defined on valid UTF-8; invalid bytes have
-		// implementation-defined width that need not survive a Strip rewrite).
-		if utf8.ValidString(s) {
-			if ws, wss := ansi.StringWidth(s), ansi.StringWidth(stripped); ws != wss {
-				t.Fatalf("W5 StringWidth changed across Strip: input=%q width=%d stripped=%q width=%d", s, ws, stripped, wss)
-			}
-		}
+		// NOTE: "StringWidth(Strip(s)) == StringWidth(s)" (the old W5) is NOT
+		// asserted. Fuzzing disproved it even on valid UTF-8 (EXPECTED-DIFFERENCE
+		// F4): an escape sequence placed BETWEEN two characters that would
+		// otherwise form one grapheme cluster acts as a cluster boundary, so
+		// stripping it MERGES the clusters and changes the measured width —
+		// StringWidth("ꥲ\x1bꥲ") == 4 but StringWidth("ꥲꥲ") == 2 (U+A972 Rejang).
+		// Escapes are zero-width in isolation but are not width-neutral when they
+		// split a combining/clustering sequence, so the exact-width-preservation
+		// premise is false. Not reachable in DashDiag (SanitizeControl removes the
+		// ESC before any width measurement), so it is reported, not asserted.
 	})
 }
