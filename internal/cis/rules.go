@@ -5487,7 +5487,7 @@ func checkLoginDefsField(r Rule, path, field string, fails func(days int) bool, 
 	if last == "" {
 		return failr(r, fmt.Sprintf("%s has no value", field), failFix)
 	}
-	v, perr := strconv.ParseInt(last, 0, 64)
+	v, perr := strconv.ParseInt(last, 0, 32)
 	if perr != nil || v < 1 && field == "PASS_MAX_DAYS" || v < 0 {
 		return failr(r, fmt.Sprintf("%s value %q is invalid", field, last), failFix)
 	}
