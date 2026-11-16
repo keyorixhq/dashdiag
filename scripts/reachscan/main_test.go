@@ -24,7 +24,7 @@ func rootHelper(f []string) []string { return f }
 
 import "testing"
 
-func FuzzRoot(f *testing.F) { f.Fuzz(func(t *testing.T, s string) { ParseRoot(s) }) }
+func FuzzRoot(fz *testing.F) { fz.Fuzz(func(t *testing.T, s string) { ParseRoot(s) }) }
 `,
 	"p/p.go": `package p
 
@@ -92,8 +92,8 @@ func ParseInt(n int) int { return n }
 
 import "testing"
 
-func FuzzP(f *testing.F) {
-	f.Fuzz(func(t *testing.T, s string) {
+func FuzzP(fz *testing.F) {
+	fz.Fuzz(func(t *testing.T, s string) {
 		ParseDirect(s)
 		ParseViaGraph(s)
 		RuleByID(s)
