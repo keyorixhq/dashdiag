@@ -28,20 +28,28 @@ package cis
 //        divergence is a pkgMgr leak into a verdict-adjacent field.
 //   O-3  VALID VERDICT: every Status is one of the five CISStatus values and the
 //        report counters sum to len(Results) — no empty/undefined verdict.
-//   O-4  BOUNDED: Evaluate stays within the resource allocation/time budget for
-//        every fuzzed input, including adversarially large account/sudo slices.
+//   O-4  BOUNDED: the 8× Evaluate sweep stays under a wall-time ceiling and an
+//        absolute allocation runaway ceiling for every fuzzed input.
 //
 // Discovery expectation is stated honestly in the XD1 report: Status is
 // pkgMgr-invariant by construction today (only adaptRemediation consumes
 // pkgMgr, and only on FAIL.Remediation), so O-1/O-2 are primarily a standing
 // REGRESSION guard against a future change wiring pkgMgr into a verdict; O-3/O-4
-// are the active-discovery oracles (undefined verdict / allocation blow-up on a
-// hostile SecurityInfo).
+// are the active-discovery oracles (undefined verdict / super-linear blow-up on
+// a hostile SecurityInfo).
 //
-// Resource meters enabled: TotalAlloc + wall time. Not metered: filesystem
-// (Evaluate reads host /etc,/proc paths read-only and identically across the
-// pkgMgr axis, so a fingerprint would add nothing the read-only RO1/DL1 targets
-// don't already cover) and goroutines (Evaluate spawns none).
+// Resource meters: wall time + TotalAlloc, but scoped as a FIXED CEILING rather
+// than the resource.Check input-proportional budget. Evaluate's cost is
+// dominated by its ~300-rule sweep (≈2 MiB/call × 8 pkgMgrs ≈ 16 MiB), a fixed
+// fan-out independent of the fuzz input — the factor*inputLen+floor model (which
+// fits a parser whose cost tracks input size) does not fit a whole-benchmark
+// sweep and false-positives on tiny inputs. The fuzzable fields (uint8-capped
+// account/sudo slice lengths) bound the input-proportional allocation anyway, so
+// the honest guard is a generous absolute ceiling that still catches a runaway /
+// super-linear regression. Peak amplification is recorded (resource.Measure) as
+// a lead. Not metered: filesystem (Evaluate reads host /etc,/proc read-only and
+// identically across the pkgMgr axis — covered by RO1/DL1) and goroutines
+// (Evaluate spawns none).
 
 import (
 	"fmt"
@@ -187,12 +195,23 @@ func FuzzCISEvaluateCrossDistroVerdictStable(f *testing.F) {
 		inputLen := int(nNopasswd) + int(nUID0) + int(nEmpty) + len(sshSource) + 16
 
 		var reports []models.CISReport
-		resource.Check(t, inputLen, 4096, func() {
+		rep := resource.Measure(inputLen, func() {
 			reports = make([]models.CISReport, len(xd1PkgMgrs))
 			for i, mgr := range xd1PkgMgrs {
 				reports[i] = xd1Evaluate(sec, ks, level, stig, mgr)
 			}
 		})
+		// Fixed-ceiling runaway guard (see file header O-4). 64 MiB is ~4× the
+		// observed fixed 8×-sweep cost; a hostile SecurityInfo that drives the
+		// sweep well past that, or past the time budget, is the signal.
+		const xd1EvalAllocCeiling = 64 << 20
+		if rep.AllocBytes > xd1EvalAllocCeiling {
+			t.Fatalf("8×Evaluate allocation over ceiling: input=%d B allocated=%d B (%.0fx), ceiling=%d B, elapsed=%s",
+				rep.InputLen, rep.AllocBytes, rep.Amplification, xd1EvalAllocCeiling, rep.Elapsed)
+		}
+		if rep.Elapsed > resource.TimeBudget {
+			t.Fatalf("8×Evaluate over time budget: input=%d B elapsed=%s budget=%s", rep.InputLen, rep.Elapsed, resource.TimeBudget)
+		}
 
 		ref := reports[0]
 		if msg := validateReport(ref); msg != "" {
