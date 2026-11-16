@@ -55,6 +55,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   paths), `RenderPostMortem` title, `NagiosLine`/`nagiosText`, and the Prometheus
   label safety property.
 
+- **MC1 third-party-library fuzzing (MCP / viper / x/ansi).** Three fuzz targets,
+  one directory per library, each carrying the shared `internal/testutil/resource`
+  oracle: `FuzzMCPServerHostileJSONRPC` (drives the real `mcp.Server` over an
+  in-memory `IOTransport` with hostile raw JSON-RPC — malformed/batched frames,
+  huge/wrong-typed ids, unknown methods, injection and out-of-schema tool
+  arguments, partial frames; oracles: no panic, bounded work, terminal-safe
+  output framing, in-schema dispatch), `FuzzViperConfigDifferential` (the
+  `config.Load` decode→unmarshal→validate pipeline across yaml/json/toml/ini/env;
+  oracle: viper's key store agrees with the decoded+validated `config.Config` the
+  collectors use, bounded/typed-error), and `FuzzAnsiWidthTruncateWrap` (the
+  x/ansi width/truncate/wrap layer reached through lipgloss on host-derived text;
+  oracles: width-bound, idempotent, no ESC introduced). Invariants in
+  `INVARIANTS.d/mc1-thirdparty-{mcp,viper,ansi}.md`. Surfaced one lead: the viper
+  YAML config backend decodes a flat mapping in O(n²) in sibling-key count (JSON
+  is linear) — a bounded-work CANDIDATE reachable via `config.Load`'s 1 MiB
+  implicit-config path and the uncapped `--config` path.
 
 - **DL1 dependency-and-claims fuzzing.** Added a shared per-input resource oracle
   (`internal/testutil/resource`: `TotalAlloc`/time/goroutine budget + unix
