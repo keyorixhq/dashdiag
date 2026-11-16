@@ -21,6 +21,8 @@ as: the new goroutine/fd-leak oracle is expressed as a Go fuzz target and fuzzed
 foreground for ≥4 chunks of 540 s.
 
 Branch: `fuzz/nfl1-nfs-mount-goroutine-leak`. Date: 2026-11-16.
+Commits: `7e0cc8d` (oracle + fix, test-first) → `1e3d0f1` (per-collector namespacing
++ this report). Nothing pushed. The final commit SHA is printed at the end of the run.
 
 ---
 
@@ -32,7 +34,7 @@ half of the candidate is **REFUTED**: `syscall.Statfs` opens no descriptor and f
 was 0 across every measurement (1 → 1000 probes). The sweep found **one sibling with
 the identical bug** — `statfsToFS` in `disk.go` — which is *more* reachable (the Disk
 collector runs on every health run; NFS only when NFS mounts exist). Both are fixed
-with one shared per-mount in-flight guard, proven flat over 1000 calls.
+with one per-collector per-mount in-flight guard, proven flat over 1000 calls.
 
 Numbers (deterministic, replayed — see §3):
 
@@ -51,8 +53,8 @@ Numbers (deterministic, replayed — see §3):
 - [x] Red/green proof of the oracle (NFS and disk; see §3).
 - [x] Deterministic reproduction: N calls through a forever-blocking fake source.
 - [x] Sibling sweep (Statfs / readdir / FIFO / autofs / hung exec) — §4.
-- [x] Fix (shared per-mount in-flight guard), test-first, flat over 1000 calls.
-- [x] Fuzz `FuzzNFSMountGoroutineLeak` 4×540 s (36 min) — all PASS, §3a.
+- [x] Fix (per-collector per-mount in-flight guard), test-first, flat over 1000 calls.
+- [x] Fuzz `FuzzNFSMountGoroutineLeak` 5×540 s (45 min) — all PASS, §3a.
 - [x] Final classification + leftovers — §6/§7.
 
 ---
@@ -272,8 +274,11 @@ kernel releasing it (mount recovery or a lazy umount), at which point the parked
   ./internal/models` → **all ok** (resource 0.01 s, runner 1.8 s, analysis 4.3 s,
   models 0.05 s). The models false-OK registry passes unchanged — the fix adds no
   model field.
-- `go build` for `GOOS=darwin` → clean (the shared guard is portable; `disk.go` has no
+- `go build` for `GOOS=darwin` → clean (the guard is portable; `disk.go` has no
   build tag).
+- Oracles under **`-race`** → clean (no data race; the guard mutex is correct).
+- Oracles **replayed `-count=3`** → identical Δ every run (`1 / 3 / 1 / 1`, fdΔ=0):
+  deterministic, not timing-dependent.
 - The **full** `internal/collectors` package (561 files) **timed out at the 15 min
   `-timeout` twice** — but every other package passed instantly in the same runs, and
   the touched-subset run above passes in 11.8 s. This host runs four parallel
