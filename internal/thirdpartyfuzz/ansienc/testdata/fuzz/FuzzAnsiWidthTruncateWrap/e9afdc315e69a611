@@ -1,3 +1,0 @@
-go test fuzz v1
-string("\u0601\u06010")
-int(2)
