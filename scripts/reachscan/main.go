@@ -42,6 +42,7 @@ import (
 	"go/parser"
 	"go/token"
 	"go/types"
+	"io"
 	"io/fs"
 	"maps"
 	"os"
@@ -110,11 +111,24 @@ type scanner struct {
 }
 
 func main() {
-	root := flag.String("root", ".", "module root")
-	goos := flag.String("goos", "linux", "GOOS to evaluate build tags for")
-	top := flag.Int("top", 40, "rows in the uncovered ranking")
-	flag.Parse()
+	if err := run(os.Args[1:], os.Stdout); err != nil {
+		fmt.Fprintln(os.Stderr, "reachscan:", err)
+		os.Exit(2)
+	}
+}
 
+// run parses args, scans the module and writes the report to w.
+func run(args []string, w io.Writer) error {
+	fl := flag.NewFlagSet("reachscan", flag.ContinueOnError)
+	root := fl.String("root", ".", "module root")
+	goos := fl.String("goos", "linux", "GOOS to evaluate build tags for")
+	top := fl.Int("top", 40, "rows in the uncovered ranking")
+	listAll := fl.Bool("all", os.Getenv("REACHSCAN_ALL") != "", "also list every candidate (default from REACHSCAN_ALL)")
+	if err := fl.Parse(args); err != nil {
+		return fmt.Errorf("parsing flags: %w", err)
+	}
+
+	// The source importer reads build.Default, so the GOOS must be set there.
 	build.Default.GOOS = *goos
 	build.Default.CgoEnabled = false
 
@@ -129,11 +143,12 @@ func main() {
 		s.scanPackage(dir)
 	}
 	all := s.rank(fuzzRoots(*root, dirs))
-	printCandidates(all, *goos, *top)
-	printLibraryCalls(s.ext)
-	if os.Getenv("REACHSCAN_ALL") != "" {
-		printAll(all)
+	printCandidates(w, all, *goos, *top)
+	printLibraryCalls(w, s.ext)
+	if *listAll {
+		printAll(w, all)
 	}
+	return nil
 }
 
 // packageDirs lists every directory under root that may hold a package,
@@ -277,8 +292,12 @@ func (s *scanner) rank(roots map[string]bool) []*candidate {
 	// Direct: the candidate's name is called from a fuzz file of its own
 	// package, or as pkg.Name from any fuzz file.
 	for _, c := range s.cands {
+		pkg := c.Pkg
+		if pkg == modulePath { // fuzzRoots names the root package "."
+			pkg = "."
+		}
 		pkgName := c.Pkg[strings.LastIndex(c.Pkg, "/")+1:]
-		if roots[c.Pkg+"\x00"+c.Name] || roots["*\x00"+pkgName+"."+c.Name] {
+		if roots[pkg+"\x00"+c.Name] || roots["*\x00"+pkgName+"."+c.Name] {
 			c.Direct = true
 		}
 	}
@@ -319,7 +338,7 @@ func (s *scanner) rank(roots map[string]bool) []*candidate {
 	return all
 }
 
-func printCandidates(all []*candidate, goos string, top int) {
+func printCandidates(w io.Writer, all []*candidate, goos string, top int) {
 	direct, trans := 0, 0
 	for _, c := range all {
 		if c.Direct {
@@ -328,15 +347,15 @@ func printCandidates(all []*candidate, goos string, top int) {
 			trans++
 		}
 	}
-	fmt.Printf("# reachscan (GOOS=%s)\n\n", goos)
-	fmt.Printf("parser candidates: %d; fuzz-covered directly: %d; transitively: %d; uncovered: %d\n\n",
+	fmt.Fprintf(w, "# reachscan (GOOS=%s)\n\n", goos)
+	fmt.Fprintf(w, "parser candidates: %d; fuzz-covered directly: %d; transitively: %d; uncovered: %d\n\n",
 		len(all), direct, trans, len(all)-direct-trans)
-	fmt.Printf("## Top %d parsers without a direct Fuzz target (by production call sites, then parse-primitive count)\n\n", top)
-	fmt.Println("reach: `none` = no Fuzz target reaches it statically; `transitive` = only reached")
-	fmt.Println("inside a larger target (whole-bundle replay, taint sweep), never fed directly.")
-	fmt.Println()
-	fmt.Println("| # | function | calls | prims | reach | params | where |")
-	fmt.Println("|---|---|---|---|---|---|---|")
+	fmt.Fprintf(w, "## Top %d parsers without a direct Fuzz target (by production call sites, then parse-primitive count)\n\n", top)
+	fmt.Fprintln(w, "reach: `none` = no Fuzz target reaches it statically; `transitive` = only reached")
+	fmt.Fprintln(w, "inside a larger target (whole-bundle replay, taint sweep), never fed directly.")
+	fmt.Fprintln(w)
+	fmt.Fprintln(w, "| # | function | calls | prims | reach | params | where |")
+	fmt.Fprintln(w, "|---|---|---|---|---|---|---|")
 	n := 0
 	for _, c := range all {
 		if c.Direct {
@@ -346,7 +365,7 @@ func printCandidates(all []*candidate, goos string, top int) {
 		if n > top {
 			break
 		}
-		fmt.Printf("| %d | `%s.%s` | %d | %d | %s | %s | %s |\n", n, c.Pkg, c.Name, c.Calls, c.Score, c.state(), c.Params, c.Pos)
+		fmt.Fprintf(w, "| %d | `%s.%s` | %d | %d | %s | %s | %s |\n", n, c.Pkg, c.Name, c.Calls, c.Score, c.state(), c.Params, c.Pos)
 	}
 }
 
@@ -360,14 +379,14 @@ func (c *candidate) state() string {
 	return "none"
 }
 
-func printLibraryCalls(ext map[string]*extCall) {
+func printLibraryCalls(w io.Writer, ext map[string]*extCall) {
 	exts := slices.Collect(maps.Values(ext))
 	slices.SortFunc(exts, func(a, b *extCall) int {
 		return cmp.Or(cmp.Compare(b.Calls, a.Calls), cmp.Compare(a.Key, b.Key))
 	})
-	fmt.Printf("\n## Library functions called on text data (third-party, plus stdlib decoders)\n\n")
-	fmt.Println("| function | call sites | packages | third-party |")
-	fmt.Println("|---|---|---|---|")
+	fmt.Fprintf(w, "\n## Library functions called on text data (third-party, plus stdlib decoders)\n\n")
+	fmt.Fprintln(w, "| function | call sites | packages | third-party |")
+	fmt.Fprintln(w, "|---|---|---|---|")
 	for _, e := range exts {
 		pk := slices.Sorted(maps.Keys(e.Pkgs))
 		if len(pk) > 4 {
@@ -377,14 +396,14 @@ func printLibraryCalls(ext map[string]*extCall) {
 		if isThirdParty(e.Path) {
 			tp = "yes"
 		}
-		fmt.Printf("| `%s` | %d | %s | %s |\n", e.Key, e.Calls, strings.Join(pk, ", "), tp)
+		fmt.Fprintf(w, "| `%s` | %d | %s | %s |\n", e.Key, e.Calls, strings.Join(pk, ", "), tp)
 	}
 }
 
-func printAll(all []*candidate) {
-	fmt.Printf("\n## All candidates\n\n")
+func printAll(w io.Writer, all []*candidate) {
+	fmt.Fprintf(w, "\n## All candidates\n\n")
 	for _, c := range all {
-		fmt.Printf("%s\t%d\t%d\t%s\t%s\n", c.Key, c.Calls, c.Score, c.state(), c.Pos)
+		fmt.Fprintf(w, "%s\t%d\t%d\t%s\t%s\n", c.Key, c.Calls, c.Score, c.state(), c.Pos)
 	}
 }
 
