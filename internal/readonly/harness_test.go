@@ -273,16 +273,61 @@ func parseEnvBlob(blob string) map[string]string {
 // runAllCollectorsOnce drives every collector through the real runner with a
 // bounded parent context. Returns nothing; its side effects (exec attempts, dials,
 // writes) are what the oracles inspect.
-func runAllCollectorsOnce() {
-	ctx, cancel := context.WithTimeout(context.Background(), 15*time.Second)
-	defer cancel()
-	cols := make([]runner.Collector, 0)
-	for _, c := range allCollectors() {
-		cols = append(cols, c)
+func runAllCollectorsOnce() { runCollectorsOnce(allRunnerCollectors(), 4*time.Second) }
+
+// allRunnerCollectors adapts allCollectors() to []runner.Collector.
+func allRunnerCollectors() []runner.Collector {
+	src := allCollectors()
+	out := make([]runner.Collector, len(src))
+	for i, c := range src {
+		out[i] = c
 	}
+	return out
+}
+
+// runCollectorsOnce drives the given collectors through the real runner under a
+// bounded parent context. The cap only trims a blocking collector's idle wait;
+// every external command is denied instantly by ExecHook and every non-loopback
+// dial instantly by the guard, so the attempt-phase work the oracles inspect is
+// complete well before the deadline.
+func runCollectorsOnce(cols []runner.Collector, maxWait time.Duration) {
+	ctx, cancel := context.WithTimeout(context.Background(), maxWait)
+	defer cancel()
 	for range runner.RunAll(ctx, cols) {
 		// drain; a collector error/panic is captured in the Result, not our concern
 	}
+}
+
+// fastCollectors is the input-sensitive, non-blocking subset: collectors that read
+// /proc, /sys or the environment and return quickly (no multi-second sampling, no
+// network probe, no statfs-on-stale-mount). FuzzReadOnlyClaimFast drives these at
+// high throughput so the fuzzed env/proc/sys content is actually explored, while
+// FuzzReadOnlyClaim drives the full superset for breadth (lower throughput).
+func fastCollectors() []runner.Collector {
+	cc := platform.ContainerContext{}
+	src := []collectors.Collector{
+		collectors.NewMemoryCollector(cc),
+		collectors.NewSwapCollector(cc),
+		collectors.NewDiskCollector(cc),
+		collectors.NewCPUCollector(cc),
+		collectors.NewFDLimitsCollector(),
+		collectors.NewSysctlCollector(),
+		collectors.NewKernelSecurityCollector(),
+		collectors.NewEntropyCollector(),
+		collectors.NewHugePagesCollector(),
+		collectors.NewPressureCollector(),
+		collectors.NewNUMACollector(),
+		collectors.NewSessionsCollector(),
+		collectors.NewSteamOSCollector(),
+		collectors.NewClockCollector(),
+		collectors.NewRootFSCollector(),
+		collectors.NewFstabDriftCollector(),
+	}
+	out := make([]runner.Collector, len(src))
+	for i, c := range src {
+		out[i] = c
+	}
+	return out
 }
 
 // oracleResult carries what one input produced, for optional reporting.
@@ -346,7 +391,7 @@ func shimOracleViolation(lines []string) string {
 
 // exercise runs one fuzzed input end to end under all oracles. Shared by the seed
 // unit test and the fuzz target.
-func exercise(t *testing.T, envBlob, hostname string, procBlob []byte) oracleResult {
+func exercise(t *testing.T, envBlob, hostname string, procBlob []byte, cols []runner.Collector, maxWait time.Duration) oracleResult {
 	t.Helper()
 
 	runMu.Lock()
@@ -400,7 +445,7 @@ func exercise(t *testing.T, envBlob, hostname string, procBlob []byte) oracleRes
 	recorder.reset()
 	dialBase := guard.count()
 	_ = readShimTrace() // clear
-	runAllCollectorsOnce()
+	runCollectorsOnce(cols, maxWait)
 
 	// Oracles.
 	resource.AssertUnchanged(t, watchedRoot, beforeTree)
@@ -499,7 +544,23 @@ func FuzzReadOnlyClaim(f *testing.F) {
 	f.Add("SSH_CONNECTION=1.2.3.4 22 5.6.7.8 22", "n", []byte("0\n0\n0\n"))
 
 	f.Fuzz(func(t *testing.T, envBlob, hostname string, procBlob []byte) {
-		_ = exercise(t, envBlob, hostname, procBlob)
+		_ = exercise(t, envBlob, hostname, procBlob, allRunnerCollectors(), 4*time.Second)
+	})
+}
+
+// FuzzReadOnlyClaimFast fuzzes the same inputs against the input-sensitive,
+// non-blocking collector subset at high throughput, so the fuzzed env/proc/sys
+// space is actually explored. FuzzReadOnlyClaim remains the breadth target over
+// the full superset.
+func FuzzReadOnlyClaimFast(f *testing.F) {
+	f.Add("LANG=C", "host-a", []byte("MemTotal: 1024 kB\n"))
+	f.Add("", "", []byte{})
+	f.Add("XDG_SESSION_DESKTOP=gamescope\nSteamDeck=1", "steamdeck", []byte("MemTotal: -1 kB\nSwapTotal: 999999999999999\nSwapFree: -5\n"))
+	f.Add("FOO=bar", "x", []byte(strings.Repeat("MemFree: 9 kB\n", 5000)))
+	f.Add("", "n", []byte("Hugepagesize:\x00\x00 2048 kB\nAnonHugePages: 999999999999999999999999 kB\n"))
+
+	f.Fuzz(func(t *testing.T, envBlob, hostname string, procBlob []byte) {
+		_ = exercise(t, envBlob, hostname, procBlob, fastCollectors(), 1500*time.Millisecond)
 	})
 }
 
@@ -518,7 +579,7 @@ func TestReadOnlyClaimSeeds(t *testing.T) {
 	}
 	for i, s := range seeds {
 		t.Run(fmt.Sprintf("seed-%d", i), func(t *testing.T) {
-			res := exercise(t, s.env, s.host, s.proc)
+			res := exercise(t, s.env, s.host, s.proc, allRunnerCollectors(), 4*time.Second)
 			t.Logf("seed %d: execs=%d dials=%d shims=%d", i, len(res.execs), len(res.dials), len(res.shimLines))
 		})
 	}
