@@ -13,6 +13,24 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Testing
 
+- **RTN1 privilege-differential seam oracle + fuzz.** Added
+  `FuzzPrivDiffSeam` and `TestPrivDifferential_SeamSmoke`
+  (`internal/collectors/priv_diff_linux_test.go`): the same logical host state is
+  built twice through the fake source seam — once readable (root) and once with
+  the root-gated input denied the way an unprivileged run sees it (a real
+  `os.IsPermission` EACCES, via a `denyingSource` wrapper over a Bundle-backed
+  `Replay`) — and the collector's resulting model must degrade honestly. The
+  oracle asserts the non-root model (1) sets its typed "unreadable" disclosure
+  flag (`ShadowUnreadable` / `SSHConfigUnreadable`), (2) carries no finding
+  derived from bytes it could not read, and (3) is never healthier than the root
+  model. Covers the `/etc/shadow` (`parsePasswordAging`) and `sshd_config`
+  (`parseSSHConfig`) root-gated reads; carries the shared `internal/testutil/resource`
+  budget (memory + wall time; the seam serves from an in-memory Bundle so no fd /
+  goroutine / disk / network meter applies). Complements the analysis-side verdict
+  floor already guarded in `internal/analysis` (`needsroot_test.go`,
+  `storage_nonroot_invariant_test.go`) and the binary-level
+  `scripts/check-nonroot-invariant.sh`.
+
 - **DL1 dependency-and-claims fuzzing.** Added a shared per-input resource oracle
   (`internal/testutil/resource`: `TotalAlloc`/time/goroutine budget + unix
   filesystem fingerprint for the read-only claim) and three fuzz targets that
