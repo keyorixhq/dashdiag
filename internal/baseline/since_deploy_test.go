@@ -149,12 +149,12 @@ func TestParseProcStart_ReadError(t *testing.T) {
 	}
 }
 
-// TestParseProcStart_StarttimeOverflow guards against a huge starttime field
+// TestParseProcStart_HugeStarttimeRejected guards against a huge starttime field
 // (e.g. a kernel-side corruption or a crafted /proc/<pid>/stat) overflowing
 // time.Duration's int64 nanosecond range. Before the fix, a starttime of
 // 1e18 ticks silently produced an implementation-defined garbage time.Time
 // via time.Duration(startTicks/100)*time.Second instead of being rejected.
-func TestParseProcStart_StarttimeOverflow(t *testing.T) {
+func TestParseProcStart_HugeStarttimeRejected(t *testing.T) {
 	boot := time.Unix(1700000000, 0)
 	fields := make([]string, 22)
 	for i := range fields {
