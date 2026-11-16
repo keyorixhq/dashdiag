@@ -39,6 +39,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   CRIT, an unreadable status is disclosed). Each ships an INVARIANT note, a seed
   corpus, and a documented red/green proof (false-OK planted → oracle fires →
   reverted; no plant committed).
+### Tests / CI
+
+- **Capture-replay & cross-distro differential harness (DD2).** A test-only harness
+  drives the existing `dsd replay` seam over a directory of real `dsd capture --raw`
+  bundles and over the committed `fixtures/replay-fidelity` bundles: a capture×check
+  verdict matrix, a determinism/no-panic oracle (three replays identical), a
+  sibling-parity check (sanitize-vs-raw twins asserted verdict-identical), and a new
+  `FuzzCaptureReplayMutationRobustness` fuzz target that applies one
+  information-destroying mutation to a single captured file or command output and
+  requires no panic, bounded work, and no non-OK check silently flipping to `OK`.
+  The 49-capture tests skip unless a capture dir is provided, so CI stays green on the
+  committed fixtures. Surfaced a replay fail-open when a derived-state cache
+  (`clock/state`, `net/connectivity`) is absent from a bundle.
 
 ## [2.7.1] - 2026-11-15
 
