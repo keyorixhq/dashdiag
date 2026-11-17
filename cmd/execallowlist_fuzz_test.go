@@ -72,6 +72,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/keyorixhq/dashdiag/internal/fuzzutil"
 )
 
 const (
@@ -442,7 +444,7 @@ func FuzzCommandAllowlist(f *testing.F) {
 
 		start := time.Now()
 		_ = cmd.Run() // exit code is data (0/1/2/other) — never a fuzz failure by itself
-		if elapsed := time.Since(start); elapsed > 20*time.Second {
+		if elapsed, _ := fuzzutil.EffectiveElapsed(start); elapsed > 20*time.Second {
 			t.Fatalf("BOUNDED WORK: dsd invocation took %s (args=%v) — possible hang despite ExecHook denying every real exec", elapsed, args)
 		}
 

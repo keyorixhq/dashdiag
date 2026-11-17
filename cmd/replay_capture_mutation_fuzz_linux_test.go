@@ -56,6 +56,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/keyorixhq/dashdiag/internal/fuzzutil"
 	"github.com/keyorixhq/dashdiag/internal/source"
 	"github.com/keyorixhq/dashdiag/internal/testutil/srcpath"
 )
@@ -353,7 +354,7 @@ func FuzzCaptureReplayMutationRobustness(f *testing.F) {
 			results, insights, _ := replayBundle(b, false, true, false, false)
 			damaged = verdictMap(results, insights)
 		}()
-		if elapsed := time.Since(start); elapsed > mutationWorkCeiling {
+		if elapsed, _ := fuzzutil.EffectiveElapsed(start); elapsed > mutationWorkCeiling {
 			t.Fatalf("BOUNDED WORK: damaged replay took %s (> %s) sel=%d kind=%d", elapsed, mutationWorkCeiling, sel, kind)
 		}
 		if damaged == nil {

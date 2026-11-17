@@ -59,6 +59,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/keyorixhq/dashdiag/internal/fuzzutil"
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/source"
 )
@@ -255,7 +256,7 @@ func FuzzSecurityUpdatesCrossDistroDifferential(f *testing.F) {
 		dnf := driveCollector(t, seedDNF(renderDNF(classes)), collectDNF, "collectDNF")
 		apt := driveCollector(t, seedAPT(renderAPT(classes)), collectAPT, "collectAPT")
 		zyp := driveCollector(t, seedZypper(renderZypper(classes)), collectZypper, "collectZypper")
-		if elapsed := time.Since(start); elapsed > crossDistroWorkCeiling {
+		if elapsed, _ := fuzzutil.EffectiveElapsed(start); elapsed > crossDistroWorkCeiling {
 			t.Fatalf("BOUNDED WORK: driving the three collectors took %s (> %s) for %d logical updates — accumulation/sleep blow-up",
 				elapsed, crossDistroWorkCeiling, len(classes))
 		}
