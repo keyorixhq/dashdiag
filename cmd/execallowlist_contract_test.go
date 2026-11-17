@@ -230,6 +230,8 @@ var execAllowlistContract = map[string]toolRule{
 		{"stat", "cpulimit"},
 		{"stat", "speed"},
 	}},
+	// postgres_linux.go: liveness probe against the local socket dir; needs no auth, read-only.
+	"pg_isready":     {prefixes: [][]string{{"-h", wildcardToken, "-q"}, {"-h", wildcardToken}}},
 	"pvesh":          {prefixes: [][]string{{"get"}}},
 	"pveversion":     {prefixes: [][]string{{"-v"}, {}}},
 	"pveperf":        {prefixes: [][]string{{wildcardToken}}}, // single dynamic path arg

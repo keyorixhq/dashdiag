@@ -116,12 +116,11 @@ var execAllowlistContract = map[string]toolRule{
 	// read-only command; it is flagged as a CANDIDATE in the report rather than
 	// endorsed here.
 	"apt-get": {prefixes: [][]string{{"-s", "upgrade"}, {"--simulate", "upgrade"}, {"--simulate", "dist-upgrade"}, {"--version"}}},
-	// RO1 finding: `zypper needs-rebooting` (maintenance_linux.go:258, read-only
-	// reboot check) and `zypper --non-interactive --no-color list-patches ...`
-	// (cve_linux.go:609 / packages_linux.go:724, read-only patch list with leading
-	// global flags the bare {"list-patches"} prefix can't match) are both missing
-	// from the upstream contract.
-	"zypper": {prefixes: [][]string{{"--version"}, {"list-patches"}, {"--non-interactive", "--no-color", "list-patches"}, {"needs-rebooting"}, {"search", "--installed-only"}, {"locks"}, {"repos"}}},
+	// RO1 finding (since folded into the upstream contract; TestExecAllowlistContract_ParityWithCmd
+	// now keeps the two identical): `zypper needs-rebooting` (maintenance_linux.go) and
+	// `zypper --non-interactive --no-color list-patches --category security` (cve_linux.go,
+	// packages_linux.go: read-only patch list behind leading global flags).
+	"zypper": {prefixes: [][]string{{"--version"}, {"list-patches"}, {"--non-interactive", "--no-color", "list-patches", "--category", "security"}, {"needs-rebooting"}, {"search", "--installed-only"}, {"locks"}, {"repos"}}},
 	"tdnf": {prefixes: [][]string{
 		{"--version"}, {"repolist"}, {"-j", "repolist"}, {"updateinfo", "list"},
 		{"updateinfo", "list", "--security"}, {"-j", "updateinfo", "list", "--security"}, {"updateinfo", "info", "--security"},
@@ -134,9 +133,19 @@ var execAllowlistContract = map[string]toolRule{
 
 	"cloud-init": {prefixes: [][]string{{"status", "--format=json"}, {"status"}}},
 
-	"smartctl":   {prefixes: [][]string{{"-H"}, {"-A"}, {"--scan-open", "--json=c"}, {"-a"}}},
-	"nvme":       {prefixes: [][]string{{"smart-log"}, {"get-log"}}},
+	"smartctl": {prefixes: [][]string{{"-H"}, {"-A"}, {"--scan-open", "--json=c"}, {"-a"}}},
+	"nvme":     {prefixes: [][]string{{"smart-log"}, {"get-log"}}},
+	// postgres_linux.go: liveness probe against the local socket dir; needs no auth, read-only.
+	"pg_isready": {prefixes: [][]string{{"-h", wildcardToken, "-q"}, {"-h", wildcardToken}}},
 	"ethtool":    {prefixes: [][]string{{"-S"}}},
+	// vmware_linux.go collectVMwareStat via vmwareStatMB/vmwareStatLimit, `stat <key>` RPC to the host (read-only)
+	"vmware-toolbox-cmd": {prefixes: [][]string{
+		{"stat", "balloon"},
+		{"stat", "swap"},
+		{"stat", "memlimit"},
+		{"stat", "cpulimit"},
+		{"stat", "speed"},
+	}},
 	"zpool":      {prefixes: [][]string{{"list"}, {"status"}}},
 	"lvs":        {prefixes: [][]string{{"--version"}, {"--noheadings", "--nosuffix", "--units", "g", "-o", "lv_name,vg_name,lv_attr,data_percent,metadata_percent,origin,lv_size"}, {"--noheadings", "--nosuffix", "--units", "g", "-o", "lv_name,vg_name,lv_attr,lv_size,copy_percent"}}},
 	"vgs":        {prefixes: [][]string{{"--noheadings", "--nosuffix", "--units", "g", "-o", "vg_name,vg_size,vg_free,vg_attr"}}},
