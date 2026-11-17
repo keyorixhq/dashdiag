@@ -75,6 +75,10 @@ var writeCapableAllowlist = map[string]string{
 		"exec-attempt trace to the path named by DSD_FUZZ_EXEC_TRACE — a fuzz-harness- " +
 		"controlled temp path set by cmd/execallowlist_fuzz_test.go, analogous to " +
 		"cmd/root.go's --out.",
+	"internal/fuzzutil/stall.go": "test-only fuzz-rig helper (imported only from _test.go files and " +
+		"internal/testutil, never linked into dsd — `go list -deps ./cmd/dsd` lists neither). " +
+		"logStall appends freeze records to the path named by FUZZ_STALL_LOG, a rig-controlled env var, " +
+		"analogous to DSD_FUZZ_EXEC_TRACE above.",
 	"internal/baseline/baseline.go":          "dsd's own baseline/snapshot state under its state dir (atomic temp+rename).",
 	"internal/baseline/golden.go":            "dsd's own golden-snapshot state (atomic temp+rename).",
 	"internal/baseline/security_baseline.go": "dsd's own security-baseline state (atomic temp+rename).",
