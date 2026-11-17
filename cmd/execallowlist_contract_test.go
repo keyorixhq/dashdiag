@@ -135,7 +135,19 @@ var execAllowlistContract = map[string]toolRule{
 		// --cacheonly-qualified — the durable, code-level version of this
 		// list-level guarantee.
 	}},
-	"apt-get": {prefixes: [][]string{{"-s", "upgrade"}, {"--simulate", "upgrade"}, {"--simulate", "dist-upgrade"}, {"--version"}}}, // --version: packages_linux.go version probe. `apt-get check` is deliberately absent (it can rebuild /var/cache/apt/pkgcache.bin).
+	"apt-get": {prefixes: [][]string{
+		{"-s", "upgrade"}, {"--simulate", "upgrade"}, {"--simulate", "dist-upgrade"},
+		{"--version"}, // packages_linux.go version probe
+		// packages_linux.go pkgIntegrityAPT read-only dependency check (AC1). A bare
+		// `apt-get check` is deliberately NOT allowed: it rebuilds
+		// /var/cache/apt/pkgcache.bin (a write) and takes the dpkg frontend lock
+		// (fails as non-root). These flags make it strictly read-only:
+		// Debug::NoLocking=true → GetLock() returns a dummy fd (no lock, runs
+		// unprivileged); empty Dir::Cache::pkgcache/srcpkgcache → the cache is built
+		// in memory, neither .bin file is written; -s → no-act. The full argv is
+		// pinned as the prefix so no extra arg can be slipped in.
+		{"-s", "-o", "Debug::NoLocking=true", "-o", "Dir::Cache::pkgcache=", "-o", "Dir::Cache::srcpkgcache=", "check"},
+	}},
 	"zypper": {prefixes: [][]string{
 		{"--version"}, {"list-patches"}, {"search", "--installed-only"}, {"locks"}, {"repos"},
 		{"needs-rebooting"}, // maintenance_linux.go: reboot-required check
