@@ -110,12 +110,15 @@ var execAllowlistContract = map[string]toolRule{
 		{"--cacheonly", "check", "--quiet"},
 	}},
 	// RO1 finding: `apt-get --version` (packages_linux.go:145, PM-detection probe)
-	// is a read-only call site missing from the upstream contract. NOTE: the sibling
-	// call site `apt-get check` (packages_linux.go:1093) is deliberately NOT added —
-	// `apt-get check` can rewrite /var/cache/apt/pkgcache.bin, so it is not a pure
-	// read-only command; it is flagged as a CANDIDATE in the report rather than
-	// endorsed here.
-	"apt-get": {prefixes: [][]string{{"-s", "upgrade"}, {"--simulate", "upgrade"}, {"--simulate", "dist-upgrade"}, {"--version"}}},
+	// is a read-only call site missing from the upstream contract. The sibling
+	// `apt-get check` (pkgIntegrityAPT) is allowed ONLY in its fully pinned
+	// read-only form (-s, Debug::NoLocking=true, empty pkgcache/srcpkgcache); a bare
+	// `apt-get check` would rewrite /var/cache/apt/pkgcache.bin and stays denied.
+	// Mirrors the cmd contract (TestExecAllowlistContract_ParityWithCmd).
+	"apt-get": {prefixes: [][]string{
+		{"-s", "upgrade"}, {"--simulate", "upgrade"}, {"--simulate", "dist-upgrade"}, {"--version"},
+		{"-s", "-o", "Debug::NoLocking=true", "-o", "Dir::Cache::pkgcache=", "-o", "Dir::Cache::srcpkgcache=", "check"},
+	}},
 	// RO1 finding (since folded into the upstream contract; TestExecAllowlistContract_ParityWithCmd
 	// now keeps the two identical): `zypper needs-rebooting` (maintenance_linux.go) and
 	// `zypper --non-interactive --no-color list-patches --category security` (cve_linux.go,
