@@ -222,6 +222,14 @@ var execAllowlistContract = map[string]toolRule{
 		{"version"}, {"list"}, {"dumpxml"}, {"dominfo"}, {"domblkerror"},
 		{"net-list"}, {"net-info"}, {"pool-list"}, {"pool-info"},
 	}},
+	// vmware_linux.go collectVMwareStat via vmwareStatMB/vmwareStatLimit, `stat <key>` RPC to the host (read-only)
+	"vmware-toolbox-cmd": {prefixes: [][]string{
+		{"stat", "balloon"},
+		{"stat", "swap"},
+		{"stat", "memlimit"},
+		{"stat", "cpulimit"},
+		{"stat", "speed"},
+	}},
 	"pvesh":          {prefixes: [][]string{{"get"}}},
 	"pveversion":     {prefixes: [][]string{{"-v"}, {}}},
 	"pveperf":        {prefixes: [][]string{{wildcardToken}}}, // single dynamic path arg

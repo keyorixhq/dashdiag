@@ -23,11 +23,13 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"runtime"
 	"strings"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -74,6 +76,15 @@ See docs/MCP_DESIGN.md for architecture, security model, and non-goals.`,
 	PersistentPreRun: func(cmd *cobra.Command, _ []string) {
 		applyNetworkPolicy(cmd)
 		mcpAllowAbsolutePaths, _ = cmd.Flags().GetBool("allow-absolute-paths")
+		if !mcpAllowAbsolutePaths {
+			if cwd, err := os.Getwd(); err == nil {
+				// Best-effort: if this fails, mcpRoot stays nil and every
+				// confined* helper below falls back to safeBundlePath's
+				// lexical-only check, same as before this existed -- never
+				// worse than the pre-existing behavior.
+				mcpRoot, _ = os.OpenRoot(cwd)
+			}
+		}
 	},
 	RunE: runMCP,
 }
@@ -134,6 +145,94 @@ type mcpShareInput struct {
 // despite the MCP SDK dispatching tool calls concurrently (see
 // mcpPipelineMu's doc comment on that concurrency model).
 var mcpAllowAbsolutePaths bool
+
+// mcpRoot confines every MCP tool's actual file read/write to the server's
+// working directory at startup (opened once in mcpCmd's PersistentPreRun,
+// nil when --allow-absolute-paths was passed). safeBundlePath's check below
+// is lexical: Clean, reject "..", then compare the resulting string against
+// os.Getwd() with filepath.HasPrefix-style logic. That check runs before any
+// of the directory components are actually resolved, so a symlinked
+// directory ANYWHERE in the path (not just the final component) sails
+// through it and is only followed later, by whatever os.Open/os.OpenFile
+// call actually touches the filesystem -- the gap this exists to close
+// (NET1-F1 / dashdiag#1204). *os.Root (Go 1.24+) resolves each path
+// component against the directory it was opened on and refuses to leave it,
+// symlinks included, at open time -- TOCTOU-safe, unlike re-checking with
+// filepath.EvalSymlinks and then opening the string it returns.
+var mcpRoot *os.Root
+
+// mcpRelPath converts safe (a path that has already passed safeBundlePath,
+// so it is Clean, has no "..", and is known to resolve under the server's
+// CWD lexically) into the CWD-relative name mcpRoot.Open/OpenFile expect.
+func mcpRelPath(safe string) (string, error) {
+	if !filepath.IsAbs(safe) {
+		return safe, nil
+	}
+	cwd, err := os.Getwd()
+	if err != nil {
+		return "", err
+	}
+	return filepath.Rel(cwd, safe)
+}
+
+// createConfinedFile opens safe (already validated by safeBundlePath) for
+// writing a fresh file, through mcpRoot when one is open. See mcpRoot's doc
+// comment for why this — not another os.OpenFile(safe, ...) — is what
+// actually closes NET1-F1 for the write side (dsd_capture's out_path).
+func createConfinedFile(safe string) (*os.File, error) {
+	if mcpRoot == nil {
+		// --allow-absolute-paths, or mcpRoot failed to open at startup:
+		// same confinement safeBundlePath's lexical check always had,
+		// nothing more — not a regression versus before this existed.
+		return os.OpenFile(safe, os.O_WRONLY|os.O_CREATE|os.O_TRUNC|syscall.O_NOFOLLOW, 0o600) // #nosec G304 -- see mcpRoot's doc comment
+	}
+	rel, err := mcpRelPath(safe)
+	if err != nil {
+		return nil, err
+	}
+	return mcpRoot.OpenFile(rel, os.O_WRONLY|os.O_CREATE|os.O_TRUNC, 0o600)
+}
+
+// openConfinedCopy opens safe (already validated by safeBundlePath) for
+// reading, through mcpRoot when one is open, and copies its content into a
+// fresh, ordinarily-trusted temp file. Every existing path-based reader
+// downstream (loadBundle, shareFromBundle, shareFromSnapshotFile) then keeps
+// working completely unchanged, pointed at the temp copy instead of the
+// caller-supplied path. The caller must call the returned cleanup func
+// (removes the temp file) once done with the returned path, in all cases —
+// including on error, when tmpPath is empty and cleanup is a no-op.
+func openConfinedCopy(safe string) (tmpPath string, cleanup func(), err error) {
+	noop := func() {}
+	var src *os.File
+	if mcpRoot == nil {
+		src, err = os.Open(safe) // #nosec G304 -- see mcpRoot's doc comment
+	} else {
+		var rel string
+		if rel, err = mcpRelPath(safe); err == nil {
+			src, err = mcpRoot.Open(rel)
+		}
+	}
+	if err != nil {
+		return "", noop, err
+	}
+	defer func() { _ = src.Close() }()
+
+	tmp, err := os.CreateTemp("", "dsd-mcp-in-*")
+	if err != nil {
+		return "", noop, err
+	}
+	cleanup = func() { _ = os.Remove(tmp.Name()) }
+	if _, err = io.Copy(tmp, src); err != nil {
+		_ = tmp.Close()
+		cleanup()
+		return "", noop, err
+	}
+	if err = tmp.Close(); err != nil {
+		cleanup()
+		return "", noop, err
+	}
+	return tmp.Name(), cleanup, nil
+}
 
 // safeBundlePath rejects paths that contain traversal sequences, and — unless
 // --allow-absolute-paths was passed to `dsd mcp` — rejects any path that
@@ -316,14 +415,26 @@ func toolCapture(ctx context.Context, _ *mcp.CallToolRequest, in mcpCaptureInput
 	if in.Sanitize {
 		sanReport = b.Sanitize(source.SanitizeOptions{Identifiers: in.Identifiers})
 	}
-	if err := b.SaveTarball(outPath); err != nil {
-		return nil, mcpCaptureOutput{}, fmt.Errorf("dsd_capture: writing bundle: %w", err)
+	// createConfinedFile, not b.SaveTarball(outPath): outPath is
+	// LLM-generated (safeBundlePath's own doc comment), so the actual open
+	// goes through mcpRoot rather than trusting safeBundlePath's lexical
+	// check alone to have caught every symlink escape. See NET1-F1 /
+	// dashdiag#1204 and mcpRoot's doc comment.
+	outFile, err := createConfinedFile(outPath)
+	if err != nil {
+		return nil, mcpCaptureOutput{}, fmt.Errorf("dsd_capture: opening out_path: %w", err)
 	}
-
-	fi, statErr := os.Stat(outPath)
+	writeErr := b.SaveTarballTo(outFile)
 	var sz int64
-	if statErr == nil {
+	if fi, statErr := outFile.Stat(); statErr == nil {
 		sz = fi.Size()
+	}
+	closeErr := outFile.Close()
+	if writeErr != nil {
+		return nil, mcpCaptureOutput{}, fmt.Errorf("dsd_capture: writing bundle: %w", writeErr)
+	}
+	if closeErr != nil {
+		return nil, mcpCaptureOutput{}, fmt.Errorf("dsd_capture: closing bundle: %w", closeErr)
 	}
 	// Report the SANITIZED host (b.Manifest.Host, which Sanitize replaced with
 	// the placeholder) when identifiers redaction was requested — otherwise the
@@ -355,7 +466,14 @@ func toolReplay(_ context.Context, _ *mcp.CallToolRequest, in mcpReplayInput) (
 	if err != nil {
 		return nil, nil, fmt.Errorf("dsd_replay: invalid bundle_path: %w", err)
 	}
-	b, err := loadBundle(bundlePath)
+	// openConfinedCopy, not loadBundle(bundlePath) directly: see
+	// createConfinedFile's comment in toolCapture / mcpRoot's doc comment.
+	tmpPath, cleanup, err := openConfinedCopy(bundlePath)
+	defer cleanup()
+	if err != nil {
+		return nil, nil, fmt.Errorf("dsd_replay: opening bundle_path: %w", err)
+	}
+	b, err := loadBundle(tmpPath)
 	if err != nil {
 		return nil, nil, fmt.Errorf("dsd_replay: loading bundle: %w", err)
 	}
@@ -389,11 +507,22 @@ func toolDiff(_ context.Context, _ *mcp.CallToolRequest, in mcpDiffInput) (
 	if err != nil {
 		return nil, nil, fmt.Errorf("dsd_diff: invalid current_path: %w", err)
 	}
-	base, err := loadBundle(baselinePath)
+	// openConfinedCopy for both, same reasoning as toolReplay / toolCapture.
+	baselineTmp, baselineCleanup, err := openConfinedCopy(baselinePath)
+	defer baselineCleanup()
+	if err != nil {
+		return nil, nil, fmt.Errorf("dsd_diff: opening baseline_path: %w", err)
+	}
+	currentTmp, currentCleanup, err := openConfinedCopy(currentPath)
+	defer currentCleanup()
+	if err != nil {
+		return nil, nil, fmt.Errorf("dsd_diff: opening current_path: %w", err)
+	}
+	base, err := loadBundle(baselineTmp)
 	if err != nil {
 		return nil, nil, fmt.Errorf("dsd_diff: loading baseline: %w", err)
 	}
-	current, err := loadBundle(currentPath)
+	current, err := loadBundle(currentTmp)
 	if err != nil {
 		return nil, nil, fmt.Errorf("dsd_diff: loading current: %w", err)
 	}
@@ -445,10 +574,21 @@ func toolShare(ctx context.Context, _ *mcp.CallToolRequest, in mcpShareInput) (
 		if perr != nil {
 			return nil, nil, fmt.Errorf("dsd_share: invalid from_path: %w", perr)
 		}
-		if isBundlePath(fromPath) {
-			src, err = shareFromBundle(fromPath)
+		// isBundlePath only inspects the string (extension), so it's safe to
+		// call on fromPath directly; the actual file open goes through
+		// openConfinedCopy, same reasoning as toolReplay / toolCapture.
+		bundleLike := isBundlePath(fromPath)
+		var tmpPath string
+		var cleanup func()
+		tmpPath, cleanup, err = openConfinedCopy(fromPath)
+		defer cleanup()
+		if err != nil {
+			return nil, nil, fmt.Errorf("dsd_share: opening from_path: %w", err)
+		}
+		if bundleLike {
+			src, err = shareFromBundle(tmpPath)
 		} else {
-			src, err = shareFromSnapshotFile(fromPath)
+			src, err = shareFromSnapshotFile(tmpPath)
 		}
 	} else {
 		src, err = shareFromLiveRun(ctx, healthRunOpts{IncludeDeep: in.Deep, IncludeCVE: in.CVE})
