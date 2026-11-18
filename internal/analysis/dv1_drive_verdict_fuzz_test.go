@@ -5,7 +5,16 @@ import (
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/testutil/resource"
 )
+
+// Resource-oracle calibration (PD1). checkNVMe's allocation is linear in the
+// number of devices scored: measured 10x–23x per-input-byte amplification across
+// 24 B–192 KiB (1–8192 devices). This target scores one or two devices per input,
+// so allocation is a small constant and the 1 MiB AllocFloor is the active bound;
+// factor 128 covers the 23x peak with headroom. Spawns no goroutines (measured
+// Δ=0), no disk I/O — disk/fd oracle N/A (pure in-memory verdict).
+const dv1DriveAllocFactor = 128
 
 // FuzzDriveVerdictMonotonic — verdict-integrity fuzzing of the NVMe/SATA drive
 // health verdict (checkNVMe, the live caller dispatched from heuristics.go's
@@ -133,7 +142,18 @@ func FuzzDriveVerdictMonotonic(f *testing.F) {
 		if !nvmeSmartPlausible(scoredNVMe) || NVMeNoRealData(scoredNVMe) {
 			t.Fatalf("fixture bug: synthetic NVMe device should be plausible/scored: %+v", scoredNVMe)
 		}
-		nvmeOut := checkNVMe(models.NVMeInfo{Devices: []models.NVMeDevice{scoredNVMe}})
+		// Resource oracle: bound the live checkNVMe call and record goroutine
+		// growth. inputLen is a small fixed representative of the scored device
+		// (all-scalar fuzz inputs); the existing monotonicity/false-OK assertions
+		// below are unchanged and run outside the measured closure.
+		const nvmeInputLen = 24
+		var nvmeOut []models.Insight
+		rr := resource.Check(t, nvmeInputLen, dv1DriveAllocFactor, func() {
+			nvmeOut = checkNVMe(models.NVMeInfo{Devices: []models.NVMeDevice{scoredNVMe}})
+		})
+		if rr.GoroutineDiff > dv1MaxGoroutineDiff {
+			t.Fatalf("goroutine growth: checkNVMe left %d extra goroutines", rr.GoroutineDiff)
+		}
 		// Oracle 1 (floors): a set critical-warning bit or a media error is an
 		// unambiguous drive-failure signal — must raise CRIT, never a silent OK.
 		if critWarn > 0 && worstLevelDV1(nvmeOut) != "CRIT" {

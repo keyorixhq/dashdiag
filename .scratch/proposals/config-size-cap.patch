@@ -1,0 +1,78 @@
+PROPOSAL (NOT APPLIED to production) — cap the explicit --config size in config.Load
+======================================================================================
+
+Problem
+-------
+internal/config.Load caps the IMPLICIT $HOME/.dsd.yaml at maxImplicitConfigBytes
+(1 MiB) via implicitConfigSafe, but the EXPLICIT --config path is deliberately
+uncapped ("a deliberate operator choice"). Because the YAML mapping decode is
+O(n^2) in sibling-key count (MC4 finding F1; root cause in go.yaml.in/yaml/v3,
+see .scratch/upstream-drafts/F1-viper-yaml-quadratic.md), a large --config YAML
+is a CPU-exhaustion amplifier: a flat ~1 MiB YAML (~100k short keys) costs tens
+of seconds of CPU; a 64k-key doc measured at 32 s. The file need not be hostile —
+a generated or mistaken --config is enough.
+
+Proposal
+--------
+Apply a size cap to the explicit path too, as defense-in-depth that bounds the
+quadratic's blast radius. Keep the symlink/permission gate implicit-only (an
+explicit path IS an operator choice), but a size bound is not a trust decision —
+it protects the operator's own process from a pathological decode. Follow Load's
+existing house style on a bad config: fall back to defaults AND return the error
+so the caller discloses it (never silently fail a health run over config).
+
+The real fix is upstream (O(1) duplicate-key handling in the YAML decoder); this
+cap is the bound dsd can ship today without waiting on that.
+
+Unified diff
+------------
+--- a/internal/config/config.go
++++ b/internal/config/config.go
+@@ -114,6 +114,13 @@
+ // maxImplicitConfigBytes bounds an auto-discovered $HOME config before it's
+ // handed to viper, which has no size limit of its own. An explicit --config
+ // path is a deliberate operator choice and isn't capped.
+ const maxImplicitConfigBytes = 1 << 20 // 1 MiB, generously larger than any real dsd config
+
++// maxExplicitConfigBytes bounds an explicit --config file before it reaches
++// viper. Unlike the symlink/permission gate (a TRUST decision, implicit-only),
++// a size bound protects the operator's OWN process: the viper YAML decode is
++// O(n^2) in sibling-key count (go.yaml.in/yaml/v3; ~1 MiB flat YAML ≈ tens of
++// seconds of CPU), so an uncapped --config is a CPU-exhaustion footgun even for
++// a generated or mistaken file. Generous — larger than any real dsd config.
++const maxExplicitConfigBytes = 1 << 20 // 1 MiB
++
+ // implicitConfigSafe reports whether the auto-discovered $HOME config at path
+ // is safe to trust: not a symlink (which could point anywhere, chosen by
+ // whoever controls $HOME rather than the operator's explicit --config
+@@ -145,7 +152,16 @@
+ func Load(cfgFile string) (*Config, error) {
+ 	v := viper.New()
+ 	implicitPath := cfgFile == ""
+ 	if cfgFile != "" {
+ 		v.SetConfigFile(cfgFile)
++		// Bound the explicit path too (see maxExplicitConfigBytes): the YAML
++		// decode viper runs is O(n^2) in key count, so a large --config is a
++		// CPU-exhaustion amplifier. Stat-based: refuse before the expensive
++		// ReadInConfig. Falls back to defaults + a disclosed error, matching the
++		// existing malformed-config house style below.
++		if fi, statErr := os.Stat(cfgFile); statErr == nil && fi.Size() > maxExplicitConfigBytes {
++			cfg := defaults
++			return &cfg, fmt.Errorf("config %s exceeds maximum size of %d bytes (large YAML decodes in O(n^2) time; split or shrink the file)", cfgFile, maxExplicitConfigBytes)
++		}
+ 	} else {
+ 		home, homeErr := os.UserHomeDir()
+ 		if homeErr != nil {
+
+Residual risk / notes
+---------------------
+- A 1 MiB adversarial flat-YAML is still ~tens of seconds under this cap; the cap
+  bounds the WORST case, it does not make a 1 MiB pathological decode fast. To
+  bound decode TIME rather than SIZE, a context-deadline around ReadInConfig (or
+  the upstream O(1) fix) would be needed. The size cap is chosen because it
+  mirrors the existing implicit cap and is a one-line, allocation-free stat.
+- Operators with a legitimately huge --config (none known for dsd) would need the
+  cap raised; it is a const, trivially tunable.
+- Verified in a scratch copy (see verify/ in this directory): with the patch,
+  a 2 MiB --config is rejected with the typed error and Load returns defaults;
+  without it, Load decodes the file (slowly). Not applied to production.

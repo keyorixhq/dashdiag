@@ -82,10 +82,24 @@ func statfsToFS(e mountEntry) (models.FilesystemInfo, error) {
 		fs  models.FilesystemInfo
 		err error
 	}
+	// NFL1 in-flight guard: the goroutine below runs statFs, which parks forever
+	// in D-state on a stale NFS/CIFS/FUSE mount — it cannot be joined, so on the
+	// timeout path it is abandoned and leaks. In the long-running `dsd mcp` server
+	// every re-probe of the same still-wedged mount would abandon another goroutine
+	// (unbounded). Cap outstanding probes at one per mount: if this mount's
+	// previous probe is still parked, do not spawn a second — report it as a
+	// timeout (same error this function already returns when statfs exceeds the
+	// deadline, which collectMountTable records as an UnreachableMount). Shared
+	// with nfsCheckMount via statfs_inflight.go.
+	probe, ok := statfsProbeBegin(nsDisk, e.mountPoint)
+	if !ok {
+		return models.FilesystemInfo{}, fmt.Errorf("statfs %s skipped — previous probe still blocked (stale mount?)", e.mountPoint)
+	}
 	// stat is goroutine-local so an abandoned (timed-out) call can't race the
 	// caller; the buffered channel lets that goroutine finish and exit cleanly.
 	ch := make(chan result, 1)
 	go func() {
+		defer probe.end() // clears the in-flight slot if/when statfs returns
 		stat, err := statFs(e.mountPoint)
 		if err != nil {
 			ch <- result{err: err}
@@ -112,6 +126,7 @@ func statfsToFS(e mountEntry) (models.FilesystemInfo, error) {
 	case r := <-ch:
 		return r.fs, r.err
 	case <-time.After(statfsTimeout):
+		probe.abandon()
 		return models.FilesystemInfo{}, fmt.Errorf("statfs %s timed out (stale mount?)", e.mountPoint)
 	}
 }

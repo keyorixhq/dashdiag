@@ -11,8 +11,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Library-level fuzz harnesses** under `internal/fuzzlibs/` covering third-party
+  dependencies DashDiag drives with untrusted input: gopsutil/v4 `/proc` parsers
+  (meminfo, diskstats, mountinfo, mounts, net/dev) via the documented fake-root
+  `common.EnvMap` API, `golang.org/x/net/icmp`/`ipv4`/`ipv6` packet parsers,
+  the MCP JSON-RPC decoder, `go-qrcode` encode, `pelletier/go-toml/v2`,
+  `spf13/viper` config decode, and `charmbracelet/x/ansi` width/strip functions.
+  All committed targets are crash-only and pass; the sweep also surfaced three
+  upstream library defects reported out-of-tree (not reachable in DashDiag).
+
 ### Fixed
 
+- **NFS/disk stale-mount goroutine leak in the long-running MCP server (NFL1).**
+  `nfsCheckMount` (`internal/collectors/nfs_linux.go`) and `statfsToFS`
+  (`internal/collectors/disk.go`) each run `syscall.Statfs` in a goroutine they
+  cannot join — a stale NFS/CIFS/FUSE mount parks that syscall in uninterruptible
+  D-state forever, so on the 2 s-timeout (or ctx) path the goroutine is abandoned
+  and never exits. For one-shot `dsd health` this leaked one goroutine per wedged
+  mount until the process exited (bounded). In the long-running `dsd mcp` server
+  (`cmd/mcp.go` `toolHealth` → `runHealthOnce` → `runner.RunAll`) the process
+  persists across many `dsd_health` calls, so every re-probe of the same wedged
+  mount abandoned *another* goroutine + OS thread — unbounded growth. Added a
+  per-collector per-mount in-flight guard (`internal/collectors/statfs_inflight.go`):
+  while a mount's previous `Statfs` probe is still parked, a new probe does not
+  spawn a second goroutine — it reports the mount unresponsive immediately (the
+  same conclusion the parked probe already reached). The guard is keyed by mount
+  path, bounded by the number of distinct live wedged mounts, and self-heals when
+  a mount recovers. No fd was ever leaked (`Statfs` opens no descriptor).
 - **Replay recording-gap false-OK (DD2 fuzzer finding, DD3).** A replayed collector
   that touched an input the bundle never recorded (`Result.NotRecorded`) but produced
   no insight — e.g. the package manager detected as `"unknown"` because the
@@ -50,6 +77,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Testing
 
+- **NFL1 stale-mount leak oracle.** Extended the shared resource helper with a
+  unix goroutine+open-fd leak meter (`internal/testutil/resource/leak_unix.go`)
+  and added a leak oracle + fuzz target
+  (`internal/collectors/nfl1_nfs_leak_fuzz_linux_test.go`): driving the probes
+  through a fake source whose `Statfs` blocks forever (never a real mount), it
+  proves goroutine growth stays flat (Δ=1, not Δ=N) across 1000 repeat probes of a
+  wedged mount for both the NFS and disk call sites, and fuzzes mount-set shapes.
 - **DH1 render sanitize hardening, test-first.** The DL1 render-funnel oracle
   `FuzzRenderFunnelNoTerminalInjection` now ASSERTS the no-bidi guarantee it
   previously only reported (re-deriving the rune set independently of
@@ -103,6 +137,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   ICMP-reply parser are not reachable from a live dsd caller (see the TU1 report).
 ### Tests / CI
 
+- **Resource oracle carried on the DS1, DD2 and DV1 fuzz targets (PD1).** The
+  shared `resource.Check` allocation/time/goroutine oracle now bounds the TLS-cert,
+  config, self-update URL, brand-logo, RHEL OVAL, replay-mutation and DV1 verdict
+  targets, with per-target alloc factors calibrated from measured amplification
+  (including a bzip2 block-buffer allowance for OVAL), plus a unit test of the
+  oracle helper.
 - **Capture-replay & cross-distro differential harness (DD2).** A test-only harness
   drives the existing `dsd replay` seam over a directory of real `dsd capture --raw`
   bundles and over the committed `fixtures/replay-fidelity` bundles: a capture×check
@@ -137,6 +177,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   (`FuzzValidateAssetURLFailClosed` — `net/url`, validated host matches the dial
   host), and the HTML report's `html/template.URL` logo bypass
   (`FuzzBrandLogoNoAttrInjection` — no `src="..."` attribute break-out).
+
+### Security
+
+- **Package integrity (apt): the dependency check is now strictly read-only and no
+  longer reads a non-root failure as a clean system.** `pkgIntegrityAPT` previously
+  ran a bare `apt-get check`, which rebuilds `/var/cache/apt/pkgcache.bin` (a write on
+  the diagnosed host) and takes the dpkg frontend lock — so as a non-root user it
+  exited 100 with `E: Could not open lock file ... Permission denied`, which matched
+  no unmet-dependency text and left broken dependencies reading as **clean** (a
+  deep-mode false-OK, the same class as the `dnf check` and `zypper verify` fixes). It
+  now runs `apt-get -s -o Debug::NoLocking=true -o Dir::Cache::pkgcache= -o
+  Dir::Cache::srcpkgcache= check` (no cache write, no lock, works unprivileged) and
+  treats any apt error line or unrecognised non-zero exit as `CheckFailed` rather than
+  a silent clean. The read-only argv is pinned in the exec-allowlist contract.
 
 ## [2.7.1] - 2026-11-15
 
