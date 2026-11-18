@@ -113,6 +113,14 @@ func nfsCheckMount(ctx context.Context, m *models.NFSMount) {
 	// report Stale (the same conclusion the parked probe already reached at its
 	// deadline) with a clear note, rather than fabricating a fresh measurement or
 	// a green OK. See statfs_inflight.go.
+	// An already-cancelled context cannot get a fresh measurement: report stale
+	// deterministically instead of racing the probe result against ctx.Done below.
+	if ctx.Err() != nil {
+		m.Stale = true
+		m.Healthy = false
+		return
+	}
+
 	probe, ok := statfsProbeBegin(nsNFS, m.Mount)
 	if !ok {
 		// Previous probe for this mount is still parked in statfs — the mount is
