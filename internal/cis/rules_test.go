@@ -242,6 +242,37 @@ func TestCheckLoginDefsField(t *testing.T) {
 			t.Errorf("PASS_MAX_DAYS_OLD should not satisfy PASS_MAX_DAYS check, got %s (%s)", got.Status, got.Finding)
 		}
 	})
+	t.Run("last assignment wins, matching shadow-utils", func(t *testing.T) {
+		t.Parallel()
+		// shadow-utils applies the LAST PASS_MAX_DAYS line, not the first.
+		// A compliant 60 followed by a non-compliant 99999 must FAIL.
+		got := checkLoginDefsField(r, write(t, "PASS_MAX_DAYS\t60\nPASS_MAX_DAYS\t99999\n"), "PASS_MAX_DAYS", failsOver365,
+			"PASS_MAX_DAYS is %d", "fix", "not set", "add it")
+		if got.Status != models.CISFail {
+			t.Errorf("last assignment (99999) should win and FAIL, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+	t.Run("negative value fails regardless of threshold", func(t *testing.T) {
+		t.Parallel()
+		// PASS_MAX_DAYS -1 (shadow-utils "no expiry") must not slip past a
+		// threshold predicate that only checks days > 365.
+		got := checkLoginDefsField(r, write(t, "PASS_MAX_DAYS\t-1\n"), "PASS_MAX_DAYS", failsOver365,
+			"PASS_MAX_DAYS is %d", "fix", "not set", "add it")
+		if got.Status != models.CISFail {
+			t.Errorf("PASS_MAX_DAYS -1 should FAIL, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+	t.Run("non-numeric value fails instead of silently parsing as zero", func(t *testing.T) {
+		t.Parallel()
+		// fmt.Sscanf("%d") used to silently stop at the first non-digit and
+		// treat "60x" or "7days" as a parsed prefix; shadow-utils rejects the
+		// whole line. strconv.ParseInt must reject it outright.
+		got := checkLoginDefsField(r, write(t, "PASS_MAX_DAYS\t60x\n"), "PASS_MAX_DAYS", failsOver365,
+			"PASS_MAX_DAYS is %d", "fix", "not set", "add it")
+		if got.Status != models.CISFail {
+			t.Errorf("non-numeric value should FAIL, got %s (%s)", got.Status, got.Finding)
+		}
+	})
 }
 
 // ── password-aging rules wired through checkLoginDefsField via loginDefsPath ──
@@ -2524,6 +2555,24 @@ func TestCheckMountOption_Rule1_1_3(t *testing.T) {
 		got := rule.Check(models.SecurityInfo{}, models.KernelSecurityInfo{})
 		if got.Status != models.CISPass {
 			t.Errorf("nodev present: want Pass, got %s (%s)", got.Status, got.Finding)
+		}
+	})
+
+	t.Run("overmount: the kernel's last entry for the mount point wins, not the first", func(t *testing.T) {
+		// /proc/mounts lists mounts in mount order; a later mount on the same
+		// path shadows the earlier one. A noexec tmpfs overmounted by a plain
+		// tmpfs must be evaluated as the plain (non-noexec) mount, matching
+		// what's actually in effect — not the first, stale entry.
+		mounts := filepath.Join(dir, "mounts_overmount")
+		content := "tmpfs /tmp tmpfs rw,nosuid,nodev,noexec 0 0\n" +
+			"tmpfs /tmp tmpfs rw,nosuid,nodev 0 0\n" // overmount: noexec dropped
+		if err := os.WriteFile(mounts, []byte(content), 0o644); err != nil {
+			t.Fatal(err)
+		}
+		procMountsPath = mounts
+		got := ruleByID("1.1.5").Check(models.SecurityInfo{}, models.KernelSecurityInfo{}) // /tmp noexec rule
+		if got.Status != models.CISFail {
+			t.Errorf("overmounted /tmp without noexec should FAIL (last entry in effect), got %s (%s)", got.Status, got.Finding)
 		}
 	})
 }

@@ -236,6 +236,46 @@ func TestValidateEntry_SanitizesHostnameAndCheckNames(t *testing.T) {
 	}
 }
 
+// TestValidateEntry_CollidingKeysKeepWorstStatus guards against two Checks
+// keys that sanitize to the same name (e.g. "disk" and "disk\x07") silently
+// depending on map iteration order for which status survives. The worse
+// status (by OK < INFO < PENDING < WARN < CRIT) must always win, so a real
+// problem reported under a control-character-bearing key is never shadowed
+// by a clean OK recorded under the same sanitized name.
+func TestValidateEntry_CollidingKeysKeepWorstStatus(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct {
+		name   string
+		checks map[string]string
+	}{
+		{"CRIT survives whichever key order the map gives", map[string]string{
+			"disk": "OK", "disk\a": "CRIT",
+		}},
+		{"CRIT survives the reverse key order too", map[string]string{
+			"disk\a": "CRIT", "disk": "OK",
+		}},
+		{"WARN beats INFO", map[string]string{
+			"svc": "INFO", "svc\x07": "WARN",
+		}},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			t.Parallel()
+			e := Entry{Verdict: "OK", Hostname: "h", Checks: tc.checks}
+			if err := validateEntry(&e); err != nil {
+				t.Fatalf("validateEntry: %v", err)
+			}
+			if len(e.Checks) != 1 {
+				t.Fatalf("expected the colliding keys to collapse to 1 entry, got %d: %v", len(e.Checks), e.Checks)
+			}
+			for _, status := range e.Checks {
+				if status == "OK" || status == "INFO" {
+					t.Errorf("worst status lost: survived with %q from input %v", status, tc.checks)
+				}
+			}
+		})
+	}
+}
+
 // TestReadAll_SkipsEntriesWithInvalidVocabulary guards ReadAll's use of
 // validateEntry end-to-end: a syntactically valid JSON line whose Verdict or
 // a Checks value falls outside the documented vocabulary must be skipped
