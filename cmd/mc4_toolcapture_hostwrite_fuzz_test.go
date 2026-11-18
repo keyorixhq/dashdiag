@@ -213,17 +213,17 @@ func mc4CaptureSeeds(f *testing.F) {
 		{"sub/dir/bundle.tar.gz", false, false},
 		{"./bundle.tar.gz", true, false},
 		{"bundle.tar.gz", true, true},
-		{"", false, false},                              // empty -> rejected
-		{"../sentinel/escape.tar.gz", false, false},     // traversal toward sentinel
-		{"../../sentinel/escape.tar.gz", false, false},  // deeper traversal
-		{"/etc/evil.tar.gz", false, false},              // absolute escape
-		{"/tmp/evil.tar.gz", false, false},              // absolute escape
-		{"sub/../bundle.tar.gz", false, false},          // in-cwd dot-dot that cleans inside
-		{"foo/../../sentinel/x", false, false},          // dot-dot escaping cwd
-		{"bundle\x00.tar.gz", false, false},             // NUL byte
-		{"a\x1b[2Jb.tar.gz", false, false},              // escape sequence in name
+		{"", false, false},                                   // empty -> rejected
+		{"../sentinel/escape.tar.gz", false, false},          // traversal toward sentinel
+		{"../../sentinel/escape.tar.gz", false, false},       // deeper traversal
+		{"/etc/evil.tar.gz", false, false},                   // absolute escape
+		{"/tmp/evil.tar.gz", false, false},                   // absolute escape
+		{"sub/../bundle.tar.gz", false, false},               // in-cwd dot-dot that cleans inside
+		{"foo/../../sentinel/x", false, false},               // dot-dot escaping cwd
+		{"bundle\x00.tar.gz", false, false},                  // NUL byte
+		{"a\x1b[2Jb.tar.gz", false, false},                   // escape sequence in name
 		{strings.Repeat("a", 300) + ".tar.gz", false, false}, // long name
-		{"....//....//sentinel/x", false, false},        // obfuscated traversal
+		{"....//....//sentinel/x", false, false},             // obfuscated traversal
 	}
 	for _, s := range seeds {
 		f.Add(s.path, s.sanitize, s.identifier)
@@ -258,7 +258,10 @@ func newFilesOutsideCwd(t *testing.T, parent, cwd string, known map[string]bool)
 	t.Helper()
 	var escaped []string
 	_ = filepath.Walk(parent, func(path string, fi os.FileInfo, err error) error {
-		if err != nil || fi.IsDir() {
+		if err != nil { //nolint:nilerr // best-effort scan: a file vanishing mid-walk is not an escape
+			return nil
+		}
+		if fi.IsDir() {
 			return nil
 		}
 		if strings.HasPrefix(path, cwd+string(filepath.Separator)) || path == cwd {
