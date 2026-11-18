@@ -274,18 +274,41 @@ func readTrim(path string) string {
 }
 
 // stripControl removes control characters (including ESC, which starts
-// ANSI/OSC/DCS terminal escape sequences) from s, leaving printable text
-// unchanged. inventory/ has no dependency on internal/output today, so this
-// duplicates the small amount of logic in output.SanitizeControl rather than
-// adding a new cross-package import for one helper.
+// ANSI/OSC/DCS terminal escape sequences) and the Unicode bidirectional
+// formatting runes (U+202A–202E, U+2066–2069, U+200E/U+200F, U+061C — the
+// Trojan-Source / CVE-2021-42574 class, which unicode.IsControl misses because
+// they are category Cf) from s, leaving printable text unchanged. inventory/ has
+// no dependency on internal/output today, so this duplicates the small amount of
+// logic in output.SanitizeControl rather than adding a new cross-package import
+// for one helper; the rune set is kept identical so the two cannot drift.
 func stripControl(s string) string {
-	if !strings.ContainsFunc(s, unicode.IsControl) {
+	if !strings.ContainsFunc(s, unsafeForTerminal) {
 		return s
 	}
 	return strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) {
+		if unsafeForTerminal(r) {
 			return -1
 		}
 		return r
 	}, s)
+}
+
+// unsafeForTerminal mirrors internal/output.unsafeForTerminal: a control rune or
+// a bidi formatting rune (isBidiFormatting).
+func unsafeForTerminal(r rune) bool {
+	return unicode.IsControl(r) || isBidiFormatting(r)
+}
+
+// isBidiFormatting mirrors internal/output.isBidiFormatting: the Unicode
+// bidirectional override/embedding/isolate runes and the implicit directional
+// marks, which visually reorder surrounding text (Trojan-Source / CVE-2021-42574).
+func isBidiFormatting(r rune) bool {
+	switch r {
+	case 0x202A, 0x202B, 0x202C, 0x202D, 0x202E, // LRE RLE PDF LRO RLO
+		0x2066, 0x2067, 0x2068, 0x2069, // LRI RLI FSI PDI
+		0x200E, 0x200F, // LRM RLM
+		0x061C: // ALM
+		return true
+	}
+	return false
 }
