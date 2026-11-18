@@ -197,7 +197,6 @@ func FuzzDriveVerdictMonotonic(f *testing.F) {
 		realloc = clampInt(realloc, 0, 100_000_000)
 		pending = clampInt(pending, 0, 100_000_000)
 		uncorr = clampInt(uncorr, 0, 100_000_000)
-		sataTemp = clampInt(sataTemp, 0, 120)
 		worsenings := []struct {
 			name string
 			dev  models.SATADevice
