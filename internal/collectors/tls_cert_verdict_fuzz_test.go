@@ -11,6 +11,22 @@ import (
 	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/testutil/resource"
+)
+
+// Resource-oracle calibration (PD1). parseCertFile drives encoding/pem.Decode +
+// crypto/x509.ParseCertificate over an on-disk file. Measured amplification is a
+// flat ~9.4x across 347 B–694 KB (1–2000 concatenated certs) and ~3x on 134 KB
+// of unparseable CERTIFICATE blocks, peaking at 11.8x on a single-cert input
+// (fixed decode overhead, absorbed by the 1 MiB AllocFloor). factor 64 covers the
+// peak with ~5x headroom and still trips any super-linear blow-up. parseCertFile
+// spawns no goroutines (measured Δ=0); the disk oracle fingerprints the temp cert
+// dir to prove the read-only parse writes nothing back.
+const (
+	pd1CertAllocFactor  = 64
+	pd1MaxGoroutineDiff = 16
 )
 
 // FuzzParseCertFileExpiryVerdict fuzzes parseCertFile — the TLS collector's
@@ -95,7 +111,19 @@ func FuzzParseCertFileExpiryVerdict(f *testing.F) {
 			t.Fatalf("write temp: %v", err)
 		}
 
-		results, uncheckable := parseCertFile(p, now)
+		// Resource oracle: bound the parse's allocation/time, prove it writes
+		// nothing to the cert dir, and record goroutine growth. The no-silent-drop
+		// and expiry-sign assertions below are unchanged.
+		before := resource.Fingerprint(t, dir)
+		var results []models.CertInfo
+		var uncheckable []models.TLSUncheckable
+		rr := resource.Check(t, len(data), pd1CertAllocFactor, func() {
+			results, uncheckable = parseCertFile(p, now)
+		})
+		resource.AssertUnchanged(t, dir, before)
+		if rr.GoroutineDiff > pd1MaxGoroutineDiff {
+			t.Fatalf("goroutine growth: parseCertFile left %d extra goroutines (input=%d B)", rr.GoroutineDiff, len(data))
+		}
 
 		// (1) No silent drop: every CERTIFICATE block that x509 cannot parse must
 		// have produced an Uncheckable entry.
