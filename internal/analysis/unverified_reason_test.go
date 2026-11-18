@@ -72,6 +72,109 @@ func TestApplyThresholds_ReplayGapRelabels(t *testing.T) {
 	}
 }
 
+// TestApplyThresholds_ReplayGapSilentCollectorSurfacesInfo is the DD3 regression
+// guard. markNotRecorded can only RELABEL insights a collector already emitted; a
+// replayed collector that hit a recording gap (Result.NotRecorded) but produced
+// NO insight — its probe input was simply absent, so its early returns yielded
+// nothing — would otherwise read as a confident OK (the DD2 fuzzer's Packages
+// false-OK: the apt-get probe blob dropped, the manager detected as "unknown",
+// checkPackages returns empty, the JSON check reads OK). The analysis loop must
+// synthesize an Unverified INFO (reason not_recorded) for that collector instead.
+// Generic across every collector, so the table is keyed on the loop's own
+// behaviour, not on any one check. Live runs never set NotRecorded, so this path
+// is replay-only and cannot change live output (asserted by the NotRecorded=false
+// row).
+func TestApplyThresholds_ReplayGapSilentCollectorSurfacesInfo(t *testing.T) {
+	t.Parallel()
+	// PackagesInfo{PackageManager:"unknown"} is the exact repro state: checkPackages
+	// returns no insight for an unknown manager (the dropped apt-get --version probe).
+	silentData := models.PackagesInfo{PackageManager: "unknown"}
+	// A manager whose DB-health probe never ran yields one Unverified INFO, which
+	// markNotRecorded relabels — the collector is NOT silent, so no synthetic INFO.
+	relabelData := models.PackagesInfo{PackageManager: "apt", DBHealthChecked: false}
+	// A no-security-repo apt host (DB health already probed clean) yields a single
+	// genuine WARN — a real finding survives the gap untouched and the loop adds no
+	// spurious not_recorded INFO.
+	findingData := models.PackagesInfo{PackageManager: "apt", Status: "no-security-repo", DBHealthChecked: true}
+
+	cases := []struct {
+		name        string
+		result      runner.Result
+		wantCount   int
+		wantReason  string // "" = assert no Unverified insight
+		wantLevel   string
+		wantMessage string
+	}{
+		{
+			name:        "replay gap, collector silent -> synthetic not_recorded INFO",
+			result:      runner.Result{Name: "Packages", Data: silentData, NotRecorded: true},
+			wantCount:   1,
+			wantReason:  models.ReasonNotRecorded,
+			wantLevel:   "INFO",
+			wantMessage: "Packages could not be checked",
+		},
+		{
+			name:       "live run, collector silent -> nothing (live behaviour unchanged)",
+			result:     runner.Result{Name: "Packages", Data: silentData, NotRecorded: false},
+			wantCount:  0,
+			wantReason: "",
+		},
+		{
+			// A healthy collector also emits nothing; an older bundle missing a
+			// tolerated presence probe (lookpath/dial) must not flip it to INFO.
+			name:       "replay gap, healthy collector silent -> nothing (gap alone is not unknown)",
+			result:     runner.Result{Name: "Disk", Data: nil, NotRecorded: true},
+			wantCount:  0,
+			wantReason: "",
+		},
+		{
+			name:       "replay gap, collector emitted an Unverified insight -> relabel, no synthetic INFO",
+			result:     runner.Result{Name: "Packages", Data: relabelData, NotRecorded: true},
+			wantCount:  1,
+			wantReason: models.ReasonNotRecorded,
+			wantLevel:  "INFO",
+		},
+		{
+			name:       "replay gap, collector emitted a real WARN -> finding survives, no synthetic INFO",
+			result:     runner.Result{Name: "Packages", Data: findingData, NotRecorded: true},
+			wantCount:  1,
+			wantReason: "", // the WARN is a genuine finding, not Unverified
+			wantLevel:  "WARN",
+		},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			t.Parallel()
+			got := ApplyThresholds([]runner.Result{c.result}, Thresholds{}, platform.CloudEnvironment(0), platform.ContainerContext{})
+			if len(got) != c.wantCount {
+				t.Fatalf("want %d insight(s), got %d: %+v", c.wantCount, len(got), got)
+			}
+			if c.wantCount == 0 {
+				return
+			}
+			ins := got[0]
+			if ins.Check != "Packages" {
+				t.Errorf("Check = %q, want Packages", ins.Check)
+			}
+			if c.wantLevel != "" && ins.Level != c.wantLevel {
+				t.Errorf("Level = %q, want %q", ins.Level, c.wantLevel)
+			}
+			if c.wantReason == "" {
+				if ins.Unverified {
+					t.Errorf("want a non-Unverified finding, got Unverified reason %q", ins.UnverifiedReason)
+				}
+			} else {
+				if !ins.Unverified || ins.UnverifiedReason != c.wantReason {
+					t.Errorf("want Unverified reason %q, got Unverified=%v reason %q", c.wantReason, ins.Unverified, ins.UnverifiedReason)
+				}
+			}
+			if c.wantMessage != "" && !strings.Contains(ins.Message, c.wantMessage) {
+				t.Errorf("message %q does not contain %q", ins.Message, c.wantMessage)
+			}
+		})
+	}
+}
+
 // TestNeedsRootInsightReason pins the existing needs_root refinement into the new field.
 func TestNeedsRootInsightReason(t *testing.T) {
 	prev := isRoot
