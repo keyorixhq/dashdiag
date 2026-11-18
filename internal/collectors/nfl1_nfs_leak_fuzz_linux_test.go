@@ -50,6 +50,14 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/testutil/resource"
 )
 
+// statfsInflightResetForTest clears all in-flight accounting so one case's
+// deliberately-parked probes do not make the next case's first probe short-circuit.
+func statfsInflightResetForTest() {
+	statfsInflight.mu.Lock()
+	defer statfsInflight.mu.Unlock()
+	statfsInflight.n = map[string]int{}
+}
+
 // blockingStatfsSource simulates a wedged NFS mount: Statfs blocks on a shared
 // release channel (standing in for a D-state syscall that never returns) until
 // the test closes it. started counts how many Statfs calls are currently parked,

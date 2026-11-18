@@ -84,12 +84,3 @@ func statfsProbeEnd(ns, mount string) {
 		}
 	}
 }
-
-// statfsInflightResetForTest clears all in-flight accounting. Test-only: the leak
-// oracles reset between cases so one case's deliberately-parked probes do not make
-// the next case's first probe short-circuit.
-func statfsInflightResetForTest() {
-	statfsInflight.mu.Lock()
-	defer statfsInflight.mu.Unlock()
-	statfsInflight.n = map[string]int{}
-}
