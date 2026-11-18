@@ -9,6 +9,38 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/testutil/resource"
+)
+
+// Resource-oracle calibration (PD1). ParseRHELOVAL drives compress/bzip2 +
+// encoding/xml behind a 512 MiB io.LimitReader cap. Measured XML-branch
+// amplifications: ~117x at 388 B (fixed decoder overhead, absorbed by the 1 MiB
+// AllocFloor), ~12x on a 1.6 MB 5000-definition feed, ~37x on a 140 KB deeply-
+// nested XML, ~2x on a 500 KB text node. factor 256 covers the 37x structural
+// peak with ~7x headroom and still trips any super-linear XML blow-up.
+//
+// The .bz2 branch is different: the Go compress/bzip2 decoder allocates its block
+// buffers from the "BZh<N>" blocksize digit ALONE, before validating the stream —
+// a bounded constant that scales with N: BZh1 412 KB, BZh4 1.6 MB, BZh7 2.8 MB,
+// BZh9 3.6 MB (measured). A 4-byte "BZh9" file therefore allocates 3.6 MB
+// (900,000x), which is NOT a super-linear amplification but a fixed decoder cost;
+// the first fuzz chunk surfaced exactly this ("BZh7", 703332x) as a first-contact
+// HARNESS calibration miss (the baseline calibration only exercised the XML
+// branch). The fix is pd1OVALBzip2Allowance, applied ONLY on the .bz2 branch, so
+// the bounded bzip2 constant is tolerated while a genuine super-linear blow-up
+// still trips. (The fuzzer can never reach a VALID bz2 decompression bomb: Go has
+// no bzip2 writer, so the .bz2 branch only ever sees invalid headers that error
+// after the block alloc — see "does NOT verify".)
+//
+// ParseRHELOVAL spawns no goroutines (measured Δ=0); the disk oracle fingerprints
+// the temp feed dir to prove the parse writes nothing back (it opens the file
+// read-only). This target uses resource.Measure + an explicit budget so the
+// per-branch bzip2 allowance can be added.
+const (
+	pd1OVALAllocFactor    = 256
+	pd1OVALBzip2Allowance = 4 << 20 // compress/bzip2 block buffer, ≥ BZh9's 3.6 MB
+	pd1MaxGoroutineDiff   = 16
 )
 
 // FuzzParseRHELOVALVerdict fuzzes ParseRHELOVAL — the Red Hat / Rocky / Alma /
@@ -49,15 +81,6 @@ import (
 // (stdlib has no bzip2 writer, so valid .bz2 happy-path bytes are not seeded —
 // the .bz2 branch is exercised for robustness on malformed input only).
 
-func writeOVAL(tb testing.TB, name string, data []byte) string {
-	tb.Helper()
-	p := filepath.Join(tb.TempDir(), name)
-	if err := os.WriteFile(p, data, 0o600); err != nil {
-		tb.Fatalf("write oval: %v", err)
-	}
-	return p
-}
-
 func FuzzParseRHELOVALVerdict(f *testing.F) {
 	good := `<?xml version="1.0"?>
 <oval_definitions><definitions>
@@ -90,7 +113,38 @@ func FuzzParseRHELOVALVerdict(f *testing.F) {
 		if asBz2 {
 			name = "rhel.oval.xml.bz2"
 		}
-		result, err := ParseRHELOVAL(writeOVAL(t, name, data))
+		dir := t.TempDir()
+		p := filepath.Join(dir, name)
+		if werr := os.WriteFile(p, data, 0o600); werr != nil {
+			t.Fatalf("write oval: %v", werr)
+		}
+		// Resource oracle: bound the parse's allocation/time, prove it writes
+		// nothing to the feed dir, and record goroutine growth. The false-negative
+		// and consistency assertions below are unchanged.
+		before := resource.Fingerprint(t, dir)
+		var result map[string]RHELCVERecord
+		var err error
+		rr := resource.Measure(len(data), func() {
+			result, err = ParseRHELOVAL(p)
+		})
+		resource.AssertUnchanged(t, dir, before)
+		// Budget: factor*inputLen + 1 MiB floor, plus the bounded compress/bzip2
+		// block-buffer allowance on the .bz2 branch (see the const header).
+		budget := resource.Budget(len(data), pd1OVALAllocFactor)
+		if asBz2 {
+			budget += pd1OVALBzip2Allowance
+		}
+		if rr.AllocBytes > budget {
+			t.Fatalf("allocation over budget: ParseRHELOVAL allocated %d B (%.1fx) for a %d B input (asBz2=%v), budget=%d B",
+				rr.AllocBytes, rr.Amplification, len(data), asBz2, budget)
+		}
+		if rr.Elapsed > resource.TimeBudget {
+			t.Fatalf("time over budget: ParseRHELOVAL took %s (> %s) for a %d B input (asBz2=%v)",
+				rr.Elapsed, resource.TimeBudget, len(data), asBz2)
+		}
+		if rr.GoroutineDiff > pd1MaxGoroutineDiff {
+			t.Fatalf("goroutine growth: ParseRHELOVAL left %d extra goroutines (input=%d B)", rr.GoroutineDiff, len(data))
+		}
 		if err != nil {
 			return // a parse/decompress error is the correct, safe outcome
 		}
