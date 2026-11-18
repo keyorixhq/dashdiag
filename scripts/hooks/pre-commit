@@ -52,6 +52,16 @@ if [ "${HOOK_ALL_TESTS:-0}" = "1" ]; then
 else
     test_targets="$(git diff --cached --name-only --diff-filter=ACMR -- '*.go' | xargs -n1 dirname 2>/dev/null | sort -u | sed 's#^#./#' | tr '\n' ' ')"
 fi
+# A package whose every file is excluded by build constraints on this host (e.g. a linux-only package on macOS) makes `go test` fail with
+# "build constraints exclude all Go files". Skip it here; CI runs it on the right OS. HOOK_ALL_TESTS=1 still runs ./...
+if [ -n "$test_targets" ] && [ "${HOOK_ALL_TESTS:-0}" != "1" ]; then
+    buildable=""
+    for t in $test_targets; do
+        n="$(go list -e -f '{{len .GoFiles}}{{len .TestGoFiles}}{{len .XTestGoFiles}}' "$t" 2>/dev/null | tr -d '0')"
+        if [ -n "$n" ]; then buildable="$buildable $t"; else echo "  ⏭  $t: no files build on this host, skipped (CI covers it)"; fi
+    done
+    test_targets="$buildable"
+fi
 if [ -n "$test_targets" ]; then
     if ! go test -short -count=1 -timeout 300s $test_targets 2>&1; then
         echo "❌ Tests failed"

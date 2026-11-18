@@ -219,9 +219,13 @@ func validateEntry(e *Entry) error {
 	// Checks map keys (check names) have no fixed vocabulary — rebuild the
 	// map with sanitized keys. Values are already vocabulary-checked above,
 	// so nothing to strip there.
+	rank := map[string]int{"OK": 0, "INFO": 1, "PENDING": 2, "WARN": 3, "CRIT": 4}
 	clean := make(map[string]string, len(e.Checks))
 	for name, status := range e.Checks {
-		clean[stripControl(name)] = status
+		k := stripControl(name)
+		if prev, ok := clean[k]; !ok || rank[status] > rank[prev] {
+			clean[k] = status // keys that collapse together keep the worst status
+		}
 	}
 	e.Checks = clean
 	return nil
