@@ -37,17 +37,6 @@ func dd2CommittedFixtures(t *testing.T) []string {
 	}
 }
 
-// replayDirVerdicts loads an on-disk raw-v1 bundle dir and returns its verdict map.
-func replayDirVerdicts(t *testing.T, dir string) map[string]string {
-	t.Helper()
-	b, err := source.Load(dir)
-	if err != nil {
-		t.Fatalf("load bundle dir: %v", err)
-	}
-	results, insights, _ := replayBundle(b, false, true, false, false)
-	return verdictMap(results, insights)
-}
-
 func TestDD2FixtureReplayDeterminismAndNoPanic(t *testing.T) {
 	dd2CapParallelism()
 	for _, fx := range dd2CommittedFixtures(t) {

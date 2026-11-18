@@ -200,7 +200,7 @@ func TestDD2CaptureReplaySweep(t *testing.T) {
 		oc            replayOutcome
 		deterministic bool
 	}
-	var rows []row
+	rows := make([]row, 0, len(captures))
 	allChecks := map[string]bool{}
 
 	for _, path := range captures {
@@ -244,7 +244,7 @@ func TestDD2CaptureReplaySweep(t *testing.T) {
 	}
 
 	// ---- write the verdict matrix (markdown) ----
-	var checkNames []string
+	checkNames := make([]string, 0, len(allChecks))
 	for c := range allChecks {
 		checkNames = append(checkNames, c)
 	}
@@ -299,7 +299,7 @@ func TestDD2CaptureReplaySweep(t *testing.T) {
 		}
 		sort.Strings(keys)
 		fmt.Fprintf(&sb, "- **%s**: ", r.oc.name)
-		var parts []string
+		parts := make([]string, 0, len(keys))
 		for _, k := range keys {
 			parts = append(parts, fmt.Sprintf("%s (%s)", k, r.oc.notApplicable[k]))
 		}
@@ -482,7 +482,7 @@ func TestDD2CaptureMutationSweep(t *testing.T) {
 				h.capture, h.check, h.baseStatus, h.blob, h.kind)
 		}
 		sb.WriteString("\n### grouped by check+kind\n\n")
-		var keys []string
+		keys := make([]string, 0, len(byKey))
 		for k := range byKey {
 			keys = append(keys, k)
 		}

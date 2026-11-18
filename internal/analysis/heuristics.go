@@ -75,7 +75,7 @@ func ApplyThresholds(results []runner.Result, thresh Thresholds, _ platform.Clou
 		got := applyOne(r.Data, thresh, ctrCtx)
 		if r.NotRecorded {
 			markNotRecorded(got)
-			if len(got) == 0 {
+			if len(got) == 0 && gapLeftNothingVerified(r.Data) {
 				// A replayed collector that touched a recording gap
 				// (Result.NotRecorded) but produced no insight would otherwise
 				// read as a confident OK — the gap is silent (false-OK). This is
@@ -85,9 +85,10 @@ func ApplyThresholds(results []runner.Result, thresh Thresholds, _ platform.Clou
 				// manager detected as "unknown" because the apt-get/rpm probe was
 				// never recorded) left its check reading OK. Surface the gap as an
 				// Unverified INFO so a lost input shows as unknown, not healthy.
-				// Generic across every collector, not a per-check special case;
-				// only reachable under `dsd replay` (NotRecorded is never set on a
-				// live run, so live behaviour is unchanged). (DD3)
+				// Gated on gapLeftNothingVerified, not on the gap alone: a healthy
+				// collector emits no insight either, and older bundles miss
+				// presence probes it tolerates. Only reachable under `dsd replay`
+				// (NotRecorded is never set on a live run). (DD3)
 				got = []models.Insight{unverifiedInsight(models.ReasonNotRecorded, "INFO", r.Name,
 					fmt.Sprintf("%s could not be checked — the replay bundle never recorded one or more of this collector's inputs (recording gap)", r.Name),
 					nil)}
@@ -1234,6 +1235,22 @@ func unverifiedInsight(reason, level, check, message string, hints []string) mod
 	ins.Unverified = true
 	ins.UnverifiedReason = reason
 	return ins
+}
+
+// gapLeftNothingVerified reports whether a replayed collector's data shows it
+// could not identify what it was meant to check, so an empty insight list means
+// "nothing verified" rather than "healthy". A recording gap alone is not enough:
+// most gaps on an older bundle are presence probes (lookpath/dial/imds) the
+// collector tolerates, and its other inputs still back an OK. Add a collector
+// here when its early return on a missing probe emits nothing.
+func gapLeftNothingVerified(data interface{}) bool {
+	switch d := data.(type) {
+	case models.PackagesInfo:
+		return d.PackageManager == "" || d.PackageManager == "unknown"
+	case *models.PackagesInfo:
+		return d != nil && (d.PackageManager == "" || d.PackageManager == "unknown")
+	}
+	return false
 }
 
 // markNotRecorded relabels the Unverified insights of a replayed collector that
