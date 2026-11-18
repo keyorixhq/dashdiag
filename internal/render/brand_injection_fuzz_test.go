@@ -1,8 +1,22 @@
 package render
 
 import (
+	"html/template"
 	"strings"
 	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/testutil/resource"
+)
+
+// Resource-oracle calibration (PD1). logoDataURI + brandBarHTML are linear string
+// ops: measured ~10x amplification across 1 KB–500 KB (the 923x at 8 B is fixed
+// overhead absorbed by the 1 MiB AllocFloor). factor 64 covers the linear ceiling
+// with headroom. No goroutines spawned (measured Δ=0); the URL/data: branches do
+// no filesystem I/O (the local-file branch is excluded by the target), so the
+// disk/fd oracle is N/A.
+const (
+	pd1BrandAllocFactor = 64
+	pd1MaxGoroutineDiff = 16
 )
 
 // FuzzBrandLogoNoAttrInjection is a D4 (terminal/report injection) oracle for
@@ -70,13 +84,6 @@ func FuzzBrandLogoNoAttrInjection(f *testing.F) {
 			logo = "" // unbranded-logo path; body still drives the company name
 		}
 
-		uri, err := logoDataURI(logo)
-		if err == nil && uri != "" {
-			if !isAttrSafe(string(uri)) {
-				t.Fatalf("logoDataURI(%q) returned attr-unsafe template.URL %q — can break out of src=\"...\" and inject markup", logo, string(uri))
-			}
-		}
-
 		// End-to-end through the real report fragment builder. Note: the company
 		// name is operator-supplied (--brand / DSD_BRAND_COMPANY) and is only
 		// html.EscapeString'd, which does NOT strip C0/ESC control bytes — so this
@@ -85,7 +92,26 @@ func FuzzBrandLogoNoAttrInjection(f *testing.F) {
 		// operator company text (see the report's D4 section).
 		SetBrand(Brand{Company: body, Logo: logo})
 		defer SetBrand(Brand{})
-		frag := brandBarHTML()
+
+		// Resource oracle: bound the allocation/time of the two live rendering
+		// calls and record goroutine growth. The attr-safety assertions below are
+		// unchanged and run outside the measured closure.
+		var uri template.URL
+		var err error
+		var frag string
+		rr := resource.Check(t, len(body), pd1BrandAllocFactor, func() {
+			uri, err = logoDataURI(logo)
+			frag = brandBarHTML()
+		})
+		if rr.GoroutineDiff > pd1MaxGoroutineDiff {
+			t.Fatalf("goroutine growth: brand render left %d extra goroutines (input=%d B)", rr.GoroutineDiff, len(body))
+		}
+
+		if err == nil && uri != "" {
+			if !isAttrSafe(string(uri)) {
+				t.Fatalf("logoDataURI(%q) returned attr-unsafe template.URL %q — can break out of src=\"...\" and inject markup", logo, string(uri))
+			}
+		}
 		// Every src="..." value must be quote-balanced: the char run after src="
 		// up to the next " must not itself contain a stray quote-breaking char.
 		for rest := frag; ; {
