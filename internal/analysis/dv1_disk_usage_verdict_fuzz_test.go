@@ -6,7 +6,17 @@ import (
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/testutil/resource"
 )
+
+// Resource-oracle calibration (PD1). checkDisk's allocation is linear in the
+// number of filesystems scored: measured 13x–26x per-input-byte amplification
+// across 24 B–192 KiB (1–8192 filesystems). This fuzz target scores at most a
+// handful of filesystems per input, so its allocation is a small constant and the
+// 1 MiB AllocFloor is the active bound; factor 128 covers the 26x peak with
+// headroom should the input ever scale. Spawns no goroutines (measured Δ=0), no
+// disk I/O (pure in-memory verdict) — disk/fd oracle N/A.
+const dv1DiskAllocFactor = 128
 
 // FuzzDiskUsageVerdictMonotonic — verdict-integrity fuzzing of the filesystem
 // usage / read-only-remount verdict in checkDisk (the live caller dispatched
@@ -84,9 +94,19 @@ func FuzzDiskUsageVerdictMonotonic(f *testing.F) {
 			}}}
 		}
 
+		// Resource oracle: bound the live checkDisk call's allocation/time and
+		// record goroutine growth. inputLen is the fuzzed scalars plus the (ignored)
+		// fsType seed; the existing monotonicity/false-OK assertions are unchanged.
+		n := len(_fsSeed) + 18
 		// Oracle 1: monotonicity in used-percent (read-write, so ro logic is off).
 		loOut := checkDisk(mk(lo, false, "/dev/sda1", "/data-lo"), thresh)
-		hiOut := checkDisk(mk(hi, false, "/dev/sdb1", "/data-hi"), thresh)
+		var hiOut []models.Insight
+		rr := resource.Check(t, n, dv1DiskAllocFactor, func() {
+			hiOut = checkDisk(mk(hi, false, "/dev/sdb1", "/data-hi"), thresh)
+		})
+		if rr.GoroutineDiff > dv1MaxGoroutineDiff {
+			t.Fatalf("goroutine growth: checkDisk left %d extra goroutines (input=%d B)", rr.GoroutineDiff, n)
+		}
 		if levelRankDV1(worstLevelDV1(hiOut)) < levelRankDV1(worstLevelDV1(loOut)) {
 			t.Fatalf("MONOTONICITY: usedPct %.2f scored %q but higher %.2f scored a BETTER %q (fs=%s)",
 				lo, worstLevelDV1(loOut), hi, worstLevelDV1(hiOut), fsType)
