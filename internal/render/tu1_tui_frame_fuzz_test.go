@@ -212,11 +212,11 @@ func FuzzTUIStyledFrameNoHostEscape(f *testing.F) {
 		"title\x1b]0;pwned\x07",                         // window-title rewrite
 		"c1raw\x9bmcsi",                                 // raw C1 CSI byte 0x9B
 		"c1enc\xc2\x9bcsi",                              // UTF-8-encoded C1
-		"bidi‮KO‬ vs OK",                                // RLO override (reorder; not control)
-		"iso⁦FAIL⁩",                                     // bidi isolate
+		"bidi\u202eKO\u202c vs OK",                      // RLO override (reorder; not control)
+		"iso\u2066FAIL\u2069",                           // bidi isolate
 		"wide世界CJK",                                     // wide runes
 		"combine á̂̃e",                                 // combining marks
-		"zwj‍‍zero",                                     // zero-width joiners
+		"zwj\u200d\u200dzero",                           // zero-width joiners
 		"newline\nfake\n### forged CRIT",                // line-forge attempt
 		"nul\x00bell\x07bs\x08del\x7f",                  // assorted C0 + DEL
 		"bad\xff\xfe\xc0utf8",                           // invalid UTF-8
