@@ -59,7 +59,7 @@ func TestAptHasSecurityRepo_FilesUnreadable(t *testing.T) {
 
 func TestCollectPackageIntegrity_Apt(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutCmd("apt-get", []string{"check"}, "", 0)
+		b.PutCmd("apt-get", []string{"-s", "-o", "Debug::NoLocking=true", "-o", "Dir::Cache::pkgcache=", "-o", "Dir::Cache::srcpkgcache=", "check"}, "", 0)
 		b.PutCmd("dpkg", []string{"--audit"}, "", 0)
 		b.PutCmd("ldconfig", []string{"-p"}, "libc.so.6 (libc6,x86-64) => /lib/x86_64-linux-gnu/libc.so.6\n", 0)
 	})
