@@ -66,13 +66,17 @@ func (c *KdumpCollector) Collect(ctx context.Context) (interface{}, error) {
 	}
 	info := &models.KdumpInfo{Available: true}
 
-	if out, _ := runCmdOutput(ctx, maintCmdSystemctl, "is-enabled", "kdump"); out != "" {
+	// Key "did we get a state?" on the TRIMMED output, not raw non-emptiness: a
+	// whitespace-only answer (" ", "\n" — e.g. a truncated write after a
+	// context-cancel force-kill) carries no state and must read as unverified, not
+	// as "not enabled, no fault". TunedCollector already trims here; matches it (EXF1).
+	if out, _ := runCmdOutput(ctx, maintCmdSystemctl, "is-enabled", "kdump"); strings.TrimSpace(out) != "" {
 		s := strings.TrimSpace(out)
 		info.Enabled = s == maintValEnabled || s == "static" || s == "enabled-runtime"
 	} else {
 		info.StateUnverified = true // no answer is not "disabled"
 	}
-	if out, _ := runCmdOutput(ctx, maintCmdSystemctl, "is-active", "kdump"); out != "" {
+	if out, _ := runCmdOutput(ctx, maintCmdSystemctl, "is-active", "kdump"); strings.TrimSpace(out) != "" {
 		info.ServiceState = strings.TrimSpace(out)
 		info.ServiceActive = info.ServiceState == secValActive
 	} else {

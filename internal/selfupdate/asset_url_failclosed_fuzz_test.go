@@ -3,6 +3,19 @@ package selfupdate
 import (
 	"net/http"
 	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/testutil/resource"
+)
+
+// Resource-oracle calibration (PD1). validateAssetURL drives net/url.Parse and a
+// host-allowlist check. Measured allocation is a flat ~144 B regardless of input
+// size (0–5x amplification; it rejects/early-returns before building anything
+// large), so the 1 MiB AllocFloor is the active bound. factor 64 is conservative
+// and still trips any super-linear parse blow-up. No goroutines (measured Δ=0),
+// no disk I/O — disk/fd oracle N/A.
+const (
+	pd1AssetURLAllocFactor = 64
+	pd1MaxGoroutineDiff    = 16
 )
 
 // FuzzValidateAssetURLFailClosed fuzzes validateAssetURL — the gate every
@@ -41,7 +54,17 @@ func FuzzValidateAssetURLFailClosed(f *testing.F) {
 	f.Add("")
 
 	f.Fuzz(func(t *testing.T, rawURL string) {
-		if err := validateAssetURL(rawURL); err != nil {
+		// Resource oracle: bound validateAssetURL's allocation/time and record
+		// goroutine growth. The validation/dial-host consistency assertions below
+		// are unchanged.
+		var verr error
+		rr := resource.Check(t, len(rawURL), pd1AssetURLAllocFactor, func() {
+			verr = validateAssetURL(rawURL)
+		})
+		if rr.GoroutineDiff > pd1MaxGoroutineDiff {
+			t.Fatalf("goroutine growth: validateAssetURL left %d extra goroutines (input=%d B)", rr.GoroutineDiff, len(rawURL))
+		}
+		if verr != nil {
 			return // rejection is the correct, safe outcome
 		}
 		// Accepted: the URL must be something net/http can build a request for,
