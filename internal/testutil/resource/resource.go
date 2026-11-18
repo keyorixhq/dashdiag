@@ -30,6 +30,8 @@ import (
 	"runtime"
 	"testing"
 	"time"
+
+	"github.com/keyorixhq/dashdiag/internal/fuzzutil"
 )
 
 // AllocFloor is added to every allocation budget so a tiny input still has
@@ -66,7 +68,7 @@ func Measure(inputLen int, fn func()) Report {
 	runtime.ReadMemStats(&before)
 	start := time.Now()
 	fn()
-	elapsed := time.Since(start)
+	elapsed, _ := fuzzutil.EffectiveElapsed(start) // freeze-corrected: a frozen box is not a slow target
 	runtime.ReadMemStats(&after)
 	g1 := runtime.NumGoroutine()
 

@@ -49,6 +49,8 @@ import (
 	"unicode/utf8"
 
 	qrcode "github.com/skip2/go-qrcode"
+
+	"github.com/keyorixhq/dashdiag/internal/fuzzutil"
 )
 
 // ── independent decoder ────────────────────────────────────────────────────
@@ -525,8 +527,8 @@ func FuzzQRCodeRoundTrip(f *testing.F) {
 			// later call rewrites, which would make the comparison vacuous.
 			bm := qrCloneBitmap(q.Bitmap())
 			bm2 := q.Bitmap()
-			if time.Since(start) > 2*time.Second {
-				t.Fatalf("bounded work: encode+render of %d bytes took %v", len(url), time.Since(start))
+			if el, _ := fuzzutil.EffectiveElapsed(start); el > 2*time.Second {
+				t.Fatalf("bounded work: encode+render of %d bytes took %v", len(url), el)
 			}
 			if q.VersionNumber < 1 || q.VersionNumber > 40 || len(bm) != 17+4*q.VersionNumber+8 {
 				t.Fatalf("bounded size: version %d, bitmap %d", q.VersionNumber, len(bm))

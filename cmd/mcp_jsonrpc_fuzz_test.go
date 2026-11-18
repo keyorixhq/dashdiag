@@ -49,6 +49,8 @@ import (
 	"time"
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
+
+	"github.com/keyorixhq/dashdiag/internal/fuzzutil"
 )
 
 const mcpFuzzDeadline = 3 * time.Second
@@ -211,16 +213,15 @@ func (s *mcpFuzzSession) send(t *testing.T, line string) bool {
 		_, err := io.WriteString(s.toSrv, line+"\n")
 		errCh <- err
 	}()
-	select {
-	case err := <-errCh:
-		if err != nil {
-			if s.closeOK {
-				return false
-			}
-			t.Fatalf("server stopped reading input: %v (line %q)", err, truncateForMsg(line))
+	err, ok, frozen := fuzzutil.Wait(errCh, mcpFuzzDeadline)
+	if !ok {
+		t.Fatalf("bounded work: server did not consume a %d-byte frame within %v (process frozen %s of it)", len(line), mcpFuzzDeadline, frozen)
+	}
+	if err != nil {
+		if s.closeOK {
+			return false
 		}
-	case <-time.After(mcpFuzzDeadline):
-		t.Fatalf("bounded work: server did not consume a %d-byte frame within %v", len(line), mcpFuzzDeadline)
+		t.Fatalf("server stopped reading input: %v (line %q)", err, truncateForMsg(line))
 	}
 	return true
 }
@@ -230,6 +231,7 @@ func (s *mcpFuzzSession) send(t *testing.T, line string) bool {
 // only when the server closed the session and closeOK permits that.
 func (s *mcpFuzzSession) awaitID(t *testing.T, want string, seen map[string]int) (map[string]any, bool) {
 	t.Helper()
+	start, extended := time.Now(), false
 	deadline := time.After(mcpFuzzDeadline)
 	for {
 		select {
@@ -260,6 +262,12 @@ func (s *mcpFuzzSession) awaitID(t *testing.T, want string, seen map[string]int)
 				return msg, true
 			}
 		case <-deadline:
+			// A frozen process (GC/swap/host contention) gets one more full deadline.
+			if _, fz := fuzzutil.EffectiveElapsed(start); fz >= mcpFuzzDeadline/3 && !extended {
+				extended = true
+				deadline = time.After(mcpFuzzDeadline)
+				continue
+			}
 			t.Fatalf("liveness/bounded work: no response to id %s within %v", want, mcpFuzzDeadline)
 		}
 	}

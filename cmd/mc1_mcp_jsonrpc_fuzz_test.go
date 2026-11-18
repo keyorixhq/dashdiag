@@ -74,6 +74,7 @@ import (
 
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 
+	"github.com/keyorixhq/dashdiag/internal/fuzzutil"
 	"github.com/keyorixhq/dashdiag/internal/testutil/resource"
 )
 
@@ -314,9 +315,7 @@ func serveOnce(raw []byte) (out []byte, calls []mc1ToolCall) {
 		close(writerDone)
 	}()
 
-	select {
-	case <-runDone:
-	case <-time.After(3 * time.Second):
+	if _, ok, _ := fuzzutil.Wait(runDone, 3*time.Second); !ok {
 		cancel() // hang: unblock Run
 	}
 	_ = inR.Close() // unblock a wedged writer goroutine
@@ -331,10 +330,7 @@ func serveOnce(raw []byte) (out []byte, calls []mc1ToolCall) {
 }
 
 func joinOrTimeout(done <-chan struct{}) {
-	select {
-	case <-done:
-	case <-time.After(1500 * time.Millisecond):
-	}
+	_, _, _ = fuzzutil.Wait(done, 1500*time.Millisecond)
 }
 
 // assertMCPOutputTerminalSafe asserts the LOAD-BEARING terminal-safety invariant:

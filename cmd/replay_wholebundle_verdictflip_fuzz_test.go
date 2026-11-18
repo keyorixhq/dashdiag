@@ -53,6 +53,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/keyorixhq/dashdiag/internal/fuzzutil"
 	"github.com/keyorixhq/dashdiag/internal/models"
 	"github.com/keyorixhq/dashdiag/internal/output"
 	"github.com/keyorixhq/dashdiag/internal/render"
@@ -563,7 +564,7 @@ func FuzzWholeBundleReplayVerdictFlip(f *testing.F) {
 			}()
 			results, insights, _ = replayBundle(b, false, true, false, false)
 		}()
-		if elapsed := time.Since(start); elapsed > wholeBundleWorkCeiling {
+		if elapsed, _ := fuzzutil.EffectiveElapsed(start); elapsed > wholeBundleWorkCeiling {
 			t.Fatalf("BOUNDED WORK: whole-bundle replay took %s (> %s) under seam=%s kind=%s", elapsed, wholeBundleWorkCeiling, m.seam, m.kind)
 		}
 

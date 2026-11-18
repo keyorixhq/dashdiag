@@ -62,6 +62,8 @@ import (
 	goping "github.com/prometheus-community/pro-bing"
 	"golang.org/x/net/icmp"
 	"golang.org/x/net/ipv4"
+
+	"github.com/keyorixhq/dashdiag/internal/fuzzutil"
 )
 
 // probingPacketConn mirrors pro-bing's unexported packetConn method set.
@@ -467,13 +469,12 @@ func pbCheckScenario(t *testing.T, privileged bool, ops []pbOp, rawTS bool) {
 		defer cancel()
 		errCh := make(chan error, 1)
 		go func() { errCh <- probingRun(p, ctx, conn) }()
-		select {
-		case err := <-errCh:
-			if err != nil && !errors.Is(err, errPBScriptDone) {
-				t.Fatalf("run: unexpected error %v", err)
-			}
-		case <-time.After(6 * time.Second):
-			t.Fatalf("bounded work: pro-bing run did not finish within 6s (%d ops)", len(ops))
+		err, ok, frozen := fuzzutil.Wait(errCh, 6*time.Second)
+		if !ok {
+			t.Fatalf("bounded work: pro-bing run did not finish within 6s (%d ops, process frozen %s)", len(ops), frozen)
+		}
+		if err != nil && !errors.Is(err, errPBScriptDone) {
+			t.Fatalf("run: unexpected error %v", err)
 		}
 		select {
 		case <-conn.fenceSeen:
