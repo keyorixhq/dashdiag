@@ -130,6 +130,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   host), and the HTML report's `html/template.URL` logo bypass
   (`FuzzBrandLogoNoAttrInjection` — no `src="..."` attribute break-out).
 
+### Security
+
+- **Package integrity (apt): the dependency check is now strictly read-only and no
+  longer reads a non-root failure as a clean system.** `pkgIntegrityAPT` previously
+  ran a bare `apt-get check`, which rebuilds `/var/cache/apt/pkgcache.bin` (a write on
+  the diagnosed host) and takes the dpkg frontend lock — so as a non-root user it
+  exited 100 with `E: Could not open lock file ... Permission denied`, which matched
+  no unmet-dependency text and left broken dependencies reading as **clean** (a
+  deep-mode false-OK, the same class as the `dnf check` and `zypper verify` fixes). It
+  now runs `apt-get -s -o Debug::NoLocking=true -o Dir::Cache::pkgcache= -o
+  Dir::Cache::srcpkgcache= check` (no cache write, no lock, works unprivileged) and
+  treats any apt error line or unrecognised non-zero exit as `CheckFailed` rather than
+  a silent clean. The read-only argv is pinned in the exec-allowlist contract.
+
 ## [2.7.1] - 2026-11-15
 
 ### Security
