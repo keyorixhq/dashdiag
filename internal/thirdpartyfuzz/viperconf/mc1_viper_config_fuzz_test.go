@@ -53,10 +53,6 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/testutil/resource"
 )
 
-// maxConfigBytes mirrors internal/config.maxImplicitConfigBytes (1 MiB): the
-// loader never hands viper more than this.
-const maxConfigBytes = 1 << 20
-
 // fuzzInputCap bounds the bytes this TARGET feeds, deliberately BELOW the 1 MiB
 // loader cap. The viper YAML backend (go.yaml.in/yaml mapping decode) is O(n^2)
 // in the number of sibling keys — characterised during calibration and reported
@@ -120,19 +116,19 @@ func mc1ViperSeeds(f *testing.F) {
 	}
 	seeds := []sd{
 		{0, "thresholds:\n  disk_warn_pct: 42.5\nlogs:\n  since_minutes: 10\n"}, // yaml
-		{0, "thresholds:\n  disk_warn_pct: .nan\n"},                              // yaml nan
-		{0, "thresholds:\n  disk_warn_pct: 1\n  Disk_Warn_Pct: 2\n"},             // case-fold dup
-		{0, "\"thresholds.disk_warn_pct\": 7\n"},                                 // dotted flat key
-		{0, "security:\n  allowed_ports: [22, 70000]\n"},                         // out-of-range port
+		{0, "thresholds:\n  disk_warn_pct: .nan\n"},                             // yaml nan
+		{0, "thresholds:\n  disk_warn_pct: 1\n  Disk_Warn_Pct: 2\n"},            // case-fold dup
+		{0, "\"thresholds.disk_warn_pct\": 7\n"},                                // dotted flat key
+		{0, "security:\n  allowed_ports: [22, 70000]\n"},                        // out-of-range port
 		{0, "services:\n  - name: db\n    host: h\n    port: 5432\n    protocol: tcp\n"},
-		{1, `{"thresholds":{"disk_warn_pct":55.5},"logs":{"since_minutes":3}}`},   // json
-		{1, `{"thresholds":{"disk_warn_pct":55,"Disk_Warn_Pct":66}}`},            // json case dup
-		{2, "[thresholds]\ndisk_warn_pct = 12.0\n[logs]\nsince_minutes = 9\n"},   // toml
-		{3, "[thresholds]\ndisk_warn_pct = 80\n"},                                // ini
-		{4, "DISK_WARN_PCT=90\n"},                                                // env/dotenv
-		{0, ""},                                                                   // empty
-		{0, "::: not : valid : yaml :::\n"},                                      // malformed yaml
-		{1, "{not json"},                                                         // malformed json
+		{1, `{"thresholds":{"disk_warn_pct":55.5},"logs":{"since_minutes":3}}`}, // json
+		{1, `{"thresholds":{"disk_warn_pct":55,"Disk_Warn_Pct":66}}`},           // json case dup
+		{2, "[thresholds]\ndisk_warn_pct = 12.0\n[logs]\nsince_minutes = 9\n"},  // toml
+		{3, "[thresholds]\ndisk_warn_pct = 80\n"},                               // ini
+		{4, "DISK_WARN_PCT=90\n"},                                               // env/dotenv
+		{0, ""},                                                                 // empty
+		{0, "::: not : valid : yaml :::\n"},                                     // malformed yaml
+		{1, "{not json"},                                                        // malformed json
 	}
 	for _, s := range seeds {
 		f.Add(s.fmtIdx, []byte(s.body))

@@ -391,7 +391,7 @@ func parseProcStart(r io.Reader, boot time.Time) (time.Time, string, bool) {
 	// zfs.go parseZFSCount bug (#727). This package can't import collectors'
 	// parseFiniteFloat (baseline is not in its importer list), so the check
 	// is duplicated inline.
-	if err != nil || math.IsNaN(startTicks) || math.IsInf(startTicks, 0) || startTicks < 0 {
+	if err != nil || math.IsNaN(startTicks) || math.IsInf(startTicks, 0) || startTicks < 0 || startTicks/100 > float64(math.MaxInt64/int64(time.Second)) {
 		return time.Time{}, "", false
 	}
 	startTime := boot.Add(time.Duration(startTicks/100) * time.Second)
