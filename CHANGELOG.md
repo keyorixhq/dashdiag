@@ -89,6 +89,12 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   JSON output; unsanitized `RenderStory` check names) as issue-ready proposals.
 ### Tests / CI
 
+- **Resource oracle carried on the DS1, DD2 and DV1 fuzz targets (PD1).** The
+  shared `resource.Check` allocation/time/goroutine oracle now bounds the TLS-cert,
+  config, self-update URL, brand-logo, RHEL OVAL, replay-mutation and DV1 verdict
+  targets, with per-target alloc factors calibrated from measured amplification
+  (including a bzip2 block-buffer allowance for OVAL), plus a unit test of the
+  oracle helper.
 - **Capture-replay & cross-distro differential harness (DD2).** A test-only harness
   drives the existing `dsd replay` seam over a directory of real `dsd capture --raw`
   bundles and over the committed `fixtures/replay-fidelity` bundles: a capture×check
