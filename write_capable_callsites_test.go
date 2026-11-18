@@ -63,6 +63,9 @@ var writeCapableAllowlist = map[string]string{
 		"command (has its own --dry-run flag) that writes shell/git/CI hook " +
 		"files the operator asked for by running it, in their own shell rc or " +
 		"their own current repo — not a side effect of a read-only diagnostic command.",
+	"cmd/mcp.go": "createConfinedFile writes dsd_capture's caller-named out_path " +
+		"(validated by safeBundlePath, confined via os.Root/O_NOFOLLOW); " +
+		"openConfinedCopy only creates/removes its own dsd-mcp-in-* temp copy.",
 	"cmd/root.go": "os.OpenFile(outPath, ...) — outPath is a user-supplied --out CLI flag by design.",
 	"cmd/writefile.go": "writeFileNoFollow — shared helper for a predictable/fixed " +
 		"destination path (a hostname-derived report filename, a fixed hook script " +

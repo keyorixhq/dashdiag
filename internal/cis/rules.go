@@ -3177,7 +3177,9 @@ func buildRules() []Rule { // NOSONAR — flat rule registry; CC comes from entr
 				if err != nil {
 					return skipr(r, fmt.Sprintf("could not read %s", loginDefsPath))
 				}
-				for line := range strings.SplitSeq(string(data), "\n") {
+				lines := strings.Split(string(data), "\n")
+				for i := len(lines) - 1; i >= 0; i-- { // last assignment wins, as in shadow-utils
+					line := lines[i]
 					if strings.HasPrefix(strings.TrimSpace(line), "#") || strings.TrimSpace(line) == "" {
 						continue
 					}
@@ -5464,6 +5466,7 @@ func checkLoginDefsField(r Rule, path, field string, fails func(days int) bool, 
 	if err != nil {
 		return skipr(r, fmt.Sprintf("could not read %s", path))
 	}
+	last, found := "", false
 	for line := range strings.SplitSeq(string(data), "\n") {
 		trimmed := strings.TrimSpace(line)
 		if trimmed == "" || strings.HasPrefix(trimmed, "#") {
@@ -5473,18 +5476,26 @@ func checkLoginDefsField(r Rule, path, field string, fails func(days int) bool, 
 		if len(lineFields) == 0 || lineFields[0] != field {
 			continue
 		}
-		// Matched field name exactly — now check that a value is present.
-		if len(lineFields) < 2 {
-			return failr(r, fmt.Sprintf("%s has no value", field), failFix)
+		found, last = true, ""
+		if len(lineFields) >= 2 {
+			last = lineFields[1]
 		}
-		days := 0
-		fmt.Sscanf(lineFields[1], "%d", &days) //nolint:errcheck
-		if fails(days) {
-			return failr(r, fmt.Sprintf(failFmt, days), failFix)
-		}
-		return pass(r)
 	}
-	return failr(r, notSetFinding, notSetFix)
+	if !found {
+		return failr(r, notSetFinding, notSetFix)
+	}
+	if last == "" {
+		return failr(r, fmt.Sprintf("%s has no value", field), failFix)
+	}
+	v, perr := strconv.ParseInt(last, 0, 32)
+	if perr != nil || v < 1 && field == "PASS_MAX_DAYS" || v < 0 {
+		return failr(r, fmt.Sprintf("%s value %q is invalid", field, last), failFix)
+	}
+	days := int(v)
+	if fails(days) {
+		return failr(r, fmt.Sprintf(failFmt, days), failFix)
+	}
+	return pass(r)
 }
 
 // checkSysctl reads a /proc/sys path and compares to wantVal.
@@ -5654,12 +5665,14 @@ func checkMountOption(r Rule, mountPoint, option, fix string) models.CISResult {
 	if err != nil {
 		return skipr(r, fmt.Sprintf("could not read %s", procMountsPath))
 	}
+	var last []string
 	for line := range strings.SplitSeq(string(data), "\n") {
-		fields := strings.Fields(line)
-		if len(fields) < 4 || fields[1] != mountPoint {
-			continue
+		if fields := strings.Fields(line); len(fields) >= 4 && fields[1] == mountPoint {
+			last = fields // the kernel lists mounts in mount order; the last one is on top
 		}
-		for opt := range strings.SplitSeq(fields[3], ",") {
+	}
+	if last != nil {
+		for opt := range strings.SplitSeq(last[3], ",") {
 			if opt == option {
 				return pass(r)
 			}

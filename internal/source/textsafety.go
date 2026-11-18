@@ -28,17 +28,45 @@ import (
 // the point of assignment in the collector, is the only thing that actually
 // protects a future renderer from printing raw control bytes.
 //
-// Printable text, including multi-byte UTF-8, passes through unchanged;
-// only unicode.IsControl runes are removed (not replaced), so the value
-// stays readable rather than growing placeholder characters.
+// Like its output-layer mirror it also strips the Unicode bidirectional
+// formatting runes (U+202A–202E, U+2066–2069, U+200E/U+200F, U+061C): these are
+// category Cf, not Cc, so unicode.IsControl misses them, yet a right-to-left
+// override smuggled through a drive-model string or sensor label would visually
+// reorder a later report line (Trojan-Source / CVE-2021-42574). Kept identical
+// to internal/output.SanitizeControl's rune set so the two cannot drift.
+//
+// Printable text, including multi-byte UTF-8, passes through unchanged; only the
+// unsafe runes are removed (not replaced), so the value stays readable rather
+// than growing placeholder characters.
 func SanitizeControl(s string) string {
-	if !strings.ContainsFunc(s, unicode.IsControl) {
+	if !strings.ContainsFunc(s, unsafeForTerminal) {
 		return s
 	}
 	return strings.Map(func(r rune) rune {
-		if unicode.IsControl(r) {
+		if unsafeForTerminal(r) {
 			return -1
 		}
 		return r
 	}, s)
+}
+
+// unsafeForTerminal mirrors internal/output.unsafeForTerminal: a control rune
+// (unicode.IsControl, incl. ESC and the C1 introducers) or a bidi formatting
+// rune (isBidiFormatting).
+func unsafeForTerminal(r rune) bool {
+	return unicode.IsControl(r) || isBidiFormatting(r)
+}
+
+// isBidiFormatting mirrors internal/output.isBidiFormatting: the Unicode
+// bidirectional override/embedding/isolate runes and the implicit directional
+// marks, which visually reorder surrounding text (Trojan-Source / CVE-2021-42574).
+func isBidiFormatting(r rune) bool {
+	switch r {
+	case 0x202A, 0x202B, 0x202C, 0x202D, 0x202E, // LRE RLE PDF LRO RLO
+		0x2066, 0x2067, 0x2068, 0x2069, // LRI RLI FSI PDI
+		0x200E, 0x200F, // LRM RLM
+		0x061C: // ALM
+		return true
+	}
+	return false
 }

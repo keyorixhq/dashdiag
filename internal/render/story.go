@@ -42,17 +42,19 @@ func renderStorySinglePoint(insights []models.Insight, snap *baseline.Snapshot) 
 		var lines []string
 		for _, ins := range insights {
 			if ins.Unverified {
-				lines = append(lines, fmt.Sprintf("  %s: %s", ins.Check, output.SanitizeControl(ins.Message)))
+				lines = append(lines, fmt.Sprintf("  %s: %s", output.SanitizeControl(ins.Check), output.SanitizeControl(ins.Message)))
 			}
 		}
 		return head + "\n" + strings.Join(lines, "\n")
 	}
 	var lines []string
 	for _, ins := range active {
-		// ins.Message can carry attacker-controlled substrings (e.g. a process
-		// name set via prctl(PR_SET_NAME)) — strip control/ANSI-escape bytes
-		// before this narration is written to the terminal.
-		lines = append(lines, fmt.Sprintf("  %s: %s", ins.Check, output.SanitizeControl(ins.Message)))
+		// ins.Check and ins.Message can carry attacker-controlled substrings
+		// (a subsystem-qualified check name can embed a host-derived token; a
+		// message can carry a process name set via prctl(PR_SET_NAME)) — strip
+		// control/ANSI-escape and bidi bytes before this narration is written to
+		// the terminal, matching every other funnel.
+		lines = append(lines, fmt.Sprintf("  %s: %s", output.SanitizeControl(ins.Check), output.SanitizeControl(ins.Message)))
 	}
 	return fmt.Sprintf("System health at %s on %s:\n%s",
 		ts, hostname, strings.Join(lines, "\n"))
@@ -77,7 +79,7 @@ func renderStoryFromHistory(history []*baseline.Snapshot) string {
 	var currentIssues []string
 	for _, c := range last.Checks {
 		if c.Status == "WARN" || c.Status == "CRIT" {
-			currentIssues = append(currentIssues, fmt.Sprintf("  %s: %s", c.Name, output.SanitizeControl(c.Value)))
+			currentIssues = append(currentIssues, fmt.Sprintf("  %s: %s", output.SanitizeControl(c.Name), output.SanitizeControl(c.Value)))
 		}
 	}
 
@@ -153,8 +155,11 @@ func storyEvents(history []*baseline.Snapshot) []storyEvent {
 					}
 				}
 				events = append(events, storyEvent{
-					ts:      ts,
-					check:   c.Name,
+					ts: ts,
+					// c.Name (a subsystem-qualified check name) can embed a
+					// host-derived token; sanitize it here so e.check is already
+					// terminal-safe at every print site, matching ins.Check above.
+					check:   output.SanitizeControl(c.Name),
 					from:    prev,
 					to:      c.Status,
 					message: msg,
