@@ -25,10 +25,10 @@ import (
 var widthSeeds = []string{
 	"hello",
 	"\x1b[31mred\x1b[0m",
-	"ｗｉｄｅ",             // fullwidth
-	"áb",            // combining accent
-	"\xff\xfe\x00",        // invalid UTF-8 + NUL
-	"\xc2\x1b[31mx\x1b[0m", // invalid lead byte before an escape
+	"ｗｉｄｅ",                                 // fullwidth
+	"áb",                                  // combining accent
+	"\xff\xfe\x00",                         // invalid UTF-8 + NUL
+	"\xc2\x1b[31mx\x1b[0m",                 // invalid lead byte before an escape
 	"\x1b]8;;http://x\x07link\x1b]8;;\x07", // OSC hyperlink
 }
 

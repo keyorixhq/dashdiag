@@ -22,10 +22,10 @@ const (
 
 // FuzzParseMessageV4 drives icmp.ParseMessage for IPv4 ICMP.
 func FuzzParseMessageV4(f *testing.F) {
-	f.Add([]byte{8, 0, 0, 0, 0, 1, 0, 1})       // echo request
-	f.Add([]byte{0, 0, 0, 0, 0, 1, 0, 1})       // echo reply
-	f.Add([]byte{3, 1, 0, 0, 0, 0, 0, 0})       // dest unreachable
-	f.Add([]byte{11, 0, 0, 0, 0, 0, 0, 0})      // time exceeded
+	f.Add([]byte{8, 0, 0, 0, 0, 1, 0, 1})  // echo request
+	f.Add([]byte{0, 0, 0, 0, 0, 1, 0, 1})  // echo reply
+	f.Add([]byte{3, 1, 0, 0, 0, 0, 0, 0})  // dest unreachable
+	f.Add([]byte{11, 0, 0, 0, 0, 0, 0, 0}) // time exceeded
 	f.Fuzz(func(t *testing.T, data []byte) {
 		if m, err := icmp.ParseMessage(protoICMP, data); err == nil && m != nil {
 			// Round-trip: a successfully parsed message should marshal back.
