@@ -258,8 +258,8 @@ func newFilesOutsideCwd(t *testing.T, parent, cwd string, known map[string]bool)
 	t.Helper()
 	var escaped []string
 	_ = filepath.Walk(parent, func(path string, fi os.FileInfo, err error) error {
-		if err != nil { //nolint:nilerr // best-effort scan: a file vanishing mid-walk is not an escape
-			return nil
+		if err != nil {
+			return nil //nolint:nilerr // best-effort scan: a file vanishing mid-walk is not an escape
 		}
 		if fi.IsDir() {
 			return nil
