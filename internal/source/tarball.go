@@ -37,6 +37,25 @@ func (b *Bundle) SaveTarball(path string) error {
 	return tarGzDir(tmp, path)
 }
 
+// SaveTarballTo writes the bundle, gzipped-tar, to an already-open
+// destination — the same content SaveTarball produces, minus the final file
+// open. For a caller that has its own, stronger way of opening the
+// destination safely (e.g. an MCP server confining writes to its working
+// directory with *os.Root, where the untrusted part is an LLM-generated
+// path), opening dst itself and handing it here avoids a second,
+// weaker-confined open of the same untrusted path inside this package.
+func (b *Bundle) SaveTarballTo(dst io.Writer) error {
+	tmp, err := os.MkdirTemp("", "dsd-raw-*")
+	if err != nil {
+		return err
+	}
+	defer func() { _ = os.RemoveAll(tmp) }()
+	if err := b.Save(tmp); err != nil {
+		return err
+	}
+	return tarGzDirToWriter(tmp, dst)
+}
+
 // LoadTarball reads a bundle previously written by SaveTarball.
 //
 // Every error it returns is either ErrRejected (untarGzWithLimits recognised
@@ -88,8 +107,14 @@ func tarGzDir(srcDir, dstPath string) error {
 		return err
 	}
 	defer func() { _ = f.Close() }()
+	return tarGzDirToWriter(srcDir, f)
+}
 
-	gz := gzip.NewWriter(f)
+// tarGzDirToWriter is tarGzDir's core, split out so a caller that already
+// has an open, safely-confined destination (SaveTarballTo) can skip the
+// os.OpenFile above entirely instead of layering it on top of their own.
+func tarGzDirToWriter(srcDir string, dst io.Writer) error {
+	gz := gzip.NewWriter(dst)
 	tw := tar.NewWriter(gz)
 
 	walkErr := filepath.Walk(srcDir, func(p string, fi os.FileInfo, err error) error {

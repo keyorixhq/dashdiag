@@ -29,6 +29,40 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   same conclusion the parked probe already reached). The guard is keyed by mount
   path, bounded by the number of distinct live wedged mounts, and self-heals when
   a mount recovers. No fd was ever leaked (`Statfs` opens no descriptor).
+- **Replay recording-gap false-OK (DD2 fuzzer finding, DD3).** A replayed collector
+  that touched an input the bundle never recorded (`Result.NotRecorded`) but produced
+  no insight — e.g. the package manager detected as `"unknown"` because the
+  `apt-get --version` probe was dropped — left its check silently reading `OK`:
+  `markNotRecorded` can only relabel insights that already exist, so an empty verdict
+  stayed empty. `ApplyThresholds` now synthesizes an Unverified `INFO`
+  (`unverified_reason: not_recorded`) when the collector's data shows it could not
+  identify what it was checking (today: Packages with an unknown manager), so a lost
+  input surfaces as unknown rather than healthy. A gap alone is not enough: healthy
+  collectors also emit nothing, and older bundles miss presence probes they tolerate,
+  which would flip verified checks to INFO. Replay-only (`NotRecorded` is never
+  set on a live run), so live `dsd health` output is unchanged.
+
+### Security
+
+- **Strip Unicode bidi-override/isolate runes in terminal-output sanitization
+  (DH1).** `output.SanitizeControl` — and its documented mirrors
+  `source.SanitizeControl` and `inventory.stripControl` — now also remove the
+  bidirectional formatting runes U+202A–202E, U+2066–2069, U+200E/U+200F and
+  U+061C. These are Unicode category Cf, which `unicode.IsControl` does not
+  catch, so a hostile hostname or process name carrying a right-to-left override
+  previously survived into pasted markdown/share/post-mortem reports and could
+  visually reorder a line — making a `FAIL` read `OK` to a human (the
+  Trojan-Source / CVE-2021-42574 class). The legitimate ZERO WIDTH JOINER
+  (U+200D) and emoji variation selectors are untouched.
+- **Sanitize host-influenced check names in the remaining render sinks (DH1).**
+  `RenderStory` (`ins.Check` / `CheckResult.Name`), the `--post-mortem` incident
+  title, and the Nagios plugin line (`--nagios`) now run check names through
+  `SanitizeControl` like every other funnel; the Nagios line additionally maps a
+  check-name `|` to `/` so it cannot inject or truncate perfdata. The
+  `--prometheus` path was already safe by construction (label values are reduced
+  to `[a-z0-9_]`). The `--json` machine format is unchanged: its raw DEL/C1
+  passthrough is now documented as not terminal-safe (pipe through a sanitizer
+  before display) rather than altered, since consumers compare the exact bytes.
 
 ### Testing
 
@@ -39,6 +73,31 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   through a fake source whose `Statfs` blocks forever (never a real mount), it
   proves goroutine growth stays flat (Δ=1, not Δ=N) across 1000 repeat probes of a
   wedged mount for both the NFS and disk call sites, and fuzzes mount-set shapes.
+- **DH1 render sanitize hardening, test-first.** The DL1 render-funnel oracle
+  `FuzzRenderFunnelNoTerminalInjection` now ASSERTS the no-bidi guarantee it
+  previously only reported (re-deriving the rune set independently of
+  `SanitizeControl`), with a red→green proof. Added per-sink table tests:
+  `SanitizeControl` bidi stripping, `RenderStory` (single-point and history
+  paths), `RenderPostMortem` title, `NagiosLine`/`nagiosText`, and the Prometheus
+  label safety property.
+
+- **MC1 third-party-library fuzzing (MCP / viper / x/ansi).** Three fuzz targets,
+  one directory per library, each carrying the shared `internal/testutil/resource`
+  oracle: `FuzzMCPServerHostileJSONRPC` (drives the real `mcp.Server` over an
+  in-memory `IOTransport` with hostile raw JSON-RPC — malformed/batched frames,
+  huge/wrong-typed ids, unknown methods, injection and out-of-schema tool
+  arguments, partial frames; oracles: no panic, bounded work, terminal-safe
+  output framing, in-schema dispatch), `FuzzViperConfigDifferential` (the
+  `config.Load` decode→unmarshal→validate pipeline across yaml/json/toml/ini/env;
+  oracle: viper's key store agrees with the decoded+validated `config.Config` the
+  collectors use, bounded/typed-error), and `FuzzAnsiWidthTruncateWrap` (the
+  x/ansi width/truncate/wrap layer reached through lipgloss on host-derived text;
+  oracles: width-bound, idempotent, no ESC introduced). Invariants in
+  `INVARIANTS.d/mc1-thirdparty-{mcp,viper,ansi}.md`. Surfaced one lead: the viper
+  YAML config backend decodes a flat mapping in O(n²) in sibling-key count (JSON
+  is linear) — a bounded-work CANDIDATE reachable via `config.Load`'s 1 MiB
+  implicit-config path and the uncapped `--config` path.
+
 - **DL1 dependency-and-claims fuzzing.** Added a shared per-input resource oracle
   (`internal/testutil/resource`: `TotalAlloc`/time/goroutine budget + unix
   filesystem fingerprint for the read-only claim) and three fuzz targets that
@@ -51,6 +110,42 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   mitigation). Surfaced
   hardening leads (bidi-override passthrough in `SanitizeControl`; raw DEL/C1 in
   JSON output; unsanitized `RenderStory` check names) as issue-ready proposals.
+### Tests / CI
+
+- **Capture-replay & cross-distro differential harness (DD2).** A test-only harness
+  drives the existing `dsd replay` seam over a directory of real `dsd capture --raw`
+  bundles and over the committed `fixtures/replay-fidelity` bundles: a capture×check
+  verdict matrix, a determinism/no-panic oracle (three replays identical), a
+  sibling-parity check (sanitize-vs-raw twins asserted verdict-identical), and a new
+  `FuzzCaptureReplayMutationRobustness` fuzz target that applies one
+  information-destroying mutation to a single captured file or command output and
+  requires no panic, bounded work, and no non-OK check silently flipping to `OK`.
+  The 49-capture tests skip unless a capture dir is provided, so CI stays green on the
+  committed fixtures. Surfaced a replay fail-open when a derived-state cache
+  (`clock/state`, `net/connectivity`) is absent from a bundle.
+- **Verdict-integrity fuzzing of the analysis-layer health verdict (DV1).** Three
+  new fuzz targets whose oracle is the VERDICT (`models.Insight.Level`), not a
+  panic, aimed at the "false OK" defect class in `BUGS.md` — the tool rendering a
+  system healthy when it has not verified. They exercise the live
+  `checkNVMe`/`checkDisk`/`checkCloudInit` heuristics dispatched by
+  `applyOne`: `FuzzDriveVerdictMonotonic` (a failing SMART attribute or an unread
+  drive must never read as a silent OK — the BUG-048 smartctl/nvme family),
+  `FuzzDiskUsageVerdictMonotonic` (disk-full is monotone; a writable fs remounted
+  read-only is not OK), and `FuzzCloudInitVerdictFalseOK` (a failed cloud-init is
+  CRIT, an unreadable status is disclosed). Each ships an INVARIANT note, a seed
+  corpus, and a documented red/green proof (false-OK planted → oracle fires →
+  reverted; no plant committed).
+- **Reachability-first fuzzing of untrusted third-party / stdlib sinks (DS1).**
+  Five new verdict-aware fuzz targets for parsers that take attacker-influenced
+  bytes and had no coverage: TLS certificate expiry
+  (`FuzzParseCertFileExpiryVerdict` — `pem.Decode`/`x509.ParseCertificate`, no
+  silent drop + correct expired sign), the Red Hat OVAL feed path
+  (`FuzzParseRHELOVALVerdict` — `bzip2`/`xml`, fails loudly on a definition-less
+  feed), config loading (`FuzzConfigLoadFailClosed` — viper/yaml, `Load` never
+  accepts a config its own `Validate()` rejects), the self-update asset URL
+  (`FuzzValidateAssetURLFailClosed` — `net/url`, validated host matches the dial
+  host), and the HTML report's `html/template.URL` logo bypass
+  (`FuzzBrandLogoNoAttrInjection` — no `src="..."` attribute break-out).
 
 ## [2.7.1] - 2026-11-15
 

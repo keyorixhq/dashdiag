@@ -24,6 +24,7 @@ import (
 	"github.com/keyorixhq/dashdiag/internal/output"
 	"github.com/keyorixhq/dashdiag/internal/platform"
 	"github.com/keyorixhq/dashdiag/internal/runner"
+	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
 // ctxProbeKey is a distinctive, unexported context key used only by the
@@ -179,6 +180,114 @@ func TestToolCapture_RejectsOutsideCWD(t *testing.T) {
 	}
 	if len(entries) != 0 {
 		t.Errorf("expected the CWD-local scratch dir %q to stay empty, found %d entr(y/ies)", dir, len(entries))
+	}
+}
+
+// TestToolCapture_SymlinkEscape_BlockedByMcpRoot is the NET1-F1 /
+// dashdiag#1204 regression: safeBundlePath's lexical check (Clean, reject
+// "..", compare the resulting string to CWD) approves "evil_link/out.tar.gz"
+// just fine when evil_link is a directory symlink living inside CWD,
+// because nothing in that check ever asks the filesystem what evil_link
+// actually is. Before mcpRoot existed, toolCapture then opened that path
+// directly and wrote straight through the symlink to wherever it points —
+// outside CWD, exactly what safeBundlePath's CWD constraint exists to
+// prevent. With mcpRoot set (simulating real `dsd mcp` startup, which opens
+// it in PersistentPreRun), createConfinedFile must refuse instead.
+func TestToolCapture_SymlinkEscape_BlockedByMcpRoot(t *testing.T) {
+	// No t.Parallel(): mutates the package-level mcpRoot/mcpAllowAbsolutePaths
+	// and calls t.Chdir, same reasoning as TestToolCapture_RejectsOutsideCWD.
+	mcpAllowAbsolutePaths = false
+	outsideDir := t.TempDir() // simulates a directory the attacker wants written into
+	cwdDir := t.TempDir()
+	t.Chdir(cwdDir)
+
+	if err := os.Symlink(outsideDir, filepath.Join(cwdDir, "evil_link")); err != nil {
+		t.Fatalf("Symlink: %v", err)
+	}
+
+	root, err := os.OpenRoot(cwdDir)
+	if err != nil {
+		t.Fatalf("OpenRoot: %v", err)
+	}
+	mcpRoot = root
+	t.Cleanup(func() { _ = root.Close(); mcpRoot = nil })
+
+	_, _, captureErr := toolCapture(context.Background(), &mcp.CallToolRequest{},
+		mcpCaptureInput{OutPath: "evil_link/escaped.tar.gz"})
+	if captureErr == nil {
+		t.Fatal("expected an error writing through a directory symlink out of CWD, got nil")
+	}
+
+	entries, err := os.ReadDir(outsideDir)
+	if err != nil {
+		t.Fatalf("ReadDir(%q): %v", outsideDir, err)
+	}
+	if len(entries) != 0 {
+		t.Errorf("a bundle was written into %q through the symlink despite the error: %v", outsideDir, entries)
+	}
+}
+
+// TestToolCapture_McpRootSet_NormalPathStillWorks is the happy-path sibling
+// of the symlink-escape test above: with mcpRoot set (the real `dsd mcp`
+// startup configuration), an ordinary out_path inside CWD must still
+// succeed exactly as it did before mcpRoot existed.
+func TestToolCapture_McpRootSet_NormalPathStillWorks(t *testing.T) {
+	mcpAllowAbsolutePaths = false
+	cwdDir := t.TempDir()
+	t.Chdir(cwdDir)
+
+	root, err := os.OpenRoot(cwdDir)
+	if err != nil {
+		t.Fatalf("OpenRoot: %v", err)
+	}
+	mcpRoot = root
+	t.Cleanup(func() { _ = root.Close(); mcpRoot = nil })
+
+	_, result, captureErr := toolCapture(context.Background(), &mcp.CallToolRequest{},
+		mcpCaptureInput{OutPath: "out.tar.gz"})
+	if captureErr != nil {
+		t.Fatalf("toolCapture with mcpRoot set: %v", captureErr)
+	}
+	if result.Bytes <= 0 {
+		t.Errorf("expected a positive bundle size, got %d", result.Bytes)
+	}
+	if _, statErr := os.Stat(filepath.Join(cwdDir, "out.tar.gz")); statErr != nil {
+		t.Errorf("bundle not found at the expected CWD-relative path: %v", statErr)
+	}
+}
+
+// TestToolReplay_SymlinkEscape_BlockedByMcpRoot is the read-side twin of
+// TestToolCapture_SymlinkEscape_BlockedByMcpRoot: a bundle_path reached
+// through a directory symlink out of CWD must not be read, with mcpRoot set.
+func TestToolReplay_SymlinkEscape_BlockedByMcpRoot(t *testing.T) {
+	mcpAllowAbsolutePaths = false
+	outsideDir := t.TempDir()
+	cwdDir := t.TempDir()
+	t.Chdir(cwdDir)
+
+	// A REAL, loadable bundle outside CWD — not just a canary string — so
+	// that a successful escape would make toolReplay actually succeed
+	// (proving this test would catch the regression, not merely fail for
+	// some unrelated reason such as the content not parsing).
+	secretPath := filepath.Join(outsideDir, "secret-bundle.tar.gz")
+	if err := source.NewBundle().SaveTarball(secretPath); err != nil {
+		t.Fatalf("building the canary bundle: %v", err)
+	}
+	if err := os.Symlink(outsideDir, filepath.Join(cwdDir, "evil_link")); err != nil {
+		t.Fatalf("Symlink: %v", err)
+	}
+
+	root, err := os.OpenRoot(cwdDir)
+	if err != nil {
+		t.Fatalf("OpenRoot: %v", err)
+	}
+	mcpRoot = root
+	t.Cleanup(func() { _ = root.Close(); mcpRoot = nil })
+
+	_, _, replayErr := toolReplay(context.Background(), &mcp.CallToolRequest{},
+		mcpReplayInput{BundlePath: "evil_link/secret-bundle.tar.gz"})
+	if replayErr == nil {
+		t.Fatal("expected an error reading through a directory symlink out of CWD, got nil")
 	}
 }
 
