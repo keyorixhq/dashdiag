@@ -11,6 +11,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Library-level fuzz harnesses** under `internal/fuzzlibs/` covering third-party
+  dependencies DashDiag drives with untrusted input: gopsutil/v4 `/proc` parsers
+  (meminfo, diskstats, mountinfo, mounts, net/dev) via the documented fake-root
+  `common.EnvMap` API, `golang.org/x/net/icmp`/`ipv4`/`ipv6` packet parsers,
+  the MCP JSON-RPC decoder, `go-qrcode` encode, `pelletier/go-toml/v2`,
+  `spf13/viper` config decode, and `charmbracelet/x/ansi` width/strip functions.
+  All committed targets are crash-only and pass; the sweep also surfaced three
+  upstream library defects reported out-of-tree (not reachable in DashDiag).
+
 ### Fixed
 
 - **NFS/disk stale-mount goroutine leak in the long-running MCP server (NFL1).**
