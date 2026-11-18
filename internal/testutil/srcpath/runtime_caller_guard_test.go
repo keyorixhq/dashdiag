@@ -5,6 +5,7 @@ import (
 	"go/parser"
 	"go/token"
 	"io/fs"
+	"os"
 	"path/filepath"
 	"strconv"
 	"strings"
@@ -36,6 +37,12 @@ func TestNoTestOpensFilesViaRuntimeCallerPath(t *testing.T) {
 
 	err := filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
 		if err != nil {
+			// cmd/ tests create and remove temp directories (mcptest-*) while
+			// this walk runs in a parallel package; a vanished entry is not a
+			// violation and must not fail the guard.
+			if os.IsNotExist(err) {
+				return nil
+			}
 			return err
 		}
 		if d.IsDir() {
