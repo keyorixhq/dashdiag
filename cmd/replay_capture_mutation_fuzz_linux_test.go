@@ -58,7 +58,31 @@ import (
 
 	"github.com/keyorixhq/dashdiag/internal/fuzzutil"
 	"github.com/keyorixhq/dashdiag/internal/source"
+	"github.com/keyorixhq/dashdiag/internal/testutil/resource"
 	"github.com/keyorixhq/dashdiag/internal/testutil/srcpath"
+)
+
+// Resource-oracle calibration (PD1). dd2ReplayAllocFactor is the per-bundle-byte
+// allocation ceiling for the load+replay pipeline; calibrated below from the
+// committed fixture's seed replays. dd2ReplayMaxGoroutineDiff is a loose ceiling
+// (the pipeline spawns worker goroutines; under -parallel 2 a sibling worker's
+// goroutines are also visible in the process-global count) — it catches a genuine
+// per-input goroutine leak, not steady-state pool churn.
+// dd2ReplayAllocFactor: a benign replay of the committed 866 KB fixture allocates
+// ~5.5 MB (~6.4x amplification, goroutineΔ=0), measured across all 8 seeds.
+// factor 64 covers that with ~10x headroom and still trips a damaged bundle that
+// forces an order-of-magnitude allocation blow-up. dd2ReplayMaxGoroutineDiff is a
+// loose ceiling (the pipeline spawns worker goroutines and, under -parallel 2, a
+// sibling worker's goroutines are visible in the process-global count); it catches
+// a genuine per-input goroutine leak, not steady-state churn.
+//
+// This target uses resource.Measure + an explicit allocation assertion rather than
+// resource.Check, because the benign replay already takes ~2.1 s and resource.Check's
+// fixed 5 s TimeBudget would false-positive under the shared host's load. Time is
+// instead bounded by the pre-existing 20 s mutationWorkCeiling (unchanged).
+const (
+	dd2ReplayAllocFactor      = 64
+	dd2ReplayMaxGoroutineDiff = 256
 )
 
 // mutationWorkCeiling is the per-input hang/blow-up backstop. Replaying a small
@@ -311,6 +335,14 @@ func FuzzCaptureReplayMutationRobustness(f *testing.F) {
 	if len(blobs) == 0 {
 		f.Fatalf("positive control: baseline bundle has no file/command blobs to damage")
 	}
+	// Resource-oracle input size: the (near-constant) on-disk bundle the replay
+	// pipeline consumes each iteration. One blob is damaged per input, so the
+	// total tree size barely moves; this is the denominator for the per-input
+	// allocation budget.
+	baseTreeBytes := 0
+	for _, v := range baseTree {
+		baseTreeBytes += len(v)
+	}
 
 	// POSITIVE CONTROL: the undamaged baseline must have ≥1 non-OK check, else the
 	// anti-false-OK oracle is vacuous.
@@ -338,6 +370,7 @@ func FuzzCaptureReplayMutationRobustness(f *testing.F) {
 		dd2ApplyDamage(dir, baseTree, blobs, sel, kind, extra)
 
 		var damaged map[string]string
+		var rr resource.Report
 		start := time.Now()
 		func() {
 			defer func() {
@@ -345,17 +378,30 @@ func FuzzCaptureReplayMutationRobustness(f *testing.F) {
 					t.Fatalf("PANIC in replay of damaged bundle (sel=%d kind=%d extra=%q): %v", sel, kind, extra, r)
 				}
 			}()
-			b, err := source.Load(dir)
-			if err != nil {
-				// A damaged bundle that fails to load loudly is fine (fail-closed);
-				// it is NOT a false-OK. Nothing more to check this iteration.
-				return
-			}
-			results, insights, _ := replayBundle(b, false, true, false, false)
-			damaged = verdictMap(results, insights)
+			// Resource oracle: measure the allocation/time of the full load+replay
+			// pipeline over the damaged bundle and record goroutine growth. This is
+			// the memory half of the DD2 oracle (the existing BOUNDED WORK ceiling
+			// and the anti-false-OK verdict assertion are unchanged).
+			rr = resource.Measure(baseTreeBytes, func() {
+				b, err := source.Load(dir)
+				if err != nil {
+					// A damaged bundle that fails to load loudly is fine (fail-closed);
+					// it is NOT a false-OK. Nothing more to check this iteration.
+					return
+				}
+				results, insights, _ := replayBundle(b, false, true, false, false)
+				damaged = verdictMap(results, insights)
+			})
 		}()
 		if elapsed, _ := fuzzutil.EffectiveElapsed(start); elapsed > mutationWorkCeiling {
 			t.Fatalf("BOUNDED WORK: damaged replay took %s (> %s) sel=%d kind=%d", elapsed, mutationWorkCeiling, sel, kind)
+		}
+		if budget := resource.Budget(baseTreeBytes, dd2ReplayAllocFactor); rr.AllocBytes > budget {
+			t.Fatalf("allocation over budget: damaged replay allocated %d B (%.1fx) for a %d B bundle, budget=%d B (factor %dx + floor) sel=%d kind=%d",
+				rr.AllocBytes, rr.Amplification, baseTreeBytes, budget, dd2ReplayAllocFactor, sel, kind)
+		}
+		if rr.GoroutineDiff > dd2ReplayMaxGoroutineDiff {
+			t.Fatalf("goroutine growth: damaged replay left %d extra goroutines (sel=%d kind=%d)", rr.GoroutineDiff, sel, kind)
 		}
 		if damaged == nil {
 			return // load failed — fail-closed, not a false-OK

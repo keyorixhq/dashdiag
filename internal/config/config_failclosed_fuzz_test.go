@@ -4,6 +4,25 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
+
+	"github.com/keyorixhq/dashdiag/internal/testutil/resource"
+)
+
+// Resource-oracle calibration (PD1). config.Load drives spf13/viper +
+// go.yaml.in/yaml. Measured baseline amplifications: a flat valid config ~1065x
+// at 32 B (fixed viper overhead, absorbed by the 1 MiB AllocFloor), a 2000-entry
+// services config ~103x, a 200 KB scalar value ~9x, a degenerate `[[[[` nest
+// ~371x at 4 KB. factor 256 tolerates every one of those legitimate shapes
+// (services 74 KB → 19 MB budget vs 7.6 MB actual) while tripping the
+// go.yaml #510 duplicate-key QUADRATIC the loader is NOT guarded against: a
+// duplicate-key config allocates O(n^2) — 1 KB → 17 MB, 15 KB → 1.15 GB — so it
+// breaches a 256x budget by three orders of magnitude at the smallest size. See
+// the PD1 report, finding PD1-CONFIG-YAML-QUADRATIC. Load spawns no goroutines
+// (measured Δ=0); the disk oracle fingerprints the temp config dir to prove Load
+// writes nothing back.
+const (
+	pd1ConfigAllocFactor = 256
+	pd1MaxGoroutineDiff  = 16
 )
 
 // FuzzConfigLoadFailClosed fuzzes Load — the ~/.dsd.yaml / --config loader —
@@ -45,11 +64,24 @@ func FuzzConfigLoadFailClosed(f *testing.F) {
 	f.Add("42")
 
 	f.Fuzz(func(t *testing.T, yaml string) {
-		p := filepath.Join(t.TempDir(), "config.yaml")
+		dir := t.TempDir()
+		p := filepath.Join(dir, "config.yaml")
 		if err := os.WriteFile(p, []byte(yaml), 0o600); err != nil {
 			t.Fatalf("write config: %v", err)
 		}
-		cfg, err := Load(p)
+		// Resource oracle: bound Load's allocation/time (the #510 quadratic guard),
+		// prove it writes nothing to the config dir, and record goroutine growth.
+		// The fail-closed Validate() assertion below is unchanged.
+		before := resource.Fingerprint(t, dir)
+		var cfg *Config
+		var err error
+		rr := resource.Check(t, len(yaml), pd1ConfigAllocFactor, func() {
+			cfg, err = Load(p)
+		})
+		resource.AssertUnchanged(t, dir, before)
+		if rr.GoroutineDiff > pd1MaxGoroutineDiff {
+			t.Fatalf("goroutine growth: Load left %d extra goroutines (input=%d B)", rr.GoroutineDiff, len(yaml))
+		}
 		if err != nil {
 			return // rejecting a bad config is the correct, safe outcome
 		}
