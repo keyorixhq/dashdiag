@@ -77,6 +77,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Testing
 
+- **XD1 cross-distro verdict & CIS fail-closed fuzzing.** Added two fuzz targets
+  on `internal/cis`, both carrying the shared DL1 resource oracle
+  (`internal/testutil/resource`): `FuzzCISFileHelpersFailClosed` proves the
+  shared file-reading check helpers (`checkSysctl`, `checkSysctlGE`,
+  `checkFilePerm`, `checkBannerContent`, `checkLoginDefsField`) are fail-closed —
+  an unreadable path never PASSes, and a PASS is independently re-derived as
+  genuinely compliant (no false-clean on garbage/partial input) — plus a
+  read-only filesystem fingerprint; `FuzzCISEvaluateCrossDistroVerdictStable`
+  proves `cis.Evaluate`'s per-rule Status/Finding is identical across the
+  apt/dnf/yum/tdnf/zypper/pacman/apk distro families (only remediation text may
+  differ, and only for the documented adaptable FAIL rules), with verdict
+  validity and allocation/time bounds. Both carry deterministic seed + red/green
+  guards that run on every `go test ./internal/cis`.
 - **VI1 generalised verdict integrity.** Added a table-driven verdict-integrity
   fuzz generator over `internal/analysis` check functions
   (`FuzzVerdictIntegrity`, `internal/analysis/vi1_verdict_integrity_fuzz_test.go`):
