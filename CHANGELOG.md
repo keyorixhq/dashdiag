@@ -13,6 +13,22 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **NFS/disk stale-mount goroutine leak in the long-running MCP server (NFL1).**
+  `nfsCheckMount` (`internal/collectors/nfs_linux.go`) and `statfsToFS`
+  (`internal/collectors/disk.go`) each run `syscall.Statfs` in a goroutine they
+  cannot join — a stale NFS/CIFS/FUSE mount parks that syscall in uninterruptible
+  D-state forever, so on the 2 s-timeout (or ctx) path the goroutine is abandoned
+  and never exits. For one-shot `dsd health` this leaked one goroutine per wedged
+  mount until the process exited (bounded). In the long-running `dsd mcp` server
+  (`cmd/mcp.go` `toolHealth` → `runHealthOnce` → `runner.RunAll`) the process
+  persists across many `dsd_health` calls, so every re-probe of the same wedged
+  mount abandoned *another* goroutine + OS thread — unbounded growth. Added a
+  per-collector per-mount in-flight guard (`internal/collectors/statfs_inflight.go`):
+  while a mount's previous `Statfs` probe is still parked, a new probe does not
+  spawn a second goroutine — it reports the mount unresponsive immediately (the
+  same conclusion the parked probe already reached). The guard is keyed by mount
+  path, bounded by the number of distinct live wedged mounts, and self-heals when
+  a mount recovers. No fd was ever leaked (`Statfs` opens no descriptor).
 - **Replay recording-gap false-OK (DD2 fuzzer finding, DD3).** A replayed collector
   that touched an input the bundle never recorded (`Result.NotRecorded`) but produced
   no insight — e.g. the package manager detected as `"unknown"` because the
@@ -50,6 +66,13 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Testing
 
+- **NFL1 stale-mount leak oracle.** Extended the shared resource helper with a
+  unix goroutine+open-fd leak meter (`internal/testutil/resource/leak_unix.go`)
+  and added a leak oracle + fuzz target
+  (`internal/collectors/nfl1_nfs_leak_fuzz_linux_test.go`): driving the probes
+  through a fake source whose `Statfs` blocks forever (never a real mount), it
+  proves goroutine growth stays flat (Δ=1, not Δ=N) across 1000 repeat probes of a
+  wedged mount for both the NFS and disk call sites, and fuzzes mount-set shapes.
 - **DH1 render sanitize hardening, test-first.** The DL1 render-funnel oracle
   `FuzzRenderFunnelNoTerminalInjection` now ASSERTS the no-bidi guarantee it
   previously only reported (re-deriving the rune set independently of
