@@ -11,8 +11,35 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Library-level fuzz harnesses** under `internal/fuzzlibs/` covering third-party
+  dependencies DashDiag drives with untrusted input: gopsutil/v4 `/proc` parsers
+  (meminfo, diskstats, mountinfo, mounts, net/dev) via the documented fake-root
+  `common.EnvMap` API, `golang.org/x/net/icmp`/`ipv4`/`ipv6` packet parsers,
+  the MCP JSON-RPC decoder, `go-qrcode` encode, `pelletier/go-toml/v2`,
+  `spf13/viper` config decode, and `charmbracelet/x/ansi` width/strip functions.
+  All committed targets are crash-only and pass; the sweep also surfaced three
+  upstream library defects reported out-of-tree (not reachable in DashDiag).
+
 ### Fixed
 
+- **NFS/disk stale-mount goroutine leak in the long-running MCP server (NFL1).**
+  `nfsCheckMount` (`internal/collectors/nfs_linux.go`) and `statfsToFS`
+  (`internal/collectors/disk.go`) each run `syscall.Statfs` in a goroutine they
+  cannot join — a stale NFS/CIFS/FUSE mount parks that syscall in uninterruptible
+  D-state forever, so on the 2 s-timeout (or ctx) path the goroutine is abandoned
+  and never exits. For one-shot `dsd health` this leaked one goroutine per wedged
+  mount until the process exited (bounded). In the long-running `dsd mcp` server
+  (`cmd/mcp.go` `toolHealth` → `runHealthOnce` → `runner.RunAll`) the process
+  persists across many `dsd_health` calls, so every re-probe of the same wedged
+  mount abandoned *another* goroutine + OS thread — unbounded growth. Added a
+  per-collector per-mount in-flight guard (`internal/collectors/statfs_inflight.go`):
+  while a mount's previous `Statfs` probe is still parked, a new probe does not
+  spawn a second goroutine — it reports the mount unresponsive immediately (the
+  same conclusion the parked probe already reached). The guard is keyed by mount
+  path, bounded by the number of distinct live wedged mounts, and self-heals when
+  a mount recovers. No fd was ever leaked (`Statfs` opens no descriptor).
 - **Replay recording-gap false-OK (DD2 fuzzer finding, DD3).** A replayed collector
   that touched an input the bundle never recorded (`Result.NotRecorded`) but produced
   no insight — e.g. the package manager detected as `"unknown"` because the
@@ -50,6 +77,39 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Testing
 
+- **XD1 cross-distro verdict & CIS fail-closed fuzzing.** Added two fuzz targets
+  on `internal/cis`, both carrying the shared DL1 resource oracle
+  (`internal/testutil/resource`): `FuzzCISFileHelpersFailClosed` proves the
+  shared file-reading check helpers (`checkSysctl`, `checkSysctlGE`,
+  `checkFilePerm`, `checkBannerContent`, `checkLoginDefsField`) are fail-closed —
+  an unreadable path never PASSes, and a PASS is independently re-derived as
+  genuinely compliant (no false-clean on garbage/partial input) — plus a
+  read-only filesystem fingerprint; `FuzzCISEvaluateCrossDistroVerdictStable`
+  proves `cis.Evaluate`'s per-rule Status/Finding is identical across the
+  apt/dnf/yum/tdnf/zypper/pacman/apk distro families (only remediation text may
+  differ, and only for the documented adaptable FAIL rules), with verdict
+  validity and allocation/time bounds. Both carry deterministic seed + red/green
+  guards that run on every `go test ./internal/cis`.
+- **VI1 generalised verdict integrity.** Added a table-driven verdict-integrity
+  fuzz generator over `internal/analysis` check functions
+  (`FuzzVerdictIntegrity`, `internal/analysis/vi1_verdict_integrity_fuzz_test.go`):
+  each registered check is driven through four oracles that hold for any correct
+  verdict function — (a) metamorphic monotonicity (worsening a monotone metric
+  never improves the verdict), (b) false-OK (a measurement-gap input must surface
+  an Unverified insight, never a silent confident OK), (c) idempotence + order
+  independence of aggregation, (d) the shared DL1 per-input resource bound. Adding
+  a check is one registry entry; CloudInit, Memory, Swap, DiskUsage and Drive are
+  registered. Every oracle has a committed red/green proof
+  (`vi1_verdict_integrity_redgreen_test.go`). Surfaced a determinism lead
+  (`checkNVMe` lists unread-drive names in input order in its aggregated INFO) as
+  an issue-ready proposal.
+- **NFL1 stale-mount leak oracle.** Extended the shared resource helper with a
+  unix goroutine+open-fd leak meter (`internal/testutil/resource/leak_unix.go`)
+  and added a leak oracle + fuzz target
+  (`internal/collectors/nfl1_nfs_leak_fuzz_linux_test.go`): driving the probes
+  through a fake source whose `Statfs` blocks forever (never a real mount), it
+  proves goroutine growth stays flat (Δ=1, not Δ=N) across 1000 repeat probes of a
+  wedged mount for both the NFS and disk call sites, and fuzzes mount-set shapes.
 - **DH1 render sanitize hardening, test-first.** The DL1 render-funnel oracle
   `FuzzRenderFunnelNoTerminalInjection` now ASSERTS the no-bidi guarantee it
   previously only reported (re-deriving the rune set independently of
@@ -87,8 +147,28 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   mitigation). Surfaced
   hardening leads (bidi-override passthrough in `SanitizeControl`; raw DEL/C1 in
   JSON output; unsanitized `RenderStory` check names) as issue-ready proposals.
+
+- **TU1 TUI render-frame escape fuzzing.** Added
+  `FuzzTUIStyledFrameNoHostEscape` (`internal/render`): drives the real
+  lipgloss-styled `dsd health` terminal frame (rows, Details, summary, hints,
+  coverage) with host-derived bytes planted in every field and proves the host
+  contributes no ESC of its own — rendered under a forced `termenv.Ascii` profile
+  (dsd emits zero styling ESC, so any surviving ESC/control is a sanitize gap) and
+  cross-checked against the `termenv.TrueColor` frame with dsd's own CSI-SGR
+  stripped. Carries the DL1 `resource` oracle. Companion
+  `FuzzTUISelectModelKeyStream` (`internal/tui`) fuzzes the bubbletea
+  Single/Multi-select `Update`/`View` under a hostile key stream and arbitrary
+  option counts (incl. empty), asserting no panic and the cursor never leaves
+  bounds. Recorded that the lipgloss/cellbuf display-width path and the raw
+  ICMP-reply parser are not reachable from a live dsd caller (see the TU1 report).
 ### Tests / CI
 
+- **Resource oracle carried on the DS1, DD2 and DV1 fuzz targets (PD1).** The
+  shared `resource.Check` allocation/time/goroutine oracle now bounds the TLS-cert,
+  config, self-update URL, brand-logo, RHEL OVAL, replay-mutation and DV1 verdict
+  targets, with per-target alloc factors calibrated from measured amplification
+  (including a bzip2 block-buffer allowance for OVAL), plus a unit test of the
+  oracle helper.
 - **Capture-replay & cross-distro differential harness (DD2).** A test-only harness
   drives the existing `dsd replay` seam over a directory of real `dsd capture --raw`
   bundles and over the committed `fixtures/replay-fidelity` bundles: a capture×check
@@ -123,6 +203,20 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   (`FuzzValidateAssetURLFailClosed` — `net/url`, validated host matches the dial
   host), and the HTML report's `html/template.URL` logo bypass
   (`FuzzBrandLogoNoAttrInjection` — no `src="..."` attribute break-out).
+
+### Security
+
+- **Package integrity (apt): the dependency check is now strictly read-only and no
+  longer reads a non-root failure as a clean system.** `pkgIntegrityAPT` previously
+  ran a bare `apt-get check`, which rebuilds `/var/cache/apt/pkgcache.bin` (a write on
+  the diagnosed host) and takes the dpkg frontend lock — so as a non-root user it
+  exited 100 with `E: Could not open lock file ... Permission denied`, which matched
+  no unmet-dependency text and left broken dependencies reading as **clean** (a
+  deep-mode false-OK, the same class as the `dnf check` and `zypper verify` fixes). It
+  now runs `apt-get -s -o Debug::NoLocking=true -o Dir::Cache::pkgcache= -o
+  Dir::Cache::srcpkgcache= check` (no cache write, no lock, works unprivileged) and
+  treats any apt error line or unrecognised non-zero exit as `CheckFailed` rather than
+  a silent clean. The read-only argv is pinned in the exec-allowlist contract.
 
 ## [2.7.1] - 2026-11-15
 
