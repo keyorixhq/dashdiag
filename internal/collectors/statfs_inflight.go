@@ -49,38 +49,73 @@ const (
 	nsDisk = "disk\x00"
 )
 
-var statfsInflight = struct {
-	mu sync.Mutex
-	n  map[string]int // "<ns>\x00<mount path>" -> currently-parked statfs probes
-}{n: map[string]int{}}
-
-// statfsProbeBegin records intent to spawn a Statfs probe for (ns, mount). It
-// returns true (incrementing the in-flight count) when the caller MAY spawn; it
-// returns false when a probe for this (ns, mount) is already parked at the cap,
-// in which case the caller must NOT spawn and should report the mount
-// unresponsive.
-func statfsProbeBegin(ns, mount string) bool {
-	key := ns + mount
-	statfsInflight.mu.Lock()
-	defer statfsInflight.mu.Unlock()
-	if statfsInflight.n[key] >= statfsMaxInflightPerMount {
-		return false
-	}
-	statfsInflight.n[key]++
-	return true
+// statfsProbe is one spawned Statfs probe. The caller marks it abandoned when it
+// stops waiting (timeout or ctx cancel); the spawned goroutine ends it if/when
+// Statfs returns.
+type statfsProbe struct {
+	key       string
+	abandoned bool
+	done      bool
 }
 
-// statfsProbeEnd clears one in-flight probe for (ns, mount), called by the
-// spawned goroutine when (if ever) its Statfs returns. A wedged D-state probe
-// never calls this, so the mount stays capped — the bounded steady state we want.
-func statfsProbeEnd(ns, mount string) {
+var statfsInflight = struct {
+	mu        sync.Mutex
+	n         map[string]int // "<ns><mount path>" -> outstanding probes (waited-on or parked)
+	abandoned map[string]int // "<ns><mount path>" -> probes whose caller gave up (parked in D-state)
+}{n: map[string]int{}, abandoned: map[string]int{}}
+
+// statfsProbeBegin registers a Statfs probe for (ns, mount). It returns the probe
+// handle and true when the caller MAY spawn; it returns false only when an
+// ABANDONED probe for this (ns, mount) is still parked — the mount is wedged, so
+// the caller must NOT spawn another goroutine and should report it unresponsive.
+// A probe whose caller is still waiting is not wedged evidence: a healthy statfs
+// returns in microseconds, so two overlapping callers (parallel collectors,
+// overlapping dsd_health calls on the long-running MCP server) must both be
+// allowed to probe rather than the second reading a healthy mount as unresponsive.
+func statfsProbeBegin(ns, mount string) (*statfsProbe, bool) {
 	key := ns + mount
 	statfsInflight.mu.Lock()
 	defer statfsInflight.mu.Unlock()
-	if statfsInflight.n[key] > 0 {
-		statfsInflight.n[key]--
-		if statfsInflight.n[key] == 0 {
-			delete(statfsInflight.n, key) // keep the map bounded by LIVE wedged mounts
+	if statfsInflight.abandoned[key] >= statfsMaxInflightPerMount {
+		return nil, false
+	}
+	statfsInflight.n[key]++
+	return &statfsProbe{key: key}, true
+}
+
+// abandon records that the caller stopped waiting on this probe (deadline or ctx).
+// From now until the probe ends, the mount counts as wedged. No-op if the probe
+// already ended.
+func (p *statfsProbe) abandon() {
+	statfsInflight.mu.Lock()
+	defer statfsInflight.mu.Unlock()
+	if p.done || p.abandoned {
+		return
+	}
+	p.abandoned = true
+	statfsInflight.abandoned[p.key]++
+}
+
+// end clears this probe, called by the spawned goroutine when (if ever) its
+// Statfs returns. A wedged D-state probe never calls this, so the mount stays
+// capped — the bounded steady state we want.
+func (p *statfsProbe) end() {
+	statfsInflight.mu.Lock()
+	defer statfsInflight.mu.Unlock()
+	if p.done {
+		return
+	}
+	p.done = true
+	if statfsInflight.n[p.key] > 0 {
+		statfsInflight.n[p.key]--
+		if statfsInflight.n[p.key] == 0 {
+			delete(statfsInflight.n, p.key) // keep the map bounded by LIVE wedged mounts
+		}
+	}
+	if p.abandoned {
+		statfsInflight.abandoned[p.key]--
+		if statfsInflight.abandoned[p.key] <= 0 {
+			delete(statfsInflight.abandoned, p.key)
 		}
 	}
 }

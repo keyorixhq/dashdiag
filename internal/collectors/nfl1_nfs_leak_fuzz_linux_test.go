@@ -56,6 +56,36 @@ func statfsInflightResetForTest() {
 	statfsInflight.mu.Lock()
 	defer statfsInflight.mu.Unlock()
 	statfsInflight.n = map[string]int{}
+	statfsInflight.abandoned = map[string]int{}
+}
+
+// A healthy mount probed by two overlapping callers must not read as wedged; only
+// a probe whose caller already gave up (abandoned) caps further probes.
+func TestStatfsGuardOverlapAllowedUntilAbandoned(t *testing.T) {
+	statfsInflightResetForTest()
+	t.Cleanup(statfsInflightResetForTest)
+	p1, ok := statfsProbeBegin(nsDisk, "/m")
+	if !ok {
+		t.Fatal("first probe must be allowed")
+	}
+	p2, ok := statfsProbeBegin(nsDisk, "/m")
+	if !ok {
+		t.Fatal("overlapping probe whose peer is still being waited on must be allowed (healthy overlap)")
+	}
+	p1.abandon()
+	if _, ok := statfsProbeBegin(nsDisk, "/m"); ok {
+		t.Fatal("an abandoned (parked) probe must cap further probes")
+	}
+	p1.abandon() // idempotent: must not double-count
+	p2.end()     // the waited-on probe finishing does not clear the parked one
+	if _, ok := statfsProbeBegin(nsDisk, "/m"); ok {
+		t.Fatal("mount stays capped while the abandoned probe is still parked")
+	}
+	p1.end()
+	p1.abandon() // abandon after end is a no-op (race with the goroutine returning)
+	if _, ok := statfsProbeBegin(nsDisk, "/m"); !ok {
+		t.Fatal("after the parked probe returns, the mount must probe again")
+	}
 }
 
 // blockingStatfsSource simulates a wedged NFS mount: Statfs blocks on a shared

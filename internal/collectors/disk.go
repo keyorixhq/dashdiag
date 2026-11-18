@@ -91,14 +91,15 @@ func statfsToFS(e mountEntry) (models.FilesystemInfo, error) {
 	// timeout (same error this function already returns when statfs exceeds the
 	// deadline, which collectMountTable records as an UnreachableMount). Shared
 	// with nfsCheckMount via statfs_inflight.go.
-	if !statfsProbeBegin(nsDisk, e.mountPoint) {
+	probe, ok := statfsProbeBegin(nsDisk, e.mountPoint)
+	if !ok {
 		return models.FilesystemInfo{}, fmt.Errorf("statfs %s skipped — previous probe still blocked (stale mount?)", e.mountPoint)
 	}
 	// stat is goroutine-local so an abandoned (timed-out) call can't race the
 	// caller; the buffered channel lets that goroutine finish and exit cleanly.
 	ch := make(chan result, 1)
 	go func() {
-		defer statfsProbeEnd(nsDisk, e.mountPoint) // clears the in-flight slot if/when statfs returns
+		defer probe.end() // clears the in-flight slot if/when statfs returns
 		stat, err := statFs(e.mountPoint)
 		if err != nil {
 			ch <- result{err: err}
@@ -125,6 +126,7 @@ func statfsToFS(e mountEntry) (models.FilesystemInfo, error) {
 	case r := <-ch:
 		return r.fs, r.err
 	case <-time.After(statfsTimeout):
+		probe.abandon()
 		return models.FilesystemInfo{}, fmt.Errorf("statfs %s timed out (stale mount?)", e.mountPoint)
 	}
 }
