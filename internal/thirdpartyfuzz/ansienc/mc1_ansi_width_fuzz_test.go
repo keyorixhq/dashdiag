@@ -91,20 +91,20 @@ func mc1AnsiSeeds() []string {
 	return []string{
 		"",
 		"plain host-01",
-		"a\x1b[31mred\x1b[0mb",                       // SGR colour around text
-		"\x1b[31m\x1b[1m\x1b[4mstacked\x1b[0m",       // stacked SGR
-		"wide:日本語テキスト",                            // east-asian wide runes
-		"emoji:👨‍👩‍👧‍👦 family",                          // ZWJ grapheme cluster
-		"combining: é́́acute",        // combining marks
-		"osc\x1b]8;;http://x/\x07link\x1b]8;;\x07",   // OSC 8 hyperlink
-		"tab\tand\nnewline",                          // C0 controls
-		"truncated-esc\x1b[",                         // dangling CSI introducer in INPUT
-		"lone-esc\x1b",                               // bare ESC
-		strings.Repeat("x", 300),                     // long ascii
-		strings.Repeat("あ", 200),                     // long wide
-		strings.Repeat("\x1b[31m", 100) + "payload",  // many escapes
-		"bad\xff\xfeutf8",                            // invalid UTF-8
-		"hyphen-at-the-very-edge-breakpoint-word",    // wrap breakpoint
+		"a\x1b[31mred\x1b[0mb",                      // SGR colour around text
+		"\x1b[31m\x1b[1m\x1b[4mstacked\x1b[0m",      // stacked SGR
+		"wide:日本語テキスト",                              // east-asian wide runes
+		"emoji:👨‍👩‍👧‍👦 family",                      // ZWJ grapheme cluster
+		"combining: é́́acute",                      // combining marks
+		"osc\x1b]8;;http://x/\x07link\x1b]8;;\x07",  // OSC 8 hyperlink
+		"tab\tand\nnewline",                         // C0 controls
+		"truncated-esc\x1b[",                        // dangling CSI introducer in INPUT
+		"lone-esc\x1b",                              // bare ESC
+		strings.Repeat("x", 300),                    // long ascii
+		strings.Repeat("あ", 200),                    // long wide
+		strings.Repeat("\x1b[31m", 100) + "payload", // many escapes
+		"bad\xff\xfeutf8",                           // invalid UTF-8
+		"hyphen-at-the-very-edge-breakpoint-word",   // wrap breakpoint
 		"\x1b[38;2;255;0;0mtruecolor\x1b[0m long run",
 	}
 }

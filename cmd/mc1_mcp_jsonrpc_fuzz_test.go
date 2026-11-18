@@ -421,7 +421,7 @@ func mc1MCPSeeds() []string {
 		// A well-formed tools/call that should dispatch to a stub.
 		`{"jsonrpc":"2.0","id":2,"method":"tools/call","params":{"name":"dsd_health","arguments":{"deep":true}}}` + "\n",
 		// Tool arg carrying a terminal-escape payload (must come back escaped).
-		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"dsd_share","arguments":{"format":"[31mred[0m","from_path":"xy"}}}` + "\n",
+		`{"jsonrpc":"2.0","id":3,"method":"tools/call","params":{"name":"dsd_share","arguments":{"format":"` + "\x1b[31mred\x1b[0m" + `","from_path":"x` + "\x07" + `y"}}}` + "\n",
 		// Out-of-schema argument type (deep should be bool).
 		`{"jsonrpc":"2.0","id":4,"method":"tools/call","params":{"name":"dsd_health","arguments":{"deep":"not-a-bool"}}}` + "\n",
 		// Unknown tool name.
@@ -446,7 +446,7 @@ func mc1MCPSeeds() []string {
 		`{"jsonrpc":"2.0","id":11,"method":"tools/call","params":` + strings.Repeat("[", 500) + strings.Repeat("]", 500) + "}\n",
 		// Several frames back to back (concurrent dispatch).
 		`{"jsonrpc":"2.0","id":12,"method":"tools/list"}` + "\n" +
-			`{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"dsd_replay","arguments":{"bundle_path":""}}}` + "\n",
+			`{"jsonrpc":"2.0","id":13,"method":"tools/call","params":{"name":"dsd_replay","arguments":{"bundle_path":"` + "\x1b" + `"}}}` + "\n",
 		// Raw control bytes in the stream.
 		"\x1b[2J\x00\x07\n",
 		// Invalid UTF-8 in a string value.
