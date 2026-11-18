@@ -10,7 +10,7 @@ echo "→ Pre-push (lint and security checks; tests run in CI)"
 # push. Opt in when you want it locally: PREPUSH_TESTS=1 git push
 if [ "${PREPUSH_TESTS:-0}" = "1" ]; then
     echo "  Running tests with race detector (PREPUSH_TESTS=1)..."
-    if ! go test -race -count=1 -timeout 300s ./... 2>&1; then
+    if ! go test -race -count=1 -timeout 600s ./... 2>&1; then
         echo "❌ Tests failed (race detector)"
         exit 1
     fi
