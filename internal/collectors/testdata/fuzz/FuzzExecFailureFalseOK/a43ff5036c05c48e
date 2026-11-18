@@ -1,0 +1,6 @@
+go test fuzz v1
+int(-45)
+int(-28)
+[]byte(" ")
+[]byte("0")
+bool(false)
