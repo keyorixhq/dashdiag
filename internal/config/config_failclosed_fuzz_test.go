@@ -12,16 +12,19 @@ import (
 // go.yaml.in/yaml. Measured baseline amplifications: a flat valid config ~1065x
 // at 32 B (fixed viper overhead, absorbed by the 1 MiB AllocFloor), a 2000-entry
 // services config ~103x, a 200 KB scalar value ~9x, a degenerate `[[[[` nest
-// ~371x at 4 KB. factor 256 tolerates every one of those legitimate shapes
-// (services 74 KB → 19 MB budget vs 7.6 MB actual) while tripping the
+// ~616x at 4-8 KB (measured again at 2.46 MB for 4000 braces: the go.yaml parser
+// keeps per-level state until its own depth cap, after which the cost is flat at
+// ~5.7 MB; see TestConfigDeepNestingAllocationIsBounded). factor 640 tolerates
+// every one of those legitimate shapes (services 74 KB → 48 MB budget vs 7.6 MB
+// actual; 4000 braces → 3.6 MB budget vs 2.46 MB) while tripping the
 // go.yaml #510 duplicate-key QUADRATIC the loader is NOT guarded against: a
 // duplicate-key config allocates O(n^2) — 1 KB → 17 MB, 15 KB → 1.15 GB — so it
-// breaches a 256x budget by three orders of magnitude at the smallest size. See
+// breaches a 640x budget by more than an order of magnitude at the smallest size. See
 // the PD1 report, finding PD1-CONFIG-YAML-QUADRATIC. Load spawns no goroutines
 // (measured Δ=0); the disk oracle fingerprints the temp config dir to prove Load
 // writes nothing back.
 const (
-	pd1ConfigAllocFactor = 256
+	pd1ConfigAllocFactor = 640
 	pd1MaxGoroutineDiff  = 16
 )
 
