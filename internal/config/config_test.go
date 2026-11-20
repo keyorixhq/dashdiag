@@ -3,6 +3,7 @@ package config
 import (
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 )
@@ -103,6 +104,24 @@ func TestLoad_HomeDirUnresolvable(t *testing.T) {
 	}
 	if cfg.Thresholds.DiskWarnPct != defaults.Thresholds.DiskWarnPct {
 		t.Errorf("expected defaults on unresolvable $HOME, got %+v", cfg.Thresholds)
+	}
+}
+
+// TestLoad_ConfigWithoutSecurityKeepsDefaults: a config file that omits the
+// security block keeps the default allowed ports and SSH thresholds (#1205)
+// instead of zeroing them.
+func TestLoad_ConfigWithoutSecurityKeepsDefaults(t *testing.T) {
+	t.Parallel()
+	cfgFile := filepath.Join(t.TempDir(), "test.yaml")
+	if err := os.WriteFile(cfgFile, []byte("thresholds:\n  disk_warn_pct: 70\n"), 0o600); err != nil {
+		t.Fatalf("write config: %v", err)
+	}
+	cfg, err := Load(cfgFile)
+	if err != nil {
+		t.Fatalf("Load: %v", err)
+	}
+	if !reflect.DeepEqual(cfg.Security, defaults.Security) {
+		t.Errorf("Security = %+v, want defaults %+v", cfg.Security, defaults.Security)
 	}
 }
 

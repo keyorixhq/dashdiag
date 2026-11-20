@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/hex"
 	"io"
+	"math"
 	"net"
 	"os"
 	"path/filepath"
@@ -271,7 +272,7 @@ func pingRTT(ctx context.Context, host, srcIP string) (ms, lossPct float64, icmp
 	// (bonds, VMs, containers, multiple default routes) without raw socket quirks.
 	if runtime.GOOS == nqOSLinux {
 		if ms, loss, ok := sysPing(ctx, host, srcIP); ok {
-			return ms, loss, false
+			return reachableRTT(ms), loss, false
 		}
 		// sysPing failed (no ping binary?) — fall through to pro-bing
 	}
@@ -288,7 +289,7 @@ func pingRTT(ctx context.Context, host, srcIP string) (ms, lossPct float64, icmp
 			return -1, 100, false
 		}
 		if ms, loss, ok := tryOnePing(ctx, host, srcIP, privileged); ok {
-			return ms, loss, false
+			return reachableRTT(ms), loss, false
 		}
 	}
 	// ICMP detection said it should work but probes failed anyway.
@@ -300,6 +301,18 @@ func pingRTT(ctx context.Context, host, srcIP string) (ms, lossPct float64, icmp
 	}
 	debug.Log(ctx, nqCatNetwork, "all probes failed", nqKeyHost, host)
 	return -1, 100, false
+}
+
+// reachableRTT keeps a probe that got replies off the -1 "unreachable"
+// sentinel. The RTT comes from a timestamp in the reply payload, so one forged
+// echo reply with a future timestamp gives a negative average; callers read any
+// negative RTT as "no response" and skip the packet-loss check (#1205). Replies
+// did arrive, so report 0 ms rather than unreachable.
+func reachableRTT(ms float64) float64 {
+	if ms < 0 || math.IsNaN(ms) {
+		return 0
+	}
+	return ms
 }
 
 // icmpAvailable reports whether this process can send ICMP probes

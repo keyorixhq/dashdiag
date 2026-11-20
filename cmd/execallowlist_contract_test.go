@@ -261,7 +261,7 @@ var execAllowlistContract = map[string]toolRule{
 	"mongosh":   {prefixes: [][]string{{"--quiet", "--eval", mongoEvalScriptForContract}}},
 	"mongo":     {prefixes: [][]string{{"--quiet", "--eval", mongoEvalScriptForContract}}}, // legacy shell fallback, same script
 	"mysql":     {prefixes: [][]string{{"-e"}}},
-	"psql":      {prefixes: [][]string{{"-c"}}},
+	"psql":      {prefixes: [][]string{{"-X", "-q", "-t", "-A", "-F", "|", "-h", wildcardToken, "-U", "postgres", "-d", "postgres", "-c"}}},
 	"redis-cli": {prefixes: [][]string{{"INFO"}, {"CONFIG", "GET", "maxclients"}}},
 
 	// --- time / clock ---

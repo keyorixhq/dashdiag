@@ -17,7 +17,6 @@ func TestUnmarshal_MatchesLibraryWithoutDuplicates(t *testing.T) {
 		"",
 		"# only a comment\n",
 		"base: &b {x: 1}\nuse:\n  <<: *b\n  y: 2\n",
-		"? [1, 2]\n: seq-key\n? [3]\n: other\n",
 		"a: 1\n---\na: 2\n",    // second document is ignored, like yaml.Unmarshal
 		"1: a\n2: b\n'1': c\n", // int 1 and string "1" are different keys
 	}
@@ -60,6 +59,35 @@ func TestUnmarshal_RejectsDuplicates(t *testing.T) {
 		if err == nil || !strings.Contains(err.Error(), "already defined") {
 			t.Errorf("%s: want a duplicate-key error, got %v", name, err)
 		}
+	}
+}
+
+// TestUnmarshal_RejectsNonScalarKeys: sequence and mapping keys are refused up
+// front, in linear time, instead of reaching the library's quadratic duplicate
+// check (#1205: ~1.6 s for a 24 KB policy of repeated non-scalar keys).
+func TestUnmarshal_RejectsNonScalarKeys(t *testing.T) {
+	cases := map[string]string{
+		"sequence key":  "? [1, 2]\n: seq-key\n",
+		"mapping key":   "? {a: 1}\n: map-key\n",
+		"nested":        "outer:\n  ? [x]\n  : v\n",
+		"alias to list": "l: &l [1]\nm:\n  *l : v\n",
+	}
+	for name, d := range cases {
+		var v any
+		err := Unmarshal([]byte(d), &v)
+		if err == nil || !strings.Contains(err.Error(), "non-scalar mapping keys") {
+			t.Errorf("%s: want a non-scalar key error, got %v", name, err)
+		}
+	}
+	// The #1205 shape: thousands of repeated non-scalar keys must fail fast.
+	big := []byte(strings.Repeat("? [k]\n: v\n", 4000))
+	start := time.Now()
+	var v any
+	if err := Unmarshal(big, &v); err == nil {
+		t.Fatal("want an error for repeated non-scalar keys")
+	}
+	if d := time.Since(start); d > time.Second {
+		t.Fatalf("%d-byte non-scalar-key document took %v", len(big), d)
 	}
 }
 

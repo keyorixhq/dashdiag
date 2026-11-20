@@ -17,9 +17,10 @@ package yamlsafe
 //      bounded by the DL1 resource oracle for EVERY input, including the
 //      duplicate-key documents that make plain yaml allocate ~1.4 GB for 20 KB
 //      (yaml/go-yaml#510). That bound is the whole reason the package exists; the
-//      oracle is what proves it still holds. Merge keys (<<) and non-scalar keys,
-//      which yamlsafe deliberately does NOT dedup, are measured too — a hostile
-//      file leaning on them must still stay within budget.
+//      oracle is what proves it still holds. Merge keys (<<), which yamlsafe
+//      deliberately does NOT dedup, and non-scalar keys, which it rejects
+//      (#1205), are measured too — a hostile file leaning on them must still
+//      stay within budget.
 //
 // Plain yaml.Unmarshal is only ever run AFTER yamlsafe accepted the document, so
 // this target never feeds the #510 quadratic into the unguarded library and

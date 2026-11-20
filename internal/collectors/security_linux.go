@@ -6,7 +6,6 @@ import (
 	"bufio"
 	"context"
 	"encoding/json"
-	"errors"
 	"fmt"
 	"net"
 	"os"
@@ -129,21 +128,29 @@ func parseSSHConfig(ctx context.Context, info *models.SecurityInfo) {
 		}
 	}
 
-	// Fall back to file parsing (works without root, may miss drop-ins on some distros)
-	readAny := parseSSHFile("/etc/ssh/sshd_config", info)
-	for _, pattern := range []string{
-		"/etc/ssh/sshd_config.d/*.conf",
-		"/etc/ssh/sshd_config.d/*.cfg",
-	} {
-		if files, err := glob(pattern); err == nil {
-			for _, f := range files {
-				if parseSSHFile(f, info) {
-					readAny = true
+	// Fall back to file parsing (works without root). The walk follows Include
+	// where it appears and keeps the first obtained value per keyword, as sshd
+	// does (#1203).
+	w := newSSHDConfigWalk(func(key string, fields []string) { applySSHDirective(key, fields, info) })
+	w.file("/etc/ssh/sshd_config", 0)
+	if !w.sawInclude {
+		// No Include in the main file (older layouts, or the file is unreadable):
+		// read the conventional drop-in dirs after it, as before.
+		for _, pattern := range []string{
+			"/etc/ssh/sshd_config.d/*.conf",
+			"/etc/ssh/sshd_config.d/*.cfg",
+		} {
+			if files, err := glob(pattern); err == nil {
+				for _, f := range files {
+					w.file(f, 1)
 				}
 			}
 		}
 	}
-	if readAny {
+	if w.unreadable {
+		info.SSHConfigUnreadable = true
+	}
+	if w.readAny {
 		info.SSHAuditSource = secTypeFile
 	} else {
 		// Neither sshd -T nor any config file was readable. This means there is no
@@ -154,155 +161,103 @@ func parseSSHConfig(ctx context.Context, info *models.SecurityInfo) {
 	}
 }
 
-// parseSSHFile reads a single sshd_config file or drop-in and populates
-// SecurityInfo. Returns true when the file was actually read. A permission-denied
-// open on an existing file flags SSHConfigUnreadable so the analysis layer can
-// say "couldn't audit SSH" instead of silently reporting the secure defaults as
-// real (false-OK); a not-found file just means no SSH config there.
+// parseSSHFile reads a single sshd_config file (and anything it Includes) and
+// populates SecurityInfo. Returns true when the file was actually read. A
+// permission-denied or oversized file flags SSHConfigUnreadable so the analysis
+// layer can say "couldn't audit SSH" instead of silently reporting the secure
+// defaults as real (false-OK); a not-found file just means no SSH config there.
 func parseSSHFile(path string, info *models.SecurityInfo) bool {
-	f, err := openFile(path) // #nosec G304 -- only reads well-known config paths
-	if err != nil {
-		// A permission-denied or too-large read is "present but couldn't be
-		// audited" — must not fall through to the caller treating this as
-		// silently absent (which would report the compiled-in secure defaults
-		// as real verdicts).
-		if os.IsPermission(err) || errors.Is(err, errFileTooLarge) {
-			info.SSHConfigUnreadable = true
-		}
-		return false
+	w := newSSHDConfigWalk(func(key string, fields []string) { applySSHDirective(key, fields, info) })
+	ok := w.file(path, 0)
+	if w.unreadable {
+		info.SSHConfigUnreadable = true
 	}
-	defer f.Close() //nolint:errcheck
-
-	// Total-size cap on the accumulation loop itself (read-bounding-10),
-	// defence-in-depth alongside openFile's own maxCappedFileBytes cap on the
-	// reader it hands back — a config this large is never legitimate.
-	content := new(strings.Builder)
-	buf := make([]byte, 64*1024)
-	total := 0
-	for {
-		n, readErr := f.Read(buf)
-		if n > 0 {
-			remaining := maxCappedFileBytes - total
-			if remaining > 0 {
-				take := n
-				if take > remaining {
-					take = remaining
-				}
-				content.Write(buf[:take])
-				total += take
-			}
-		}
-		if readErr != nil {
-			break
-		}
-	}
-	parseSSHFileContent(content.String(), info)
-	return true
+	return ok
 }
 
-// parseSSHFileContent parses sshd_config content from a string — used by tests.
-func parseSSHFileContent(content string, info *models.SecurityInfo) { //nolint:cyclop // NOSONAR — sshd_config has many independent directives; a flat scan reads clearest
-	scanner := bufio.NewScanner(strings.NewReader(content))
-	// inMatch tracks whether we're inside a conditional `Match` block. Directives
-	// there are per-connection overrides, NOT the global policy we audit — e.g.
-	// `PasswordAuthentication no` globally with `yes` inside `Match Address ...`
-	// is a hardened config, and reading the Match value as global produced a false
-	// "SSH allows password authentication" WARN on the file-parse fallback path.
-	// Global directives precede the first Match; `Match all` returns to global.
-	inMatch := false
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if strings.HasPrefix(line, "#") || line == "" {
-			continue
-		}
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
-		}
-		key := strings.ToLower(fields[0])
-		if key == "match" {
-			inMatch = !strings.EqualFold(fields[1], "all")
-			continue
-		}
-		if inMatch {
-			continue // conditional override — not the global policy
-		}
-		val := strings.ToLower(fields[1])
+// parseSSHFileContent parses sshd_config content from a string (sshd -T output
+// and tests). Match blocks are skipped and the first value per keyword wins;
+// see sshdConfigWalk.
+func parseSSHFileContent(content string, info *models.SecurityInfo) {
+	newSSHDConfigWalk(func(key string, fields []string) { applySSHDirective(key, fields, info) }).text(content, 0)
+}
 
-		switch key {
-		case "permitrootlogin":
-			info.SSHRootLogin = val == secValYes
-			// "without-password" is an alias for "prohibit-password" in older OpenSSH.
-			// Both mean: key-based root login allowed, but not password-based.
-			// This is a weaker restriction than "no" but not as bad as secValYes.
-			info.SSHPermitRoot = val != "no" && val != "prohibit-password" && val != "without-password"
-		case "passwordauthentication":
-			info.SSHPasswordAuth = val == secValYes
-		case "pubkeyauthentication":
-			info.SSHPubkeyAuth = val == secValYes
-		case secTypePort:
-			if p, err := strconv.Atoi(val); err == nil && p != 22 {
-				info.SSHPort = p
-			}
-		case "protocol":
-			// Protocol 1 is deprecated and cryptographically broken
-			if strings.Contains(val, "1") {
-				info.SSHProtocol1 = true
-			}
-		case "maxauthtries":
-			if n, err := strconv.Atoi(val); err == nil {
-				info.SSHMaxAuthTries = n
-			}
-		case "logingracetime":
-			// Value can be "30", "30s", "1m" etc.
-			info.SSHLoginGraceTime = parseSSHDuration(val)
-		case "allowusers":
-			// AllowUsers can be a space-separated list on one line
-			info.SSHAllowUsers = append(info.SSHAllowUsers, fields[1:]...)
-		case "allowgroups":
-			info.SSHAllowGroups = append(info.SSHAllowGroups, fields[1:]...)
-		case "x11forwarding":
-			info.SSHX11Forwarding = val == secValYes
-		case "allowagentforwarding":
-			info.SSHAgentForwarding = val == secValYes
-		case "permitemptypasswords":
-			info.SSHPermitEmptyPwd = val == secValYes
-		case "strictmodes":
-			// StrictModes defaults to yes — only flag when explicitly disabled
-			info.SSHStrictModes = val != "no"
-		case "clientaliveinterval":
-			if n, err := strconv.Atoi(val); err == nil {
-				info.SSHClientAliveInterval = n
-			}
-		case "clientalivecountmax":
-			if n, err := strconv.Atoi(val); err == nil {
-				info.SSHClientAliveCountMax = n
-			}
-		case "ignorerhosts":
-			info.SSHIgnoreRhosts = val != "no"
-		case "hostbasedauthentication":
-			info.SSHHostbasedAuth = val == secValYes
-		case "permituserenvironment":
-			info.SSHPermitUserEnv = val == secValYes
-		case "allowtcpforwarding":
-			info.SSHTCPForwarding = val == secValYes
-		case "loglevel":
-			info.SSHLogLevel = strings.ToUpper(val)
-		case "banner":
-			info.SSHBanner = fields[1] // preserve original case for path
-		case "maxsessions":
-			if n, err := strconv.Atoi(val); err == nil {
-				info.SSHMaxSessions = n
-			}
-		case "maxstartups":
-			info.SSHMaxStartups = fields[1]
-		case "ciphers":
-			info.SSHCiphers = fields[1]
-		case "macs":
-			info.SSHMACs = fields[1]
-		case "kexalgorithms":
-			info.SSHKexAlgorithms = fields[1]
+// applySSHDirective records one global sshd_config directive in info.
+func applySSHDirective(key string, fields []string, info *models.SecurityInfo) { //nolint:cyclop // NOSONAR — sshd_config has many independent directives; a flat switch reads clearest
+	val := strings.ToLower(fields[1])
+	switch key {
+	case "permitrootlogin":
+		info.SSHRootLogin = val == secValYes
+		// "without-password" is an alias for "prohibit-password" in older OpenSSH.
+		// Both mean: key-based root login allowed, but not password-based.
+		// This is a weaker restriction than "no" but not as bad as secValYes.
+		info.SSHPermitRoot = val != "no" && val != "prohibit-password" && val != "without-password"
+	case "passwordauthentication":
+		info.SSHPasswordAuth = val == secValYes
+	case "pubkeyauthentication":
+		info.SSHPubkeyAuth = val == secValYes
+	case secTypePort:
+		if p, err := strconv.Atoi(val); err == nil && p != 22 {
+			info.SSHPort = p
 		}
+	case "protocol":
+		// Protocol 1 is deprecated and cryptographically broken
+		if strings.Contains(val, "1") {
+			info.SSHProtocol1 = true
+		}
+	case "maxauthtries":
+		if n, err := strconv.Atoi(val); err == nil {
+			info.SSHMaxAuthTries = n
+		}
+	case "logingracetime":
+		// Value can be "30", "30s", "1m" etc.
+		info.SSHLoginGraceTime = parseSSHDuration(val)
+	case "allowusers":
+		// AllowUsers can be a space-separated list on one line
+		info.SSHAllowUsers = append(info.SSHAllowUsers, fields[1:]...)
+	case "allowgroups":
+		info.SSHAllowGroups = append(info.SSHAllowGroups, fields[1:]...)
+	case "x11forwarding":
+		info.SSHX11Forwarding = val == secValYes
+	case "allowagentforwarding":
+		info.SSHAgentForwarding = val == secValYes
+	case "permitemptypasswords":
+		info.SSHPermitEmptyPwd = val == secValYes
+	case "strictmodes":
+		// StrictModes defaults to yes — only flag when explicitly disabled
+		info.SSHStrictModes = val != "no"
+	case "clientaliveinterval":
+		if n, err := strconv.Atoi(val); err == nil {
+			info.SSHClientAliveInterval = n
+		}
+	case "clientalivecountmax":
+		if n, err := strconv.Atoi(val); err == nil {
+			info.SSHClientAliveCountMax = n
+		}
+	case "ignorerhosts":
+		info.SSHIgnoreRhosts = val != "no"
+	case "hostbasedauthentication":
+		info.SSHHostbasedAuth = val == secValYes
+	case "permituserenvironment":
+		info.SSHPermitUserEnv = val == secValYes
+	case "allowtcpforwarding":
+		info.SSHTCPForwarding = val == secValYes
+	case "loglevel":
+		info.SSHLogLevel = strings.ToUpper(val)
+	case "banner":
+		info.SSHBanner = fields[1] // preserve original case for path
+	case "maxsessions":
+		if n, err := strconv.Atoi(val); err == nil {
+			info.SSHMaxSessions = n
+		}
+	case "maxstartups":
+		info.SSHMaxStartups = fields[1]
+	case "ciphers":
+		info.SSHCiphers = fields[1]
+	case "macs":
+		info.SSHMACs = fields[1]
+	case "kexalgorithms":
+		info.SSHKexAlgorithms = fields[1]
 	}
 }
 

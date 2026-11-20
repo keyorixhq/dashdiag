@@ -71,17 +71,18 @@ func parseDarwinSSHConfig(info *models.SecurityInfo) {
 	info.SSHIgnoreRhosts = true // IgnoreRhosts yes (default)
 	info.SSHPasswordAuth = true // PasswordAuthentication yes (macOS default)
 
-	paths := []string{"/etc/ssh/sshd_config"}
-	if dropins, err := glob("/etc/ssh/sshd_config.d/*.conf"); err == nil {
-		paths = append(paths, dropins...)
-	}
-	readAny := false
-	for _, p := range paths {
-		if parseDarwinSSHFile(p, info) {
-			readAny = true
+	// macOS sshd_config starts with "Include /etc/ssh/sshd_config.d/*"; the walk
+	// expands it in place and keeps the first value per keyword (#1203).
+	w := newSSHDConfigWalk(func(key string, fields []string) { applyDarwinSSHDirective(key, fields, info) })
+	w.file("/etc/ssh/sshd_config", 0)
+	if !w.sawInclude {
+		if dropins, err := glob("/etc/ssh/sshd_config.d/*.conf"); err == nil {
+			for _, p := range dropins {
+				w.file(p, 1)
+			}
 		}
 	}
-	if !readAny {
+	if !w.readAny {
 		// Same rule as the linux parser: with no readable config the OpenSSH
 		// defaults set above are assumptions, not an audit. Mark unreadable so
 		// analysis and CIS skip the SSH checks instead of reporting them as verdicts.
@@ -89,51 +90,34 @@ func parseDarwinSSHConfig(info *models.SecurityInfo) {
 	}
 }
 
-// parseDarwinSSHFile parses the SSH keys that drive checkSecurity() heuristics.
-// It deliberately covers only those keys — not a full sshd_config parse.
-// It returns true when the file was read.
-func parseDarwinSSHFile(path string, info *models.SecurityInfo) bool {
-	data, err := readFile(path) // #nosec G304 -- well-known config path
-	if err != nil {
-		return false
-	}
-	scanner := bufio.NewScanner(strings.NewReader(string(data)))
-	for scanner.Scan() {
-		line := strings.TrimSpace(scanner.Text())
-		if strings.HasPrefix(line, "#") || line == "" {
-			continue
+// applyDarwinSSHDirective records the SSH keys that drive checkSecurity()
+// heuristics. It deliberately covers only those keys — not a full sshd_config
+// parse.
+func applyDarwinSSHDirective(key string, fields []string, info *models.SecurityInfo) {
+	val := strings.ToLower(fields[1])
+	switch key {
+	case "permitrootlogin":
+		info.SSHRootLogin = val == "yes"
+		info.SSHPermitRoot = val != "no" && val != "prohibit-password" && val != "without-password"
+	case "passwordauthentication":
+		info.SSHPasswordAuth = val == "yes"
+	case "strictmodes":
+		info.SSHStrictModes = val != "no"
+	case "permitemptypasswords":
+		info.SSHPermitEmptyPwd = val == "yes"
+	case "maxauthtries":
+		if n, err := strconv.Atoi(val); err == nil {
+			info.SSHMaxAuthTries = n
 		}
-		fields := strings.Fields(line)
-		if len(fields) < 2 {
-			continue
+	case "clientaliveinterval":
+		if n, err := strconv.Atoi(val); err == nil {
+			info.SSHClientAliveInterval = n
 		}
-		key := strings.ToLower(fields[0])
-		val := strings.ToLower(fields[1])
-		switch key {
-		case "permitrootlogin":
-			info.SSHRootLogin = val == "yes"
-			info.SSHPermitRoot = val != "no" && val != "prohibit-password" && val != "without-password"
-		case "passwordauthentication":
-			info.SSHPasswordAuth = val == "yes"
-		case "strictmodes":
-			info.SSHStrictModes = val != "no"
-		case "permitemptypasswords":
-			info.SSHPermitEmptyPwd = val == "yes"
-		case "maxauthtries":
-			if n, err := strconv.Atoi(val); err == nil {
-				info.SSHMaxAuthTries = n
-			}
-		case "clientaliveinterval":
-			if n, err := strconv.Atoi(val); err == nil {
-				info.SSHClientAliveInterval = n
-			}
-		case "clientalivecountmax":
-			if n, err := strconv.Atoi(val); err == nil {
-				info.SSHClientAliveCountMax = n
-			}
+	case "clientalivecountmax":
+		if n, err := strconv.Atoi(val); err == nil {
+			info.SSHClientAliveCountMax = n
 		}
 	}
-	return true
 }
 
 // parseDarwinListeningPorts uses lsof (macOS has no /proc/net/tcp).
