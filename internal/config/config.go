@@ -208,6 +208,11 @@ func Load(cfgFile string) (*Config, error) {
 	v.SetDefault("thresholds.fd_warn_pct", defaults.Thresholds.FDWarnPct)
 	v.SetDefault("thresholds.fd_crit_pct", defaults.Thresholds.FDCritPct)
 	v.SetDefault("logs.since_minutes", defaults.Logs.SinceMinutes)
+	// Without these, any config file that omits the security block zeroed
+	// AllowedPorts and both SSH thresholds (#1205).
+	v.SetDefault("security.allowed_ports", defaults.Security.AllowedPorts)
+	v.SetDefault("security.ssh_failed_login_warn", defaults.Security.SSHFailedLoginWarn)
+	v.SetDefault("security.ssh_failed_login_crit", defaults.Security.SSHFailedLoginCrit)
 
 	if err := v.ReadInConfig(); err != nil {
 		var notFound viper.ConfigFileNotFoundError

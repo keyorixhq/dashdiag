@@ -36,6 +36,22 @@ func TestPrintQRCode_EmptyURL(t *testing.T) {
 	}
 }
 
+// TestPrintQRCode_AllControlURL: a URL made only of control characters is
+// empty once sanitised, so nothing is printed (#1205; it used to print a
+// dangling "Scan or visit: " / "QR: " line).
+func TestPrintQRCode_AllControlURL(t *testing.T) {
+	for _, mode := range []OutputMode{ModeHuman, ModePlain} {
+		out := captureStdout(t, func() {
+			if err := PrintQRCode("\x1b\a\x00\r\n", mode); err != nil {
+				t.Errorf("expected nil error, got %v", err)
+			}
+		})
+		if out != "" {
+			t.Errorf("mode %v: expected no output for an all-control url, got: %q", mode, out)
+		}
+	}
+}
+
 func TestPrintQRCode_PlainMode(t *testing.T) {
 	withTTY(t, true, func() {
 		out := captureStdout(t, func() {

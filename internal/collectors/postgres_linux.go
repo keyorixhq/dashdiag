@@ -114,18 +114,13 @@ func collectPostgresMetrics(ctx context.Context, dir string, info *models.Postgr
 		"COALESCE(EXTRACT(EPOCH FROM (now()-pg_last_xact_replay_timestamp())),-1), " +
 		"COALESCE(pg_last_wal_receive_lsn() = pg_last_wal_replay_lsn(), true)"
 
-	base := []string{"-X", "-q", "-t", "-A", "-F", "|", "-h", dir, "-U", "postgres", "-d", "postgres", "-c", sql}
-	var out string
-	var err error
-	if geteuid() == 0 {
-		// Run as the postgres OS user for peer auth; -n so sudo never blocks on a
-		// password prompt (just fails → graceful degrade).
-		out, err = runCmd(ctx, "sudo", append([]string{"-n", "-u", "postgres", "--", "psql"}, base...)...)
-	} else {
-		out, err = runCmd(ctx, "psql", base...)
-	}
+	// psql runs as the invoking user only. dsd never switches to the postgres OS
+	// user (no sudo -u postgres, #1224): a read-only, agentless snapshot must not
+	// change identity. Root usually fails peer auth here and degrades to "couldn't
+	// look", with a hint to run dsd as the postgres user.
+	out, err := runCmd(ctx, "psql", "-X", "-q", "-t", "-A", "-F", "|", "-h", dir, "-U", "postgres", "-d", "postgres", "-c", sql)
 	if err != nil {
-		info.StatusReason = "connection/replication metrics unavailable (need postgres or root access)"
+		info.StatusReason = "connection/replication metrics unavailable (run dsd as the postgres OS user for peer auth)"
 		return
 	}
 	parsePostgresRow(strings.TrimSpace(out), info)

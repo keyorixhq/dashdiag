@@ -190,3 +190,21 @@ func TestParseDarwinSSHConfig_ReadableConfigIsNotFlagged(t *testing.T) {
 		t.Error("SSHConfigUnreadable = true for a readable sshd_config")
 	}
 }
+
+// TestParseDarwinSSHConfig_IncludeFirstValueWins: macOS sshd_config starts
+// with "Include /etc/ssh/sshd_config.d/*", so a drop-in's value is obtained
+// first and wins over the main file and later drop-ins (#1203).
+func TestParseDarwinSSHConfig_IncludeFirstValueWins(t *testing.T) {
+	b := source.NewBundle()
+	b.PutFile("/etc/ssh/sshd_config", []byte("Include /etc/ssh/sshd_config.d/*\nPasswordAuthentication no\n"))
+	b.PutGlob("/etc/ssh/sshd_config.d/*", []string{"/etc/ssh/sshd_config.d/100-macos.conf", "/etc/ssh/sshd_config.d/200-hardening.conf"})
+	b.PutFile("/etc/ssh/sshd_config.d/100-macos.conf", []byte("PasswordAuthentication yes\n"))
+	b.PutFile("/etc/ssh/sshd_config.d/200-hardening.conf", []byte("PasswordAuthentication no\n"))
+	prev := SetSource(source.NewReplay(b))
+	t.Cleanup(func() { SetSource(prev) })
+	info := &models.SecurityInfo{}
+	parseDarwinSSHConfig(info)
+	if !info.SSHPasswordAuth {
+		t.Error("SSHPasswordAuth = false, want true: sshd uses the first obtained value (100-macos.conf)")
+	}
+}

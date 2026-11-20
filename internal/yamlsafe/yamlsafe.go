@@ -41,7 +41,10 @@ func Unmarshal(data []byte, v any) error {
 // CheckDuplicateKeys returns an error naming the first mapping key that appears
 // twice in the same mapping anywhere under n. Scalar keys are compared by their
 // decoded value, so 1, 01 and 0x1 count as the same key, as they do in the library.
-// Non-scalar keys and merge keys (<<) are skipped; the library still checks those.
+// Non-scalar keys (a sequence or mapping used as a key) are rejected outright:
+// no DashDiag file uses them, and the library's own duplicate check for them is
+// quadratic (about 1.6 s for a 24 KB policy of repeated non-scalar keys, #1205).
+// Merge keys (<<) are skipped; the library still checks those.
 func CheckDuplicateKeys(n *yaml.Node) error {
 	return walk(n, 0)
 }
@@ -64,6 +67,9 @@ func walk(n *yaml.Node, depth int) error {
 			k := n.Content[i]
 			if k.Kind == yaml.AliasNode && k.Alias != nil {
 				k = k.Alias
+			}
+			if k.Kind == yaml.MappingNode || k.Kind == yaml.SequenceNode {
+				return fmt.Errorf("line %d: non-scalar mapping keys are not supported", n.Content[i].Line)
 			}
 			if k.Kind == yaml.ScalarNode && k.Tag != "!!merge" {
 				var key any
