@@ -137,10 +137,8 @@ func (c *IOCollector) Collect(ctx context.Context) (any, error) {
 		return nil, fmt.Errorf("parsing diskstats (1st): %w", err)
 	}
 
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case <-time.After(1 * time.Second):
+	if err := sampleGapWait(ctx, time.Second); err != nil {
+		return nil, err
 	}
 
 	f2, err := openFile(c.diskstatsPath)

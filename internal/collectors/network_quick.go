@@ -187,12 +187,19 @@ func probeConnectivity(ctx context.Context, gatewayIP, srcIP string, result *mod
 	var p connectivityProbe
 	// cachedJSON records the probe on a live/capture pass and serves it on replay
 	// WITHOUT re-running ping/DNS — those are live network ops that would otherwise
-	// hit the replaying machine. On a recording gap (old bundle) p stays zero; the
-	// gateway IP is deterministic on replay (derived from captured route reads), so a
-	// single fixed key is stable.
-	_ = cachedJSON("net/connectivity", func() (any, error) {
+	// hit the replaying machine. The gateway IP is deterministic on replay (derived
+	// from captured route reads), so a single fixed key is stable. An unreadable
+	// probe (recording gap, or an empty/garbled cache blob) decodes to the zero
+	// value — 0 ms latency, DNS ok — which would read as a healthy network, so it
+	// is reported as not measured instead.
+	if err := cachedJSON("net/connectivity", func() (any, error) {
 		return runConnectivityProbes(ctx, gatewayIP, srcIP), nil
-	}, &p)
+	}, &p); err != nil {
+		debug.Log(ctx, nqCatNetwork, "probe unreadable", "err", err)
+		result.ConnectivityProbeDisabled = true
+		result.Bonds = collectBonds()
+		return
+	}
 	debug.Log(ctx, nqCatNetwork, "probe results",
 		"gw_ms", p.GatewayMs, "gw_loss_pct", p.GatewayLoss,
 		"inet_ms", p.InternetMs, "inet_loss_pct", p.InternetLoss,

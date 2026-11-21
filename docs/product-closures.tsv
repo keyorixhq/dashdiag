@@ -63,3 +63,5 @@ GH-1205-RTT	./internal/collectors	TestReachableRTT	TBD-on-merge	a probe that got
 GH-1205-CONFIG	./internal/config	TestLoad_ConfigWithoutSecurityKeepsDefaults	TBD-on-merge	a config file without a security block keeps the default allowed ports and SSH thresholds
 GH-1205-QR	./internal/output	TestPrintQRCode_AllControlURL	TBD-on-merge	PrintQRCode sanitises before its empty check, so an all-control URL prints nothing
 GH-1205-YAML	./internal/yamlsafe	TestUnmarshal_RejectsNonScalarKeys	TBD-on-merge	yamlsafe rejects non-scalar mapping keys in linear time instead of reaching the library's quadratic duplicate check
+DRP1-CLOCK	./internal/collectors	TestCollectLinux_ReplayMissingClockStateIsNotRecorded	TBD-on-merge	a replay bundle missing clock/state reports not_recorded instead of reading the replaying machine's live clock
+DRP1-SAMPLEGAP	./internal/collectors	TestTwoSampleCollectorsPromptOnReplay	TBD-on-merge	the I/O and swap collectors do not wait the live sample gap on replay
