@@ -97,10 +97,8 @@ func (c *SwapCollector) Collect(ctx context.Context) (any, error) {
 	pin1, pout1, err1 := parseVMStat(r1)
 	_ = r1.Close()
 
-	select {
-	case <-ctx.Done():
-		return nil, ctx.Err()
-	case <-time.After(time.Second):
+	if err := sampleGapWait(ctx, time.Second); err != nil {
+		return nil, err
 	}
 
 	// Sample 2

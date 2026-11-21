@@ -3,6 +3,7 @@ package collectors
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 	"runtime"
 	"strings"
 	"time"
@@ -74,14 +75,22 @@ func liveClockState() clockState {
 
 func (c *ClockCollector) collectLinux(info *models.ClockInfo) (any, error) {
 	// Route the live read through Source so it is recorded by capture and replayed
-	// faithfully. On replay of a bundle predating this key, Cached returns
-	// ErrNotRecorded and we fall back to a live read (never block a live run).
+	// faithfully. On replay a bundle that lacks this key (older, or damaged) must
+	// NOT fall back to a live read: that would report the replaying machine's
+	// clock as the captured host's, a healthy-looking false-OK. Surface the gap
+	// (not_recorded) instead. On a live run the fallback keeps the check running.
 	var st clockState
-	if b, err := curSource().Cached("clock/state", func() ([]byte, error) {
+	b, err := curSource().Cached("clock/state", func() ([]byte, error) {
 		return json.Marshal(liveClockState())
-	}); err == nil {
-		_ = json.Unmarshal(b, &st)
-	} else {
+	})
+	switch {
+	case err == nil:
+		if uerr := json.Unmarshal(b, &st); uerr != nil {
+			return nil, fmt.Errorf("decoding recorded clock/state: %w", uerr)
+		}
+	case sourceIsReplaying():
+		return nil, fmt.Errorf("reading clock/state: %w", err)
+	default:
 		st = liveClockState()
 	}
 	info.Synced, info.OffsetMs, info.Source = st.Synced, st.OffsetMs, st.Source
