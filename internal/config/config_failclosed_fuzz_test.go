@@ -12,16 +12,19 @@ import (
 // go.yaml.in/yaml. Measured baseline amplifications: a flat valid config ~1065x
 // at 32 B (fixed viper overhead, absorbed by the 1 MiB AllocFloor), a 2000-entry
 // services config ~103x, a 200 KB scalar value ~9x, a degenerate `[[[[` nest
-// ~371x at 4 KB. factor 256 tolerates every one of those legitimate shapes
-// (services 74 KB → 19 MB budget vs 7.6 MB actual) while tripping the
-// go.yaml #510 duplicate-key QUADRATIC the loader is NOT guarded against: a
-// duplicate-key config allocates O(n^2) — 1 KB → 17 MB, 15 KB → 1.15 GB — so it
-// breaches a 256x budget by three orders of magnitude at the smallest size. See
-// the PD1 report, finding PD1-CONFIG-YAML-QUADRATIC. Load spawns no goroutines
-// (measured Δ=0); the disk oracle fingerprints the temp config dir to prove Load
-// writes nothing back.
+// ~371x at 4 KB, a degenerate `{{{` flow-mapping nest ~616x raw / 504x effective
+// (net of floor) peaking at 10 KB then plateauing at ~6.1 MB (go-yaml's internal
+// nesting-depth limit). factor 640 tolerates every one of those legitimate shapes
+// while tripping the go.yaml #510 duplicate-key QUADRATIC the loader is NOT
+// guarded against: a duplicate-key config allocates O(n^2) — 1 KB → 11 MB, well
+// above the 640x budget of 1.7 MB — so it breaches by 6.7x at the smallest size.
+// The `{{{` nesting is a distinct mechanism from #510 (linear depth cost, O(n),
+// vs quadratic sibling-key cost, O(n^2)); the plateau bounds its worst-case
+// allocation regardless of input size. See the DSCFG1 report. Load spawns no
+// goroutines (measured Δ=0); the disk oracle fingerprints the temp config dir to
+// prove Load writes nothing back.
 const (
-	pd1ConfigAllocFactor = 256
+	pd1ConfigAllocFactor = 640
 	pd1MaxGoroutineDiff  = 16
 )
 

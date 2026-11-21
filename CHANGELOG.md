@@ -24,6 +24,19 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ### Fixed
 
+- **Config loader allocation oracle recalibrated for `{{{` flow-mapping nesting
+  (DSCFG1, fuzz-corpus #154).** A fuzz corpus input of ~4 KB of repeated `{` bytes
+  allocated ~2.5 MB (616× amplification), breaching the 256× oracle budget. Measured
+  scaling at 16 sizes (100 B – 128 KB): behavior is O(n) in nesting depth (linear,
+  not quadratic) with allocation capping at ~6.1 MB once go-yaml's internal nesting-
+  depth limit is reached (~10 KB input). This is a distinct mechanism from the
+  duplicate-key O(n²) defect (go.yaml #510) the oracle was originally tuned to detect.
+  Recalibrated `pd1ConfigAllocFactor` from 256 to 640 (22% headroom above the worst
+  measured effective amplification of 504×); the duplicate-key quadratic still breaches
+  the new budget by 6.7× at 1 KB (11.4 MB vs 1.7 MB). Corpus seed added to prevent
+  regression. No production-code change; the fail-closed Validate() invariant is
+  unchanged.
+
 - **NFS/disk stale-mount goroutine leak in the long-running MCP server (NFL1).**
   `nfsCheckMount` (`internal/collectors/nfs_linux.go`) and `statfsToFS`
   (`internal/collectors/disk.go`) each run `syscall.Statfs` in a goroutine they
