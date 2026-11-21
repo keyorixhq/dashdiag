@@ -22,8 +22,21 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   All committed targets are crash-only and pass; the sweep also surfaced three
   upstream library defects reported out-of-tree (not reachable in DashDiag).
 
+- **Replay robustness targets (DRP1).** A drop-one sweep and fuzz target that damage
+  each recorded blob in a capture bundle and assert no check flips CRIT/WARN to OK
+  (lost input must surface as not_recorded), plus connectivity-gap and
+  sample-gap-replay tests. Findings are written up in
+  `docs/fuzz/dd3-replay-gap-verdict.md`.
+
 ### Fixed
 
+- **`dsd replay` no longer waits out the live sample gap, and a missing `clock/state`
+  is no longer reported healthy.** The I/O and swap collectors slept the 1 s
+  inter-sample gap on replay although both samples read the same recorded bytes
+  (delta 0), making replay wall-clock dependent; the gap is now skipped on a replay
+  source. The Clock collector fell back to a live `adjtimex` read when `clock/state`
+  was absent from a bundle, presenting the replaying machine's clock as the captured
+  host's (false-OK); it now reports `not_recorded`. Live runs are unchanged.
 - **NFS/disk stale-mount goroutine leak in the long-running MCP server (NFL1).**
   `nfsCheckMount` (`internal/collectors/nfs_linux.go`) and `statfsToFS`
   (`internal/collectors/disk.go`) each run `syscall.Statfs` in a goroutine they
