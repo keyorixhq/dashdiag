@@ -210,18 +210,27 @@ func collectorGoroutines() int {
 	return strings.Count(goroutineStacks(), collectFrameMarker)
 }
 
-// settleCollectors polls collectorGoroutines until it is stable across two
-// consecutive reads (short-lived non-hanger Collect goroutines have exited), or
-// gives up after maxTries. Returns the stable count.
+// settleStableReads is how many consecutive equal reads (10ms apart) count as
+// settled. Two reads proved too few: a sibling test's collector goroutine that
+// drains ~20ms later inflated the baseline (surplus -1 on slow macOS runners).
+const settleStableReads = 6
+
+// settleCollectors polls collectorGoroutines until it is stable across
+// settleStableReads consecutive reads (short-lived non-hanger Collect goroutines
+// have exited), or gives up after maxTries. Returns the stable count.
 func settleCollectors(maxTries int) int {
 	prev := collectorGoroutines()
+	stable := 1
 	for i := 0; i < maxTries; i++ {
 		time.Sleep(10 * time.Millisecond)
 		cur := collectorGoroutines()
-		if cur == prev {
+		if cur != prev {
+			prev, stable = cur, 1
+			continue
+		}
+		if stable++; stable >= settleStableReads {
 			return cur
 		}
-		prev = cur
 	}
 	return prev
 }
