@@ -359,6 +359,12 @@ type drp1Flip struct {
 // (and asserted by the dedicated guards once classified), not hard-failed here, so
 // the matrix is always produced for triage even when a real defect is present.
 func TestDRP1ReplayDamageSweep(t *testing.T) {
+	// The full (input x damage) matrix replays every blob under every class
+	// serially — minutes of wall clock, past the 600s CI package timeout. It is a
+	// triage generator, so it is opt-in; the committed guards run always.
+	if os.Getenv("DRP1_SWEEP") == "" {
+		t.Skip("exhaustive DRP1 sweep is opt-in: set DRP1_SWEEP=1")
+	}
 	dd2CapParallelism()
 	out := dd2OutDir(t)
 
