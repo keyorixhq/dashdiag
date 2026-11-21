@@ -11,6 +11,8 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.7.2] - 2026-11-21
+
 ### Added
 
 - **Library-level fuzz harnesses** under `internal/fuzzlibs/` covering third-party
