@@ -298,7 +298,7 @@ type drp1Case struct {
 func drp1Cases(baseTree map[string][]byte) []drp1Case {
 	blobs := drp1AllBlobs(baseTree)
 	cachedSet := drp1CachedBlobSet(baseTree)
-	var cases []drp1Case
+	cases := make([]drp1Case, 0, len(drp1Classes)*len(blobs))
 	for _, blob := range blobs {
 		ck, isCached := cachedSet[blob]
 		for _, cl := range drp1Classes {
@@ -373,8 +373,8 @@ func TestDRP1ReplayDamageSweep(t *testing.T) {
 	}
 	report.WriteString(".\n\n")
 
-	var allFlips []drp1Flip     // protected violations across fixtures
-	var allInfoFlips []drp1Flip // INFO->OK observations across fixtures
+	allFlips := make([]drp1Flip, 0, 16)     // protected violations across fixtures
+	allInfoFlips := make([]drp1Flip, 0, 16) // INFO->OK observations across fixtures
 	var worstWall time.Duration
 	var worstAlloc uint64
 	var totalCases int
@@ -410,7 +410,7 @@ func TestDRP1ReplayDamageSweep(t *testing.T) {
 			t.Fatalf("writeTree base: %v", err)
 		}
 
-		var fxFlips []drp1Flip   // protected (WARN/CRIT/ERROR) -> OK : hard violations
+		var fxFlips []drp1Flip     // protected (WARN/CRIT/ERROR) -> OK : hard violations
 		var fxInfoFlips []drp1Flip // INFO -> OK : reported observations
 		var panics, loadFails, applied int
 		for _, c := range cases {
@@ -545,7 +545,7 @@ func TestDRP1ReplayDamageSweep(t *testing.T) {
 }
 
 func sortedKeys(m map[string]string) []string {
-	var k []string
+	k := make([]string, 0, len(m))
 	for s := range m {
 		k = append(k, s)
 	}
@@ -554,7 +554,7 @@ func sortedKeys(m map[string]string) []string {
 }
 
 func sortedMapKeys(m map[string]int) []string {
-	var k []string
+	k := make([]string, 0, len(m))
 	for s := range m {
 		k = append(k, s)
 	}
