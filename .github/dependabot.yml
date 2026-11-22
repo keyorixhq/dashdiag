@@ -2,6 +2,10 @@ version: 2
 updates:
   - package-ecosystem: "gomod"
     directory: "/"
+    # Indirect dependencies are skipped by default, so a stale transitive pin
+    # (e.g. go-toml/v2 via viper) never got a bump PR. They join the same groups.
+    allow:
+      - dependency-type: all
     schedule:
       interval: "weekly"
       day: "monday"
