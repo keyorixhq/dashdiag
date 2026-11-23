@@ -264,7 +264,7 @@ func TestRootHelpFunc_NetworkExemptCommandOmitsFlag(t *testing.T) {
 	fleetCmd.SetErr(&buf)
 	hf(fleetCmd, nil)
 	out := buf.String()
-	if strings.Contains(out, "--network ") {
+	if strings.Contains(out, "--network ") || strings.Contains(out, "--network[") {
 		t.Errorf("fleet is network-flag-exempt — --network must not appear in its help, got:\n%s", out)
 	}
 	if !strings.Contains(out, "Usage:") {
@@ -277,7 +277,7 @@ func TestRootHelpFunc_NetworkExemptCommandOmitsFlag(t *testing.T) {
 	historyCmd.SetOut(&buf2)
 	historyCmd.SetErr(&buf2)
 	hf(historyCmd, nil)
-	if !strings.Contains(buf2.String(), "--network ") {
+	if !strings.Contains(buf2.String(), "--network ") && !strings.Contains(buf2.String(), "--network[") {
 		t.Errorf("history is NOT network-flag-exempt — expected --network in its help, got:\n%s", buf2.String())
 	}
 }
