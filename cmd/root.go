@@ -193,7 +193,8 @@ func printUsageWithoutNetworkFlag(cmd *cobra.Command) {
 	lines := strings.Split(strings.TrimSuffix(buf.String(), "\n"), "\n")
 	kept := make([]string, 0, len(lines))
 	for _, line := range lines {
-		if strings.Contains(line, "--network ") {
+		// pflag >= 1.1 renders bool flags as "--network[=true|false]".
+		if strings.Contains(line, "--network ") || strings.Contains(line, "--network[") {
 			continue
 		}
 		kept = append(kept, line)

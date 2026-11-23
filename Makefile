@@ -142,7 +142,7 @@ lint-linux:
 .PHONY: license-check
 license-check:
 	@command -v go-licenses >/dev/null 2>&1 || { echo "⚠️  go-licenses not installed — run: make tools"; exit 0; }
-	go-licenses check ./... --allowed_licenses=MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,MPL-2.0
+	go-licenses check ./... --allowed_licenses=MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,MPL-2.0 --ignore github.com/segmentio/asm
 
 # ── TESTING ───────────────────────────────────────────────────────────────────
 .PHONY: test

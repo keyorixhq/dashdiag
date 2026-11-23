@@ -571,7 +571,9 @@ jobs:
       - name: Install go-licenses
         run: go install github.com/google/go-licenses@v1.6.0
       - name: Check dependency licenses
-        run: go-licenses check ./... --allowed_licenses=MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,MPL-2.0
+        # segmentio/asm >= v1.2 is MIT-0 (MIT No Attribution, strictly more
+        # permissive than MIT) which go-licenses cannot classify (reports "").
+        run: go-licenses check ./... --allowed_licenses=MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,MPL-2.0 --ignore github.com/segmentio/asm
 
   # Guards the install front door — a P0 (broken one-liner for every new user,
   # #123) slipped through because install.sh had ZERO automated coverage. This
