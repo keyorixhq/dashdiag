@@ -1,6 +1,6 @@
 name: 'DashDiag Health Gate'
 description: 'Install dsd (checksum-verified) and gate CI on a read-only system-health verdict.'
-author: 'Keyorix SL'
+author: 'Keyorix S.L.'
 branding:
   icon: 'activity'
   color: 'green'

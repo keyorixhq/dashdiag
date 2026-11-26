@@ -14,6 +14,7 @@ production incidents people would actually diagnose.
 
 ## Infrastructure / Ops
 
+- [ ] **Contact addresses: tidy up (added 2026-11-26).** The dashdiag.sh site (`dashdiag-landing`) now uses `abeshkov@keyorix.com` as the only contact (the `hello@dashdiag.sh` mailbox does not exist). Later: set up a proper project mailbox, update the site footers/legal/privacy pages and the Formspree notification address, and fix `maintainer`/`vendor` in `packaging/nfpm/nfpm.yaml` (still `hello@dashdiag.sh`).
 - [ ] **Deploy fuzzing VM fix — update vCD VMs after keyorix PR #1220 merges (2026-07-29).** Script fix (`notify-on-crash.sh`) auto-arrives via `git reset --hard origin/main` on the next rotation cycle; three manual steps per VM: (1) add `GH_TOKEN=<pat>` to `/etc/keyorix-fuzz/config.env` (PAT scopes: Contents Read + Pull requests Read+Write); (2) `rm /opt/keyorix-fuzz/state/notified-*` (clears stale dedup markers written during the silent-failure period — crashes attempted but never reported); (3) `systemctl restart keyorix-fuzz.service` to load the new env var. Without this, crash PRs continue to fail silently.
 
 ---

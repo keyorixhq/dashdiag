@@ -563,7 +563,7 @@ list of network-adjacent call sites and what each one is for.
 
 ## Built by
 
-[Keyorix SL](https://keyorix.io) — Valencia, Spain.
+[Keyorix S.L.](https://keyorix.io) — Valencia, Spain.
 
 ---
 
