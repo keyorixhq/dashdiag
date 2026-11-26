@@ -1,7 +1,7 @@
 {
   "name": "dashdiag",
   "owner": {
-    "name": "Keyorix SL",
+    "name": "Keyorix S.L.",
     "url": "https://keyorix.io"
   },
   "description": "Read-only Linux/macOS system health diagnostics via the dsd MCP server.",
@@ -13,7 +13,7 @@
       "description": "Diagnose a Linux/macOS host with dsd — read-only, no network, no host changes. Registers the dsd MCP server plus a /diagnose command.",
       "version": "2.3.2",
       "author": {
-        "name": "Keyorix SL",
+        "name": "Keyorix S.L.",
         "url": "https://keyorix.io"
       },
       "homepage": "https://dashdiag.sh",
