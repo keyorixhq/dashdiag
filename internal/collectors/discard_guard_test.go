@@ -156,6 +156,11 @@ func derivedHelperNames(t *testing.T) map[string]bool {
 			}
 		}
 	}
+	// 3. Argument-checking wrappers (argsafe.go) forward to the exec helpers via a
+	// callback, so the curSource() derivation above cannot see through them; list
+	// them so a discard through a wrapper is held to the same rule.
+	names["runSystemctl"] = true
+	names["guarded"] = true
 	return names
 }
 

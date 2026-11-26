@@ -5,6 +5,7 @@ import (
 	"context"
 	"encoding/hex"
 	"io"
+	"math"
 	"net"
 	"os"
 	"path/filepath"
@@ -186,12 +187,19 @@ func probeConnectivity(ctx context.Context, gatewayIP, srcIP string, result *mod
 	var p connectivityProbe
 	// cachedJSON records the probe on a live/capture pass and serves it on replay
 	// WITHOUT re-running ping/DNS — those are live network ops that would otherwise
-	// hit the replaying machine. On a recording gap (old bundle) p stays zero; the
-	// gateway IP is deterministic on replay (derived from captured route reads), so a
-	// single fixed key is stable.
-	_ = cachedJSON("net/connectivity", func() (any, error) {
+	// hit the replaying machine. The gateway IP is deterministic on replay (derived
+	// from captured route reads), so a single fixed key is stable. An unreadable
+	// probe (recording gap, or an empty/garbled cache blob) decodes to the zero
+	// value — 0 ms latency, DNS ok — which would read as a healthy network, so it
+	// is reported as not measured instead.
+	if err := cachedJSON("net/connectivity", func() (any, error) {
 		return runConnectivityProbes(ctx, gatewayIP, srcIP), nil
-	}, &p)
+	}, &p); err != nil {
+		debug.Log(ctx, nqCatNetwork, "probe unreadable", "err", err)
+		result.ConnectivityProbeDisabled = true
+		result.Bonds = collectBonds()
+		return
+	}
 	debug.Log(ctx, nqCatNetwork, "probe results",
 		"gw_ms", p.GatewayMs, "gw_loss_pct", p.GatewayLoss,
 		"inet_ms", p.InternetMs, "inet_loss_pct", p.InternetLoss,
@@ -271,7 +279,7 @@ func pingRTT(ctx context.Context, host, srcIP string) (ms, lossPct float64, icmp
 	// (bonds, VMs, containers, multiple default routes) without raw socket quirks.
 	if runtime.GOOS == nqOSLinux {
 		if ms, loss, ok := sysPing(ctx, host, srcIP); ok {
-			return ms, loss, false
+			return reachableRTT(ms), loss, false
 		}
 		// sysPing failed (no ping binary?) — fall through to pro-bing
 	}
@@ -288,7 +296,7 @@ func pingRTT(ctx context.Context, host, srcIP string) (ms, lossPct float64, icmp
 			return -1, 100, false
 		}
 		if ms, loss, ok := tryOnePing(ctx, host, srcIP, privileged); ok {
-			return ms, loss, false
+			return reachableRTT(ms), loss, false
 		}
 	}
 	// ICMP detection said it should work but probes failed anyway.
@@ -300,6 +308,18 @@ func pingRTT(ctx context.Context, host, srcIP string) (ms, lossPct float64, icmp
 	}
 	debug.Log(ctx, nqCatNetwork, "all probes failed", nqKeyHost, host)
 	return -1, 100, false
+}
+
+// reachableRTT keeps a probe that got replies off the -1 "unreachable"
+// sentinel. The RTT comes from a timestamp in the reply payload, so one forged
+// echo reply with a future timestamp gives a negative average; callers read any
+// negative RTT as "no response" and skip the packet-loss check (#1205). Replies
+// did arrive, so report 0 ms rather than unreachable.
+func reachableRTT(ms float64) float64 {
+	if ms < 0 || math.IsNaN(ms) {
+		return 0
+	}
+	return ms
 }
 
 // icmpAvailable reports whether this process can send ICMP probes
@@ -627,7 +647,7 @@ func detectGatewayLinux() routeInfo {
 func detectRouteSrcIP(ctx context.Context, dest string) string {
 	rCtx, cancel := context.WithTimeout(ctx, 1*time.Second)
 	defer cancel()
-	out, err := runCmd(rCtx, "ip", "route", "get", dest)
+	out, err := guarded(validOperand, "destination", dest, func() (string, error) { return runCmd(rCtx, "ip", "route", "get", dest) })
 	if err != nil {
 		return ""
 	}
@@ -696,7 +716,7 @@ func readIfaceSpeed(name string) int {
 func readIfaceSpeedDarwin(name string) int {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	out, err := runCmd(ctx, "networksetup", "-getmedia", name)
+	out, err := guarded(validOperand, "interface name", name, func() (string, error) { return runCmd(ctx, "networksetup", "-getmedia", name) })
 	if err != nil || out == "" {
 		return 0
 	}
@@ -839,7 +859,7 @@ func collectWiFiInfo(iface string) *models.WiFiInfo {
 func collectWiFiIwconfig(iface string, w *models.WiFiInfo) {
 	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
 	defer cancel()
-	out, err := runCmd(ctx, "iwconfig", iface)
+	out, err := guarded(validIfaceName, "interface name", iface, func() (string, error) { return runCmd(ctx, "iwconfig", iface) })
 	if err != nil || strings.TrimSpace(out) == "" {
 		return
 	}

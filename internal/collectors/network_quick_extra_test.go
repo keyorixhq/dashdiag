@@ -255,3 +255,17 @@ func TestPingRTT_ICMPUnavailable_TCPSucceeds(t *testing.T) {
 		t.Errorf("pingRTT: partial/no loss must report non-negative ms, got ms=%v loss=%v", ms, loss)
 	}
 }
+
+// TestReachableRTT: a probe that got replies must never land on the -1
+// "unreachable" sentinel, even when a forged reply's payload timestamp makes
+// the average RTT negative (#1205).
+func TestReachableRTT(t *testing.T) {
+	t.Parallel()
+	for _, tc := range []struct{ in, want float64 }{
+		{-1, 0}, {-0.001, 0}, {-1e9, 0}, {0, 0}, {0.66, 0.66}, {250, 250},
+	} {
+		if got := reachableRTT(tc.in); got != tc.want {
+			t.Errorf("reachableRTT(%v) = %v, want %v", tc.in, got, tc.want)
+		}
+	}
+}

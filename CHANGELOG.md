@@ -11,6 +11,270 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+## [2.7.2] - 2026-11-21
+
+### Added
+
+- **Library-level fuzz harnesses** under `internal/fuzzlibs/` covering third-party
+  dependencies DashDiag drives with untrusted input: gopsutil/v4 `/proc` parsers
+  (meminfo, diskstats, mountinfo, mounts, net/dev) via the documented fake-root
+  `common.EnvMap` API, `golang.org/x/net/icmp`/`ipv4`/`ipv6` packet parsers,
+  the MCP JSON-RPC decoder, `go-qrcode` encode, `pelletier/go-toml/v2`,
+  `spf13/viper` config decode, and `charmbracelet/x/ansi` width/strip functions.
+  All committed targets are crash-only and pass; the sweep also surfaced three
+  upstream library defects reported out-of-tree (not reachable in DashDiag).
+
+- **Replay robustness targets (DRP1).** A drop-one sweep and fuzz target that damage
+  each recorded blob in a capture bundle and assert no check flips CRIT/WARN to OK
+  (lost input must surface as not_recorded), plus connectivity-gap and
+  sample-gap-replay tests. Findings are written up in
+  `docs/fuzz/dd3-replay-gap-verdict.md`.
+
+### Fixed
+
+- **`dsd replay` no longer waits out the live sample gap, and a missing `clock/state`
+  is no longer reported healthy.** The I/O and swap collectors slept the 1 s
+  inter-sample gap on replay although both samples read the same recorded bytes
+  (delta 0), making replay wall-clock dependent; the gap is now skipped on a replay
+  source. The Clock collector fell back to a live `adjtimex` read when `clock/state`
+  was absent from a bundle, presenting the replaying machine's clock as the captured
+  host's (false-OK); it now reports `not_recorded`. Live runs are unchanged.
+- **NFS/disk stale-mount goroutine leak in the long-running MCP server (NFL1).**
+  `nfsCheckMount` (`internal/collectors/nfs_linux.go`) and `statfsToFS`
+  (`internal/collectors/disk.go`) each run `syscall.Statfs` in a goroutine they
+  cannot join — a stale NFS/CIFS/FUSE mount parks that syscall in uninterruptible
+  D-state forever, so on the 2 s-timeout (or ctx) path the goroutine is abandoned
+  and never exits. For one-shot `dsd health` this leaked one goroutine per wedged
+  mount until the process exited (bounded). In the long-running `dsd mcp` server
+  (`cmd/mcp.go` `toolHealth` → `runHealthOnce` → `runner.RunAll`) the process
+  persists across many `dsd_health` calls, so every re-probe of the same wedged
+  mount abandoned *another* goroutine + OS thread — unbounded growth. Added a
+  per-collector per-mount in-flight guard (`internal/collectors/statfs_inflight.go`):
+  while a mount's previous `Statfs` probe is still parked, a new probe does not
+  spawn a second goroutine — it reports the mount unresponsive immediately (the
+  same conclusion the parked probe already reached). The guard is keyed by mount
+  path, bounded by the number of distinct live wedged mounts, and self-heals when
+  a mount recovers. No fd was ever leaked (`Statfs` opens no descriptor).
+- **Replay recording-gap false-OK (DD2 fuzzer finding, DD3).** A replayed collector
+  that touched an input the bundle never recorded (`Result.NotRecorded`) but produced
+  no insight — e.g. the package manager detected as `"unknown"` because the
+  `apt-get --version` probe was dropped — left its check silently reading `OK`:
+  `markNotRecorded` can only relabel insights that already exist, so an empty verdict
+  stayed empty. `ApplyThresholds` now synthesizes an Unverified `INFO`
+  (`unverified_reason: not_recorded`) when the collector's data shows it could not
+  identify what it was checking (today: Packages with an unknown manager), so a lost
+  input surfaces as unknown rather than healthy. A gap alone is not enough: healthy
+  collectors also emit nothing, and older bundles miss presence probes they tolerate,
+  which would flip verified checks to INFO. Replay-only (`NotRecorded` is never
+  set on a live run), so live `dsd health` output is unchanged.
+
+### Security
+
+- **Strip Unicode bidi-override/isolate runes in terminal-output sanitization
+  (DH1).** `output.SanitizeControl` — and its documented mirrors
+  `source.SanitizeControl` and `inventory.stripControl` — now also remove the
+  bidirectional formatting runes U+202A–202E, U+2066–2069, U+200E/U+200F and
+  U+061C. These are Unicode category Cf, which `unicode.IsControl` does not
+  catch, so a hostile hostname or process name carrying a right-to-left override
+  previously survived into pasted markdown/share/post-mortem reports and could
+  visually reorder a line — making a `FAIL` read `OK` to a human (the
+  Trojan-Source / CVE-2021-42574 class). The legitimate ZERO WIDTH JOINER
+  (U+200D) and emoji variation selectors are untouched.
+- **Sanitize host-influenced check names in the remaining render sinks (DH1).**
+  `RenderStory` (`ins.Check` / `CheckResult.Name`), the `--post-mortem` incident
+  title, and the Nagios plugin line (`--nagios`) now run check names through
+  `SanitizeControl` like every other funnel; the Nagios line additionally maps a
+  check-name `|` to `/` so it cannot inject or truncate perfdata. The
+  `--prometheus` path was already safe by construction (label values are reduced
+  to `[a-z0-9_]`). The `--json` machine format is unchanged: its raw DEL/C1
+  passthrough is now documented as not terminal-safe (pipe through a sanitizer
+  before display) rather than altered, since consumers compare the exact bytes.
+
+### Testing
+
+- **XD1 cross-distro verdict & CIS fail-closed fuzzing.** Added two fuzz targets
+  on `internal/cis`, both carrying the shared DL1 resource oracle
+  (`internal/testutil/resource`): `FuzzCISFileHelpersFailClosed` proves the
+  shared file-reading check helpers (`checkSysctl`, `checkSysctlGE`,
+  `checkFilePerm`, `checkBannerContent`, `checkLoginDefsField`) are fail-closed —
+  an unreadable path never PASSes, and a PASS is independently re-derived as
+  genuinely compliant (no false-clean on garbage/partial input) — plus a
+  read-only filesystem fingerprint; `FuzzCISEvaluateCrossDistroVerdictStable`
+  proves `cis.Evaluate`'s per-rule Status/Finding is identical across the
+  apt/dnf/yum/tdnf/zypper/pacman/apk distro families (only remediation text may
+  differ, and only for the documented adaptable FAIL rules), with verdict
+  validity and allocation/time bounds. Both carry deterministic seed + red/green
+  guards that run on every `go test ./internal/cis`.
+- **VI1 generalised verdict integrity.** Added a table-driven verdict-integrity
+  fuzz generator over `internal/analysis` check functions
+  (`FuzzVerdictIntegrity`, `internal/analysis/vi1_verdict_integrity_fuzz_test.go`):
+  each registered check is driven through four oracles that hold for any correct
+  verdict function — (a) metamorphic monotonicity (worsening a monotone metric
+  never improves the verdict), (b) false-OK (a measurement-gap input must surface
+  an Unverified insight, never a silent confident OK), (c) idempotence + order
+  independence of aggregation, (d) the shared DL1 per-input resource bound. Adding
+  a check is one registry entry; CloudInit, Memory, Swap, DiskUsage and Drive are
+  registered. Every oracle has a committed red/green proof
+  (`vi1_verdict_integrity_redgreen_test.go`). Surfaced a determinism lead
+  (`checkNVMe` lists unread-drive names in input order in its aggregated INFO) as
+  an issue-ready proposal.
+- **NFL1 stale-mount leak oracle.** Extended the shared resource helper with a
+  unix goroutine+open-fd leak meter (`internal/testutil/resource/leak_unix.go`)
+  and added a leak oracle + fuzz target
+  (`internal/collectors/nfl1_nfs_leak_fuzz_linux_test.go`): driving the probes
+  through a fake source whose `Statfs` blocks forever (never a real mount), it
+  proves goroutine growth stays flat (Δ=1, not Δ=N) across 1000 repeat probes of a
+  wedged mount for both the NFS and disk call sites, and fuzzes mount-set shapes.
+- **DH1 render sanitize hardening, test-first.** The DL1 render-funnel oracle
+  `FuzzRenderFunnelNoTerminalInjection` now ASSERTS the no-bidi guarantee it
+  previously only reported (re-deriving the rune set independently of
+  `SanitizeControl`), with a red→green proof. Added per-sink table tests:
+  `SanitizeControl` bidi stripping, `RenderStory` (single-point and history
+  paths), `RenderPostMortem` title, `NagiosLine`/`nagiosText`, and the Prometheus
+  label safety property.
+
+- **MC1 third-party-library fuzzing (MCP / viper / x/ansi).** Three fuzz targets,
+  one directory per library, each carrying the shared `internal/testutil/resource`
+  oracle: `FuzzMCPServerHostileJSONRPC` (drives the real `mcp.Server` over an
+  in-memory `IOTransport` with hostile raw JSON-RPC — malformed/batched frames,
+  huge/wrong-typed ids, unknown methods, injection and out-of-schema tool
+  arguments, partial frames; oracles: no panic, bounded work, terminal-safe
+  output framing, in-schema dispatch), `FuzzViperConfigDifferential` (the
+  `config.Load` decode→unmarshal→validate pipeline across yaml/json/toml/ini/env;
+  oracle: viper's key store agrees with the decoded+validated `config.Config` the
+  collectors use, bounded/typed-error), and `FuzzAnsiWidthTruncateWrap` (the
+  x/ansi width/truncate/wrap layer reached through lipgloss on host-derived text;
+  oracles: width-bound, idempotent, no ESC introduced). Invariants in
+  `INVARIANTS.d/mc1-thirdparty-{mcp,viper,ansi}.md`. Surfaced one lead: the viper
+  YAML config backend decodes a flat mapping in O(n²) in sibling-key count (JSON
+  is linear) — a bounded-work CANDIDATE reachable via `config.Load`'s 1 MiB
+  implicit-config path and the uncapped `--config` path.
+
+- **DL1 dependency-and-claims fuzzing.** Added a shared per-input resource oracle
+  (`internal/testutil/resource`: `TotalAlloc`/time/goroutine budget + unix
+  filesystem fingerprint for the read-only claim) and three fuzz targets that
+  carry it: `FuzzRenderFunnelNoTerminalInjection` (host strings through the
+  markdown/share/post-mortem/JSON builders emit no raw ESC/C1/control),
+  `FuzzMCPSafeBundlePathContainment` (every accepted MCP path stays inside the
+  cwd subtree — the read-only/no-escape boundary), and `FuzzYAMLSafeDiffAndBound`
+  (yamlsafe-accepted documents decode identically under plain `yaml.Unmarshal`,
+  and yamlsafe stays within budget — the standing guard on the go-yaml #510
+  mitigation). Surfaced
+  hardening leads (bidi-override passthrough in `SanitizeControl`; raw DEL/C1 in
+  JSON output; unsanitized `RenderStory` check names) as issue-ready proposals.
+
+- **TU1 TUI render-frame escape fuzzing.** Added
+  `FuzzTUIStyledFrameNoHostEscape` (`internal/render`): drives the real
+  lipgloss-styled `dsd health` terminal frame (rows, Details, summary, hints,
+  coverage) with host-derived bytes planted in every field and proves the host
+  contributes no ESC of its own — rendered under a forced `termenv.Ascii` profile
+  (dsd emits zero styling ESC, so any surviving ESC/control is a sanitize gap) and
+  cross-checked against the `termenv.TrueColor` frame with dsd's own CSI-SGR
+  stripped. Carries the DL1 `resource` oracle. Companion
+  `FuzzTUISelectModelKeyStream` (`internal/tui`) fuzzes the bubbletea
+  Single/Multi-select `Update`/`View` under a hostile key stream and arbitrary
+  option counts (incl. empty), asserting no panic and the cursor never leaves
+  bounds. Recorded that the lipgloss/cellbuf display-width path and the raw
+  ICMP-reply parser are not reachable from a live dsd caller (see the TU1 report).
+### Tests / CI
+
+- **Resource oracle carried on the DS1, DD2 and DV1 fuzz targets (PD1).** The
+  shared `resource.Check` allocation/time/goroutine oracle now bounds the TLS-cert,
+  config, self-update URL, brand-logo, RHEL OVAL, replay-mutation and DV1 verdict
+  targets, with per-target alloc factors calibrated from measured amplification
+  (including a bzip2 block-buffer allowance for OVAL), plus a unit test of the
+  oracle helper.
+- **Capture-replay & cross-distro differential harness (DD2).** A test-only harness
+  drives the existing `dsd replay` seam over a directory of real `dsd capture --raw`
+  bundles and over the committed `fixtures/replay-fidelity` bundles: a capture×check
+  verdict matrix, a determinism/no-panic oracle (three replays identical), a
+  sibling-parity check (sanitize-vs-raw twins asserted verdict-identical), and a new
+  `FuzzCaptureReplayMutationRobustness` fuzz target that applies one
+  information-destroying mutation to a single captured file or command output and
+  requires no panic, bounded work, and no non-OK check silently flipping to `OK`.
+  The 49-capture tests skip unless a capture dir is provided, so CI stays green on the
+  committed fixtures. Surfaced a replay fail-open when a derived-state cache
+  (`clock/state`, `net/connectivity`) is absent from a bundle.
+- **Verdict-integrity fuzzing of the analysis-layer health verdict (DV1).** Three
+  new fuzz targets whose oracle is the VERDICT (`models.Insight.Level`), not a
+  panic, aimed at the "false OK" defect class in `BUGS.md` — the tool rendering a
+  system healthy when it has not verified. They exercise the live
+  `checkNVMe`/`checkDisk`/`checkCloudInit` heuristics dispatched by
+  `applyOne`: `FuzzDriveVerdictMonotonic` (a failing SMART attribute or an unread
+  drive must never read as a silent OK — the BUG-048 smartctl/nvme family),
+  `FuzzDiskUsageVerdictMonotonic` (disk-full is monotone; a writable fs remounted
+  read-only is not OK), and `FuzzCloudInitVerdictFalseOK` (a failed cloud-init is
+  CRIT, an unreadable status is disclosed). Each ships an INVARIANT note, a seed
+  corpus, and a documented red/green proof (false-OK planted → oracle fires →
+  reverted; no plant committed).
+- **Reachability-first fuzzing of untrusted third-party / stdlib sinks (DS1).**
+  Five new verdict-aware fuzz targets for parsers that take attacker-influenced
+  bytes and had no coverage: TLS certificate expiry
+  (`FuzzParseCertFileExpiryVerdict` — `pem.Decode`/`x509.ParseCertificate`, no
+  silent drop + correct expired sign), the Red Hat OVAL feed path
+  (`FuzzParseRHELOVALVerdict` — `bzip2`/`xml`, fails loudly on a definition-less
+  feed), config loading (`FuzzConfigLoadFailClosed` — viper/yaml, `Load` never
+  accepts a config its own `Validate()` rejects), the self-update asset URL
+  (`FuzzValidateAssetURLFailClosed` — `net/url`, validated host matches the dial
+  host), and the HTML report's `html/template.URL` logo bypass
+  (`FuzzBrandLogoNoAttrInjection` — no `src="..."` attribute break-out).
+
+### Security
+
+- **Package integrity (apt): the dependency check is now strictly read-only and no
+  longer reads a non-root failure as a clean system.** `pkgIntegrityAPT` previously
+  ran a bare `apt-get check`, which rebuilds `/var/cache/apt/pkgcache.bin` (a write on
+  the diagnosed host) and takes the dpkg frontend lock — so as a non-root user it
+  exited 100 with `E: Could not open lock file ... Permission denied`, which matched
+  no unmet-dependency text and left broken dependencies reading as **clean** (a
+  deep-mode false-OK, the same class as the `dnf check` and `zypper verify` fixes). It
+  now runs `apt-get -s -o Debug::NoLocking=true -o Dir::Cache::pkgcache= -o
+  Dir::Cache::srcpkgcache= check` (no cache write, no lock, works unprivileged) and
+  treats any apt error line or unrecognised non-zero exit as `CheckFailed` rather than
+  a silent clean. The read-only argv is pinned in the exec-allowlist contract.
+
+## [2.7.1] - 2026-11-15
+
+### Security
+
+- **Hardened argument handling when invoking host tools**, and unit-name
+  validation now accepts the root mount and slice units.
+- **Go toolchain bumped to 1.27.4** (GO-2026-6859, `net/http` HTTP/1 server crash);
+  also used by the Docker build image, Makefile and Azure helper.
+
+### Changed
+
+- **YAML parsing migrated to `go.yaml.in/yaml/v4`** (`gopkg.in/yaml.v3` is archived).
+- **gopsutil migrated from v3 to v4.26.10**; `xo/terminfo` bumped to v1.3.1.
+
+### Fixed
+
+- **`SanitizeControl` replaces invalid UTF-8** instead of passing it through.
+
+### Tests / CI
+
+- Exec-allowlist contract lists `ethtool -S`, and the AWS not-on-EC2 test skips on
+  real EC2 hosts, so the suite passes on EC2-hosted runners.
+- New redaction-canary oracle, locale/format metamorphic fuzzing, cgo guard,
+  and opt-in taint fuzz harnesses; the dropped macOS 14 runner is gone from CI.
+
+### Security
+
+- **Duplicate keys in a `--policy` or mock fixture file are rejected in linear time.** The
+  YAML library takes O(n²) time and memory on a mapping that repeats a key and reports the
+  error only afterwards: a 20 KB file allocated about 1.4 GB, and the 1 MiB file-size cap does
+  not bound that (reported upstream at yaml/go-yaml#510). The files are now parsed to a node
+  tree first and the first duplicate key fails the load. Files without duplicate keys behave
+  as before (#1179).
+
+### Changed
+
+- **YAML parsing moves to the maintained `go.yaml.in/yaml/v4`.** `gopkg.in/yaml.v3` was
+  archived upstream in April 2025 and receives no fixes; v3 of the YAML organization's fork
+  gets security fixes only, and development is on v4. `--policy` files, `share`, `capture`,
+  `mock` and `demo` now use `go.yaml.in/yaml/v4` v4.0.0 through the classic API, which keeps
+  v3-compatible settings. Output and policy handling are unchanged.
+
 ## [2.7.0] - 2026-10-29
 
 ### Added

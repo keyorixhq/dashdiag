@@ -35,8 +35,7 @@ jobs:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7
       - uses: actions/setup-go@b7ad1dad31e06c5925ef5d2fc7ad053ef454303e # v7.0.0
         with:
-          go-version: '1.26'
-          check-latest: true
+          go-version-file: go.mod
           cache: true
       - name: Run discovered fuzz targets (shard ${{ matrix.shard }}/2)
         run: scripts/run-fuzz-targets.sh all 5m ${{ matrix.shard }} 2

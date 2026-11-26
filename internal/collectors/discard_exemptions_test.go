@@ -52,7 +52,6 @@ var discardExemptions = map[string]string{
 	"internal/collectors/memcached_linux.go:memcachedCmdSampled":                   "the closure never returns an error: failure is carried in the cached {Out, Ok} pair, and callers read Ok",
 	"internal/collectors/netaccess.go:dialOutcome":                                 "documented: the probe outcome is recorded as one byte and a recording gap (older bundle) returns dialUnreachable by design",
 	"internal/collectors/network_deep.go:NetworkDeepCollector.Collect":             rsCachedNoErr,
-	"internal/collectors/network_quick.go:probeConnectivity":                       "closure never errors; a recording gap leaves the zero probe, which the Disabled/ICMPBlocked/DNSFailed flags already qualify (documented at the call)",
 	"internal/collectors/networkd_config_linux.go:NetworkdAvailable":               rsGlobVetted,
 	"internal/collectors/networkd_config_linux.go:NetworkdConfigCollector.Collect": rsGlobChecked,
 	"internal/collectors/numa_linux.go:IsNUMAPresent":                              rsGlobVetted,

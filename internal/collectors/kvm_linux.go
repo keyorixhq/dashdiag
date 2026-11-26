@@ -166,7 +166,7 @@ var kvmEmulatedDiskBuses = map[string]bool{"ide": true, "sata": true}
 // fields (emulated NIC/disk detection + missing backing-file detection).
 // Silent on any read/parse failure — say nothing rather than guess.
 func kvmCollectXMLDeep(ctx context.Context, vm *models.KVMVM) {
-	out, err := runCmd(ctx, "virsh", "dumpxml", vm.Name)
+	out, err := guarded(validOperand, "VM name", vm.Name, func() (string, error) { return runCmd(ctx, "virsh", "dumpxml", vm.Name) })
 	if err != nil {
 		return
 	}
@@ -205,7 +205,7 @@ func kvmCollectXMLDeep(ctx context.Context, vm *models.KVMVM) {
 // kvmDomInfo runs virsh dominfo for a single domain and parses it.
 func kvmDomInfo(ctx context.Context, name string) models.KVMVM {
 	vm := models.KVMVM{Name: name, ID: -1}
-	out, err := runCmd(ctx, "virsh", "dominfo", name)
+	out, err := guarded(validOperand, "VM name", name, func() (string, error) { return runCmd(ctx, "virsh", "dominfo", name) })
 	if err != nil {
 		return vm
 	}
@@ -251,7 +251,7 @@ func kvmCheckDiskErrors(ctx context.Context, vm *models.KVMVM) {
 	if vm.ID < 0 {
 		return // not running — no live disk stats
 	}
-	out, err := runCmd(ctx, "virsh", "domblkerror", vm.Name)
+	out, err := guarded(validOperand, "VM name", vm.Name, func() (string, error) { return runCmd(ctx, "virsh", "domblkerror", vm.Name) })
 	if err != nil {
 		// Mechanical-sweep finding (gap C, idiom 2): DiskIOError stays false
 		// on a failed probe, the same zero value a genuinely clean VM has —
@@ -373,10 +373,10 @@ func kvmCollectNetworks(ctx context.Context, info *models.KVMInfo) {
 			info.NetworksInactive++
 		} else {
 			// Check bridge link state
-			bridgeOut, _ := runCmd(ctx, "virsh", "net-info", net.Name)
+			bridgeOut, _ := guarded(validOperand, "network name", net.Name, func() (string, error) { return runCmd(ctx, "virsh", "net-info", net.Name) })
 			net.Bridge = kvmParseBridge(bridgeOut)
 			if net.Bridge != "" {
-				linkOut, _ := runCmd(ctx, "ip", "link", "show", net.Bridge)
+				linkOut, _ := guarded(validIfaceName, "bridge name", net.Bridge, func() (string, error) { return runCmd(ctx, "ip", "link", "show", net.Bridge) })
 				net.BridgeUp = strings.Contains(linkOut, "state UP") ||
 					(strings.Contains(linkOut, net.Bridge) && !strings.Contains(linkOut, "state DOWN"))
 			}
@@ -430,7 +430,7 @@ func kvmCollectPools(ctx context.Context, info *models.KVMInfo) {
 			continue
 		}
 		// Get capacity details via pool-info
-		infoOut, err := runCmd(ctx, "virsh", "pool-info", pool.Name)
+		infoOut, err := guarded(validOperand, "pool name", pool.Name, func() (string, error) { return runCmd(ctx, "virsh", "pool-info", pool.Name) })
 		if err == nil {
 			kvmParsePoolInfo(infoOut, &pool)
 		} else {

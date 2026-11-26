@@ -83,6 +83,22 @@ func sourceIsReplaying() bool {
 	return ok
 }
 
+// sampleGapWait pauses d between the two samples of a rate collector, honouring
+// ctx cancellation. On a replay source both samples serve the same recorded
+// bytes, so the delta is 0 whatever the wait: skip it so replay stays a prompt,
+// wall-clock-independent function of the bundle.
+func sampleGapWait(ctx context.Context, d time.Duration) error {
+	if sourceIsReplaying() {
+		return ctx.Err()
+	}
+	select {
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(d):
+		return nil
+	}
+}
+
 // SetSource swaps the active input backend and returns the previous one so the
 // caller can restore it (defer collectors.SetSource(prev)).
 func SetSource(s source.Source) source.Source {

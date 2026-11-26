@@ -65,7 +65,7 @@ func collectDrivesDarwinText(ctx context.Context) (*models.NVMeInfo, error) {
 func driveInfoDarwin(ctx context.Context, disk string) models.SATADevice {
 	dev := models.SATADevice{Name: disk}
 
-	out, err := runCmd(ctx, "diskutil", "info", disk)
+	out, err := guarded(validOperand, "disk name", disk, func() (string, error) { return runCmd(ctx, "diskutil", "info", disk) })
 	if err != nil || out == "" {
 		return dev
 	}

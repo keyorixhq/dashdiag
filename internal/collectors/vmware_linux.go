@@ -103,7 +103,7 @@ func collectVMXNETStats(ctx context.Context, nicDrivers map[string]string, netDi
 
 	var out []models.VMXNETStats
 	for _, iface := range ifaces {
-		raw, err := runCmd(ctx, "ethtool", "-S", iface)
+		raw, err := guarded(validIfaceName, "interface name", iface, func() (string, error) { return runCmd(ctx, "ethtool", "-S", iface) })
 		if err != nil {
 			continue
 		}
@@ -372,7 +372,7 @@ func vmwareToolsInstalled() bool {
 // answer, with the result marked unverified in that case.
 func vmwareToolsRunning(ctx context.Context) (running, verified bool) {
 	for _, unit := range []string{"vmtoolsd", "open-vm-tools"} {
-		out, err := runCmdOutput(ctx, "systemctl", "is-active", unit)
+		out, err := runSystemctl(ctx, runCmdOutput, []string{"is-active"}, unit)
 		state := strings.TrimSpace(out)
 		if state == "" && err != nil {
 			continue // this unit name didn't resolve — try the other, or fall through

@@ -6,7 +6,7 @@ import (
 	"strings"
 	"time"
 
-	"gopkg.in/yaml.v3"
+	"go.yaml.in/yaml/v4"
 
 	"github.com/keyorixhq/dashdiag/internal/analysis"
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -146,6 +146,23 @@ type JSONInsight struct {
 	UnverifiedReason string `json:"unverified_reason,omitempty" yaml:"unverified_reason,omitempty"`
 }
 
+// RenderJSON emits the machine-readable health document for `dsd health --json`
+// and the MCP dsd_health payload.
+//
+// TERMINAL SAFETY (DL1 §3 #2 / DH1 decision): unlike the human funnels
+// (markdown/share/post-mortem), this format deliberately preserves host-derived
+// bytes verbatim — it is consumed programmatically, and a JSON consumer expects
+// the exact field values. encoding/json escapes every byte < 0x20 as \uXXXX (so
+// a raw ESC/CSI introducer can never survive) and guarantees valid UTF-8, but it
+// does NOT escape DEL (U+007F) or the UTF-8-encoded C1 controls (U+0080–U+009F).
+// A C1 0x9B is a CSI introducer, so **raw `dsd health --json` output is not safe
+// to cat directly to a terminal** — pipe it through a sanitizer (or `jq`, which
+// re-escapes) before display. The machine format is intentionally left unchanged
+// here: escaping 0x7F/C1 would be a byte-level change to a format other tools
+// compare, for a defense-in-depth gap whose real fix is sanitizing at the human
+// render funnels (which DH1 did). The in-tree oracle assertJSONTerminalSafe holds
+// JSON only to the property encoding/json actually guarantees (valid UTF-8, no
+// raw ESC); the DEL/C1 passthrough is documented, not asserted.
 func RenderJSON(results []runner.Result, insights []models.Insight) ([]byte, error) {
 	return json.MarshalIndent(buildOutput(results, insights), "", "  ")
 }

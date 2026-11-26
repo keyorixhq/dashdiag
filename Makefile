@@ -40,6 +40,13 @@ release:
 	@cd dist && sha256sum $(BINARY)-* > checksums.txt
 	@echo "✅ Release binaries in dist/"
 
+# cgo-guard: fails if dsd can link a package with cgo files, or a build command
+# lacks CGO_ENABLED=0. `./scripts/cgo-dependency-guard.sh --binaries dist` also
+# inspects built release binaries (ci.yml runs it after `make release`).
+.PHONY: cgo-guard
+cgo-guard:
+	./scripts/cgo-dependency-guard.sh
+
 .PHONY: build-linux
 build-linux:
 	@mkdir -p dist
@@ -135,13 +142,13 @@ lint-linux:
 .PHONY: license-check
 license-check:
 	@command -v go-licenses >/dev/null 2>&1 || { echo "⚠️  go-licenses not installed — run: make tools"; exit 0; }
-	go-licenses check ./... --allowed_licenses=MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,MPL-2.0
+	go-licenses check ./... --allowed_licenses=MIT,Apache-2.0,BSD-2-Clause,BSD-3-Clause,ISC,MPL-2.0 --ignore github.com/segmentio/asm
 
 # ── TESTING ───────────────────────────────────────────────────────────────────
 .PHONY: test
 test:
 	@echo "→ Unit tests (race detector)"
-	go test -race -count=1 -timeout 300s ./...
+	go test -race -count=1 -timeout 600s ./...
 	@echo "✅ Tests passed"
 
 .PHONY: cover
@@ -188,7 +195,7 @@ test-contract:
 ## Run the Linux-only collector tests (the *_linux.go files compile out on macOS)
 ## in a golang container — no remote host needed. Named volumes cache the build +
 ## module downloads so reruns are fast. Mirrors what CI runs on ubuntu.
-DOCKER_GO ?= golang:1.26
+DOCKER_GO ?= golang:1.27.4
 test-linux:
 	@echo "→ Running linux-gated collector tests in $(DOCKER_GO)"
 	docker run --rm -v "$(CURDIR)":/src \

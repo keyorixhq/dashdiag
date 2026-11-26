@@ -48,6 +48,7 @@ var execAllowlistContract = map[string]toolRule{
 		{"is-system-running"},
 		{"--user", "is-system-running"}, // services_deep_linux.go, svcUserFlag
 		{"--user", "is-active"},         // services_deep_linux.go
+		{"--user", "list-units"},        // services_deep_linux.go, `systemctl --user list-units --failed` (user-scope unit list)
 		{"list-units"},
 		{"list-timers"},
 	}},
@@ -89,6 +90,8 @@ var execAllowlistContract = map[string]toolRule{
 			{"-p", "warning"},        // logs_linux.go collectLogsSummary warning count (dynamic --since)
 			{"--since=24 hours ago"}, // security_linux.go parsePAMModuleFailures
 			{"-t", "kernel"},         // security_linux.go collectAppArmorDenials (AppArmor-gated)
+			{"--verify"},             // logs_linux.go, services_deep_linux.go: `--verify --file=<archived journal>` integrity check, no modification
+			{"--list-boots"},         // postboot_linux.go: boot enumeration
 		},
 		// journalctl's real mutating/destructive surface — none of dsd's call
 		// sites use any of these, and a prefix as short as {"-u"} alone can't
@@ -103,7 +106,7 @@ var execAllowlistContract = map[string]toolRule{
 	// --- package managers: query / dry-run only ---
 	"dpkg":       {prefixes: [][]string{{"--audit"}, {"-s"}, {"-l"}}},
 	"dpkg-query": {prefixes: [][]string{{"-W"}}},
-	"rpm":        {prefixes: [][]string{{"-qa"}, {"-q"}}},
+	"rpm":        {prefixes: [][]string{{"-qa"}, {"-q"}, {"--verify"}}}, // --verify (packages_linux.go): compares installed files to the RPM DB, no write
 	"dnf": {prefixes: [][]string{
 		{"--version"},
 		{"--cacheonly", "advisory", "list", "--security", "--quiet"},
@@ -132,8 +135,24 @@ var execAllowlistContract = map[string]toolRule{
 		// --cacheonly-qualified — the durable, code-level version of this
 		// list-level guarantee.
 	}},
-	"apt-get": {prefixes: [][]string{{"-s", "upgrade"}, {"--simulate", "upgrade"}, {"--simulate", "dist-upgrade"}}},
-	"zypper":  {prefixes: [][]string{{"--version"}, {"list-patches"}, {"search", "--installed-only"}, {"locks"}, {"repos"}}},
+	"apt-get": {prefixes: [][]string{
+		{"-s", "upgrade"}, {"--simulate", "upgrade"}, {"--simulate", "dist-upgrade"},
+		{"--version"}, // packages_linux.go version probe
+		// packages_linux.go pkgIntegrityAPT read-only dependency check (AC1). A bare
+		// `apt-get check` is deliberately NOT allowed: it rebuilds
+		// /var/cache/apt/pkgcache.bin (a write) and takes the dpkg frontend lock
+		// (fails as non-root). These flags make it strictly read-only:
+		// Debug::NoLocking=true → GetLock() returns a dummy fd (no lock, runs
+		// unprivileged); empty Dir::Cache::pkgcache/srcpkgcache → the cache is built
+		// in memory, neither .bin file is written; -s → no-act. The full argv is
+		// pinned as the prefix so no extra arg can be slipped in.
+		{"-s", "-o", "Debug::NoLocking=true", "-o", "Dir::Cache::pkgcache=", "-o", "Dir::Cache::srcpkgcache=", "check"},
+	}},
+	"zypper": {prefixes: [][]string{
+		{"--version"}, {"list-patches"}, {"search", "--installed-only"}, {"locks"}, {"repos"},
+		{"needs-rebooting"}, // maintenance_linux.go: reboot-required check
+		{"--non-interactive", "--no-color", "list-patches", "--category", "security"}, // cve_linux.go, packages_linux.go: list-patches behind global flags
+	}},
 	"tdnf": {prefixes: [][]string{
 		{"--version"},
 		{"repolist"},
@@ -161,6 +180,7 @@ var execAllowlistContract = map[string]toolRule{
 	// --- storage / RAID / filesystem (read-only query) ---
 	"smartctl": {prefixes: [][]string{{"-H"}, {"-A"}, {"--scan-open", "--json=c"}, {"-a"}}},
 	"nvme":     {prefixes: [][]string{{"smart-log"}, {"get-log"}}},
+	"ethtool":  {prefixes: [][]string{{"-S"}}}, // aws/oci/vmware_linux.go, per-NIC stats (read-only)
 	"zpool":    {prefixes: [][]string{{"list"}, {"status"}}},
 	"lvs": {prefixes: [][]string{
 		{"--version"},
@@ -214,6 +234,16 @@ var execAllowlistContract = map[string]toolRule{
 		{"version"}, {"list"}, {"dumpxml"}, {"dominfo"}, {"domblkerror"},
 		{"net-list"}, {"net-info"}, {"pool-list"}, {"pool-info"},
 	}},
+	// vmware_linux.go collectVMwareStat via vmwareStatMB/vmwareStatLimit, `stat <key>` RPC to the host (read-only)
+	"vmware-toolbox-cmd": {prefixes: [][]string{
+		{"stat", "balloon"},
+		{"stat", "swap"},
+		{"stat", "memlimit"},
+		{"stat", "cpulimit"},
+		{"stat", "speed"},
+	}},
+	// postgres_linux.go: liveness probe against the local socket dir; needs no auth, read-only.
+	"pg_isready":     {prefixes: [][]string{{"-h", wildcardToken, "-q"}, {"-h", wildcardToken}}},
 	"pvesh":          {prefixes: [][]string{{"get"}}},
 	"pveversion":     {prefixes: [][]string{{"-v"}, {}}},
 	"pveperf":        {prefixes: [][]string{{wildcardToken}}}, // single dynamic path arg
@@ -231,7 +261,7 @@ var execAllowlistContract = map[string]toolRule{
 	"mongosh":   {prefixes: [][]string{{"--quiet", "--eval", mongoEvalScriptForContract}}},
 	"mongo":     {prefixes: [][]string{{"--quiet", "--eval", mongoEvalScriptForContract}}}, // legacy shell fallback, same script
 	"mysql":     {prefixes: [][]string{{"-e"}}},
-	"psql":      {prefixes: [][]string{{"-c"}}},
+	"psql":      {prefixes: [][]string{{"-X", "-q", "-t", "-A", "-F", "|", "-h", wildcardToken, "-U", "postgres", "-d", "postgres", "-c"}}},
 	"redis-cli": {prefixes: [][]string{{"INFO"}, {"CONFIG", "GET", "maxclients"}}},
 
 	// --- time / clock ---

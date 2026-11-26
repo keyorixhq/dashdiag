@@ -4,6 +4,7 @@ package collectors
 
 import (
 	"context"
+	"strings"
 	"testing"
 	"time"
 
@@ -72,11 +73,8 @@ func TestPostgresCollector_Collect_NotDetected(t *testing.T) {
 	}
 }
 
-// The euid running these tests determines which branch of
-// collectPostgresMetrics fires (root -> sudo -u postgres -- psql, non-root ->
-// plain psql — see TestCollectPostgresMetrics_NonRootPsqlPath). Both variants
-// are seeded so the test passes in either environment (root inside the
-// golang:1.26 container, non-root on a typical local run).
+// collectPostgresMetrics runs plain psql whatever the euid (#1224), so one
+// seed covers root inside the golang:1.26 container and a non-root local run.
 func TestPostgresCollector_Collect_FullHappyPath(t *testing.T) {
 	const row = "16.3|100|5|0|f|-1|t"
 	withCombinedFixture(t, map[string][]byte{
@@ -85,7 +83,6 @@ func TestPostgresCollector_Collect_FullHappyPath(t *testing.T) {
 	}, nil, func(b *source.Bundle) {
 		b.PutCmd("pg_isready", []string{"-h", "/var/run/postgresql", "-q"}, "", 0)
 		b.PutCmd("psql", postgresMetricsArgs("/var/run/postgresql"), row, 0)
-		b.PutCmd("sudo", append([]string{"-n", "-u", "postgres", "--", "psql"}, postgresMetricsArgs("/var/run/postgresql")...), row, 0)
 	})
 
 	c := NewPostgresCollector()
@@ -131,7 +128,6 @@ func TestPostgresCollector_Collect_NotAcceptingWithReason(t *testing.T) {
 		b.PutCmdNotFound("pg_isready", []string{"-h", "/run/postgresql", "-q"})
 		b.PutCmd("pg_isready", []string{"-h", "/run/postgresql"}, "/run/postgresql:5432 - rejecting connections\n", 2)
 		b.PutCmdNotFound("psql", postgresMetricsArgs("/run/postgresql"))
-		b.PutCmdNotFound("sudo", append([]string{"-n", "-u", "postgres", "--", "psql"}, postgresMetricsArgs("/run/postgresql")...))
 	})
 
 	c := NewPostgresCollector()
@@ -177,7 +173,6 @@ func TestPostgresCollector_Collect_NotAcceptingNoReasonAvailable(t *testing.T) {
 		b.PutCmd("pg_isready", []string{"-h", "/tmp", "-q"}, "", 2)
 		b.PutCmd("pg_isready", []string{"-h", "/tmp"}, "", 2)
 		b.PutCmdNotFound("psql", postgresMetricsArgs("/tmp"))
-		b.PutCmdNotFound("sudo", append([]string{"-n", "-u", "postgres", "--", "psql"}, postgresMetricsArgs("/tmp")...))
 	})
 
 	c := NewPostgresCollector()
@@ -318,20 +313,24 @@ func TestCollectPostgresMetrics_NonRootPsqlPath(t *testing.T) {
 	}
 }
 
-// TestCollectPostgresMetrics_RootSudoPath drives the root branch: `sudo -n -u
-// postgres -- psql`, forced deterministically via the geteuid seam (real test
-// binaries aren't root, so this branch was previously unreachable in CI
-// without it).
-func TestCollectPostgresMetrics_RootSudoPath(t *testing.T) {
+// TestCollectPostgresMetrics_RootNeverSwitchesUser guards #1224: as root dsd
+// must not run `sudo -u postgres -- psql`. The sudo variant is seeded to
+// SUCCEED and plain psql to fail (peer auth), so a reintroduced privilege
+// switch would read metrics and fail this test.
+func TestCollectPostgresMetrics_RootNeverSwitchesUser(t *testing.T) {
 	swapGeteuid(t, 0)
 	withCombinedFixture(t, nil, nil, func(b *source.Bundle) {
 		b.PutCmd("sudo", append([]string{"-n", "-u", "postgres", "--", "psql"}, postgresMetricsArgs("/tmp")...),
 			"14.1|50|2|0|f|-1|t", 0)
+		b.PutCmd("psql", postgresMetricsArgs("/tmp"), "", 2)
 	})
 	info := &models.PostgresInfo{}
 	collectPostgresMetrics(context.Background(), "/tmp", info)
-	if !info.MetricsRead || info.ServerVersion != "14.1" {
-		t.Errorf("info = %+v, want MetricsRead=true ServerVersion=14.1 (via sudo -u postgres)", info)
+	if info.MetricsRead {
+		t.Errorf("info = %+v, want MetricsRead=false: root must not read metrics via sudo -u postgres", info)
+	}
+	if !strings.Contains(info.StatusReason, "postgres OS user") {
+		t.Errorf("StatusReason = %q, want a hint to run dsd as the postgres OS user", info.StatusReason)
 	}
 }
 

@@ -34,8 +34,8 @@ func DetectLastDeployTime() (time.Time, string, error) {
 		// hijack vector), gives ExecHook a chance to observe/deny (fuzz/test
 		// only), and force-kills on context cancel — the same primitive
 		// collectors/drilldown use.
-		cmd, err := platform.RunHardened(ctx, "systemctl", "show", svc,
-			"--property=ActiveEnterTimestamp", "--value")
+		cmd, err := platform.RunHardened(ctx, "systemctl", "show",
+			"--property=ActiveEnterTimestamp", "--value", "--", svc)
 		if err != nil {
 			cancel()
 			continue
@@ -391,7 +391,7 @@ func parseProcStart(r io.Reader, boot time.Time) (time.Time, string, bool) {
 	// zfs.go parseZFSCount bug (#727). This package can't import collectors'
 	// parseFiniteFloat (baseline is not in its importer list), so the check
 	// is duplicated inline.
-	if err != nil || math.IsNaN(startTicks) || math.IsInf(startTicks, 0) || startTicks < 0 {
+	if err != nil || math.IsNaN(startTicks) || math.IsInf(startTicks, 0) || startTicks < 0 || startTicks/100 > float64(math.MaxInt64/int64(time.Second)) {
 		return time.Time{}, "", false
 	}
 	startTime := boot.Add(time.Duration(startTicks/100) * time.Second)

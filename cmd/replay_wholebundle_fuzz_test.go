@@ -32,6 +32,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/keyorixhq/dashdiag/internal/fuzzutil"
 	"github.com/keyorixhq/dashdiag/internal/source"
 )
 
@@ -90,7 +91,7 @@ func FuzzWholeBundleReplay(f *testing.F) {
 			}()
 			_, _, _ = replayBundle(b, false, true, false, false)
 		}()
-		if elapsed := time.Since(start); elapsed > wholeBundleWorkCeiling {
+		if elapsed, _ := fuzzutil.EffectiveElapsed(start); elapsed > wholeBundleWorkCeiling {
 			t.Fatalf("BOUNDED WORK: whole-bundle replay took %s (> %s) — possible accumulation/CPU blow-up", elapsed, wholeBundleWorkCeiling)
 		}
 	})

@@ -791,7 +791,7 @@ func collectPVEPerf(ctx context.Context, path string) *models.PVEPerf {
 		return perf // not available
 	}
 	perf.Available = true
-	out, err := runCmd(ctx, "pveperf", path)
+	out, err := guarded(validOperand, "path", path, func() (string, error) { return runCmd(ctx, "pveperf", path) })
 	if err != nil && strings.TrimSpace(out) == "" {
 		return perf
 	}

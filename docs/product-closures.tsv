@@ -57,3 +57,11 @@ SHARE-1	./internal/share	TestRedactText_SecretsAndIdentifiers	TBD-on-merge	dsd s
 SHARE-2	./cmd	TestRenderShareArtifact_AllFormats	TBD-on-merge	every dsd share --format value (md/html/text/blob) renders, redacts the fixture hostname by default, and the text format stays within the 40-line ticket budget
 SHARE-3	./cmd	TestToolShare_FromPathRejectsOutsideCWD	TBD-on-merge	the dsd_share MCP tool's from_path is CWD-confined via safeBundlePath, matching dsd_capture/dsd_replay/dsd_diff's path-argument threat model
 TOPCATCH-1	./internal/render	TestRenderJSON_TopCatchField_NullWhenHealthy	TBD-on-merge	the top_catch JSON key is always present (never omitted) even when there's no CRIT/WARN — a consumer checking for the key's existence always finds it
+GH-1224	./internal/collectors	TestCollectPostgresMetrics_RootNeverSwitchesUser	TBD-on-merge	the Postgres collector never switches to the postgres OS user (no sudo -u postgres); root degrades to "couldn't look" with a run-as-postgres hint
+GH-1203	./internal/collectors	TestParseSSHConfig_IncludeExpandedInPlace	TBD-on-merge	sshd_config file-parse fallback follows Include in place and keeps the first obtained value per keyword, matching sshd -T on pve01
+GH-1205-RTT	./internal/collectors	TestReachableRTT	TBD-on-merge	a probe that got replies never reports the -1 unreachable sentinel, even with a forged future-timestamp echo reply
+GH-1205-CONFIG	./internal/config	TestLoad_ConfigWithoutSecurityKeepsDefaults	TBD-on-merge	a config file without a security block keeps the default allowed ports and SSH thresholds
+GH-1205-QR	./internal/output	TestPrintQRCode_AllControlURL	TBD-on-merge	PrintQRCode sanitises before its empty check, so an all-control URL prints nothing
+GH-1205-YAML	./internal/yamlsafe	TestUnmarshal_RejectsNonScalarKeys	TBD-on-merge	yamlsafe rejects non-scalar mapping keys in linear time instead of reaching the library's quadratic duplicate check
+DRP1-CLOCK	./internal/collectors	TestCollectLinux_ReplayMissingClockStateIsNotRecorded	TBD-on-merge	a replay bundle missing clock/state reports not_recorded instead of reading the replaying machine's live clock
+DRP1-SAMPLEGAP	./internal/collectors	TestTwoSampleCollectorsPromptOnReplay	TBD-on-merge	the I/O and swap collectors do not wait the live sample gap on replay

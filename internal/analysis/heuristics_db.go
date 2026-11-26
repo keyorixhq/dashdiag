@@ -51,7 +51,7 @@ func checkPostgres(pg models.PostgresInfo) []models.Insight {
 		return []models.Insight{unverifiedInsight(models.ReasonCollectorError, "INFO", dbCatPostgres,
 			"PostgreSQL is up and accepting connections; connection/replication metrics were not read",
 			[]string{
-				"note: run dsd as root or the postgres user for connection-saturation and replica-lag checks",
+				"note: run dsd as the postgres OS user (sudo -u postgres dsd health) for connection-saturation and replica-lag checks",
 				"to inspect: sudo -u postgres psql -c 'SELECT count(*), current_setting(''max_connections'') FROM pg_stat_activity'",
 			},
 		)}

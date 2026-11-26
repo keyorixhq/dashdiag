@@ -72,6 +72,8 @@ import (
 	"strings"
 	"testing"
 	"time"
+
+	"github.com/keyorixhq/dashdiag/internal/fuzzutil"
 )
 
 const (
@@ -348,6 +350,17 @@ func isAllowedCWDWrite(rel string, fuzzedTokens map[string]bool) bool {
 	if fuzzedTokens[rel] || fuzzedTokens[name] {
 		return true // explicit --out/-o/--report target named verbatim in argv
 	}
+	// The same target spelled `--out=inv.json` is ONE argv token, so the exact-token check above
+	// misses it (found by FuzzCommandAllowlist 94fcb6fc43daed0e: `inventory --out=inv.json`).
+	// Accept only a file whose name is exactly the value after the first "=" of a flag token.
+	for tok := range fuzzedTokens {
+		if !strings.HasPrefix(tok, "-") {
+			continue
+		}
+		if _, v, ok := strings.Cut(tok, "="); ok && v != "" && (v == rel || v == name) {
+			return true
+		}
+	}
 	return false
 }
 
@@ -442,7 +455,7 @@ func FuzzCommandAllowlist(f *testing.F) {
 
 		start := time.Now()
 		_ = cmd.Run() // exit code is data (0/1/2/other) — never a fuzz failure by itself
-		if elapsed := time.Since(start); elapsed > 20*time.Second {
+		if elapsed, _ := fuzzutil.EffectiveElapsed(start); elapsed > 20*time.Second {
 			t.Fatalf("BOUNDED WORK: dsd invocation took %s (args=%v) — possible hang despite ExecHook denying every real exec", elapsed, args)
 		}
 

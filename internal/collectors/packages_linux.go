@@ -1084,22 +1084,61 @@ func pkgIntegrityAPT(ctx context.Context, pi *models.PackageIntegrity) {
 		}
 	}
 
-	// apt-get check — detects unmet dependencies. It EXITS NON-ZERO (100) when it
-	// finds them and writes the diagnosis to STDERR, so runCmd would discard the
-	// findings → broken deps read as clean (false-OK, the same bug DNF was fixed
-	// for). runCmdCombined keeps stdout+stderr regardless of exit.
+	// apt dependency check — detects unmet dependencies. It EXITS NON-ZERO (100)
+	// when it finds them and writes the diagnosis to STDERR, so runCmd would
+	// discard the findings → broken deps read as clean (false-OK, the same bug DNF
+	// was fixed for). runCmdCombined keeps stdout+stderr regardless of exit.
+	//
+	// AC1: a bare `apt-get check` is NOT read-only and is not on the exec-allowlist
+	// contract, so dsd must not run it. Two problems it has, and how the flags here
+	// defeat each:
+	//   - it opens the binary package cache and REBUILDS /var/cache/apt/pkgcache.bin
+	//     + srcpkgcache.bin when they are absent/stale (~49 MB written on a probe
+	//     host) — a write on the diagnosed system. `-o Dir::Cache::pkgcache=` and
+	//     `-o Dir::Cache::srcpkgcache=` set the on-disk cache paths empty, so apt
+	//     builds the cache in memory and writes neither .bin file.
+	//   - it takes the dpkg frontend lock, so as a NON-ROOT user it exits 100 with
+	//     `E: Could not open lock file /var/lib/dpkg/lock-frontend ... Permission
+	//     denied`. `-o Debug::NoLocking=true` makes apt's GetLock() return a dummy
+	//     fd instead of opening the lock file, so the check runs unprivileged
+	//     without touching the lock. `-s` (simulate) keeps it strictly no-act.
+	// The result reads /var/lib/apt/lists and /var/lib/dpkg/status, resolves, and
+	// still prints "unmet dependencies" / "E: Unmet dependencies" on broken deps.
 	checkCtx, checkCancel := context.WithTimeout(ctx, 5*time.Second)
 	defer checkCancel()
-	checkOut, aptGetErr := runCmdCombined(checkCtx, pkgCmdAptGet, "check")
-	if aptGetErr != nil && strings.TrimSpace(checkOut) == "" {
-		pi.CheckFailed = true
-	}
+	checkOut, aptGetErr := runCmdCombined(checkCtx, pkgCmdAptGet,
+		"-s", "-o", "Debug::NoLocking=true",
+		"-o", "Dir::Cache::pkgcache=", "-o", "Dir::Cache::srcpkgcache=", "check")
+	recognized := false
 	for _, line := range strings.Split(checkOut, "\n") {
 		lower := strings.ToLower(line)
 		if strings.Contains(lower, "unmet dep") || strings.Contains(lower, "broken package") {
 			pi.UnmetDeps = append(pi.UnmetDeps, strings.TrimSpace(line))
+			recognized = true
 		}
 	}
+	// False-OK guard (AC1, defect B): with no recognised unmet-dependency text, a
+	// non-zero exit OR any apt error line ("E:" — e.g. the non-root lock-file
+	// error, or a corrupt-cache error) means the check could not run. Report it as
+	// CheckFailed rather than let a tool failure read as a verified-clean system.
+	// Only the unrecognised case is a failure: real unmet deps also print an
+	// "E: Unmet dependencies" line and a non-zero exit, but those are a FINDING, not
+	// a failure, so `recognized` suppresses the guard for them.
+	if !recognized && (aptGetErr != nil || aptErrorLine(checkOut)) {
+		pi.CheckFailed = true
+	}
+}
+
+// aptErrorLine reports whether out contains an apt error line (a line whose first
+// non-space token is "E:"). apt prefixes hard errors with "E:"; seeing one with no
+// recognised unmet-dependency text means the dependency check itself failed.
+func aptErrorLine(out string) bool {
+	for _, line := range strings.Split(out, "\n") {
+		if strings.HasPrefix(strings.TrimSpace(line), "E:") {
+			return true
+		}
+	}
+	return false
 }
 
 // pkgIntegrityZypper checks SUSE/openSUSE package consistency.
@@ -1178,7 +1217,7 @@ func pkgIntegrityLdd(ctx context.Context, pi *models.PackageIntegrity) {
 			continue
 		}
 		readelfCtx, rcancel := context.WithTimeout(ctx, 3*time.Second)
-		out, rerr := runCmd(readelfCtx, "readelf", "-d", bin)
+		out, rerr := guarded(validOperand, "path", bin, func() (string, error) { return runCmd(readelfCtx, "readelf", "-d", "--", bin) })
 		rcancel()
 		if rerr != nil {
 			continue

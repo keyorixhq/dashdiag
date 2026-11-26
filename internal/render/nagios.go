@@ -5,8 +5,20 @@ import (
 	"strings"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
+	"github.com/keyorixhq/dashdiag/internal/output"
 	"github.com/keyorixhq/dashdiag/internal/runner"
 )
+
+// nagiosText makes a host-influenced check name safe to place in a Nagios plugin
+// status line. SanitizeControl strips control/ANSI-escape and bidi bytes — among
+// them the '\n' that would otherwise forge an extra plugin line and the ESC that
+// a dashboard rendering the status would execute; '|', the plugin-spec separator
+// between status text and perfdata, is then replaced with '/' so a crafted name
+// cannot inject or truncate perfdata (the same '|' handling nagiosCoverage
+// already applies). DL1 §3 finding #5.
+func nagiosText(name string) string {
+	return strings.ReplaceAll(output.SanitizeControl(name), "|", "/")
+}
 
 // NagiosLine renders a single monitoring-plugin status line for
 // `dsd health --nagios`, plus the matching exit code. It follows the Nagios
@@ -30,7 +42,11 @@ func NagiosLine(results []runner.Result, insights []models.Insight) (string, int
 func nagiosCoverage(cov models.CoverageSummary) string {
 	tail := fmt.Sprintf(" | checked=%d not_checked=%d not_applicable=%d", cov.Checked, cov.NotChecked, cov.NotApplicable)
 	for _, it := range NotCheckedItems(&cov) {
-		tail += fmt.Sprintf("\nNOT CHECKED: %s (%s", strings.ReplaceAll(strings.ReplaceAll(it.Check, "\n", " "), "|", "/"), strings.ReplaceAll(it.Reason, "_", " "))
+		// it.Check is a host-influenced check name: convert embedded newlines to
+		// spaces (keep the words on this NOT CHECKED line), then strip
+		// control/ANSI/bidi bytes, then map '|' → '/' (perfdata separator). DL1 #5.
+		safeCheck := strings.ReplaceAll(output.SanitizeControl(strings.ReplaceAll(it.Check, "\n", " ")), "|", "/")
+		tail += fmt.Sprintf("\nNOT CHECKED: %s (%s", safeCheck, strings.ReplaceAll(it.Reason, "_", " "))
 		if act := it.Action(); act != "" {
 			tail += ", " + act
 		}
@@ -46,13 +62,13 @@ func nagiosStatus(results []runner.Result, insights []models.Insight) (string, i
 	for _, ins := range insights {
 		if ins.Level == "CRIT" && !critSeen[ins.Check] {
 			critSeen[ins.Check] = true
-			crit = append(crit, ins.Check)
+			crit = append(crit, nagiosText(ins.Check))
 		}
 	}
 	for _, ins := range insights {
 		if ins.Level == "WARN" && !critSeen[ins.Check] && !warnSeen[ins.Check] {
 			warnSeen[ins.Check] = true
-			warn = append(warn, ins.Check)
+			warn = append(warn, nagiosText(ins.Check))
 		}
 	}
 
@@ -69,7 +85,7 @@ func nagiosStatus(results []runner.Result, insights []models.Insight) (string, i
 	for _, r := range results {
 		if r.Err != nil && !failedSeen[r.Name] {
 			failedSeen[r.Name] = true
-			failed = append(failed, r.Name)
+			failed = append(failed, nagiosText(r.Name))
 		}
 	}
 
@@ -85,7 +101,7 @@ func nagiosStatus(results []runner.Result, insights []models.Insight) (string, i
 	for _, ins := range insights {
 		if ins.Unverified && !ins.NeedsRoot && ins.Level != "CRIT" && ins.Level != "WARN" && !unverifiedSeen[ins.Check] {
 			unverifiedSeen[ins.Check] = true
-			unverified = append(unverified, ins.Check)
+			unverified = append(unverified, nagiosText(ins.Check))
 		}
 	}
 

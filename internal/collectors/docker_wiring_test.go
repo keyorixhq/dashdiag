@@ -442,7 +442,7 @@ func TestCollectPodmanQuadlets_Happy(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
 		b.PutDir("/etc/containers/systemd", []string{"web.container"})
 		b.PutDir("/root/.config/containers/systemd", nil)
-		b.PutCmd("systemctl", []string{"show", "web.service", "--property=ActiveState,SubState,LoadState"},
+		b.PutCmd("systemctl", []string{"show", "--property=ActiveState,SubState,LoadState", "web.service"},
 			"ActiveState=active\nSubState=running\nLoadState=loaded\n", 0)
 	})
 	quads := collectPodmanQuadlets(context.Background())
@@ -467,7 +467,7 @@ func TestCollectPodmanQuadlets_NoneFound(t *testing.T) {
 
 func TestQuadletUnitState_Active(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutCmd("systemctl", []string{"show", "web.service", "--property=ActiveState,SubState,LoadState"},
+		b.PutCmd("systemctl", []string{"show", "--property=ActiveState,SubState,LoadState", "web.service"},
 			"ActiveState=active\n", 0)
 	})
 	active, failed, state := quadletUnitState(context.Background(), "web.service")
@@ -478,7 +478,7 @@ func TestQuadletUnitState_Active(t *testing.T) {
 
 func TestQuadletUnitState_CmdFails(t *testing.T) {
 	withFixtureSource(t, func(b *source.Bundle) {
-		b.PutCmdNotFound("systemctl", []string{"show", "gone.service", "--property=ActiveState,SubState,LoadState"})
+		b.PutCmdNotFound("systemctl", []string{"show", "--property=ActiveState,SubState,LoadState", "gone.service"})
 	})
 	active, failed, state := quadletUnitState(context.Background(), "gone.service")
 	if active || failed || state != "" {
@@ -723,7 +723,7 @@ func TestDockerCollect_PodmanQuadletsWithoutSocket(t *testing.T) {
 			b.PutCmdNotFound("docker", []string{"--version"})
 			b.PutDir("/etc/containers/systemd", []string{"web.container"})
 			b.PutDir("/root/.config/containers/systemd", nil)
-			b.PutCmd("systemctl", []string{"show", "web.service", "--property=ActiveState,SubState,LoadState"},
+			b.PutCmd("systemctl", []string{"show", "--property=ActiveState,SubState,LoadState", "web.service"},
 				"ActiveState=active\nSubState=running\nLoadState=loaded\n", 0)
 		})
 	c := NewDockerCollector()
@@ -766,7 +766,7 @@ func TestDockerCollect_DockerRuntimeWithPodmanAlsoInstalled(t *testing.T) {
 		b.PutCmd("systemctl", []string{"is-active", "firewalld"}, "inactive\n", 3)
 		b.PutDir("/etc/containers/systemd", []string{"web.container"})
 		b.PutDir("/root/.config/containers/systemd", nil)
-		b.PutCmd("systemctl", []string{"show", "web.service", "--property=ActiveState,SubState,LoadState"},
+		b.PutCmd("systemctl", []string{"show", "--property=ActiveState,SubState,LoadState", "web.service"},
 			"ActiveState=active\nSubState=running\nLoadState=loaded\n", 0)
 	})
 	c := NewDockerCollector()

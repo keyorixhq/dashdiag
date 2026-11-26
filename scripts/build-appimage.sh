@@ -64,6 +64,9 @@ for GOARCH in amd64 arm64; do
   fi
 
   APPDIR="$(mktemp -d)"
+  # mktemp -d creates 0700; current appimagetool refuses an AppDir other users
+  # cannot read/execute (AppImages run as users other than the packager).
+  chmod 0755 "$APPDIR"
   trap 'rm -rf "$APPDIR"' EXIT
   install -Dm0755 "$BIN"                          "${APPDIR}/usr/bin/dsd"
   install -Dm0755 packaging/appimage/AppRun       "${APPDIR}/AppRun"

@@ -289,7 +289,7 @@ const sshdMaxInspect = 20
 // couldn't be confirmed" instead of a silent, indistinguishable clean read.
 func nonBenignSSHDInstances(ctx context.Context, units []string) ([]string, bool) {
 	return filterNonBenignSSHD(units, func(u string) (string, bool) {
-		s, err := runCmd(ctx, "systemctl", "show", u, "-p", "ExecMainStatus", "--value")
+		s, err := runSystemctl(ctx, runCmd, []string{"show", "-p", "ExecMainStatus", "--value"}, u)
 		return strings.TrimSpace(s), err == nil
 	})
 }
@@ -412,7 +412,7 @@ func collectBootTimes(ctx context.Context) ([]models.SlowUnit, float64) {
 // when systemctl can't be queried, so we never hide a genuine boot offender.
 func timerTriggeredExcluder(ctx context.Context) func(string) bool {
 	return func(unit string) bool {
-		out, err := runCmd(ctx, "systemctl", "show", "-p", "TriggeredBy", "--value", unit)
+		out, err := runSystemctl(ctx, runCmd, []string{"show", "-p", "TriggeredBy", "--value"}, unit)
 		if err != nil {
 			return false
 		}

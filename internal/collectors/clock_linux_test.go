@@ -3,6 +3,7 @@
 package collectors
 
 import (
+	"errors"
 	"testing"
 
 	"github.com/keyorixhq/dashdiag/internal/models"
@@ -35,6 +36,7 @@ func TestCollectLinux_LiveCachedClosure(t *testing.T) {
 func TestCollectLinux_RTCInLocalTZ(t *testing.T) {
 	t.Run("RTC in local timezone", func(t *testing.T) {
 		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutCached("clock/state", []byte(`{"synced":true,"offset_ms":0,"source":"ntp"}`))
 			b.PutFile("/etc/adjtime", []byte("0.0 0 0.0\n0\nLOCAL\n"))
 		})
 		info := &models.ClockInfo{}
@@ -48,6 +50,7 @@ func TestCollectLinux_RTCInLocalTZ(t *testing.T) {
 
 	t.Run("RTC in UTC", func(t *testing.T) {
 		withFixtureSource(t, func(b *source.Bundle) {
+			b.PutCached("clock/state", []byte(`{"synced":true,"offset_ms":0,"source":"ntp"}`))
 			b.PutFile("/etc/adjtime", []byte("0.0 0 0.0\n0\nUTC\n"))
 		})
 		info := &models.ClockInfo{}
@@ -60,7 +63,9 @@ func TestCollectLinux_RTCInLocalTZ(t *testing.T) {
 	})
 
 	t.Run("adjtime file absent", func(t *testing.T) {
-		withFixtureSource(t, func(_ *source.Bundle) {}) // /etc/adjtime never seeded
+		withFixtureSource(t, func(b *source.Bundle) { // /etc/adjtime never seeded
+			b.PutCached("clock/state", []byte(`{"synced":true,"offset_ms":0,"source":"ntp"}`))
+		})
 		info := &models.ClockInfo{}
 		if _, err := (&ClockCollector{}).collectLinux(info); err != nil {
 			t.Fatalf("collectLinux: %v", err)
@@ -81,5 +86,16 @@ func TestLiveClockState_ExercisesRealBranch(t *testing.T) {
 	st := liveClockState()
 	if st.Source == "" {
 		t.Error("expected a non-empty Source from adjtimexSync")
+	}
+}
+
+// TestCollectLinux_ReplayMissingClockStateIsNotRecorded: a replay bundle without
+// clock/state must surface the recording gap, never fall back to a live read of
+// the replaying machine's clock (which would report a healthy, fabricated OK).
+func TestCollectLinux_ReplayMissingClockStateIsNotRecorded(t *testing.T) {
+	withFixtureSource(t, func(_ *source.Bundle) {})
+	_, err := (&ClockCollector{}).collectLinux(&models.ClockInfo{})
+	if !errors.Is(err, source.ErrNotRecorded) {
+		t.Fatalf("collectLinux on replay without clock/state: want ErrNotRecorded, got %v", err)
 	}
 }
