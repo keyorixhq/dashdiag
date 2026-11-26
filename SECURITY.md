@@ -12,7 +12,7 @@
 
 **Do not open a public GitHub issue for security vulnerabilities.**
 
-Email: **security@dashdiag.sh**
+Email: **abeshkov@keyorix.com**
 
 We acknowledge within 48 hours and provide an initial assessment within 7 days.
 
