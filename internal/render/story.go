@@ -154,6 +154,10 @@ func storyEvents(history []*baseline.Snapshot) []storyEvent {
 						msg = fmt.Sprintf("%s (offender: %s)", msg, offender)
 					}
 				}
+				// c.Status comes from a stored baseline snapshot, so it is
+				// attacker-influenced exactly like c.Name and c.Value; sanitize it so
+				// e.to is terminal-safe at both print sites.
+				status := output.SanitizeControl(c.Status)
 				events = append(events, storyEvent{
 					ts: ts,
 					// c.Name (a subsystem-qualified check name) can embed a
@@ -161,7 +165,7 @@ func storyEvents(history []*baseline.Snapshot) []storyEvent {
 					// terminal-safe at every print site, matching ins.Check above.
 					check:   output.SanitizeControl(c.Name),
 					from:    prev,
-					to:      c.Status,
+					to:      status,
 					message: msg,
 				})
 			}

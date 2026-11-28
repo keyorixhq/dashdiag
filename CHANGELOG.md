@@ -11,6 +11,29 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
 
 ## [Unreleased]
 
+### Added
+
+- **Whole-bundle replay "+1" metamorphic oracle (DD-VERDICT-2).** `FuzzWholeBundleReplayCountDelta`
+  — oracle 4, the positive half of the replay verdict metamorphic pair (oracle 3 is the
+  verdict-neutral `FuzzWholeBundleReplayVerdictFlip`). From the fixed baseline bundle it
+  adds exactly one well-formed record to a seam (dnf advisory, EDAC corrected and
+  uncorrected ECC counters, SMART SATA media-error attribute) and asserts the seam's
+  reported count rises by exactly one and the verdict class never decreases. Red-proven
+  against a per-record overcount and a dropped-record miscount.
+- **Story-narration terminal-escape fuzz (DD-VERDICT-2).** `FuzzRenderStoryNoTerminalInjection`
+  drives the in-memory story builders (`renderStorySinglePoint` / `renderStoryFromHistory`)
+  — the paths DL1's funnel fuzz excluded for disk I/O — with a hostile-byte corpus and
+  asserts no raw terminal control (ESC/CSI/OSC/C1/bidi) reaches the output, including a
+  hostile `CheckResult.Status` in a stored baseline history.
+
+### Fixed
+
+- **Story narration printed a stored check status without control-character
+  sanitisation.** `storyEvents` now passes `CheckResult.Status` through
+  `output.SanitizeControl` like every other host-derived string in that renderer. The
+  value is normally a closed enum, so only a tampered baseline history could carry
+  control bytes.
+
 ## [2.7.2] - 2026-11-21
 
 ### Added
