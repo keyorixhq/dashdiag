@@ -25,6 +25,17 @@ Format follows [Keep a Changelog](https://keepachangelog.com/en/1.1.0/).
   — the paths DL1's funnel fuzz excluded for disk I/O — with a hostile-byte corpus and
   asserts no raw terminal control (ESC/CSI/OSC/C1/bidi) reaches the output, including a
   hostile `CheckResult.Status` in a stored baseline history.
+- **Cross-distribution package-update verdict differential (DD-CROSSDISTRO-1).**
+  A new `//go:build linux` fuzz target `FuzzPackagesCrossDistroVerdictDifferential`
+  (`internal/analysis/`) renders one abstract fact set (N pending non-critical
+  security updates) into four real package-manager dialects — dnf, apt, zypper and
+  **tdnf** — drives each through the real `PackagesCollector.Collect` (distro chosen
+  via the replay `<tool> --version` detection seam) and the real `ApplyThresholds`,
+  and asserts the four agree on the security-update count, verdict class and insight
+  count. First target to include tdnf in the cross-distro comparison and to compare
+  at the analysis/verdict layer (not just collector fields). Test-only; critical
+  severity and DB-health/stale-metadata insights are excluded by construction and
+  documented. Invariant: `INVARIANTS.d/dd-crossdistro-1-verdict.md`.
 
 ### Fixed
 
